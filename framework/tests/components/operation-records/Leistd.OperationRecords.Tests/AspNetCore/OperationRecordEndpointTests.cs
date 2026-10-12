@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Leistd.Data.Paging;
+using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Queries;
 using Leistd.OperationRecords.AspNetCore.Endpoints;
 using Leistd.OperationRecords.Dtos;
@@ -122,12 +123,12 @@ public sealed class OperationRecordEndpointTests : IAsyncLifetime
     public async Task Query_parameters_bind_like_the_controller_did()
     {
         var response = await GetAsync(
-            "/api/v1/operation-records?limit=5&keyword=ada&categories=account&categories=tenant&actions=user.created&outcome=Failed",
+            "/api/v1/operation-records?limit=5&keyword=ada&categories=account&categories=tenant&actions=user.created&outcome=failed",
             "read");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var input = _service.LastPaged!;
-        Assert.Equal((0, 5, "ada", "Failed"), (input.Offset, input.Limit, input.Keyword, input.Outcome));
+        Assert.Equal((0, 5, "ada", (OperationRecordOutcome?)OperationRecordOutcome.Failed), (input.Offset, input.Limit, input.Keyword, input.Outcome));
         Assert.Equal(["account", "tenant"], input.Categories);
         Assert.Equal(["user.created"], input.Actions);
     }

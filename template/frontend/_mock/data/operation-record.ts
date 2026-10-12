@@ -7,7 +7,7 @@ export interface MockOperationRecord {
   action: string;
   targetId: string;
   authorizationBasis: string;
-  outcome: 'Succeeded' | 'Failed';
+  outcome: 'succeeded' | 'failed';
   creationTime: string;
   actorId?: string;
   actorName?: string;
@@ -19,25 +19,25 @@ export interface MockOperationRecord {
 export interface MockOperationActionDefinition {
   code: string;
   category: string;
-  severity: 'Info' | 'Notice' | 'Critical';
+  severity: 'info' | 'notice' | 'critical';
 }
 
 /** 样本用到的动作定义，取自后端登记表的同名条目；筛选项与按类别筛选都靠它，记录本身不带类别。 */
 export const OPERATION_ACTION_DEFINITIONS: MockOperationActionDefinition[] = [
-  { code: 'user.created', category: 'account', severity: 'Info' },
-  { code: 'user.updated', category: 'account', severity: 'Info' },
-  { code: 'user.deleted', category: 'account', severity: 'Notice' },
-  { code: 'user.disabled', category: 'account', severity: 'Notice' },
+  { code: 'user.created', category: 'account', severity: 'info' },
+  { code: 'user.updated', category: 'account', severity: 'info' },
+  { code: 'user.deleted', category: 'account', severity: 'notice' },
+  { code: 'user.disabled', category: 'account', severity: 'notice' },
   //#if (LocalIdentity)
-  { code: 'user.password-reset', category: 'account', severity: 'Notice' },
+  { code: 'user.password-reset', category: 'account', severity: 'notice' },
   //#endif
-  { code: 'role.created', category: 'account', severity: 'Info' },
-  { code: 'role.deleted', category: 'account', severity: 'Notice' },
-  { code: 'user.roles-replaced', category: 'authorization', severity: 'Critical' },
-  { code: 'permission-grants.replaced', category: 'authorization', severity: 'Critical' },
-  { code: 'tenant.connection-registered', category: 'tenant', severity: 'Critical' },
-  { code: 'setting.changed', category: 'configuration', severity: 'Info' },
-  { code: 'operation-records.exported', category: 'data', severity: 'Notice' },
+  { code: 'role.created', category: 'account', severity: 'info' },
+  { code: 'role.deleted', category: 'account', severity: 'notice' },
+  { code: 'user.roles-replaced', category: 'authorization', severity: 'critical' },
+  { code: 'permission-grants.replaced', category: 'authorization', severity: 'critical' },
+  { code: 'tenant.connection-registered', category: 'tenant', severity: 'critical' },
+  { code: 'setting.changed', category: 'configuration', severity: 'info' },
+  { code: 'operation-records.exported', category: 'data', severity: 'notice' },
 ];
 
 // 固定基准时刻：样本数据不随运行时间漂移，截图与断言才稳定。
@@ -53,7 +53,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'user.created',
     targetId: 'b6f0c4e2-1d3a-4c7b-9e11-2f5a8d0c7a01',
     authorizationBasis: 'App.Users.Create',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(3),
     actorId: '0f6d2b91-7c44-4a2e-8f10-3b5c9d1e2a77',
     actorName: 'Alice Chen',
@@ -64,7 +64,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'user.deleted',
     targetId: 'c1a7d3f8-5b2e-4d90-a6c3-7e8f1b4d2c55',
     authorizationBasis: 'App.Users.Delete',
-    outcome: 'Failed',
+    outcome: 'failed',
     creationTime: minutesBefore(11),
     actorId: '0f6d2b91-7c44-4a2e-8f10-3b5c9d1e2a77',
     actorName: 'Alice Chen',
@@ -75,7 +75,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'role.created',
     targetId: 'a2b4c6d8-0e1f-4a3b-8c5d-6e7f809a1b2c',
     authorizationBasis: 'App.Roles.Create',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(27),
     actorId: '5e3a8c17-9b2d-4f61-a0e8-7c4b6d9f1a33',
     actorName: 'Bob Wang',
@@ -88,7 +88,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'role.deleted',
     targetId: 'f3e2d1c0-b9a8-4756-8493-2a1b0c9d8e7f',
     authorizationBasis: 'App.Roles.Delete',
-    outcome: 'Failed',
+    outcome: 'failed',
     creationTime: minutesBefore(45),
     actorId: '5e3a8c17-9b2d-4f61-a0e8-7c4b6d9f1a33',
     actorName: 'Bob Wang',
@@ -99,7 +99,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'user.updated',
     targetId: 'b6f0c4e2-1d3a-4c7b-9e11-2f5a8d0c7a01',
     authorizationBasis: 'App.Users.Update',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(62),
     // 机器主体：没有 GUID，只有 client:<client_id>。
     actorId: 'client:reporting-svc',
@@ -111,7 +111,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'user.disabled',
     targetId: 'c1a7d3f8-5b2e-4d90-a6c3-7e8f1b4d2c55',
     authorizationBasis: 'App.Users.Update',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(88),
     // 后台作业主体：前缀由宿主自定。
     actorId: 'job:nightly-cleanup',
@@ -126,7 +126,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'tenant.connection-registered',
     targetId: 'd4c3b2a1-9f8e-4d7c-b6a5-4938271605f4',
     authorizationBasis: 'App.Tenants.Update',
-    outcome: 'Failed',
+    outcome: 'failed',
     creationTime: minutesBefore(140),
     actorId: '0f6d2b91-7c44-4a2e-8f10-3b5c9d1e2a77',
     actorName: 'Alice Chen',
@@ -138,7 +138,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'setting.changed',
     targetId: 'App.Display.TimeZone',
     authorizationBasis: 'App.Settings',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(205),
     actorId: '5e3a8c17-9b2d-4f61-a0e8-7c4b6d9f1a33',
     actorName: 'Bob Wang',
@@ -149,7 +149,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'user.created',
     targetId: 'e5d4c3b2-a190-4f8e-9d7c-6b5a49382716',
     authorizationBasis: 'App.Users.Create',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(310),
     actorId: '0f6d2b91-7c44-4a2e-8f10-3b5c9d1e2a77',
     actorName: 'Alice Chen',
@@ -161,7 +161,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     // 与后端同形：权限授予的目标标识带提供者前缀，按目标检索时与授权阶段被拒的记录逐字一致。
     targetId: 'Role/a2b4c6d8-0e1f-4a3b-8c5d-6e7f809a1b2c',
     authorizationBasis: 'App.Roles.ManagePermissions',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(420),
     actorId: '5e3a8c17-9b2d-4f61-a0e8-7c4b6d9f1a33',
     actorName: 'Bob Wang',
@@ -173,7 +173,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'user.roles-replaced',
     targetId: 'b6f0c4e2-1d3a-4c7b-9e11-2f5a8d0c7a01',
     authorizationBasis: 'App.Users.ManageRoles',
-    outcome: 'Failed',
+    outcome: 'failed',
     creationTime: minutesBefore(560),
     // 未认证之外的另一种"记不全"：宿主没给 name claim，只留得下标识。
     actorId: 'client:legacy-importer',
@@ -186,7 +186,7 @@ export const OPERATION_RECORDS: MockOperationRecord[] = [
     action: 'user.password-reset',
     targetId: 'e5d4c3b2-a190-4f8e-9d7c-6b5a49382716',
     authorizationBasis: 'App.Users.Update',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: minutesBefore(700),
     actorId: '0f6d2b91-7c44-4a2e-8f10-3b5c9d1e2a77',
     actorName: 'Alice Chen',

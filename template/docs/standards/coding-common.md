@@ -58,7 +58,8 @@
 ### 3.8 枚举只在边界转换
 
 - 领域内部状态用**强类型枚举**，不散裸字符串；**枚举 ↔ 对外契约串的转换只发生在边界**（序列化/handler 层），不下沉进领域、不上浮进无关层。
-- **对外契约的分类/枚举字段（`channel/mode/scope/type/status` 之类）出入参与 JSON 命名策略一致**（camelCase：`orders`、`twoFactorRequired`）；内部枚举 PascalCase，只在边界一处转换。
+- **对外公开的分类值（`channel/mode/scope/type/status/outcome/severity` 之类）出入参与 JSON 命名策略一致**（camelCase：`orders`、`twoFactorRequired`、`succeeded`）；内部枚举 PascalCase，只在边界一处转换。DTO 字段直接用枚举类型交给宿主的 JSON 转换器，不手写 `ToString()`；查询串不经 JSON 转换器，按 camelCase 名称逐字校验后转换，数字与未定义值是该字段的验证错误；CSV 等非 JSON 输出在其边界写同一种名称。持久化的写法与对外契约无关，不随之迁移。
+- 例外仅限**开放标识符**：由使用方定义、会落库或拼进键名的身份串，按定义原样传输，不随命名策略改写。当前只有通知类型与渠道名（如 `Security`、`InApp`、`Email`，参与偏好设置键 `Notifications.{类型}.{渠道}`）。例外不外扩：结果、状态这类封闭枚举不能套用。
 
 ### 3.9 接口/实现签名同步；导入用短名
 

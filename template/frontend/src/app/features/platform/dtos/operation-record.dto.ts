@@ -1,5 +1,11 @@
 import { PagedRequestDto } from '../../../shared/dtos/paged-request.dto';
 
+/** 操作结果，与后端 `OperationRecordOutcome` 同名的 camelCase 写法。 */
+export type OperationRecordOutcome = 'succeeded' | 'failed';
+
+/** 动作严重度，与后端 `OperationSeverity` 同名的 camelCase 写法。 */
+export type OperationSeverity = 'info' | 'notice' | 'critical';
+
 /** 一条操作记录：什么人、在什么时间、做了什么、结果如何。 */
 export interface OperationRecordOutputDto {
   id: string;
@@ -15,8 +21,7 @@ export interface OperationRecordOutputDto {
   targetName?: string;
   /** 授权依据：权限名，或业务自己的标记。 */
   authorizationBasis: string;
-  /** `Succeeded` 或 `Failed`。 */
-  outcome: string;
+  outcome: OperationRecordOutcome;
   creationTime: string;
   /** 操作人标识；机器主体为 `client:<client_id>`，后台作业由宿主自定前缀。 */
   actorId?: string;
@@ -66,7 +71,7 @@ export interface GetOperationRecordsInputDto extends Omit<PagedRequestDto, 'sort
   /** 按动作码筛选；与 {@link categories} 同时给出时取交集（维度之间是 AND）。 */
   actions?: string[];
 
-  /** 按结果筛选：`Succeeded` 或 `Failed`；非法值会被后端以 400 拒绝。 */
+  /** 按结果筛选：`succeeded` 或 `failed`（取自 URL，类型不收窄）；其他写法会被后端以字段 `outcome` 的 400 拒绝。 */
   outcome?: string;
 }
 
@@ -99,6 +104,5 @@ export interface OperationActionOptionDto {
   code: string;
   /** 所属类别，用于按类别联动。 */
   category: string;
-  /** 严重度：`Info` / `Notice` / `Critical`。 */
-  severity: string;
+  severity: OperationSeverity;
 }

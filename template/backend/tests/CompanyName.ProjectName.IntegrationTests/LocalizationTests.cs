@@ -288,7 +288,7 @@ public sealed class LocalizationTests(ProjectWebApplicationFactory factory) : IC
         HttpClient client, string action, string culture, Predicate<JsonElement> match)
     {
         using var request = new HttpRequestMessage(
-            HttpMethod.Get, $"/api/v1/operation-records?offset=0&limit=100&actions={action}&outcome=Failed");
+            HttpMethod.Get, $"/api/v1/operation-records?offset=0&limit=100&actions={action}&outcome=failed");
         request.Headers.AcceptLanguage.ParseAdd(culture);
         using var response = await client.SendAsync(request);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

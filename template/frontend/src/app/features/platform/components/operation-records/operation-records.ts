@@ -77,6 +77,7 @@ import {
   ExportOperationRecordsInputDto,
   GetOperationRecordsInputDto,
   OperationRecordFilterOptionsDto,
+  OperationRecordOutcome,
   OperationRecordOutputDto,
 } from '../../dtos/operation-record.dto';
 import { OperationRecordService } from '../../services/operation-record-service';
@@ -229,8 +230,8 @@ export class OperationRecords {
     return textAt(this.actionTexts(), code)?.trim() ?? code;
   }
 
-  private outcomeText(outcome: string): string {
-    return textAt(this.outcomeTexts(), outcome === 'Succeeded' ? 'succeeded' : 'failed') ?? '';
+  private outcomeText(outcome: OperationRecordOutcome): string {
+    return textAt(this.outcomeTexts(), outcome) ?? '';
   }
   //#else
   private categoryText(category: string): string {
@@ -241,13 +242,13 @@ export class OperationRecords {
     return code;
   }
 
-  private outcomeText(outcome: string): string {
-    return outcome === 'Succeeded' ? 'Succeeded' : 'Rejected';
+  private outcomeText(outcome: OperationRecordOutcome): string {
+    return outcome === 'succeeded' ? 'Succeeded' : 'Rejected';
   }
   //#endif
 
-  /** 结果的候选值，与后端枚举一致。 */
-  private readonly outcomeValues = ['Succeeded', 'Failed'] as const;
+  /** 结果的候选值，即后端查询串接受的 camelCase 名称。 */
+  private readonly outcomeValues: readonly OperationRecordOutcome[] = ['succeeded', 'failed'];
 
   /** 筛选器候选项交给 `app-faceted-filter`：动作与类别会随业务增长，需要它自带的搜索。 */
   readonly categoryFilterOptions = computed<FacetedFilterOption[]>(() => {
@@ -268,7 +269,7 @@ export class OperationRecords {
     return this.outcomeValues.map((outcome) => ({
       value: outcome,
       label: this.outcomeText(outcome),
-      icon: outcome === 'Succeeded' ? 'lucideCircleCheck' : 'lucideBan',
+      icon: outcome === 'succeeded' ? 'lucideCircleCheck' : 'lucideBan',
     }));
   });
 

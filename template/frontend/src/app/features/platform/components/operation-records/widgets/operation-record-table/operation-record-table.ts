@@ -253,7 +253,7 @@ export class OperationRecordTable {
   readonly totalPages = computed(() => Math.max(1, this.table.getPageCount()));
 
   isSucceeded(record: OperationRecordOutputDto): boolean {
-    return record.outcome === 'Succeeded';
+    return record.outcome === 'succeeded';
   }
 
   /**

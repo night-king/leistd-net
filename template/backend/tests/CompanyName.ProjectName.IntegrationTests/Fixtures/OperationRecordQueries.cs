@@ -16,7 +16,7 @@ internal static class OperationRecordQueries
     {
 #if (IncludeOperationRecords)
         using var body = JsonDocument.Parse(await client.GetStringAsync(
-            $"/api/v1/operation-records?offset=0&limit=50&actions={action}&outcome=Failed"));
+            $"/api/v1/operation-records?offset=0&limit=50&actions={action}&outcome=failed"));
         return body.RootElement.GetProperty("items").EnumerateArray()
             .Where(item => item.GetProperty("targetId").GetString() == targetId)
             .Select(item => (
@@ -40,7 +40,7 @@ internal static class OperationRecordQueries
     {
 #if (IncludeOperationRecords)
         using var body = JsonDocument.Parse(await client.GetStringAsync(
-            $"/api/v1/operation-records?offset=0&limit=50&actions={action}&outcome=Succeeded"));
+            $"/api/v1/operation-records?offset=0&limit=50&actions={action}&outcome=succeeded"));
         return body.RootElement.GetProperty("items").EnumerateArray()
             .Count(item => item.GetProperty("targetId").GetString() == targetId);
 #else

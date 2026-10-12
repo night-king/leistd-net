@@ -12,7 +12,7 @@
 本项目响应风格：**成功直接返回业务对象（裸对象，不包裹），失败统一返回 RFC 9457 `ProblemDetails`**。
 该风格由 Leistd 框架的全局异常处理（`Leistd.ExceptionHandling.AspNetCore`）落地，无需也不应在 Controller 里手动包裹 `Ok(...)` 或自定义 `{success,data}` 信封。
 
-> JSON 序列化：属性 camelCase、忽略 null 值、枚举序列化为字符串。
+> JSON 序列化：属性 camelCase、忽略 null 值、枚举序列化为 camelCase 字符串且不收数字；查询串里的分类取值同样写 camelCase（见[通用约定 §3.8](./coding-common.md#38-枚举只在边界转换)）。
 
 ### 2.1 成功响应
 

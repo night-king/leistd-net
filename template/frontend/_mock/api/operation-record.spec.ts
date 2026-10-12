@@ -80,7 +80,7 @@ describe('operation record mock', () => {
     expect(options.actions).toHaveLength(OPERATION_ACTION_DEFINITIONS.length);
     for (const action of options.actions) {
       expect(options.categories).toContain(action.category);
-      expect(['Info', 'Notice', 'Critical']).toContain(action.severity);
+      expect(['info', 'notice', 'critical']).toContain(action.severity);
     }
   });
 
@@ -109,14 +109,16 @@ describe('operation record mock', () => {
   });
 
   it('filters by outcome', () => {
-    const page = getOperationRecords({ outcome: 'Failed', limit: '50' });
+    const page = getOperationRecords({ outcome: 'failed', limit: '50' });
 
     expect(page.totalCount).toBeGreaterThan(0);
-    expect(page.items.every((record) => record.outcome === 'Failed')).toBe(true);
+    expect(page.items.every((record) => record.outcome === 'failed')).toBe(true);
   });
 
   it('rejects an unknown outcome and a reversed time range with field errors', () => {
     expectValidationError(() => getOperationRecords({ outcome: 'Unknown' }), 'outcome');
+    expectValidationError(() => getOperationRecords({ outcome: 'Failed' }), 'outcome');
+    expectValidationError(() => getOperationRecords({ outcome: '1' }), 'outcome');
     expectValidationError(
       () =>
         getOperationRecords({
@@ -128,13 +130,13 @@ describe('operation record mock', () => {
   });
 
   it('exports the filtered records as csv with host columns', async () => {
-    const expected = getOperationRecords({ outcome: 'Failed', limit: '50' }).totalCount;
+    const expected = getOperationRecords({ outcome: 'failed', limit: '50' }).totalCount;
 
-    const lines = await readCsv({ outcome: 'Failed' });
+    const lines = await readCsv({ outcome: 'failed' });
 
     expect(lines[0].split(',')).toEqual(expect.arrayContaining(['Action', 'CorrelationId']));
     expect(lines).toHaveLength(expected + 1);
-    expect(lines.slice(1).every((line) => line.split(',')[2] === 'Failed')).toBe(true);
+    expect(lines.slice(1).every((line) => line.split(',')[2] === 'failed')).toBe(true);
   });
 
   it('caps the export at the requested limit', async () => {
@@ -157,7 +159,7 @@ describe('operation record mock', () => {
     expect(lines).toHaveLength(before + 1);
     expect(OPERATION_RECORDS).toHaveLength(before + 1);
     expect(OPERATION_RECORDS.at(-1)).toEqual(
-      expect.objectContaining({ action: 'operation-records.exported', outcome: 'Succeeded' }),
+      expect.objectContaining({ action: 'operation-records.exported', outcome: 'succeeded' }),
     );
     expect(getOperationRecords({}).items[0].action).toBe('operation-records.exported');
   });

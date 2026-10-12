@@ -64,7 +64,7 @@ internal sealed class OperationRecordQueryService(
                 {
                     Code = definition.Code,
                     Category = definition.Category,
-                    Severity = definition.Severity.ToString()
+                    Severity = definition.Severity
                 })
             ]
         });
@@ -121,15 +121,14 @@ internal sealed class OperationRecordQueryService(
         DateTime? startTime,
         DateTime? endTime,
         IReadOnlyCollection<string>? actions,
-        string? outcome) => new()
+        OperationRecordOutcome? outcome) => new()
         {
             Scope = reader.Scope,
             Keyword = keyword,
             StartTime = startTime,
             EndTime = endTime,
             Actions = actions,
-            // 取值已由入参上的 [AllowedValues] 限定为成员名称；不用 Enum.TryParse 兜底，它会把数字当合法值
-            Outcome = outcome is null ? null : Enum.Parse<OperationRecordOutcome>(outcome)
+            Outcome = outcome
         };
 
     // 维度内并集、维度间交集。null 表示没按动作筛，空集合表示筛了但一个都不匹配。
@@ -182,7 +181,7 @@ internal sealed class OperationRecordQueryService(
         TargetId = record.TargetId,
         TargetName = record.TargetName,
         AuthorizationBasis = record.AuthorizationBasis,
-        Outcome = record.Outcome.ToString(),
+        Outcome = record.Outcome,
         CreationTime = record.CreationTime,
         ActorId = record.ActorId,
         ActorName = record.ActorName,
@@ -277,7 +276,7 @@ internal sealed class OperationRecordQueryService(
             List<string?> cells =
             [
                 row.CreationTime.ToString("o", CultureInfo.InvariantCulture),
-                row.Action, row.Outcome, row.ActorId, row.ActorName,
+                row.Action, OutcomeName(row.Outcome), row.ActorId, row.ActorName,
                 row.ImpersonatorName, row.TargetId, row.TargetName, row.AuthorizationBasis,
                 row.FailureCode, row.FailureData, row.FailureMessage
             ];
@@ -293,6 +292,9 @@ internal sealed class OperationRecordQueryService(
 
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(builder.ToString())];
     }
+
+    // 与 HTTP 契约同一种写法（camelCase 名称）；固定写法而不取宿主的 JSON 配置，Core 不依赖 Web 宿主
+    private static string OutcomeName(OperationRecordOutcome outcome) => JsonNamingPolicy.CamelCase.ConvertName(outcome.ToString());
 
     // CSV 转义与公式注入防护：以 = + - @ \t \r 开头的字段前缀单引号，按文本处理。
     private static string EscapeCsv(string value)

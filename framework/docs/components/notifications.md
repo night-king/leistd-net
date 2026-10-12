@@ -217,6 +217,8 @@ public class MessageCenter(INotificationStore notificationStore)
 
 - 本组件只面向人：每条通知都有归属用户、写入历史、计入未读数。推给订阅了某资源的连接（无历史）用[实时通信](./realtime.md)的 `IBusinessEventPublisher`。
 - 本家族无独立 Options；心跳、超时用 `AddSignalR(o => ...)` 配，`UserIdentifier` 的 claim 解析顺序见 [SignalR 基座](./aspnetcore-signalr.md)。
+- 通知 `Type` 与渠道名（`INotificationChannel.Name`，如 `"InApp"`、`"Email"`）是开放标识符，按定义原样传输与存储，不随 JSON 命名策略改写：
+  它们落在 `NotificationRecord.Type` 并拼进偏好设置名（`{SettingNamePrefix}.{Type}.{Channel}`），改写法等于换身份，须迁移历史与偏好。
 - 全员公告要进历史时由业务决定受众，逐个调用 `PublishToUserAsync`；框架不提供发给一个组的入口。
 - `PublishToUserAsync` 为每次发布生成 `Id`（`Guid.CreateVersion7().ToString("N")`）与 `CreationTime`（`IClock.Now`），并把同一个对象先交给 Store、再交给所有渠道，
   库里与推送里的 ID 一致。`NotificationRecord.FromDto` 遇到不是 Guid 的 `Id` 抛 `ArgumentException`。

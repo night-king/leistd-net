@@ -29,7 +29,7 @@ describe('OperationRecordService', () => {
         endTime: '2026-01-31T23:59:59.999Z',
         categories: ['Users', 'Roles'],
         actions: ['Users.Create', 'Roles.Update'],
-        outcome: 'Failed',
+        outcome: 'failed',
       })
       .subscribe();
 
@@ -37,7 +37,7 @@ describe('OperationRecordService', () => {
     expect(request.request.params.toString()).toBe(
       'offset=20&limit=10&keyword=alice&startTime=2026-01-01T00:00:00.000Z' +
         '&endTime=2026-01-31T23:59:59.999Z&categories=Users&categories=Roles' +
-        '&actions=Users.Create&actions=Roles.Update&outcome=Failed',
+        '&actions=Users.Create&actions=Roles.Update&outcome=failed',
     );
     request.flush({ items: [], totalCount: 0 });
   });
@@ -53,13 +53,13 @@ describe('OperationRecordService', () => {
   // 默认按 JSON 解析会在 CSV 上失败，表现为"点了没反应"
   it('exports the filtered records as a blob with the same filters and the limit', () => {
     service
-      .exportOperationRecords({ categories: ['Users', 'Roles'], outcome: 'Succeeded', limit: 500 })
+      .exportOperationRecords({ categories: ['Users', 'Roles'], outcome: 'succeeded', limit: 500 })
       .subscribe();
 
     const request = http.expectOne((req) => req.url === '/api/v1/operation-records/export');
     expect(request.request.responseType).toBe('blob');
     expect(request.request.params.toString()).toBe(
-      'categories=Users&categories=Roles&outcome=Succeeded&limit=500',
+      'categories=Users&categories=Roles&outcome=succeeded&limit=500',
     );
     request.flush(new Blob(['id\n']));
   });
