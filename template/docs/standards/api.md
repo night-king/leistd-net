@@ -225,6 +225,15 @@ if (user is null)
 | 局部更新 | PATCH | `/api/v1/{resource}/{id}` | `PatchAsync` |
 | 删除 | DELETE | `/api/v1/{resource}/{id}` | `DeleteAsync` |
 
+### 6.1 批量操作
+
+对一组资源执行同一动作用 `POST /api/v1/{resource}/batch/{action}`（如 `/users/batch/disable`），请求体为 `ids` 与动作需要的参数（如 `roleIds`），后端方法名为 `Batch{Action}Async`。
+
+- 一次 1～100 个 Id，重复的只处理一次；为空、缺键或超过上限是字段 400，一条都不执行。动作参数本身不成立（如角色不存在）时整个请求按单个操作的错误码拒绝。
+- 权限与单个操作相同；逐条复用单个操作的领域规则与动作码，每条在独立事务里提交并各自留下操作记录，部分失败不回滚已成功的条目。
+- 返回 200 与逐条结果 `items: [{ id, succeeded, errorCode, message }]`：`errorCode`、`message` 与单个操作被拒时的 `code`、`detail` 相同，成功时省略。只接住业务拒绝；技术故障按 §4 整体失败，此前已提交的条目保持提交。
+- 不提供批量删除：删除逐个确认。
+
 ## 7. API 文档
 
 仅在 API 需要供其他团队、客户端或外部使用者长期查阅时建立文档。先参考项目中最新的同类 API 文档，根据真实契约说明必要的路由、权限、请求、响应和错误语义；不复制固定章节模板。
