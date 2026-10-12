@@ -95,7 +95,7 @@ $scenarioMap = [ordered]@{
         Arguments = @("--include-notifications"); Frontend = $true; Lint = $true
         Present = @(
             "backend/src/{name}.Api/Notifications/NotificationSecurityAlertPublisher.cs",
-            "frontend/src/app/layout/services/notification-service.ts"
+            "frontend/src/app/core/services/notification-service.ts"
         )
         Absent = @("backend/src/{name}.Api/Controllers/ExternalAuthController.cs")
         ReadmeContains = @()
@@ -109,7 +109,7 @@ $scenarioMap = [ordered]@{
         Arguments = @("--service-role","Resource","--include-notifications"); Frontend = $true; Lint = $true
         Present = @(
             "backend/src/{name}.Application/Notifications/Constants/AppNotificationTypes.cs",
-            "frontend/src/app/layout/services/notification-service.ts"
+            "frontend/src/app/core/services/notification-service.ts"
         )
         Absent = @("backend/src/{name}.Api/Controllers/AuthController.cs", "frontend/src/app/features/account")
         ReadmeContains = @()
@@ -160,7 +160,7 @@ $scenarioMap = [ordered]@{
             "backend/src/{name}.Api/Resources/en.json",
             "frontend/public/i18n/en.json",
             "frontend/src/app/features/account/components/external-auth-callback",
-            "frontend/src/app/layout/services/notification-service.ts"
+            "frontend/src/app/core/services/notification-service.ts"
         )
         Absent = @()
         ReadmeContains = @()
@@ -269,7 +269,7 @@ $scenarioMap = [ordered]@{
         Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Resource", "--include-multi-tenancy", "false", "--include-notifications", "true", "--include-operation-records", "false", "--include-localization", "true")
         Frontend = $true; Lint = $true
-        Present = @("backend/tests/{name}.IntegrationTests/ResourceHostPrincipalTests.cs", "backend/tests/{name}.IntegrationTests/ResourceBrowserSessionTests.cs", "frontend/src/app/layout/services/notification-service.ts")
+        Present = @("backend/tests/{name}.IntegrationTests/ResourceHostPrincipalTests.cs", "backend/tests/{name}.IntegrationTests/ResourceBrowserSessionTests.cs", "frontend/src/app/core/services/notification-service.ts")
         Absent = @("backend/src/{name}.Application/RealTime", "backend/src/{name}.Infrastructure/Persistence/IdentityControlDbContext.cs")
         ReadmeContains = @(); ReadmeExcludes = @()
     }

@@ -389,7 +389,7 @@ function Assert-ScenarioShape([string]$ProjectRoot, [string]$ProjectName, [hasht
         }
     }
 
-    $notificationServicePath = Join-Path $ProjectRoot "frontend/src/app/layout/services/notification-service.ts"
+    $notificationServicePath = Join-Path $ProjectRoot "frontend/src/app/core/services/notification-service.ts"
     if (Test-Path -LiteralPath $notificationServicePath) {
         $notificationService = Get-Content -LiteralPath $notificationServicePath -Raw -Encoding UTF8
         foreach ($marker in @("await this.signalR.connect()")) {
