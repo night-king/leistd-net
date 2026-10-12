@@ -951,7 +951,7 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
             AdminPassword = "Tenant@123456"
         });
         Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
-        Assert.True(FailingPurgeTenantSeeder.PurgeAttempted, "补偿没有尝试清种子，本用例没覆盖目标路径");
+        Assert.True(FailingPurgeTenantSeeder.PurgeAttempted, "Compensation never attempted to purge the seed data; the target path was not exercised");
 
         // 清种子抛错且留下脏跟踪器，注册表删除仍然成功：租户不可达
         // 补偿后注册表里不该留下这个租户（按名字查的匿名端点已移除，直接查控制库更直接）

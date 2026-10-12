@@ -51,7 +51,7 @@ public sealed class PermissionCatalogContractTests(ProjectWebApplicationFactory 
 
         static void AssertReadable(string name, string? displayName)
         {
-            Assert.False(string.IsNullOrWhiteSpace(displayName), $"{name} 没有默认显示名");
+            Assert.False(string.IsNullOrWhiteSpace(displayName), $"{name} has no default display name");
             Assert.DoesNotContain(':', displayName!);
         }
     }
@@ -91,7 +91,7 @@ public sealed class PermissionCatalogContractTests(ProjectWebApplicationFactory 
             string Text(string key)
             {
                 var localized = localizer[key];
-                Assert.False(localized.ResourceNotFound, $"{culture} 缺少词条 {key}");
+                Assert.False(localized.ResourceNotFound, $"{culture} is missing localization entry {key}");
                 return localized.Value;
             }
 

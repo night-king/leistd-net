@@ -150,7 +150,7 @@ public sealed class ResourceUserProjectionTests(ProjectWebApplicationFactory fac
 
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
         foreach (var response in responses) response.Dispose();
-        Assert.True(race.Released, "两个请求没有同时走到提交，竞争没有发生，用例证明不了任何事");
+        Assert.True(race.Released, "The two requests did not reach commit together; no race occurred, so the test proves nothing");
         // 输的一方第一次提交撞键时 EF 与工作单元会各记一条错误，那是竞争本身；要看的是投影最终有没有失败
         Assert.DoesNotContain(
             host.Services.GetFakeLogCollector().GetSnapshot(),

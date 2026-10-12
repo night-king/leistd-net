@@ -102,7 +102,7 @@ public sealed class OperationRecordArchiveTests(ProjectWebApplicationFactory fac
         // 不用 Assert.Equal 的容差重载：那是 xunit v3 才有的，本仓用的是 2.9.3。
         Assert.True(
             (archivedHostRow.CreationTime - expired).Duration() < TimeSpan.FromSeconds(1),
-            $"归档后的发生时间应保持不变，期望 {expired:o}，实际 {archivedHostRow.CreationTime:o}");
+            $"Archiving must keep the occurrence time: expected {expired:o}, actual {archivedHostRow.CreationTime:o}");
         Assert.NotEqual(default, archivedHostRow.ArchivedTime);
     }
 

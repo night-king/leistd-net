@@ -380,7 +380,7 @@ public class TenantStoreManagerTests : IAsyncLifetime
 
         // 预检时库中无同名租户 → 通过；拦截器在 flush 前写入同名行 → 唯一索引拒绝本次插入
         await Assert.ThrowsAsync<DuplicateTenantNameException>(() => racedManager.CreateAsync("Contoso", null, isActive: true));
-        Assert.True(competitor.Injected, "竞争写入未发生，本测试没有覆盖数据库冲突路径");
+        Assert.True(competitor.Injected, "The competing write was not injected; the database conflict path was not exercised");
     }
 
     [Fact]
@@ -430,7 +430,7 @@ public class TenantStoreManagerTests : IAsyncLifetime
         racedDb.Add(note);
 
         await Assert.ThrowsAsync<DuplicateTenantNameException>(() => racedManager.CreateAsync("Contoso", null, isActive: true));
-        Assert.True(competitor.Injected, "竞争写入未发生，本测试没有覆盖数据库冲突路径");
+        Assert.True(competitor.Injected, "The competing write was not injected; the database conflict path was not exercised");
 
         // 无关实体仍在跟踪器里等待提交，且能正常落库
         Assert.Equal(EntityState.Added, racedDb.Entry(note).State);

@@ -298,7 +298,7 @@ public sealed class ImpersonationTests(ProjectWebApplicationFactory factory)
 
         Assert.True(
             response.StatusCode is HttpStatusCode.Forbidden,
-            $"租户上下文发起模拟登录应被拒，实际 {(int)response.StatusCode}");
+            $"Impersonation from a tenant context must be rejected, actual {(int)response.StatusCode}");
     }
 }
 #endif

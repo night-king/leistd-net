@@ -403,7 +403,7 @@ framework/tests/
 └── ddd-struct/                  与 framework/ddd-struct/ 并列，保住依赖方向的一级划分
 ```
 
-- 测试项目名为 `Leistd.<真实包前缀>.Tests`；跨家族端到端用例放主家族项目的 `EndToEnd/`；没有独立测试项目的家族在 `check-test-layout.py` 的 `WAIVERS` 写明理由。测试方法名与 `DisplayName` 用下划线分隔的英文句子（`Endpoint_error_throws_ServiceClientException`），背景写进 XML 注释（`check-test-names.py`）。csproj 只写 `FrameworkReference`、特有 `PackageReference` 与 `ProjectReference`，共享属性由 `framework/tests/Directory.Build.props` 注入（`check-csproj-conventions.py`）。
+- 测试项目名为 `Leistd.<真实包前缀>.Tests`；跨家族端到端用例放主家族项目的 `EndToEnd/`；没有独立测试项目的家族在 `check-test-layout.py` 的 `WAIVERS` 写明理由。测试方法名与 `DisplayName` 用下划线分隔的英文句子（`Endpoint_error_throws_ServiceClientException`），背景写进 XML 注释（`check-test-names.py`）；方法名首字母大写。断言说明、失败消息等开发者诊断消息用英文；业务词条、预期的本地化内容、中文注释与测试数据不受此限。csproj 只写 `FrameworkReference`、特有 `PackageReference` 与 `ProjectReference`，共享属性由 `framework/tests/Directory.Build.props` 注入（`check-csproj-conventions.py`）。
 
 ### 7.2 项目内部组织
 

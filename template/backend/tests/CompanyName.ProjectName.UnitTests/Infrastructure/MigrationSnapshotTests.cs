@@ -22,7 +22,7 @@ public sealed class MigrationSnapshotTests
 
         Assert.False(
             context.Database.HasPendingModelChanges(),
-            "MyProjectDbContext 的模型与迁移快照不一致：请生成迁移（见 backend/README.md 的数据库迁移一节）。");
+            "The MyProjectDbContext model differs from the migration snapshot; add a migration (see the database migration section of backend/README.md).");
     }
 #if (LocalIdentity && IncludeMultiTenancy)
 
@@ -33,7 +33,7 @@ public sealed class MigrationSnapshotTests
 
         Assert.False(
             context.Database.HasPendingModelChanges(),
-            "IdentityControlDbContext 的模型与迁移快照不一致：请生成迁移（见 backend/README.md 的数据库迁移一节）。");
+            "The IdentityControlDbContext model differs from the migration snapshot; add a migration (see the database migration section of backend/README.md).");
     }
 #endif
 }

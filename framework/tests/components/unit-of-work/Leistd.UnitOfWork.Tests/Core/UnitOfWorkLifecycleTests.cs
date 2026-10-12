@@ -202,7 +202,7 @@ public sealed class UnitOfWorkLifecycleTests
         Assert.Contains("commit", entries);
         Assert.True(
             entries.IndexOf("save:late") < entries.IndexOf("commit"),
-            $"保存必须发生在提交之前，实际次序：{string.Join(" -> ", entries)}");
+            $"Saving must happen before committing, actual order: {string.Join(" -> ", entries)}");
     }
 
     /// <summary>回滚与释放各自最多发生一次</summary>
