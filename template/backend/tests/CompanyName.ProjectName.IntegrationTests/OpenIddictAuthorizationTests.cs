@@ -9,7 +9,6 @@ using System.Text;
 using CompanyName.ProjectName.Application.OpenApplications.Dtos;
 using CompanyName.ProjectName.Application.Auth.Options;
 using CompanyName.ProjectName.Application.Permissions.Provider;
-using System.Text.Json.Serialization;
 
 namespace CompanyName.ProjectName.IntegrationTests;
 
@@ -493,8 +492,5 @@ public sealed class OpenIddictAuthorizationTests(ProjectWebApplicationFactory fa
 
         return client;
     }
-
-    private sealed record TokenResponse(
-        [property: JsonPropertyName("access_token")] string AccessToken);
 }
 #endif
