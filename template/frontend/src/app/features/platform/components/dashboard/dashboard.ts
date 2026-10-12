@@ -554,17 +554,17 @@ const ENGLISH: Record<string, string> = {
     'Failed sign-ins are approximate: repeated anonymous failures are sampled.',
   //#endif
   'platform.dashboard.attention.title': 'Needs attention',
-  'platform.dashboard.attention.lockedUsers': '{{count}} locked accounts',
+  'platform.dashboard.attention.lockedUsers': 'Locked accounts: {{count}}',
   'platform.dashboard.attention.lockedUsersHint':
     'Locked after repeated failed sign-ins or by an administrator',
   'platform.dashboard.attention.adminsWithoutTwoFactor':
-    '{{count}} administrators without two-factor authentication',
+    'Administrators without two-factor: {{count}}',
   'platform.dashboard.attention.adminsWithoutTwoFactorHint':
     'Turn it on for accounts with elevated access',
-  'platform.dashboard.attention.unconfirmedEmailUsers': '{{count}} users with unverified email',
+  'platform.dashboard.attention.unconfirmedEmailUsers': 'Users with unverified email: {{count}}',
   'platform.dashboard.attention.unconfirmedEmailUsersHint':
     "They can't receive password reset emails",
-  'platform.dashboard.attention.disabledTenants': '{{count}} disabled tenants',
+  'platform.dashboard.attention.disabledTenants': 'Disabled tenants: {{count}}',
   'platform.dashboard.attention.disabledTenantsHint': "Users of a disabled tenant can't sign in",
   'platform.dashboard.attention.review': 'Review',
   'platform.dashboard.attention.allClear': 'Nothing needs attention right now.',

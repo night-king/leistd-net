@@ -31,13 +31,13 @@
     },
     "attention": {
       "title": "Needs attention",
-      "lockedUsers": "{{count}} locked accounts",
+      "lockedUsers": "Locked accounts: {{count}}",
       "lockedUsersHint": "Locked after repeated failed sign-ins or by an administrator",
-      "adminsWithoutTwoFactor": "{{count}} administrators without two-factor authentication",
+      "adminsWithoutTwoFactor": "Administrators without two-factor: {{count}}",
       "adminsWithoutTwoFactorHint": "Turn it on for accounts with elevated access",
-      "unconfirmedEmailUsers": "{{count}} users with unverified email",
+      "unconfirmedEmailUsers": "Users with unverified email: {{count}}",
       "unconfirmedEmailUsersHint": "They can't receive password reset emails",
-      "disabledTenants": "{{count}} disabled tenants",
+      "disabledTenants": "Disabled tenants: {{count}}",
       "disabledTenantsHint": "Users of a disabled tenant can't sign in",
       "review": "Review",
       "allClear": "Nothing needs attention right now."
