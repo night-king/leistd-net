@@ -115,5 +115,27 @@
     "title": "角色 · {{name}}",
     "description": "用户会继承所选角色的全部权限。",
     "saved": "角色已更新"
+  },
+  "batch": {
+    "toolbar": "批量操作",
+    "selected": "已选 {{count}} 位",
+    "enable": "启用",
+    "disable": "停用",
+    "unlock": "解锁",
+    "assignRoles": "追加角色",
+    "clear": "取消选择",
+    "selectAll": "选择本页全部用户",
+    "selectRow": "选择 {{name}}",
+    "enableHeader": "启用用户",
+    "enableMessage": "确定启用选中的 {{count}} 位用户？",
+    "disableHeader": "停用用户",
+    "disableMessage": "确定停用选中的 {{count}} 位用户？停用后他们会被登出且无法登录。",
+    "unlockHeader": "解锁用户",
+    "unlockMessage": "确定解锁选中的 {{count}} 位用户？登录失败次数也会清零。",
+    "allSucceeded": "已处理 {{count}} 位用户。",
+    "partial": "成功 {{succeeded}} 位，失败 {{failed}} 位",
+    "rolesTitle": "为 {{count}} 位用户追加角色",
+    "rolesDescription": "选中的角色会追加给这些用户，已有的角色保持不变。",
+    "assign": "追加角色"
   }
 }

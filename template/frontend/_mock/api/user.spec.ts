@@ -1,4 +1,11 @@
-import { USER_API, addUser, getUsers, updateUser } from './user';
+import {
+  USER_API,
+  addUser,
+  batchAssignUserRoles,
+  batchDisableUsers,
+  getUsers,
+  updateUser,
+} from './user';
 import { MockException } from '../core/models';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
 import { setMockSessionUserId } from '../utils/current-user';
@@ -38,6 +45,51 @@ describe('user mock', () => {
     expect(error.status).toBe(400);
     expect(error.error.code).toBeUndefined();
     expect(error.error.errors.map((item: { field: string }) => item.field)).toEqual(['sorting']);
+  });
+
+  describe('batch operations', () => {
+    afterEach(() => setMockSessionUserId(null));
+
+    it('runs each item on its own and keeps the successes when some are rejected', () => {
+      setMockSessionUserId('user_admin');
+
+      const result = batchDisableUsers({ ids: ['user_demo', 'user_admin', 'user_demo'] });
+
+      // 重复的只处理一次；停用自己（超级管理员）被拒，不影响另一条
+      expect(result.items.map((item) => [item.id, item.succeeded])).toEqual([
+        ['user_demo', true],
+        ['user_admin', false],
+      ]);
+      expect(result.items[1].errorCode).toBeTruthy();
+      expect(USERS.find((user) => user.id === 'user_demo')?.isActive).toBe(false);
+    });
+
+    it('rejects an empty or oversized id list with a field error', () => {
+      setMockSessionUserId('user_admin');
+
+      expect(rejectionOf(() => batchDisableUsers({ ids: [] })).status).toBe(400);
+      const tooMany = Array.from({ length: 101 }, (_, i) => `u${i}`);
+      expect(rejectionOf(() => batchDisableUsers({ ids: tooMany })).status).toBe(400);
+    });
+
+    it('adds roles without removing existing ones and rejects unknown roles as a whole', () => {
+      setMockSessionUserId('user_admin');
+
+      batchAssignUserRoles({ ids: ['user_demo'], roleIds: ['role_admin'] });
+      expect(USERS.find((user) => user.id === 'user_demo')?.roles).toEqual(['Member', 'Admin']);
+
+      const error = rejectionOf(() =>
+        batchAssignUserRoles({ ids: ['user_demo'], roleIds: ['missing'] }),
+      );
+      expect(error.status).toBe(400);
+      expect(error.error.code).toBe('User:RolesNotFound');
+    });
+
+    it('requires the update permission', () => {
+      setMockSessionUserId('user_demo');
+
+      expect(rejectionOf(() => batchDisableUsers({ ids: ['user_admin'] })).status).toBe(403);
+    });
   });
 
   //#if (LocalIdentity)

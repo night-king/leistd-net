@@ -68,3 +68,26 @@ export interface ResetUserPasswordInputDto {
   password: string;
 }
 //#endif
+
+/** 批量操作的用户：1–100 个 Id，重复的只处理一次。 */
+export interface BatchUsersInputDto {
+  ids: string[];
+}
+
+/** 批量追加角色：只追加不覆盖，已有的角色保持不变；角色 1–20 个，有不存在的整批拒绝。 */
+export interface BatchAssignUserRolesInputDto extends BatchUsersInputDto {
+  roleIds: string[];
+}
+
+/** 一个用户的执行结果。失败时带单条接口同样的错误码与本地化说明；成功时两者省略。 */
+export interface BatchOperationItemOutputDto {
+  id: string;
+  succeeded: boolean;
+  errorCode?: string | null;
+  message?: string | null;
+}
+
+/** 批量操作逐条执行，部分失败不回滚已成功的条目。 */
+export interface BatchOperationOutputDto {
+  items: BatchOperationItemOutputDto[];
+}

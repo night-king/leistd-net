@@ -5,6 +5,9 @@ import { Observable } from 'rxjs';
 import { PagedResultDto } from '../../../shared/dtos/paged-result.dto';
 import { RoleBriefDto } from '../dtos/role.dto';
 import {
+  BatchAssignUserRolesInputDto,
+  BatchOperationOutputDto,
+  BatchUsersInputDto,
   //#if (LocalIdentity)
   CreateUserInputDto,
   //#endif
@@ -62,6 +65,14 @@ export class UserManagementService {
   disableUser(id: string): Observable<void> {
     return this.http.patch<void>(`${this.baseUrl}/${id}/disable`, {});
   }
+
+  batchEnableUsers(data: BatchUsersInputDto): Observable<BatchOperationOutputDto> {
+    return this.http.post<BatchOperationOutputDto>(`${this.baseUrl}/batch/enable`, data);
+  }
+
+  batchDisableUsers(data: BatchUsersInputDto): Observable<BatchOperationOutputDto> {
+    return this.http.post<BatchOperationOutputDto>(`${this.baseUrl}/batch/disable`, data);
+  }
   //#if (LocalIdentity)
   resetPassword(id: string, data: ResetUserPasswordInputDto): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/${id}/reset-password`, data);
@@ -69,6 +80,10 @@ export class UserManagementService {
 
   unlockUser(id: string): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/${id}/unlock`, {});
+  }
+
+  batchUnlockUsers(data: BatchUsersInputDto): Observable<BatchOperationOutputDto> {
+    return this.http.post<BatchOperationOutputDto>(`${this.baseUrl}/batch/unlock`, data);
   }
 
   /** 重置用户的两步验证（给丢了手机和恢复码的人用），该用户的会话全部失效。 */
@@ -88,5 +103,10 @@ export class UserManagementService {
   /** 角色分配独立于资料更新，需要 App.Users.ManageRoles。 */
   replaceUserRoles(id: string, data: UpdateUserRolesInputDto): Observable<RoleBriefDto[]> {
     return this.http.put<RoleBriefDto[]>(`${this.baseUrl}/${id}/roles`, data);
+  }
+
+  /** 给一批用户追加角色，需要 App.Users.ManageRoles。 */
+  batchAssignUserRoles(data: BatchAssignUserRolesInputDto): Observable<BatchOperationOutputDto> {
+    return this.http.post<BatchOperationOutputDto>(`${this.baseUrl}/batch/assign-roles`, data);
   }
 }

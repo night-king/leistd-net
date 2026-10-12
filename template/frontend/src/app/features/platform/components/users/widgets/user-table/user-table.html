@@ -22,6 +22,16 @@
                       [attr.aria-sort]="sortAria(header.column.id)"
                     >
                       @switch (header.column.id) {
+                        @case ('select') {
+                          <hlm-checkbox
+                            [checked]="table.getIsAllPageRowsSelected()"
+                            [indeterminate]="
+                              table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()
+                            "
+                            [aria-label]="t('users.batch.selectAll')"
+                            (checkedChange)="table.toggleAllPageRowsSelected($event)"
+                          />
+                        }
                         @case ('username') {
                           <button
                             type="button"
@@ -94,13 +104,28 @@
                 </tr>
               } @else {
                 @for (row of table.getRowModel().rows; track row.original.id) {
-                  <tr hlmTr class="group text-sm hover:bg-muted/50 transition-colors">
+                  <tr
+                    hlmTr
+                    class="group text-sm hover:bg-muted/50 transition-colors"
+                    [attr.data-state]="row.getIsSelected() ? 'selected' : null"
+                  >
                     @for (cell of row.getVisibleCells(); track cell.id) {
                       <td
                         hlmTd
                         [class]="cell.column.columnDef.meta?.cellClass ?? 'px-4 py-2 sm:px-6'"
                       >
                         @switch (cell.column.id) {
+                          @case ('select') {
+                            <hlm-checkbox
+                              [checked]="row.getIsSelected()"
+                              [aria-label]="
+                                t('users.batch.selectRow', {
+                                  name: row.original.displayName || row.original.username,
+                                })
+                              "
+                              (checkedChange)="row.toggleSelected($event)"
+                            />
+                          }
                           @case ('username') {
                             <div
                               class="flex min-w-0 items-center gap-3 whitespace-nowrap"

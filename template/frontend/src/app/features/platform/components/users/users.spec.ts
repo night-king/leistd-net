@@ -10,6 +10,7 @@ import { of, Subject, throwError } from 'rxjs';
 
 import { Users } from './users';
 import { UserTable } from './widgets/user-table/user-table';
+import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
@@ -28,7 +29,7 @@ describe('Users page query round trip', () => {
   let fixture: ComponentFixture<Users>;
   let component: Users;
   let router: Router;
-  let service: Pick<MockedObject<UserManagementService>, 'getUsers'>;
+  let service: Pick<MockedObject<UserManagementService>, 'getUsers' | 'batchDisableUsers'>;
 
   function lastQuery(): GetUsersInputDto {
     const calls = vi.mocked(service.getUsers).mock.calls;
@@ -48,6 +49,7 @@ describe('Users page query round trip', () => {
   beforeEach(async () => {
     service = {
       getUsers: vi.fn().mockName('UserManagementService.getUsers'),
+      batchDisableUsers: vi.fn().mockName('UserManagementService.batchDisableUsers'),
     };
     service.getUsers.mockReturnValue(of({ items: [], totalCount: 0 }) as never);
 
@@ -62,6 +64,7 @@ describe('Users page query round trip', () => {
         ...provideTranslocoTesting(['en']),
         //#endif
         { provide: UserManagementService, useValue: service },
+        { provide: ConfirmService, useValue: { open: () => Promise.resolve(true) } },
         { provide: StartupService, useValue: { status: signal('success' as const) } },
       ],
     }).compileComponents();
@@ -260,5 +263,65 @@ describe('Users page query round trip', () => {
     expect(service.getUsers).toHaveBeenCalledTimes(requests + 1);
     expect(host.querySelector('[data-testid="table-retry"]')).toBeNull();
     expect(host.textContent).toMatch(/No users yet|users\.table\.emptyTitle/);
+  });
+
+  describe('batch operations', () => {
+    function grant(...permissions: string[]): void {
+      TestBed.inject(AuthorizationService).setPermissions({
+        permissions: [PERMISSIONS.users.default, ...permissions],
+        isSuperAdmin: false,
+        versionToken: `r-${permissions.join()}`,
+      });
+      fixture.detectChanges();
+    }
+
+    it('shows the selection column only when a bulk action is permitted', () => {
+      expect(table().selectable()).toBe(false);
+
+      grant(PERMISSIONS.users.manageRoles);
+
+      expect(table().selectable()).toBe(true);
+    });
+
+    it('clears the selection when the page, filter or sorting changes', async () => {
+      grant(PERMISSIONS.users.update);
+      table().rowSelectionChange.emit({ 'row-1': true });
+      expect(component.selectedIds()).toEqual(['row-1']);
+
+      table().paginationChange.emit({ pageIndex: 1, pageSize: 20 } as PaginationState);
+      await fixture.whenStable();
+
+      expect(component.selectedIds()).toEqual([]);
+    });
+
+    it('reports partial failures, clears the selection and reloads the page', async () => {
+      grant(PERMISSIONS.users.update);
+      service.getUsers.mockReturnValue(of({ items: [loadedRow], totalCount: 1 }) as never);
+      component.reloadList();
+      await fixture.whenStable();
+      service.batchDisableUsers.mockReturnValue(
+        of({
+          items: [
+            { id: 'row-1', succeeded: true },
+            {
+              id: 'row-2',
+              succeeded: false,
+              errorCode: 'User:SelfDisableForbidden',
+              message: 'No',
+            },
+          ],
+        }) as never,
+      );
+      const warning = vi.spyOn(toast, 'warning');
+      const requests = service.getUsers.mock.calls.length;
+      table().rowSelectionChange.emit({ 'row-1': true, 'row-2': true });
+
+      await component.batchSetActive(false);
+
+      expect(service.batchDisableUsers).toHaveBeenCalledWith({ ids: ['row-1', 'row-2'] });
+      expect(warning).toHaveBeenCalledOnce();
+      expect(component.selectedIds()).toEqual([]);
+      expect(service.getUsers.mock.calls.length).toBe(requests + 1);
+    });
   });
 });
