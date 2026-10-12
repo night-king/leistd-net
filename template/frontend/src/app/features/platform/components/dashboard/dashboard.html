@@ -59,10 +59,7 @@
           </div>
         }
 
-        <div
-          class="grid grid-cols-2 gap-4 xl:grid-cols-4"
-          [attr.aria-busy]="loading()"
-        >
+        <div class="grid grid-cols-2 gap-4 xl:grid-cols-4" [attr.aria-busy]="loading()">
           @for (kpi of kpis(); track kpi.id) {
             <app-stat-panel
               [panelTitle]="t(kpiTitleKeys[kpi.id])"
@@ -103,9 +100,11 @@
             </app-stat-panel>
           }
         </div>
+        <!--#if (LocalIdentity)-->
 
+        <!-- 登录趋势与需要关注都是本地身份的数据，资源服务形态下整行不出现 -->
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <!--#if (IncludeOperationRecords && LocalIdentity)-->
+          <!--#if (IncludeOperationRecords)-->
           @if (trendChart(); as chart) {
             <app-stat-panel
               class="lg:col-span-2"
@@ -164,7 +163,6 @@
                           t('platform.dashboard.attention.lockedUsersHint')
                         }}</span>
                       }
-                      <!--#if (LocalIdentity)-->
                       @case ('adminsWithoutTwoFactor') {
                         <span class="text-sm font-medium">{{
                           t('platform.dashboard.attention.adminsWithoutTwoFactor', {
@@ -185,8 +183,7 @@
                           t('platform.dashboard.attention.unconfirmedEmailUsersHint')
                         }}</span>
                       }
-                      <!--#endif-->
-                      <!--#if (LocalIdentity && IncludeMultiTenancy)-->
+                      <!--#if (IncludeMultiTenancy)-->
                       @case ('disabledTenants') {
                         <span class="text-sm font-medium">{{
                           t('platform.dashboard.attention.disabledTenants', { count: item.count })
@@ -219,6 +216,7 @@
             </ul>
           </app-stat-panel>
         </div>
+        <!--#endif-->
       } @else if (loadFailed()) {
         <div
           class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-12 text-sm"

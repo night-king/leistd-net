@@ -39,16 +39,11 @@ describe('Dashboard', () => {
       failedLogins: { value: 2, previous: 4 },
       loginTrend: [{ date: '2026-10-12', succeeded: 5, failed: 1 }],
       //#endif
-      attention: {
-        lockedUsers: 1,
-        //#if (LocalIdentity)
-        adminsWithoutTwoFactor: 0,
-        unconfirmedEmailUsers: 0,
-        //#endif
-        //#if (LocalIdentity && IncludeMultiTenancy)
-        disabledTenants: null,
-        //#endif
-      },
+      //#if (LocalIdentity)
+      attention: { lockedUsers: 1, adminsWithoutTwoFactor: 0, unconfirmedEmailUsers: 0 },
+      //#else
+      attention: {},
+      //#endif
     };
   }
 
@@ -113,12 +108,14 @@ describe('Dashboard', () => {
     expect(dashboard.kpis().find((kpi) => kpi.id === 'newUsers')?.change).toBeNull();
     expect(query('kpi-totalUsers')).not.toBeNull();
   });
+  //#if (LocalIdentity)
 
   it('lists only attention items with a positive count', async () => {
     const dashboard = await setup([PERMISSIONS.dashboard.default]);
 
     expect(dashboard.attention().map((item) => item.id)).toEqual(['lockedUsers']);
   });
+  //#endif
 
   it('keeps only the latest request when the range changes quickly', async () => {
     const first = new Subject<PlatformStatisticsOutputDto>();

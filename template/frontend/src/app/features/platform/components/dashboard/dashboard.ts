@@ -220,6 +220,7 @@ export class Dashboard {
   });
 
   readonly attention = computed<AttentionView[]>(() => {
+    //#if (LocalIdentity)
     const counts = this.statistics()?.attention;
     if (!counts) {
       return [];
@@ -232,7 +233,6 @@ export class Dashboard {
         icon: 'lucideLock',
         route: '/platform/users',
       },
-      //#if (LocalIdentity)
       {
         id: 'adminsWithoutTwoFactor',
         count: counts.adminsWithoutTwoFactor,
@@ -246,8 +246,7 @@ export class Dashboard {
         route: '/platform/users',
         queryParams: { isEmailVerified: 'false' },
       },
-      //#endif
-      //#if (LocalIdentity && IncludeMultiTenancy)
+      //#if (IncludeMultiTenancy)
       {
         id: 'disabledTenants',
         count: counts.disabledTenants ?? 0,
@@ -257,6 +256,10 @@ export class Dashboard {
       //#endif
     ];
     return items.filter((item) => item.count > 0);
+    //#else
+    // 资源服务形态没有本地身份数据，需要关注的事项都不下发
+    return [];
+    //#endif
   });
   //#if (IncludeOperationRecords && LocalIdentity)
 
@@ -517,7 +520,7 @@ export class Dashboard {
 
 /** 与上一区间相比的变化百分比；上一区间没有值或为 0 时不比较。 */
 function changeOf(metric: StatisticValueDto): number | null {
-  if (metric.previous === null || metric.previous === 0) {
+  if (metric.previous == null || metric.previous === 0) {
     return null;
   }
   return Math.round(((metric.value - metric.previous) / metric.previous) * 100);

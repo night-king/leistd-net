@@ -74,32 +74,35 @@ export function getPlatformStatistics(params: Record<string, unknown>) {
         failed,
       };
     }),
-    //#else
+    //#elseif (LocalIdentity)
+    // 没有操作记录时按最近登录时间计，没有可比口径，与后端一样不下发 previous
     activeUsers: {
       value: USERS.filter((user) => user.lastLoginTime && Date.parse(user.lastLoginTime) >= start)
         .length,
-      previous: null,
     },
     //#endif
+    //#if (LocalIdentity)
     attention: {
       lockedUsers: USERS.filter(
         (user) =>
           user.lockoutEnd === null ||
           (user.lockoutEnd !== undefined && Date.parse(user.lockoutEnd) > Date.now()),
       ).length,
-      //#if (LocalIdentity)
       adminsWithoutTwoFactor: USERS.filter(
         (user) => user.roles.includes('Admin') && user.twoFactorEnabled !== true,
       ).length,
       unconfirmedEmailUsers: USERS.filter((user) => !user.isEmailVerified).length,
-      //#endif
-      //#if (LocalIdentity && IncludeMultiTenancy)
-      disabledTenants:
-        getMockSessionTenantKey() === 'host'
-          ? TENANTS.filter((tenant) => !tenant.isActive).length
-          : null,
+      //#if (IncludeMultiTenancy)
+      // 只在宿主上下文下发
+      ...(getMockSessionTenantKey() === 'host'
+        ? { disabledTenants: TENANTS.filter((tenant) => !tenant.isActive).length }
+        : {}),
       //#endif
     },
+    //#else
+    // 与后端一致：锁定、两步验证、邮箱都是本地身份的数据，资源服务形态下为空对象
+    attention: {},
+    //#endif
   };
 }
 
