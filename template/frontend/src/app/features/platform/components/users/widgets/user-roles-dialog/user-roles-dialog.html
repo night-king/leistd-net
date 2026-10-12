@@ -12,7 +12,7 @@
 
       <div class="flex max-h-[50vh] flex-col gap-1 overflow-y-auto py-2">
         @for (role of availableRoles(); track role.id) {
-          <div class="flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/50">
+          <div class="flex items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
             <hlm-checkbox
               [inputId]="'role-' + role.id"
               [checked]="isSelected(role.id)"

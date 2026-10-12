@@ -8,4 +8,9 @@ export * from './lib/hlm-calendar-multi';
 export * from './lib/hlm-calendar-range';
 export * from './lib/hlm-month-year-calendar';
 
-export const HlmCalendarImports = [HlmCalendar, HlmCalendarMulti, HlmCalendarRange, HlmMonthYearCalendar] as const;
+export const HlmCalendarImports = [
+  HlmCalendar,
+  HlmCalendarMulti,
+  HlmCalendarRange,
+  HlmMonthYearCalendar,
+] as const;

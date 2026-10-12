@@ -7,6 +7,6 @@ import { classes } from '@spartan-ng/helm/utils';
 })
 export class HlmPopoverHeader {
   constructor() {
-    classes(() => 'flex flex-col gap-0.5 text-sm');
+    classes(() => 'flex flex-col gap-1 text-sm');
   }
 }

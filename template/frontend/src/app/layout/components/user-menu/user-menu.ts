@@ -97,7 +97,7 @@ interface UserMenuItem {
               align="end"
               class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <hlm-avatar class="rounded-lg">
+              <hlm-avatar class="rounded-md">
                 <img
                   [src]="
                     user.avatar ||
@@ -106,7 +106,7 @@ interface UserMenuItem {
                   hlmAvatarImage
                   [alt]="user.username"
                 />
-                <span hlmAvatarFallback class="rounded-lg">{{
+                <span hlmAvatarFallback class="rounded-md">{{
                   (user.displayName || user.username)[0]
                 }}</span>
               </hlm-avatar>
@@ -121,10 +121,10 @@ interface UserMenuItem {
       }
 
       <ng-template #userMenu>
-        <hlm-dropdown-menu class="min-w-56 rounded-lg">
+        <hlm-dropdown-menu class="min-w-56">
           <hlm-dropdown-menu-label>
             <div class="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-              <hlm-avatar [class.rounded-lg]="variant() === 'sidebar'">
+              <hlm-avatar [class.rounded-md]="variant() === 'sidebar'">
                 <img
                   [src]="
                     user.avatar ||
@@ -133,7 +133,7 @@ interface UserMenuItem {
                   hlmAvatarImage
                   [alt]="user.username"
                 />
-                <span hlmAvatarFallback [class.rounded-lg]="variant() === 'sidebar'">{{
+                <span hlmAvatarFallback [class.rounded-md]="variant() === 'sidebar'">{{
                   (user.displayName || user.username)[0]
                 }}</span>
               </hlm-avatar>

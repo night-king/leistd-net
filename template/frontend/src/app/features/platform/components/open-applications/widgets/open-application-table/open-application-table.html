@@ -143,7 +143,7 @@
                             <hlm-popover>
                               <button
                                 type="button"
-                                class="inline-flex max-w-[14rem] items-center gap-1.5 rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground cursor-pointer whitespace-nowrap border border-border"
+                                class="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground cursor-pointer whitespace-nowrap border border-border"
                                 hlmPopoverTrigger
                               >
                                 <ng-icon name="lucideShield" class="text-xs" />
@@ -166,7 +166,7 @@
                                 <div class="flex max-h-80 flex-col gap-2 overflow-y-auto">
                                   @for (item of row.original.permissions; track item) {
                                     <div
-                                      class="rounded-lg border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
+                                      class="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
                                     >
                                       {{ item }}
                                     </div>
@@ -182,7 +182,7 @@
                               >
                                 @for (uri of getVisibleRedirectUris(row.original); track uri) {
                                   <span
-                                    class="min-w-0 truncate rounded-lg bg-muted px-2 py-1 text-xs border border-border font-mono"
+                                    class="min-w-0 truncate rounded-md bg-muted px-2 py-1 text-xs border border-border font-mono"
                                     [hlmTooltip]="uri"
                                   >
                                     {{ uri }}
@@ -213,7 +213,7 @@
                                           track item
                                         ) {
                                           <div
-                                            class="rounded-lg border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
+                                            class="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
                                           >
                                             {{ item }}
                                           </div>
@@ -372,7 +372,7 @@
                               <hlm-popover>
                                 <button
                                   type="button"
-                                  class="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-muted px-2 py-1 text-xs text-muted-foreground cursor-pointer"
+                                  class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground cursor-pointer"
                                   hlmPopoverTrigger
                                 >
                                   <ng-icon name="lucideShield" class="text-xs" />
@@ -393,7 +393,7 @@
                                   <div class="flex max-h-80 flex-col gap-2 overflow-y-auto">
                                     @for (item of row.original.permissions; track item) {
                                       <div
-                                        class="rounded-lg border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
+                                        class="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
                                       >
                                         {{ item }}
                                       </div>
@@ -410,7 +410,7 @@
                             <dd class="flex flex-wrap gap-1">
                               @for (uri of row.original.redirectUris; track uri) {
                                 <span
-                                  class="rounded-lg border border-border bg-muted px-2 py-1 text-xs font-mono break-all"
+                                  class="rounded-md border border-border bg-muted px-2 py-1 text-xs font-mono break-all"
                                   >{{ uri }}</span
                                 >
                               } @empty {

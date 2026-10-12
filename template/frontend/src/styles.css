@@ -154,3 +154,61 @@ body {
     cursor: pointer;
   }
 }
+
+/*
+ * 以下规则调整 Spartan 组件在本项目的表现，写在这里而不是改 libs/ui：组件保持上游原样，升级时
+ * 不必逐个手工合入。规则不放进 @layer，才能盖过组件上的 Tailwind 工具类。
+ */
+
+/*
+ * 减少动效：系统开启"减少动效"时，浮层不播放缩放、淡入淡出，侧栏、抽屉与导航菜单不播放位移过渡。
+ * 动画挂在浮层的开合状态（data-state 或 data-open / data-closed）上，按属性匹配即可覆盖对话框、抽屉、弹出层、下拉、提示等全部浮层；
+ * Brain 关闭浮层时只等待正在播放的动画，没有动画就立即关闭。
+ */
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    [data-state='open'],
+    [data-state='closed'],
+    [data-state='delayed-open'],
+    [data-open],
+    [data-closed],
+    [data-motion]
+  ) {
+    animation: none;
+  }
+
+  [data-slot^='sidebar'],
+  [data-slot='sheet-content'],
+  [data-slot^='navigation-menu'],
+  [data-slot^='navigation-menu'] * {
+    transition: none;
+  }
+}
+
+/*
+ * 对话框与抽屉的关闭按钮绝对定位在右上角，页头让出它的宽度，长标题与说明换行而不钻到按钮下面。
+ * 让位宽度覆盖按钮所在区域（触屏下按钮为 44px），数值沿用 Nova 时期截图核对过的留白。
+ */
+[data-slot='dialog-header'] {
+  padding-inline-end: calc(var(--spacing) * 6);
+}
+
+[data-slot='sheet-header'] {
+  padding-inline-end: calc(var(--spacing) * 12);
+}
+
+@media (pointer: coarse) {
+  [data-slot='dialog-header'] {
+    padding-inline-end: calc(var(--spacing) * 10);
+  }
+
+  [data-slot='sheet-header'] {
+    padding-inline-end: calc(var(--spacing) * 16);
+  }
+}
+
+/* Vega 的对话框与抽屉标题不设字号，会继承正文的 14px；恢复到卡片标题同档的 16px，与说明文字拉开层级。 */
+[data-slot='dialog-title'],
+[data-slot='sheet-title'] {
+  @apply text-base;
+}
