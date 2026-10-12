@@ -12,7 +12,7 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 // prettier-ignore
-import { lucideInfo, lucideEye, lucideEyeOff, lucideX } from '@ng-icons/lucide';
+import { lucideBuilding2, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
@@ -77,7 +77,7 @@ const githubIcon =
   // prettier-ignore
   providers: [
     provideIcons({
-      lucideX,
+      lucideBuilding2,
       lucideInfo,
       lucideEye,
       lucideEyeOff,
@@ -392,6 +392,19 @@ export class Login implements OnInit {
     this.tenantContext.clear();
     this.tenantError.set(null);
   }
+
+  /** 「切换租户」展开的输入框；默认收起，只显示当前租户一行。 */
+  readonly tenantEditing = signal(false);
+
+  /** 应用输入框里的租户：填了名称切到该租户，留空回到宿主。 */
+  async applyTenantInput(): Promise<void> {
+    if (this.tenantName().trim()) {
+      await this.onConfirmTenant();
+    } else {
+      this.clearTenant();
+    }
+    this.tenantEditing.set(false);
+  }
   //#else
   readonly authBlocked = signal(false);
   //#endif
@@ -467,10 +480,10 @@ export class Login implements OnInit {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'account.login.title': 'Sign In',
-  'account.login.subtitle': 'Welcome back, please enter your account information',
+  'account.login.title': 'Welcome back',
   'account.login.tenant': 'Tenant',
-  'account.login.tenantClear': 'Clear tenant',
+  'account.login.tenantHost': 'Host',
+  'account.login.tenantSwitch': 'Switch tenant',
   'account.login.tenantFromDomain': 'Determined by the site address.',
   'account.login.tenantPlaceholder': 'Tenant name, leave empty for host',
   'account.login.tenantConfirm': 'Confirm',
@@ -483,11 +496,10 @@ const ENGLISH: Record<string, string> = {
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
   'account.login.noAccount': "Don't have an account?",
-  'account.login.registerNow': 'Sign up now',
+  'account.login.registerNow': 'Sign up',
   'account.login.submit': 'Sign In',
-  'account.login.or': 'OR',
-  'account.login.testAccount': 'Test Account',
-  'account.login.adminRole': 'Administrator',
+  'account.login.or': 'Or sign in with your account',
+  'account.login.testAccount': 'Development test account',
   'account.login.tenantUnavailable':
     'The tenant this address points to is unavailable. Contact your administrator.',
   'account.login.tenantProbeFailed':

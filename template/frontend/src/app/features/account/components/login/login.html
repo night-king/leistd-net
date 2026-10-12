@@ -14,96 +14,101 @@
     } @else {
       <div class="flex flex-col gap-2">
         <h1 class="text-2xl font-semibold tracking-tight">{{ t('account.login.title') }}</h1>
-        <p class="text-muted-foreground text-sm">{{ t('account.login.subtitle') }}</p>
+        <p class="text-muted-foreground text-sm">
+          {{ t('account.login.noAccount') }}
+          <a [routerLink]="['/auth/register']" class="text-primary font-medium hover:underline">{{
+            t('account.login.registerNow')
+          }}</a>
+        </p>
       </div>
+      <!--#if (ExternalLogin)-->
+      <!-- 外部登录放在表单上方、左右并排：入口按已配置的提供商渲染；加载失败单独提示，不当作"未配置"。 -->
+      @if (externalProvidersFailed()) {
+        <div class="flex flex-col gap-1">
+          <p class="flex items-center gap-2 text-sm text-muted-foreground">
+            {{ t('account.login.externalProvidersLoadFailed') }}
+            <button
+              hlmBtn
+              type="button"
+              variant="link"
+              size="sm"
+              class="px-0"
+              data-testid="external-login-retry"
+              (click)="loadExternalProviders()"
+            >
+              {{ t('common.retry') }}
+            </button>
+          </p>
+          @if (externalProvidersTrace(); as trace) {
+            <p class="text-xs text-muted-foreground" data-testid="external-login-trace">
+              {{ trace }}
+            </p>
+          }
+        </div>
+      } @else if (hasRenderableExternalProvider()) {
+        <div class="flex gap-3">
+          @if (hasExternalProvider('github')) {
+            <button
+              hlmBtn
+              type="button"
+              variant="outline"
+              class="flex-1"
+              data-testid="external-login-github"
+              [disabled]="isLoading() || authBlocked()"
+              (click)="loginWithGitHub()"
+            >
+              <ng-icon name="github" data-icon="inline-start" />
+              GitHub
+            </button>
+          }
 
-      <form novalidate (submit)="$event.preventDefault(); onSubmit()" class="flex flex-col gap-5">
-<!--#if (IncludeMultiTenancy)-->
-        <div hlmField>
-          <label hlmFieldLabel for="tenantName">{{ t('account.login.tenant') }}</label>
-          @if (tenantContext.current(); as tenant) {
-            <!-- 已选中态复用与未选中态、与用户名输入框同一个 hlm-input-group 原语：
-             手写 div 会在高度、圆角与边框 token 上各偏一点，同一张表单里三种控件三个尺寸 -->
-            <hlm-input-group>
-              <input hlmInputGroupInput id="tenantName" readonly [value]="tenant.key" />
-              @if (!tenantSelectionBlocked()) {
-                <button
-                  hlmInputGroupButton
-                  type="button"
-                  size="icon-xs"
-                  align="inline-end"
-                  [attr.aria-label]="t('account.login.tenantClear')"
-                  (click)="clearTenant()"
-                >
-                  <ng-icon name="lucideX" />
-                </button>
-              }
-            </hlm-input-group>
-            @if (tenantLocked()) {
-              <p class="text-muted-foreground text-xs">
-                {{ t('account.login.tenantFromDomain') }}
-              </p>
-            }
-          } @else {
-            <hlm-input-group>
-              <input
-                hlmInputGroupInput
-                id="tenantName"
-                autocomplete="off"
-                [disabled]="tenantSelectionBlocked()"
-                [value]="tenantName()"
-                (input)="tenantName.set($any($event.target).value); tenantError.set(null)"
-                (keydown.enter)="$event.preventDefault(); onConfirmTenant()"
-                [placeholder]="t('account.login.tenantPlaceholder')"
-              />
-              <button
-                hlmInputGroupButton
-                type="button"
-                align="inline-end"
-                [disabled]="tenantSelectionBlocked()"
-                (click)="onConfirmTenant()"
+          @if (hasExternalProvider('google')) {
+            <button
+              hlmBtn
+              type="button"
+              variant="outline"
+              class="flex-1"
+              data-testid="external-login-google"
+              [disabled]="isLoading() || authBlocked()"
+              (click)="loginWithGoogle()"
+            >
+              <svg
+                class="size-4"
+                data-icon="inline-start"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
               >
-                {{ t('account.login.tenantConfirm') }}
-              </button>
-            </hlm-input-group>
-            <!-- 未选中态也要交代原因，否则一个灰掉的输入框看着像坏了 -->
-            @if (hostProbe() === 'pending') {
-              <p class="text-muted-foreground text-xs">
-                {{ t('account.login.tenantResolving') }}
-              </p>
-            } @else if (tenantLocked()) {
-              <p class="text-muted-foreground text-xs">
-                {{ t('account.login.tenantFromDomain') }}
-              </p>
-            }
-          }
-          <!-- 错误行放在两个分支**之外**：探测失败时可能还留着上次记住的租户，
-           那时渲染的是"已选中"分支，错误挂在另一支里就永远不显示。 -->
-          @if (tenantError(); as error) {
-            <!-- forceShow：租户探测是业务错误而非 Signal Forms 校验错误，
-             没有 validator key 可匹配，但仍应复用组件的 role="alert" 与样式 -->
-            <hlm-field-error forceShow>{{ t(error) }}</hlm-field-error>
-          }
-          @if (hostProbe() === 'failed') {
-            <!-- 按钮套一层 div：hlm-field 的容器给直接子元素铺了整行宽的规则，
-             那条规则的优先级高于按钮自己的 w-fit，套一层让 div 去铺满，
-             按钮就按内容宽度收住了。 -->
-            <div>
-              <button
-                hlmBtn
-                type="button"
-                variant="outline"
-                size="sm"
-                data-testid="tenant-probe-retry"
-                (click)="retryHostProbe()"
-              >
-                {{ t('account.login.tenantProbeRetry') }}
-              </button>
-            </div>
+                <path
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  fill="#4285F4"
+                />
+                <path
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  fill="#34A853"
+                />
+                <path
+                  d="M5.84 14.11c-.22-.66-.35-1.36-.35-2.11s.13-1.45.35-2.11V7.05H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.95l3.66-2.84z"
+                  fill="#FBBC05"
+                />
+                <path
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84c.87-2.6 3.3-4.51 6.16-4.51z"
+                  fill="#EA4335"
+                />
+              </svg>
+              Google
+            </button>
           }
         </div>
 
-<!--#endif-->
+        <div class="flex items-center gap-3" data-testid="external-divider">
+          <div class="flex-1 border-t"></div>
+          <span class="text-muted-foreground text-xs">{{ t('account.login.or') }}</span>
+          <div class="flex-1 border-t"></div>
+        </div>
+      }
+      <!--#endif-->
+
+      <form novalidate (submit)="$event.preventDefault(); onSubmit()" class="flex flex-col gap-5">
         <div hlmField>
           <label hlmFieldLabel for="usernameOrEmail">{{
             t('account.login.usernameOrEmail')
@@ -154,15 +159,87 @@
             }}</hlm-field-error>
           }
         </div>
+<!--#if (IncludeMultiTenancy)-->
 
-        <div class="flex items-center justify-end gap-1 text-sm">
-          <span>{{ t('account.login.noAccount') }}</span>
-          <a
-            [routerLink]="['/auth/register']"
-            class="font-semibold text-primary hover:underline transition-colors"
-            >{{ t('account.login.registerNow') }}</a
-          >
+        <!-- 租户默认收成一行（当前租户 + 切换），点「切换租户」才展开输入框；留空即宿主 -->
+        <div hlmField>
+          @if (tenantEditing()) {
+            <label hlmFieldLabel for="tenantName">{{ t('account.login.tenant') }}</label>
+            <hlm-input-group>
+              <input
+                hlmInputGroupInput
+                id="tenantName"
+                autocomplete="off"
+                [disabled]="tenantSelectionBlocked()"
+                [value]="tenantName()"
+                (input)="tenantName.set($any($event.target).value); tenantError.set(null)"
+                (keydown.enter)="$event.preventDefault(); applyTenantInput()"
+                [placeholder]="t('account.login.tenantPlaceholder')"
+              />
+              <button
+                hlmInputGroupButton
+                type="button"
+                align="inline-end"
+                [disabled]="tenantSelectionBlocked()"
+                (click)="applyTenantInput()"
+              >
+                {{ t('account.login.tenantConfirm') }}
+              </button>
+            </hlm-input-group>
+          } @else {
+            <div class="flex min-h-8 items-center gap-2 text-sm" data-testid="tenant-row">
+              <ng-icon name="lucideBuilding2" class="text-muted-foreground shrink-0" />
+              <span class="text-muted-foreground">{{ t('account.login.tenant') }}</span>
+              <span class="min-w-0 truncate font-medium">{{
+                tenantContext.current()?.key ?? t('account.login.tenantHost')
+              }}</span>
+              @if (!tenantSelectionBlocked()) {
+                <button
+                  hlmBtn
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  class="ms-auto px-0"
+                  data-testid="tenant-switch"
+                  (click)="
+                    tenantName.set(tenantContext.current()?.key ?? ''); tenantEditing.set(true)
+                  "
+                >
+                  {{ t('account.login.tenantSwitch') }}
+                </button>
+              }
+            </div>
+          }
+          <!-- 不能切换时也要交代原因，否则看不出为什么没有「切换租户」 -->
+          @if (hostProbe() === 'pending') {
+            <p class="text-muted-foreground text-xs">{{ t('account.login.tenantResolving') }}</p>
+          } @else if (tenantLocked()) {
+            <p class="text-muted-foreground text-xs">{{ t('account.login.tenantFromDomain') }}</p>
+          }
+          @if (tenantError(); as error) {
+            <!-- forceShow：租户探测是业务错误而非 Signal Forms 校验错误，
+             没有 validator key 可匹配，但仍应复用组件的 role="alert" 与样式 -->
+            <hlm-field-error forceShow>{{ t(error) }}</hlm-field-error>
+          }
+          @if (hostProbe() === 'failed') {
+            <!-- 按钮套一层 div：hlm-field 的容器给直接子元素铺了整行宽的规则，
+             那条规则的优先级高于按钮自己的 w-fit，套一层让 div 去铺满，
+             按钮就按内容宽度收住了。 -->
+            <div>
+              <button
+                hlmBtn
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="tenant-probe-retry"
+                (click)="retryHostProbe()"
+              >
+                {{ t('account.login.tenantProbeRetry') }}
+              </button>
+            </div>
+          }
         </div>
+<!--#endif-->
 
         <button hlmBtn type="submit" class="w-full" [disabled]="isLoading() || authBlocked()">
           @if (isLoading()) {
@@ -170,106 +247,19 @@
           }
           {{ t('account.login.submit') }}
         </button>
-        <!--#if (ExternalLogin)-->
-        <!-- 入口按已配置的提供商渲染；加载失败单独提示，不当作"未配置"。 -->
-        @if (externalProvidersFailed()) {
-          <p class="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            {{ t('account.login.externalProvidersLoadFailed') }}
-            <button
-              hlmBtn
-              type="button"
-              variant="link"
-              size="sm"
-              class="px-0"
-              data-testid="external-login-retry"
-              (click)="loadExternalProviders()"
-            >
-              {{ t('common.retry') }}
-            </button>
-          </p>
-          @if (externalProvidersTrace(); as trace) {
-            <p class="text-center text-xs text-muted-foreground" data-testid="external-login-trace">
-              {{ trace }}
-            </p>
-          }
-        } @else if (hasRenderableExternalProvider()) {
-          <div class="relative flex items-center gap-6 py-4" data-testid="external-divider">
-            <div class="flex-grow border-t border-border"></div>
-            <span class="flex-shrink text-muted-foreground text-sm">{{
-              t('account.login.or')
-            }}</span>
-            <div class="flex-grow border-t border-border"></div>
-          </div>
-
-          <div class="flex gap-4">
-            @if (hasExternalProvider('github')) {
-              <button
-                hlmBtn
-                type="button"
-                variant="outline"
-                class="flex-1"
-                data-testid="external-login-github"
-                [disabled]="isLoading() || authBlocked()"
-                (click)="loginWithGitHub()"
-              >
-                <ng-icon name="github" data-icon="inline-start" />
-                GitHub
-              </button>
-            }
-
-            @if (hasExternalProvider('google')) {
-              <button
-                hlmBtn
-                type="button"
-                variant="outline"
-                class="flex-1"
-                data-testid="external-login-google"
-                [disabled]="isLoading() || authBlocked()"
-                (click)="loginWithGoogle()"
-              >
-                <svg class="w-5 h-5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    fill="#4285F4"
-                  />
-                  <path
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    fill="#34A853"
-                  />
-                  <path
-                    d="M5.84 14.11c-.22-.66-.35-1.36-.35-2.11s.13-1.45.35-2.11V7.05H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.95l3.66-2.84z"
-                    fill="#FBBC05"
-                  />
-                  <path
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84c.87-2.6 3.3-4.51 6.16-4.51z"
-                    fill="#EA4335"
-                  />
-                </svg>
-                <span class="font-medium">Google</span>
-              </button>
-            }
-          </div>
-        }
-        <!--#endif-->
       </form>
     }
 
-    <!-- 开发环境的测试账号：放在卡片之外，与真正的登录表单分开 -->
+    <!-- 开发环境的测试账号：表单下方一行淡色提示，与真正的登录表单分开 -->
     @if (isMockEnabled()) {
-      <div authShellFooter class="flex flex-col gap-2 rounded-xl border border-dashed p-4 text-sm">
-        <h2 class="flex items-center gap-2 font-semibold">
-          <ng-icon name="lucideInfo" class="text-primary" />
-          {{ t('account.login.testAccount') }}
-        </h2>
-        <div class="bg-muted flex flex-col gap-1 rounded-md px-3 py-2">
-          <span class="text-muted-foreground text-xs">{{ t('account.login.adminRole') }}</span>
-          <span class="flex items-center gap-1">
-            <span class="font-mono">admin</span>
-            <span class="text-muted-foreground">/</span>
-            <span class="font-mono">Admin&#64;123456</span>
-          </span>
-        </div>
-      </div>
+      <p
+        authShellFooter
+        class="bg-muted text-muted-foreground flex flex-wrap items-center gap-2 rounded-md px-3 py-2 text-xs"
+      >
+        <ng-icon name="lucideInfo" />
+        {{ t('account.login.testAccount') }}
+        <span class="text-foreground ms-auto font-mono">admin / Admin&#64;123456</span>
+      </p>
     }
   </app-auth-shell>
 </ng-container>

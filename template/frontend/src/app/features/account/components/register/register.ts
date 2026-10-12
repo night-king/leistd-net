@@ -6,6 +6,7 @@ import {
   DestroyRef,
   //#endif
   OnInit,
+  computed,
   effect,
   inject,
   signal,
@@ -135,6 +136,21 @@ export class Register implements OnInit {
     password: '',
     confirmPassword: '',
   });
+
+  /**
+   * 口令长度进度：口令策略只看长度（见 PASSWORD_MIN_LENGTH 与服务端 PasswordPolicy），这里不另立
+   * 复杂度规则，只把「离最小长度还差多少」画成四格进度，够长即达标。
+   */
+  readonly passwordStrength = computed(() => {
+    const length = this.model().password.length;
+    return {
+      met: length >= PASSWORD_MIN_LENGTH,
+      filled: Math.min(4, Math.ceil((length / PASSWORD_MIN_LENGTH) * 4)),
+      remaining: Math.max(0, PASSWORD_MIN_LENGTH - length),
+    };
+  });
+  protected readonly passwordMinLength = PASSWORD_MIN_LENGTH;
+  protected readonly strengthSegments = [1, 2, 3, 4];
 
   readonly registerForm = form(this.model, (path) => {
     required(path.email);
@@ -411,9 +427,7 @@ export class Register implements OnInit {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'account.register.title': 'Sign Up',
-  'account.register.subtitle':
-    'Welcome aboard, please fill in the following information to create your account',
+  'account.register.title': 'Create your account',
   'account.register.email': 'Email',
   'account.register.emailPlaceholder': 'Enter your email address',
   'account.register.username': 'Username',
@@ -435,6 +449,9 @@ const ENGLISH: Record<string, string> = {
   'account.register.confirmPasswordPlaceholder': 'Enter the password again',
   'account.register.submit': 'Sign Up',
   'account.register.haveAccount': 'Already have an account?',
-  'account.register.loginNow': 'Sign in directly',
+  'account.register.loginNow': 'Sign in',
+  'account.register.passwordLengthProgress':
+    'At least {{min}} characters, {{remaining}} more to go',
+  'account.register.passwordLengthMet': 'Length requirement met',
 };
 //#endif

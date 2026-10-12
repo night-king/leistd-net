@@ -3,34 +3,76 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div
-    class="bg-background relative flex min-h-svh flex-col items-center justify-center gap-6 px-4 py-10"
-  >
-    <div class="absolute end-4 top-4 flex gap-2 md:gap-4">
-      <app-theme-mode-toggle />
-      <!--#if (IncludeLocalization)-->
-      @if (showLanguageSwitcher()) {
-        <app-language-switcher />
-      }
-      <!--#endif-->
-    </div>
-
-    <a routerLink="/" class="flex items-center gap-2 text-base font-semibold">
-      <app-logo />
-      {{ t('account.brand.title') }}
-    </a>
-
-    <div
-      class="flex w-full flex-col gap-4"
-      [class.max-w-md]="width() === 'default'"
-      [class.max-w-xl]="width() === 'wide'"
-    >
-      <section hlmCard>
-        <div hlmCardContent class="flex flex-col gap-6">
-          <ng-content />
+  <div class="bg-background grid min-h-svh lg:grid-cols-2">
+    <div class="flex min-w-0 flex-col gap-8 px-4 py-6 sm:px-10">
+      <div class="flex items-center justify-between gap-4">
+        <a routerLink="/" class="flex items-center gap-2 text-sm font-semibold">
+          <app-logo />
+          {{ t('account.brand.title') }}
+        </a>
+        <div class="flex gap-2 md:gap-4">
+          <app-theme-mode-toggle />
+          <!--#if (IncludeLocalization)-->
+          @if (showLanguageSwitcher()) {
+            <app-language-switcher />
+          }
+          <!--#endif-->
         </div>
-      </section>
-      <ng-content select="[authShellFooter]" />
+      </div>
+
+      <!-- 表单直接放在左栏，不再套卡片：左右分栏本身已经划出了区域 -->
+      <div class="flex flex-1 items-center justify-center">
+        <div
+          class="flex w-full flex-col gap-6"
+          [class.max-w-sm]="width() === 'default'"
+          [class.max-w-xl]="width() === 'wide'"
+        >
+          <ng-content />
+          <ng-content select="[authShellFooter]" />
+        </div>
+      </div>
+
+      <p class="text-muted-foreground text-xs">© {{ year }} {{ t('account.brand.title') }}</p>
     </div>
+
+    <!-- 右栏是独立的品牌面板，贴边铺满半屏；窄屏不显示，表单独占一屏 -->
+    <aside
+      class="bg-muted relative hidden flex-col justify-between gap-10 overflow-hidden p-10 lg:flex"
+      [attr.aria-label]="t('account.brand.title')"
+    >
+      <div
+        aria-hidden="true"
+        class="bg-primary/15 pointer-events-none absolute -end-24 -top-24 size-96 rounded-full blur-3xl"
+      ></div>
+      <div class="relative flex max-w-md flex-col gap-3">
+        <span class="text-primary text-xs font-medium tracking-wide uppercase">{{
+          t('account.brand.title')
+        }}</span>
+        <p class="text-3xl font-semibold tracking-tight text-balance">
+          {{ t('account.brand.headline') }}
+        </p>
+        <p class="text-muted-foreground text-sm">{{ t('account.brand.subtitle') }}</p>
+      </div>
+      <!-- 产品截图与着陆页同一组图：亮暗各一张，跟随当前主题 -->
+      <div
+        class="relative -me-24 rounded-xl bg-background/60 p-1.5 shadow-lg ring-1 ring-foreground/10"
+      >
+        <img
+          class="block w-full rounded-lg dark:hidden"
+          src="images/product-dashboard-light.webp"
+          width="1920"
+          height="1200"
+          alt=""
+        />
+        <img
+          class="hidden w-full rounded-lg dark:block"
+          src="images/product-dashboard-dark.webp"
+          width="1920"
+          height="1200"
+          loading="lazy"
+          alt=""
+        />
+      </div>
+    </aside>
   </div>
 </ng-container>

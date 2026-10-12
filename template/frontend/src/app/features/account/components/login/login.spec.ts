@@ -616,6 +616,24 @@ describe('Login', () => {
 
       expect(TestBed.inject(TenantContextService).current()).toBeNull();
     });
+
+    // 「切换租户」展开的输入框：填名称切到该租户，留空回到宿主，应用后收起
+    it('switches to the typed tenant and back to the host when left empty', async () => {
+      byHost = of({ decision: 'undecided' as const });
+      await setUp();
+      const tenantContext = TestBed.inject(TenantContextService);
+
+      component.tenantEditing.set(true);
+      component.tenantName.set('acme');
+      await component.applyTenantInput();
+      expect(tenantContext.current()?.key).toBe('acme');
+      expect(component.tenantEditing()).toBe(false);
+
+      component.tenantEditing.set(true);
+      component.tenantName.set('  ');
+      await component.applyTenantInput();
+      expect(tenantContext.current()).toBeNull();
+    });
   });
   //#endif
   //#if (ExternalLogin)

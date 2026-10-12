@@ -126,6 +126,18 @@ describe('Register', () => {
     expect(accountService.register).not.toHaveBeenCalled();
   });
 
+  // 进度只反映口令策略的最小长度：不另立复杂度规则，够长即达标
+  it('fills the length progress toward the minimum and reports how many characters remain', async () => {
+    await setUp();
+    const password = component.registerForm.password().value;
+
+    password.set('abcdef');
+    expect(component.passwordStrength()).toEqual({ met: false, filled: 2, remaining: 6 });
+
+    password.set('abcdefghijkl');
+    expect(component.passwordStrength()).toEqual({ met: true, filled: 4, remaining: 0 });
+  });
+
   it('does not submit without a captcha token and resets loading', async () => {
     await setUp();
     fillValidForm();

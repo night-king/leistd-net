@@ -30,7 +30,7 @@
 - 所有页面一律使用语义化主题变量，不写具体色值（`blue-*`、hex 等）。换品牌改 `frontend/src/styles.css` 里的令牌：品牌色亮暗成对改（同一色相，亮色 L≈0.52、暗色 L≈0.72），中性色带一点跟随品牌色相的彩度
   - 例外只有三类：图像遮罩及其上文字（`bg-black/25 text-white`）、二维码底色（`bg-white`，扫码需浅底）、第三方品牌标识 SVG 的官方色值
 <!--#if (LocalIdentity)-->
-- 登录、注册、强制启用两步验证共用 `frontend/src/app/features/account/components/auth-shell`（品牌标识 + 居中卡片 + 主题/语言切换）。这几页在一次登录里连续经过，外观必须一致
+- 登录、注册、强制启用两步验证共用 `frontend/src/app/features/account/components/auth-shell`：五五分栏，左栏是品牌、主题/语言切换与居中的表单（不再套卡片），右栏是独立贴边的品牌面板，lg 以下隐藏。这几页在一次登录里连续经过，外观必须一致
 <!--#endif-->
 
 ### 2.3 有限语义色板
@@ -88,6 +88,7 @@
 | 12px | 辅助说明、时间戳、徽章 | `text-xs`                               |
 | 30px | 仅仪表盘大数字         | `text-3xl` + `tabular-nums`             |
 
+- 营销页（着陆页、认证页右栏）可以用更大的展示字号（`text-4xl` 到 `text-6xl` 的 Tailwind 档位，仍不写任意值）、网格背景、光晕与渐变字；这些装饰只限营销页，应用内页面不用。
 - 页面不必都有可见标题：列表页可直接从工具栏开始（面包屑与标签页已说明位置）；有页面标题时用 24px 一档，一页一个。
 - 字重只用 400 / 500 / 600，不用 `font-bold` / `font-extrabold`。
 - 16px 一档即 card、dialog、sheet、alert-dialog 标题组件的默认样式，不再手加 `font-semibold`。
