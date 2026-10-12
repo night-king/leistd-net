@@ -65,14 +65,12 @@
     "rolesTitle": "Roles ({{count}})"
   },
   "tooltip": {
-    "superAdminNoEdit": "The built-in super administrator cannot be updated by other administrators",
-    "superAdminNoDisable": "The built-in super administrator cannot be disabled by other administrators",
-    "superAdminNoDisableSelf": "The built-in super administrator cannot disable itself",
     "disable": "Disable",
     "enable": "Enable",
-    "superAdminNoReset": "The built-in super administrator's password cannot be reset by other administrators",
+    "selfNoDisable": "You can't disable your own account",
+    "selfNoDelete": "You can't delete your own account",
+    "superAdminNoManage": "Only the built-in super administrator can do this to their own account",
     "resetPassword": "Reset password",
-    "superAdminNoDelete": "The built-in super administrator cannot be deleted",
     "unlock": "Unlock",
     "resetTwoFactor": "Reset two-factor authentication"
   },

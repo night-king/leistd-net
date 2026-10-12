@@ -26,8 +26,9 @@ public sealed record OperationRecordOutputDto
     /// <summary>授权依据。</summary>
     public required string AuthorizationBasis { get; init; }
 
-    /// <summary>结果：<c>Succeeded</c> 或 <c>Failed</c>。</summary>
-    public required string Outcome { get; init; }
+    /// <summary>结果。</summary>
+    /// <remarks>JSON 里的写法由宿主的枚举转换器决定；模板配置为 camelCase 名称（<c>succeeded</c>、<c>failed</c>）。</remarks>
+    public required OperationRecordOutcome Outcome { get; init; }
 
     /// <summary>发生时间（UTC）。</summary>
     public required DateTime CreationTime { get; init; }
@@ -92,8 +93,9 @@ public sealed record OperationActionOptionDto
     /// <summary>类别。</summary>
     public required string Category { get; init; }
 
-    /// <summary>严重度名称。</summary>
-    public required string Severity { get; init; }
+    /// <summary>严重度。</summary>
+    /// <remarks>JSON 里的写法由宿主的枚举转换器决定；模板配置为 camelCase 名称（<c>info</c>、<c>notice</c>、<c>critical</c>）。</remarks>
+    public required OperationSeverity Severity { get; init; }
 }
 
 /// <summary>分页查询条件。</summary>
@@ -121,13 +123,10 @@ public record GetOperationRecordPagedInputDto : PageRequest, IValidatableObject
     [MaxLength(50, ErrorMessage = "{0} cannot contain more than {1} items.")]
     public IReadOnlyList<string>? Actions { get; init; }
 
-    /// <summary>结果名称：<c>Succeeded</c> 或 <c>Failed</c>；为空不过滤。</summary>
-    [AllowedValues(
-        null,
-        nameof(OperationRecordOutcome.Succeeded),
-        nameof(OperationRecordOutcome.Failed),
-        ErrorMessage = "{0} is not an allowed value.")]
-    public string? Outcome { get; init; }
+    /// <summary>结果；为空不过滤，未定义的枚举值验证失败。</summary>
+    /// <remarks>HTTP 端点的查询串取 camelCase 名称（<c>succeeded</c>、<c>failed</c>），由端点转换成本属性。</remarks>
+    [EnumDataType(typeof(OperationRecordOutcome), ErrorMessage = "{0} is not an allowed value.")]
+    public OperationRecordOutcome? Outcome { get; init; }
 
     /// <inheritdoc />
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
@@ -165,13 +164,10 @@ public sealed record ExportOperationRecordsInputDto : IValidatableObject
     [MaxLength(50, ErrorMessage = "{0} cannot contain more than {1} items.")]
     public IReadOnlyList<string>? Actions { get; init; }
 
-    /// <summary>结果名称：<c>Succeeded</c> 或 <c>Failed</c>；为空不过滤。</summary>
-    [AllowedValues(
-        null,
-        nameof(OperationRecordOutcome.Succeeded),
-        nameof(OperationRecordOutcome.Failed),
-        ErrorMessage = "{0} is not an allowed value.")]
-    public string? Outcome { get; init; }
+    /// <summary>结果；为空不过滤，未定义的枚举值验证失败。</summary>
+    /// <remarks>HTTP 端点的查询串取 camelCase 名称（<c>succeeded</c>、<c>failed</c>），由端点转换成本属性。</remarks>
+    [EnumDataType(typeof(OperationRecordOutcome), ErrorMessage = "{0} is not an allowed value.")]
+    public OperationRecordOutcome? Outcome { get; init; }
 
     /// <summary>导出条数，1–<see cref="MaximumExportCount"/>，默认取上限。</summary>
     [Range(1, MaximumExportCount, ErrorMessage = "{0} must be between {1} and {2}.")]

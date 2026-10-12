@@ -43,7 +43,9 @@ internal static class LocalSessionAuthenticationExtensions
 #if (OpenIddictServer)
             // 多租户解析前必须按请求恢复 Bearer 或 Cookie 主体，防止请求头改写已登录用户的租户。
             options.DefaultAuthenticateScheme = AuthenticationSchemeNames.Smart;
-            options.DefaultChallengeScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
+            // 挑战（及回落到它的禁止）与认证同一分流：带 Authorization 头由 OpenIddict 回应，否则由会话 Cookie 写 401/403。
+            // 不指定方案的策略（组件端点）匿名被拒走默认挑战；若交给 OpenIddict，它对未经它认证的请求答 insufficient_access（403）
+            options.DefaultChallengeScheme = AuthenticationSchemeNames.Smart;
 #else
             // 不签发令牌时只恢复 Cookie 会话。
             options.DefaultAuthenticateScheme = AuthenticationSchemeNames.SessionCookie;

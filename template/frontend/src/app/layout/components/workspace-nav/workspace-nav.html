@@ -60,7 +60,7 @@
       [routerLink]="layoutService.homeRoute()"
     >
       <app-logo />
-      <span class="hidden sm:inline">{{ t('layout.sidebar.appTitle') }}</span>
+      <span class="sr-only sm:not-sr-only">{{ t('layout.sidebar.appTitle') }}</span>
     </a>
   }
 

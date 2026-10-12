@@ -127,8 +127,12 @@ internal sealed class TenantManagementService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
+        Validator.ValidateObject(input, new ValidationContext(input), validateAllProperties: true);
 
-        if (input.IsActive)
+        // 上一行已拒绝缺失；不能取默认值，否则漏传的请求会被当成停用
+        var isActive = input.IsActive!.Value;
+
+        if (isActive)
         {
             // 先判存在性，否则不存在的租户会被启用前置条件拒绝，而不是 404
             var existing = await tenantManager.FindAsync(id, cancellationToken) ?? throw new TenantNotFoundException(id.ToString());
@@ -138,25 +142,32 @@ internal sealed class TenantManagementService(
             }
         }
 
-        var tenant = await tenantManager.SetActiveAsync(id, input.IsActive, cancellationToken);
+        var tenant = await tenantManager.SetActiveAsync(id, isActive, cancellationToken);
         await PublishAsync(tenant, TenantChangeKind.ActivationChanged, cancellationToken);
         return ToOutput(tenant);
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        // 删除前取名字快照，供事件使用
+        // 删除幂等：不存在视为成功，不发事件。快照同时供事件取删除前的名字
         var doomed = await tenantManager.FindAsync(id, cancellationToken);
-
-        await tenantManager.DeleteAsync(id, cancellationToken);
-        logger.LogInformation("Tenant {TenantId} deleted (soft delete; business data retained)", id);
-
-        if (eventBus is not null)
+        if (doomed is null)
         {
-            await eventBus.PublishAsync(
-                new TenantChangedEvent(id, doomed is null ? null : doomed.DisplayName ?? doomed.Name, TenantChangeKind.Deleted),
-                cancellationToken);
+            return;
         }
+
+        try
+        {
+            await tenantManager.DeleteAsync(id, cancellationToken);
+        }
+        catch (TenantNotFoundException missing) when (Guid.TryParse(missing.TenantIdOrName, out var missingId) && missingId == id)
+        {
+            // 快照之后被并发删除：结果与先到一步相同，删除不是本次做的，不发事件
+            return;
+        }
+
+        logger.LogInformation("Tenant {TenantId} deleted (soft delete; business data retained)", id);
+        await PublishAsync(doomed, TenantChangeKind.Deleted, cancellationToken);
     }
 
     // 整批归一化名字、校验连接串语法；重名在写库前拒绝，否则第二条会覆盖第一条
@@ -176,6 +187,9 @@ internal sealed class TenantManagementService(
                     validatingAttribute: null,
                     value: connections);
             }
+
+            // 父对象的验证不进集合元素，逐条执行元素自己的注解（必填、长度）
+            Validator.ValidateObject(connection, new ValidationContext(connection), validateAllProperties: true);
 
             var name = TenantConnectionNames.NormalizeInput(connection.Name);
             if (!seen.Add(name))

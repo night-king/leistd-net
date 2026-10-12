@@ -16,7 +16,7 @@
       >
         <!-- 一页里有多个分组时才出分组标题：单组面板的标题已经由外壳给出，再写一遍是重复。 -->
         @if (groups().length > 1) {
-          <h3 class="text-sm leading-none font-semibold">{{ group.label }}</h3>
+          <h4 class="text-sm leading-none font-semibold">{{ group.label }}</h4>
         }
         <!-- 两列布局，窄屏自动落回单列。用 @container 而不是视口断点：面板宽度还受左侧面板导航
            与侧边栏折叠影响，按视口判断会在"视口够宽但面板很窄"时挤成两列。 -->

@@ -194,7 +194,7 @@ dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --grant-admin <su
 
 默认 dry-run 不改变任何数据或操作记录，只说明将要做的事；`--apply` 在持有初始化锁的同一事务内完成：首次初始化角色（Admin 角色首次播种当前作用域全部权限，之后按普通角色管理），本地还没有该用户时建立只含主体标识的最小用户行（首次访问时按令牌补齐资料），再把该用户加入 Admin 角色。已有用户不改资料与启停，已删除的用户不恢复。
 
-权限经角色取得：之后调整 Admin 角色的权限、或把此人移出 Admin，都按普通角色管理生效。此人已在 Admin 中时重复执行无操作；曾被移出时也不再加回，要恢复走角色管理。记录来源是部署身份，授权依据为 `DeploymentBootstrap`。
+权限经角色取得：之后调整 Admin 角色的权限、或把此人移出 Admin，都按普通角色管理生效。此人已在 Admin 中时重复执行无操作；曾被移出、被停用或被删除时普通引导一律不改，要恢复走角色管理与用户管理。记录来源是部署身份，授权依据为 `DeploymentBootstrap`。
 <!--#if (IncludeMultiTenancy)-->
 租户必须已经登记，目标连接经正式路由解析。回源机器身份需要租户路由读取权限。
 <!--#else-->
@@ -204,6 +204,41 @@ dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --grant-admin <su
 授权与成功操作记录在同一数据库事务内持久化。
 <!--#else-->
 成功安全记录在提交之后输出；提交后、输出前进程退出仍可能丢记录。
+<!--#endif-->
+
+### 管理员恢复
+
+管理员不能停用自己（本服务没有删除用户的端点），但移出角色、收窄 Admin 的权限属于正当的自我降级，界面不拦；没有其他可授权的管理员时（最后一位管理员被停用、删除、移出 Admin，或 Admin 角色的权限被撤空），在同一命令上加 `--restore`：
+
+```bash
+dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --grant-admin <sub> --restore
+dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --grant-admin <sub> --restore --apply
+```
+
+预演逐项列出要修的内容，不写数据或操作记录；`--apply` 在持有初始化锁的同一事务内撤回该用户的删除（按原主体标识）、重新启用、补回 Admin 成员关系（只补这一条，曾被撤销的其他角色不复活），再把当前作用域可用、Admin 角色却没有的权限补授给它，并留下动作码为 `resource.admin-restored` 的成功记录，任何一步失败整体回滚。本地还没有该主体时，与普通引导一样先建只含主体标识的最小用户行，不创建远端身份或凭据——这与租户管理员恢复"找不到原记录就失败"不同。没有要修的就什么也不写，可以放心重复执行。
+
+**这是共享角色的恢复**：补授落在 Admin 角色上，所有持有 Admin 的人都随之得到这些权限；补授之外，此前对 Admin 做过的其他授予原样保留。恢复不复活已作废的会话与令牌，本人重新登录即可；远端账号本身的问题（签发方停用、口令丢失）不在本服务的恢复范围内。
+<!--#endif-->
+<!--#if (LocalIdentity && IncludeMultiTenancy)-->
+
+## 租户管理员恢复
+
+宿主有内置超级管理员兜底，租户没有：租户的管理员能力全部来自本租户的 Admin 角色。管理员不能停用或删除自己，但移出角色、收窄 Admin 的权限属于正当的自我降级，界面不拦；租户把自己锁死后（最后一位管理员被停用、删除、移出 Admin，或 Admin 角色的权限被撤空，宿主的模拟登录进的也是这个账号），由部署方执行：
+
+```bash
+dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --restore-tenant-admin <tenant-id>          # 预演
+dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --restore-tenant-admin <tenant-id> --apply  # 施加
+```
+
+命令按正式路由进入该租户的实际落点（共享库按租户过滤，独立库用控制库里登记的连接，因此与 API 共用 Data Protection 密钥环），找回开通时建的 `admin` 账号的原记录，在持有租户初始化锁的一个事务里：撤回删除（按原 Id，不新建账号）、重新启用、补回 Admin 成员关系（只补这一条，曾被撤销的其他角色不复活），再把租户侧当前可用、Admin 角色却没有的权限补授给它，并留下动作码为 `tenant.admin-restored` 的成功记录；任何一步失败整体回滚。预演逐项列出要修的内容，不写数据或操作记录；没有要修的就什么也不写，可以放心重复执行。
+
+- **这是共享角色的恢复**：补授落在 Admin 角色上，该租户所有持有 Admin 的人都随之得到这些权限；补授之外，此前对 Admin 做过的其他授予原样保留。
+- 口令与两步验证不重置，已作废的会话不复活：恢复后用原口令重新登录；口令也遗失时，登录后由本人或其他管理员按正常流程重置。
+- `admin` 账号已改名或被永久清除时命令直接失败、不改任何数据：它只恢复原记录，从不替人新建账号。这时由该租户其他管理员在用户管理里建管理员并分配 Admin 角色。
+<!--#if (IncludeOperationRecords)-->
+- 记录的操作人是部署身份（`deployment:<用户>@<主机>`），授权依据为 `DeploymentBootstrap`，与恢复在同一事务内写进该租户的库，租户管理员在本租户的操作记录里看得到。
+<!--#else-->
+- 记录的操作人是部署身份（`deployment:<用户>@<主机>`），授权依据为 `DeploymentBootstrap`，在提交之后写进安全行为日志。
 <!--#endif-->
 <!--#endif-->
 

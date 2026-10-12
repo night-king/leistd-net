@@ -54,7 +54,11 @@ export function getTenants(params: any): PagedResultDto<any> {
     );
   }
 
-  tenants.sort((a, b) => a.name.localeCompare(b.name));
+  // 与后端固定次序一致：创建时间倒序，同刻按 Id 倒序
+  tenants.sort((a, b) => {
+    const compared = b.creationTime.localeCompare(a.creationTime);
+    return compared !== 0 ? compared : b.id.localeCompare(a.id);
+  });
 
   return {
     totalCount: tenants.length,
@@ -256,12 +260,12 @@ export function setTenantActivation(id: string, value: any) {
   return toTenantOutput(tenant);
 }
 
+/** 删除幂等：与后端一致，不存在或已删除的租户直接成功。 */
 export function deleteTenant(id: string) {
   const index = TENANTS.findIndex((t) => t.id === id);
-  if (index < 0) {
-    throw new MockException(404, { code: 'Tenant:NotFound', message: 'Tenant not found' });
+  if (index >= 0) {
+    TENANTS.splice(index, 1);
   }
-  TENANTS.splice(index, 1);
 }
 
 //#if (Impersonation)

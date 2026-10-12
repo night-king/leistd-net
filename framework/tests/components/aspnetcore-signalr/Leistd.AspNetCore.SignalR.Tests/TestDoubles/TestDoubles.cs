@@ -26,7 +26,7 @@ internal sealed class RecordingContributor(ICurrentPrincipalAccessor accessor) :
         // 主体必须先于其它维度建立
         if (accessor.Principal is null)
         {
-            throw new InvalidOperationException("主体应当已经建立。");
+            throw new InvalidOperationException("The principal should already be established.");
         }
 
         return null;

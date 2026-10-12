@@ -1,5 +1,6 @@
 import {
   createTenant,
+  deleteTenant,
   getTenantByHost,
   getTenantById,
   getTenantConnections,
@@ -172,6 +173,16 @@ describe('tenant mock', () => {
       409,
     );
     expect(getTenantConnections(created.id)[0].version).toBe(1);
+  });
+
+  it('treats deleting a missing or already deleted tenant as success', () => {
+    const created = create();
+
+    deleteTenant(created.id);
+    deleteTenant(created.id);
+    deleteTenant('00000000-0000-0000-0000-000000000000');
+
+    expectStatus(() => getTenantById(created.id), 404);
   });
 
   it('empties the list after deletion and does not delete on a version mismatch', () => {

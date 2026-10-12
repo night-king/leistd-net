@@ -357,16 +357,16 @@ app.UseOperationFailureRecording();
 | `OperationFailure` | 失败原因；`FromCode(code, data)` 走本地化码（`data` 是标量字典），`FromDetail(detail)` 走技术说明。不提供接受 `Exception` 的工厂 |
 | `OperationFailureCodes` | 本组件自己会写进记录的失败原因码，目前只有 `Error:Forbidden`（授权被拒的默认原因），不出现在错误响应里。中英默认译文随包分发，宿主资源的同名键覆盖它 |
 | `OperationRecordInfo` | 一条记录的传输形态；各列长度上限以 `Max*Length` 常量给出。另带 `TargetName`（目标名快照）、`Visibility`（必填）、`ActorTenantId`（操作人自己所属的租户；匿名请求取请求所在的租户上下文），以及 `FailureCode`（本地化码）、`FailureData`（占位参数 JSON，不设长度上限）、`FailureDetail`（技术说明，仅宿主可见） |
-| `OperationRecordOutcome` | `Succeeded`、`Failed`；只有两档 |
+| `OperationRecordOutcome` | `Succeeded`、`Failed`；只有两档。查询输出直接带枚举，JSON 写法交给宿主的枚举转换器（模板为 camelCase：`succeeded`、`failed`） |
 | `OperationVisibility` | `Tenant` / `Host` / `Actor`；写入时取自动作定义。`Host` 表示记录属于宿主层，见「实现行为」 |
-| `OperationSeverity` | `Info` / `Notice` / `Critical`；描述动作本身有多要紧，与结果好坏无关 |
+| `OperationSeverity` | `Info` / `Notice` / `Critical`；描述动作本身有多要紧，与结果好坏无关。筛选项里的 `Severity` 直接带枚举，JSON 写法同上 |
 | `IOperationActionDefinitionProvider` | 登记本模块的动作定义；宿主用 `AddSingleton<IOperationActionDefinitionProvider, ...>()` 注册。类别是业务定义的字符串，框架不预置清单 |
 | `IOperationActionDefinitionManager` | 动作定义的只读索引；`GetOrNull` 返回 `null` 即未登记。写入时记录器据此抛错；读取历史记录时调用方据此降级（原样显示裸码） |
 | `OperationRecordOptions` | `ImpersonatorIdClaimType` / `ImpersonatorNameClaimType` 默认值取自 `CustomClaimTypes`；操作人标识按 `ClaimTypeOptions.UserIds` 读取（`ICurrentUser.SubjectId`），不在这里另配 |
 | `IOperationRecordWriter.InsertAsync(record, ct)` | 写入；成功记录只在它描述的变更生效之后可见（有环境工作单元时跟随它），失败记录立即、独立于调用方事务写出。一个宿主只有一个写入方 |
 | `IOperationRecordReader.GetPagedListAsync(filter, page, ct)` | 只由可回读的存储实现； 按创建时间倒序分页，返回 `PagedResult<OperationRecordInfo>`；`OperationRecordFilter` 的 `Scope` 必填，关键字匹配动作码、目标标识、目标名与操作人名，时间两端都是**闭区间**且按 UTC 比较；`PageRequest.Sorting` 不生效 |
 | `IOperationRecordQueryService` | 查询、筛选项与导出用例：无租户上下文即宿主读者；租户读者看不到 `Host` 层、`Actor` 层只看本人（`ActorId` 与 `ActorTenantId` 都与读者相同）；仅宿主字段（`FailureDetail`、`CorrelationId`、`ActorTenantId`）只下发给宿主读者；类别与动作维度间取交集，展开为空返回空页；`FailureMessage` 为按请求语言渲染的失败原因（导出另成 `FailureMessage` 列）。**不做权限判定**，由端点策略把守 |
-| `MapOperationRecords(configure)` | AspNetCore 包：`GET /`、`GET /filter-options`、`GET /export`；`ReadPolicy`、`ExportPolicy`、`ExportAction` 必填；未注册查询用例（日志输出模式）时映射即抛错；返回路由组，端点名前缀见 `OperationRecordEndpoints.NamePrefix` |
+| `MapOperationRecords(configure)` | AspNetCore 包：`GET /`、`GET /filter-options`、`GET /export`；`ReadPolicy`、`ExportPolicy`、`ExportAction` 必填；未注册查询用例（日志输出模式）时映射即抛错；返回路由组，端点名前缀见 `OperationRecordEndpoints.NamePrefix`。查询串 `outcome` 只收 camelCase 名称 `succeeded`、`failed`，其他大小写、数字与未定义值是字段 `outcome` 的 400 |
 | `AddOperationRecordRetention<TDbContext>(configure?, configSectionPath?)` | EF 包：绑定 `configSectionPath`（默认 `Leistd:OperationRecords:Retention`）并启动期校验，校验消息按实际路径报键，重复调用换用另一配置节时抛出；登记集群周期任务 `operation-records.archive`（每日 `DailyRunHourUtc` 执行） |
 | `IOperationRecordArchiveService` | EF 包：逐库、分批把到期记录搬入 `OperationRecordArchive`，每批一个事务；返回搬运条数与失败库数 |
 | `OperationRecordVisibilityScope` | 可见范围，由调用方算好，只能从三个入口取得：`Host` 见全部，`ForTenantReader(actorId, actorTenantId)` 见租户层加本人的 `Actor` 层（标识与所属租户都相同才算本人），`Unrestricted` 不过滤（仅供不代表读者的内部任务）。存储不判定读者是否为宿主 |
@@ -404,7 +404,8 @@ app.UseOperationFailureRecording();
 - 分页按 `CreationTime` 再按 `Id` 倒序，顺序确定；同一时刻内的先后取决于 Provider 的 Guid 比较方式。
 - 失败原因存码、读时渲染：查询与导出用容器里的非泛型 `IStringLocalizer`（`AddJsonLocalization` 会注册）按码取文案，
   用 `LocalizationPlaceholders.Fill` 填占位符；`FailureData` 解析不了时按无参数渲染。导出的 CSV 保留码与参数两列，另加按导出请求语言渲染的 `FailureMessage` 列。
-- `Outcome` 与 `Visibility` 以字符串落库。表名沿用 EF Core 默认约定，不加框架前缀。
+  CSV 的 `Outcome` 列固定写 camelCase 名称（`succeeded`、`failed`），与 HTTP 契约一致；它在 CSV 边界转换，不读宿主的 JSON 配置。
+- `Outcome` 与 `Visibility` 以成员名（`Succeeded`、`Failed`）字符串落库，与 HTTP 契约的 camelCase 写法无关；改契约不迁移数据。表名沿用 EF Core 默认约定，不加框架前缀。
 
 ## 注意事项
 
@@ -412,6 +413,8 @@ app.UseOperationFailureRecording();
 - 存储没有更新与删除。保留期由 `AddOperationRecordRetention` 把到期记录搬入归档表；归档表不实现 `IMultiTenant`，为它开查询时须自行按租户过滤。
 - 保留期默认关闭，启用时 `RetentionDays` 必填（30–3650），未填时启动失败；关闭时填了也校验区间。
 - Minimal API 端点的查询参数不要改成 `[AsParameters]` 绑定：它把没有默认值的非空属性当必填，省略 `offset` 的请求会 400。
+- `outcome` 查询参数也不要改成直接绑定枚举：查询串不经 JSON 枚举转换器，那样会拒绝 `succeeded`、放过 `0` 与未定义的 `999`。
+  在别的入口直接调用查询用例时，入参的 `Outcome` 是可空枚举，未定义值按 `[EnumDataType]` 验证失败。
 - 不要加请求维度字段（IP、UA、URL）或变更明细，按 `CorrelationId` 回查请求日志。
 - `IOperationRecordWriter` 只能有一个实现：为第二个 DbContext 注册，或数据库存储与日志输出同时注册时，在注册期拒绝。
 - 授权结果处理器由宿主实现；业务失败中间件由宿主显式调用 `UseOperationFailureRecording()`。

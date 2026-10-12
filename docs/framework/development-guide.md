@@ -282,6 +282,7 @@ Microsoft 没有规定注释密度、`<remarks>` 行数或示例配额。本仓�
   - 按名称区分实例的入口（如 `AddServiceClient`、`AddClientCredentials`），默认配置节随实例名变化，无法写成常量：`configSectionPath` 声明为可空、默认 `null`，省略时取 `Leistd:ServiceClients:{Name}`（附加能力再加子节，如 `:TokenExchange`），并在 XML 注释里写明默认路径；显式传入的值仍按非空白校验。
   - 两个已登记的例外不带 `configure`：`AddRemoteTenantConnectionResolution` 只收配置节，`AddHostSettings` 唯一的委托用于声明设置绑定。它们的选项各只有一个调优值（`TenantRouteCacheOptions.CacheLifetime`、`HostSettingOptions.RefreshInterval`），宿主经配置节或 `services.Configure<T>` 调整。不为补齐形态在已有参数中间插入 `configure`：按位置传参的调用会静默错位（可选参数只能追加在末尾）。新增入口不得自行扩列这类例外。
   - 不适合放进配置文件的选项（如签发方决定的 claim 名）不绑定配置节，只走委托。其中含运维可能想按环境调整的值时（如 `HubIdentityOptions.RevalidationInterval`、`LocalTenantConnectionOptions.ControlPlaneConnectionStringName`），在该属性注释里写明不绑定配置的原因和需要调整时的做法；纯代码事实不必逐个说明。
+- **组件端点绑定的输入 DTO 必填用 `[Required]`，不用 C# `required`**：引用类型 `= null!`，值类型声明为可空；Minimal API 不自动执行 DataAnnotations，由用例入口 `Validator.ValidateObject` 验证后再取值（不 `GetValueOrDefault()`），集合元素逐条验证。`required` 留给输出与程序调用载荷（如 `NotificationInputDto`），以及"必须出现、可以为 null"的存在性字段（如 `UpsertTenantConnectionInputDto.ExpectedVersion`，缺键在解析阶段拒绝）。查询串里的枚举取值保留 `string` 绑定，按公开名称在端点转换（见操作记录的 `outcome`）。
 - 名字归实现它的一方：框架只定义自己实现的名字，并放在拥有它的契约上（如 `INotificationChannel.InAppName`、`NotificationInputDto.DefaultType`）；通知类别、渠道名这类业务取值由消费方定义，框架不预置业务常量清单。
 - **组件发出的错误码自带默认译文**：业务异常在 `new BusinessException(code, safeMessage)` 时无条件给码；中英默认文案作为嵌入资源放在发出错误码的包的 Resources 目录（en.json、zh-CN.json，例：`framework/components/authorization/Leistd.Authorization.Core/Resources/`），在该包的 `Add*` 里调 `AddJsonLocalizationResources(typeof(...).Assembly)` 登记。宿主要改文案时在自己的资源里写同名键，登记顺序保证宿主覆盖组件。
   - Core 层错误码和异常只描述语义，XML 注释不写固定 HTTP 状态。组件拥有的非默认 HTTP 语义在组件 Core 包里用 `MapDefaultCode` / `MapDefaultException` 声明，并在组件自己的 `AddXxx` 里经 `services.Configure<GlobalExceptionOptions>(...)` 自动登记——交给宿主逐个调用的话，漏一个不会有编译或启动错误，只会静默回落成 400。登记映射的类型保持 `internal`，默认状态写进组件文档。宿主通过 `MapCode` / `MapException` 覆盖，与调用顺序无关。Core 里的状态码写成 `(int)HttpStatusCode.X`，不为 `StatusCodes` 常量引入 Web 依赖。代价是组件 Core 要依赖 `ExceptionHandling.Core`——多数组件本就为 `BusinessException` 引用它；HTTP 默认状态以 int 表达，Core 仍不依赖 ASP.NET Core 程序集。
@@ -330,6 +331,7 @@ Microsoft 没有规定注释密度、`<remarks>` 行数或示例配额。本仓�
 - `Map*` 扩展挂在宿主给的 `IEndpointRouteBuilder` 上并返回 `RouteGroupBuilder`；路由前缀由宿主 `MapGroup` 决定，组件不写死。
 - **授权策略名必填**，由 `Map*` 的选项给出，漏配时映射阶段即抛出。组件不内置默认策略，也**不在路由组上加无参 `RequireAuthorization()`**：那等于把宿主的默认策略叠到每个端点上——机器端点因此被要求自然人身份，而带具名策略的端点会多出一条宿主没在映射处要求过的条件，两者都只在运行期显形。
 - "只要求是当前登录用户"的端点（读自己的设置、自己的权限、通知中心）同样要一个具名策略（`AccessPolicy` / `CurrentPolicy`），由宿主把它对"默认主体"的定义显式命名后传进来。
+- 组件不替宿主指定认证方案。具名策略省略方案时，由认证结果决定 Challenge 还是 Forbid，再由宿主的默认方案回应；策略自带方案时用该方案。因此宿主须保证默认挑战方案对无凭据请求回 401（例如多方案宿主让挑战与认证走同一个按请求分流的方案），否则只带权限要求的组件端点匿名会被答成 403。
 - 端点名带组件前缀，前缀以 `NamePrefix` 常量公开（`Leistd.<家族>.`），宿主据此按名称追加元数据；不使用 .NET 10 已弃用的 `WithOpenApi`。
 - 用例有结果（新建或改后的对象）时直接返回 DTO，没有结果的写操作返回 204；分页用 `Leistd.Data` 的 `PageRequest` / `PagedResult<T>`；是否包装 `{code, message, data}` 由宿主在路由组上 `WithResultWrapper()` 决定。
 - 组件内的 DTO 投影手写，不引入对象映射依赖。
@@ -401,7 +403,7 @@ framework/tests/
 └── ddd-struct/                  与 framework/ddd-struct/ 并列，保住依赖方向的一级划分
 ```
 
-- 测试项目名为 `Leistd.<真实包前缀>.Tests`；跨家族端到端用例放主家族项目的 `EndToEnd/`；没有独立测试项目的家族在 `check-test-layout.py` 的 `WAIVERS` 写明理由。测试方法名与 `DisplayName` 用下划线分隔的英文句子（`Endpoint_error_throws_ServiceClientException`），背景写进 XML 注释（`check-test-names.py`）。csproj 只写 `FrameworkReference`、特有 `PackageReference` 与 `ProjectReference`，共享属性由 `framework/tests/Directory.Build.props` 注入（`check-csproj-conventions.py`）。
+- 测试项目名为 `Leistd.<真实包前缀>.Tests`；跨家族端到端用例放主家族项目的 `EndToEnd/`；没有独立测试项目的家族在 `check-test-layout.py` 的 `WAIVERS` 写明理由。测试方法名与 `DisplayName` 用下划线分隔的英文句子（`Endpoint_error_throws_ServiceClientException`），背景写进 XML 注释（`check-test-names.py`）；方法名首字母大写。断言说明、失败消息等开发者诊断消息用英文；业务词条、预期的本地化内容、中文注释与测试数据不受此限。csproj 只写 `FrameworkReference`、特有 `PackageReference` 与 `ProjectReference`，共享属性由 `framework/tests/Directory.Build.props` 注入（`check-csproj-conventions.py`）。
 
 ### 7.2 项目内部组织
 

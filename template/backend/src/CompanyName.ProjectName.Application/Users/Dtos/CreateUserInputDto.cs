@@ -11,13 +11,13 @@ public record CreateUserInputDto
     [Required(ErrorMessage = "{0} is required.")]
     [StringLength(UsernameRules.MaxLength, MinimumLength = UsernameRules.MinLength, ErrorMessage = "{0} must be between {2} and {1} characters.")]
     [RegularExpression(UsernameRules.Pattern, ErrorMessage = "{0} can contain only letters, numbers, and underscores.")]
-    public required string Username { get; init; }
+    public string Username { get; init; } = null!;
 
     [Display(Name = "Email")]
     [Required(ErrorMessage = "{0} is required.")]
     [EmailAddress(ErrorMessage = "{0} has an invalid format.")]
     [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string Email { get; init; }
+    public string Email { get; init; } = null!;
 
     [Display(Name = "Display name")]
     [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
@@ -32,7 +32,7 @@ public record CreateUserInputDto
     // 仅快速反馈；权威在服务端 PasswordPolicy
     [StringLength(PasswordPolicy.MaximumLength, MinimumLength = PasswordPolicy.MinimumLength,
         ErrorMessage = "{0} must be between {2} and {1} characters.")]
-    public required string Password { get; init; }
+    public string Password { get; init; } = null!;
 
     public bool IsActive { get; init; } = true;
 

@@ -9,11 +9,13 @@ namespace Leistd.MultiTenancy.Management;
 /// 再在新租户上下文与新工作单元里经 <see cref="Provisioning.ITenantProvisioner"/> 开通；最后启用。
 /// 任一步失败按顺序补偿：清开通数据 → 删连接登记 → 删租户。</para>
 /// <para>不做权限检查——由端点策略决定。成功后发布 <see cref="Events.TenantChangedEvent"/>。</para>
+/// <para>带入参的用例先按 DataAnnotations 校验（含创建入参里的每条连接），失败抛
+/// <see cref="System.ComponentModel.DataAnnotations.ValidationException"/>，此时没有任何写入与事件。</para>
 /// </remarks>
 public interface ITenantManagementService
 {
-    /// <summary>按关键字分页查询租户，按创建时间倒序。</summary>
-    /// <param name="input">关键字与分页。</param>
+    /// <summary>按关键字分页查询租户，按创建时间倒序、同刻按 Id 倒序。</summary>
+    /// <param name="input">关键字与分页；<see cref="PageRequest.Sorting"/> 不生效。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     Task<PagedResult<TenantOutputDto>> GetPagedAsync(GetTenantPagedInputDto input, CancellationToken cancellationToken = default);
 
@@ -43,6 +45,7 @@ public interface ITenantManagementService
     Task<TenantOutputDto> SetActivationAsync(Guid id, UpdateTenantActivationInputDto input, CancellationToken cancellationToken = default);
 
     /// <summary>软删除租户，业务数据保留但不可达。</summary>
+    /// <remarks>租户不存在或已删除（含并发删除先完成）时直接成功，不发布事件；其他失败照常抛出。</remarks>
     /// <param name="id">租户标识。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);

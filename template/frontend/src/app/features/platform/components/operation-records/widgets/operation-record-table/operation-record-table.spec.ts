@@ -32,7 +32,7 @@ describe('OperationRecordTable failure reasons', () => {
       action: 'user.created',
       targetId: 't-1',
       authorizationBasis: 'App.Users.Create',
-      outcome: 'Failed',
+      outcome: 'failed',
       creationTime: '2026-09-20T10:00:00Z',
       ...failure,
     };
@@ -160,7 +160,7 @@ describe('OperationRecordTable action sentences', () => {
       targetId: 't-1',
       targetName: 'alice',
       authorizationBasis: 'App.Users.Create',
-      outcome: 'Succeeded',
+      outcome: 'succeeded',
       creationTime: '2026-09-20T10:00:00Z',
     });
     fixture.componentRef.setInput('records', [

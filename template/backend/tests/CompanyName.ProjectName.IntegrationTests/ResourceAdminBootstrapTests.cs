@@ -1,16 +1,22 @@
 #if (RemoteTokenAuth)
 extern alias Migrator;
+using System.Data.Common;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using CompanyName.ProjectName.Application;
 using CompanyName.ProjectName.Application.Initialization;
 using CompanyName.ProjectName.Application.Permissions.Provider;
+using CompanyName.ProjectName.Infrastructure.Persistence;
+using Leistd.Authorization.Definitions;
 using Leistd.Lock.Abstractions;
+using Leistd.MultiTenancy.Tenancy;
 using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Recording;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -27,7 +33,7 @@ using Leistd.DependencyInjection.DynamicProxy.Registration;
 
 namespace CompanyName.ProjectName.IntegrationTests;
 
-/// <summary>正式管理员引导入口：真实 PostgreSQL、真实 CLI；授权载体是 Admin 角色，撤销后重跑不恢复。</summary>
+/// <summary>正式管理员引导入口：真实 PostgreSQL、真实 CLI；授权载体是 Admin 角色，撤销后重跑不恢复，只有显式恢复模式才把人请回来。</summary>
 public sealed class ResourceAdminBootstrapTests
 {
     private const string Schema = "\"companyname-projectname\"";
@@ -235,14 +241,132 @@ public sealed class ResourceAdminBootstrapTests
         }
     }
 
+    /// <summary>租户锁死的各种方式（停用、删除、移出 Admin、Admin 权限撤空及其组合），显式恢复一次即可重新管理。</summary>
+    [Theory]
+    [InlineData(false, false, false, true)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(true, true, true, true)]
+    public async Task Restore_mode_brings_a_locked_out_administrator_back_in_one_run(
+        bool disable, bool delete, bool revokeMembership, bool clearGrants)
+    {
+        using var factory = new ProjectWebApplicationFactory { UseProductionAuthentication = true };
+        using var rsa = RSA.Create(2048);
+        var key = new RsaSecurityKey(rsa) { KeyId = "restore-test" };
+        using var host = factory.WithWebHostBuilder(builder => builder.UseSetting("Authentication:Audience", "resource-api")
+            .ConfigureTestServices(services => services.Configure<OpenIddictValidationOptions>(options =>
+            {
+                options.Configuration = new OpenIddictConfiguration { Issuer = new Uri(Issuer) };
+                options.Configuration.SigningKeys.Add(key);
+            })));
+        var connection = host.Services.GetRequiredService<IConfiguration>().GetConnectionString("Default")!;
+        var subject = Guid.NewGuid();
+        Assert.Equal(0, (await RunAsync(connection, "--grant-admin", subject.ToString(), "--apply")).Exit);
+        using var client = ProjectWebApplicationFactory.CreateProjectClient(host);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token(subject, key, "erin", "erin@example.test"));
+        Assert.Equal(HttpStatusCode.OK, await RolesStatusAsync(client));
+
+        // 管理员把自己所在的 Admin 角色权限撤空：经正式接口，授权版本随之前进
+        if (clearGrants)
+        {
+            var adminRoleId = await AdminRoleIdAsync(connection);
+            var grants = await client.GetFromJsonAsync<PermissionGrantsResponse>($"/api/v1/permissions/grants/roles/{adminRoleId}");
+            using var cleared = await client.PutAsJsonAsync($"/api/v1/permissions/grants/roles/{adminRoleId}",
+                new { expectedVersion = grants!.Version, permissionNames = Array.Empty<string>() });
+            Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+        }
+        if (disable)
+            await ExecuteAsync(connection, $"UPDATE {Schema}.\"Users\" SET \"IsActive\" = false WHERE \"Id\" = @subject", subject);
+        if (delete)
+            await ExecuteAsync(connection, $"UPDATE {Schema}.\"Users\" SET \"IsDeleted\" = true, \"DeletionTime\" = now() WHERE \"Id\" = @subject", subject);
+        if (revokeMembership)
+            await ExecuteAsync(connection, $"UPDATE {Schema}.\"UserRoles\" SET \"IsDeleted\" = true, \"DeletionTime\" = now() WHERE \"UserId\" = @subject", subject);
+        Assert.NotEqual(HttpStatusCode.OK, await RolesStatusAsync(client));
+
+        // 普通引导不推翻这些决定
+        var plain = await RunAsync(connection, "--grant-admin", subject.ToString(), "--apply");
+        Assert.True(plain.Exit == (delete ? 1 : 0), plain.Output);
+        Assert.NotEqual(HttpStatusCode.OK, await RolesStatusAsync(client));
+
+        var damaged = await StateAsync(connection);
+        var dry = await RunAsync(connection, "--grant-admin", subject.ToString(), "--restore");
+        Assert.True(dry.Exit == 0, dry.Output);
+        Assert.Contains("Dry run (restore)", dry.Output);
+        Assert.Equal(damaged, await StateAsync(connection));
+
+        var applied = await RunAsync(connection, "--grant-admin", subject.ToString(), "--restore", "--apply");
+        Assert.True(applied.Exit == 0, applied.Output);
+        Assert.Contains("Restored administrator access", applied.Output);
+        Assert.Equal(HttpStatusCode.OK, await RolesStatusAsync(client));
+        Assert.Equal(1, await AdminMembershipsAsync(connection, subject, deleted: false));
+        // 权限补在共享的 Admin 角色上，不给这个人写直接授予
+        Assert.Equal(0, await UserGrantCountAsync(connection, subject));
+#if (IncludeOperationRecords)
+        Assert.Equal(damaged.Records + 1, (await StateAsync(connection)).Records);
+#else
+        Assert.Contains("resource.admin-restored", applied.Output);
+#endif
+
+        var restored = await StateAsync(connection);
+        var again = await RunAsync(connection, "--grant-admin", subject.ToString(), "--restore", "--apply");
+        Assert.True(again.Exit == 0, again.Output);
+        Assert.Contains("nothing to restore", again.Output);
+        Assert.Equal(restored, await StateAsync(connection));
+    }
+
+    /// <summary>恢复中途失败整体回滚：撤回删除、启用、成员关系与前面已补的授予都不留下。</summary>
     [Fact]
-    public async Task The_initialization_lock_is_held_until_the_bootstrap_transaction_commits()
+    public async Task A_failed_restore_rolls_back_every_change()
+    {
+        var connection = PostgreSqlTestDatabase.CreateDatabase();
+        try
+        {
+            var subject = Guid.NewGuid();
+            Assert.Equal(0, (await RunAsync(connection, "--grant-admin", subject.ToString(), "--apply")).Exit);
+            await ExecuteAsync(connection, $"UPDATE {Schema}.\"Users\" SET \"IsActive\" = false, \"IsDeleted\" = true, \"DeletionTime\" = now() WHERE \"Id\" = @subject", subject);
+            await ExecuteAsync(connection, $"UPDATE {Schema}.\"UserRoles\" SET \"IsDeleted\" = true, \"DeletionTime\" = now() WHERE \"UserId\" = @subject", subject);
+            await ExecuteAsync(connection, $"DELETE FROM {Schema}.\"PermissionGrantRecords\" WHERE \"ProviderName\" = 'Role'");
+            // 拒绝最后一项补授：此前用户状态、成员关系与前面的授予都已写进同一事务
+            var last = LastAvailablePermission(MultiTenancySides.Host);
+            await ExecuteAsync(connection,
+                $"ALTER TABLE {Schema}.\"PermissionGrantRecords\" ADD CONSTRAINT reject_restore CHECK (\"PermissionName\" <> '{last}') NOT VALID");
+            var before = await StateAsync(connection);
+
+            var applied = await RunAsync(connection, "--grant-admin", subject.ToString(), "--restore", "--apply");
+
+            Assert.NotEqual(0, applied.Exit);
+            Assert.Equal(before, await StateAsync(connection));
+            Assert.Equal(0, await AdminMembershipsAsync(connection, subject, deleted: false));
+            Assert.Equal(1, await ScalarAsync(connection, $"SELECT count(*) FROM {Schema}.\"Users\" WHERE \"Id\" = @subject AND \"IsDeleted\" AND NOT \"IsActive\"", subject));
+        }
+        finally
+        {
+            PostgreSqlTestDatabase.DropDatabase(connection);
+        }
+    }
+
+    [Fact]
+    public async Task Restore_requires_grant_admin()
+    {
+        var result = await RunAsync("Host=unused", "--restore", "--apply");
+
+        Assert.Equal(2, result.Exit);
+        Assert.Contains("--restore requires --grant-admin", result.Output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_initialization_lock_is_held_until_the_bootstrap_transaction_commits(bool restore)
     {
         // 判据是"提交前锁仍被持有、另一入口进不来"，而不是"并发后没有重复角色"：
         // 后者取决于调度，提前放锁的实现也可能碰巧串行通过。
-        // 在进程内用真实数据库组装与命令相同的服务，并在提交前的最后一步（成功审计）暂停。
+        // 在进程内用真实数据库组装与命令相同的服务，设两个观察点：成功审计之后暂停一次，让启动入口排上队；
+        // 再在目标事务真正提交前暂停一次，确认锁从未释放、启动入口仍在锁外——"审计后、提交前放锁"的实现在第二处失败。
         var connection = PostgreSqlTestDatabase.CreateDatabase();
         var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var commit = new PausingCommit();
         IHost? host = null;
         Task? bootstrap = null;
         Task? startup = null;
@@ -257,15 +381,17 @@ public sealed class ResourceAdminBootstrapTests
                 var recorder = services.Last(d => d.ServiceType == typeof(IOperationRecorder));
                 services.Remove(recorder);
                 services.AddTransient<IOperationRecorder>(sp => new PausingRecorder(
-                    (IOperationRecorder)ActivatorUtilities.CreateInstance(sp, recorder.ImplementationType!), reached, resume.Task));
+                    (IOperationRecorder)ActivatorUtilities.CreateInstance(sp, recorder.ImplementationType!), reached, resume.Task, commit));
+                services.ConfigureDbContext<MyProjectDbContext>(options => options.AddInterceptors(commit));
             });
             await host.StartAsync();
 
             var subject = Guid.NewGuid();
             var running = Task.Run(async () =>
             {
+                commit.MarkTargetFlow();
                 await using var scope = host.Services.CreateAsyncScope();
-                return await scope.ServiceProvider.GetRequiredService<ResourceAdminBootstrapRunner>().RunAsync(subject, null, apply: true);
+                return await scope.ServiceProvider.GetRequiredService<ResourceAdminBootstrapRunner>().RunAsync(subject, null, apply: true, restore);
             });
             bootstrap = running;
             await reached.Task.WaitAsync(TimeSpan.FromSeconds(30));
@@ -281,8 +407,18 @@ public sealed class ResourceAdminBootstrapTests
             await Task.WhenAny(probe.WaitingAsync(), startup).WaitAsync(TimeSpan.FromSeconds(30));
             Assert.False(startup.IsCompleted, startup.Exception?.ToString());
 
+            // 放行审计后，引导的事务停在提交前：此刻锁仍是引导那一次持有、从未释放，启动入口仍在锁外
             resume.SetResult();
-            Assert.Contains("Assigned the Admin role", await running.WaitAsync(TimeSpan.FromSeconds(30)));
+            await Task.WhenAny(commit.Reached, running).WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.True(commit.Reached.IsCompleted, $"The bootstrap did not reach its commit: {running.Exception}");
+            Assert.True(probe.Releases == 0, "The initialization lock was released before the bootstrap transaction committed");
+            Assert.Equal(1, probe.Holders);
+            Assert.False(startup.IsCompleted, startup.Exception?.ToString());
+            // 暂停点确实在提交之前：库外还看不到这次的成员关系
+            Assert.Equal(0, await AdminMembershipsAsync(connection, subject, deleted: false));
+
+            commit.Resume();
+            Assert.Contains(restore ? "Restored administrator access" : "Assigned the Admin role", await running.WaitAsync(TimeSpan.FromSeconds(30)));
             await startup.WaitAsync(TimeSpan.FromSeconds(30));
             await host.StopAsync();
 
@@ -296,6 +432,7 @@ public sealed class ResourceAdminBootstrapTests
             // 断言在放行前失败时（例如注回"提前放锁"），引导仍停在暂停处：先放行、等两个入口退出，
             // 再释放宿主与删库。清理中的异常不覆盖原断言。
             resume.TrySetResult();
+            commit.Resume();
             try
             {
                 await Task.WhenAll(new[] { bootstrap, startup }.OfType<Task>()).WaitAsync(TimeSpan.FromSeconds(30));
@@ -330,7 +467,7 @@ public sealed class ResourceAdminBootstrapTests
 
     private static IHost BootstrapHost(string connection, Action<IServiceCollection> configure)
     {
-        // 与命令的组合一致（Program.cs 的 --grant-admin 分支），只替换锁与审计记录器以便观测
+        // 与命令的组合一致（Program.cs 的 --grant-admin 分支，非生产环境开启容器校验），只替换锁与审计记录器以便观测
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = "Testing" });
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -340,7 +477,8 @@ public sealed class ResourceAdminBootstrapTests
             ["Leistd:ServiceClients:Identity:BaseAddress"] = "https://identity.example",
 #endif
         });
-        builder.ConfigureContainer(new DynamicProxyServiceRegistrationCallbackFactory());
+        builder.ConfigureContainer(new DynamicProxyServiceRegistrationCallbackFactory(
+            new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }));
         MigratorDependencyInjection.AddResourceAdminBootstrapServices(builder.Services, builder.Configuration);
         configure(builder.Services);
         return builder.Build();
@@ -363,6 +501,19 @@ public sealed class ResourceAdminBootstrapTests
         => ScalarAsync(connection,
             $"SELECT v.\"Version\" FROM {Schema}.\"AuthorizationVersionRecord\" v JOIN {Schema}.\"Roles\" r ON v.\"ProviderKey\" = r.\"Id\"::text "
             + "WHERE v.\"ProviderName\" = 'Role' AND r.\"Name\" = 'Admin'");
+
+    private static async Task<HttpStatusCode> RolesStatusAsync(HttpClient client)
+    {
+        using var response = await client.GetAsync("/api/v1/roles");
+        return response.StatusCode;
+    }
+
+    private static string LastAvailablePermission(MultiTenancySides side)
+    {
+        using var services = new ServiceCollection().AddLogging().AddApplicationServices().BuildServiceProvider();
+        var definitions = services.GetRequiredService<IPermissionDefinitionManager>();
+        return definitions.GetAll().Select(definition => definition.Name).Last(name => definitions.IsAvailableOn(name, side));
+    }
 
     private static async Task<Guid> AdminRoleIdAsync(string connection)
     {
@@ -482,8 +633,12 @@ public sealed class ResourceAdminBootstrapTests
         private readonly SemaphoreSlim gate = new(1, 1);
         private readonly TaskCompletionSource waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int holders;
+        private int releases;
 
         public int Holders => Volatile.Read(ref holders);
+
+        /// <summary>释放次数；在释放的当下同步计数，不受等待方何时接手影响。</summary>
+        public int Releases => Volatile.Read(ref releases);
 
         public Task WaitingAsync() => waiting.Task;
 
@@ -510,24 +665,62 @@ public sealed class ResourceAdminBootstrapTests
             public ValueTask DisposeAsync()
             {
                 Interlocked.Decrement(ref owner.holders);
+                Interlocked.Increment(ref owner.releases);
                 owner.gate.Release();
                 return ValueTask.CompletedTask;
             }
         }
     }
 
-    /// <summary>记完成功审计（提交前的最后一步）后暂停，直到测试放行。</summary>
-    private sealed class PausingRecorder(IOperationRecorder inner, TaskCompletionSource reached, Task resume) : IOperationRecorder
+    /// <summary>记完成功审计（提交前的最后一步写入）后暂停，直到测试放行；并让随后的目标事务提交也停一次。</summary>
+    private sealed class PausingRecorder(IOperationRecorder inner, TaskCompletionSource reached, Task resume, PausingCommit commit) : IOperationRecorder
     {
         public async Task RecordSucceededAsync(string action, OperationTarget target, string authorizationBasis, CancellationToken cancellationToken = default)
         {
             await inner.RecordSucceededAsync(action, target, authorizationBasis, cancellationToken);
+            commit.Arm();
             reached.TrySetResult();
             await resume;
         }
 
         public Task RecordFailedAsync(string action, OperationTarget target, string authorizationBasis, OperationFailure failure = default)
             => inner.RecordFailedAsync(action, target, authorizationBasis, failure);
+    }
+
+    /// <summary>
+    /// 只暂停目标事务的提交：由 <see cref="MarkTargetFlow"/> 标记的执行流在成功审计之后发起的第一次提交，
+    /// 停在真正提交之前，直到测试放行。其他执行流（竞争入口）的提交不受影响。
+    /// </summary>
+    private sealed class PausingCommit : DbTransactionInterceptor
+    {
+        private readonly AsyncLocal<bool> targetFlow = new();
+        private readonly TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int armed;
+
+        public Task Reached => reached.Task;
+
+        public void MarkTargetFlow() => targetFlow.Value = true;
+
+        public void Arm()
+        {
+            if (targetFlow.Value)
+                Volatile.Write(ref armed, 1);
+        }
+
+        public void Resume() => resume.TrySetResult();
+
+        public override async ValueTask<InterceptionResult> TransactionCommittingAsync(
+            DbTransaction transaction, TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (targetFlow.Value && Interlocked.Exchange(ref armed, 0) == 1)
+            {
+                reached.TrySetResult();
+                await resume.Task;
+            }
+
+            return result;
+        }
     }
 }
 #endif

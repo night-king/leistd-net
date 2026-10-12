@@ -70,7 +70,7 @@ internal sealed class NullUnitOfWorkManager : IUnitOfWorkManager
     public IUnitOfWork? Current => null;
 
     public IUnitOfWork Begin(UnitOfWorkOptions? options = null, bool requiresNew = false)
-        => throw new NotSupportedException("测试不使用工作单元。");
+        => throw new NotSupportedException("The tests do not use a unit of work.");
 }
 
 internal static class FilterTestServices

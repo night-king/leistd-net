@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Permissions.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
 using CompanyName.ProjectName.Domain.Users.Errors;
@@ -12,6 +13,10 @@ using CompanyName.ProjectName.Infrastructure.Persistence;
 using Leistd.Authorization.Constants;
 using Leistd.Authorization.Grants;
 using Leistd.MultiTenancy.Context;
+#if (IncludeOperationRecords)
+using Leistd.OperationRecords.EntityFrameworkCore.Entities;
+using Leistd.OperationRecords.Models;
+#endif
 using Leistd.Security.Claims;
 #if (IncludeRealTime)
 using Microsoft.AspNetCore.Http.Connections;
@@ -68,6 +73,41 @@ public sealed class ResourceMemberAccessTests(ProjectWebApplicationFactory facto
         await SetActiveAsync(factory.Services, tenantId, subjectId, active: true);
         using (var restored = await session.Client.GetAsync("/api/v1/auth/me"))
             Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
+    }
+
+    /// <summary>成员不能停用自己：拒绝在写入之前，本人照常可用，只留被拒记录、不留成功记录。</summary>
+    [Fact]
+    public async Task A_member_cannot_disable_their_own_access()
+    {
+        var subjectId = Guid.CreateVersion7();
+        var tenantId = ProjectWebApplicationFactory.NewTenantId();
+        await GrantAsync(factory.Services, tenantId, subjectId, PermissionConstant.Users.Update);
+        using var session = factory.CreateResourceSession(subjectId, tenantId);
+        using (var first = await session.Client.GetAsync("/api/v1/auth/me"))
+            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        using (var disable = await session.Client.PatchAsync($"/api/v1/users/{subjectId}/disable", null))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, disable.StatusCode);
+            var problem = await disable.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(UserErrorCodes.SelfDisableForbidden, problem.GetProperty("code").GetString());
+        }
+
+        using (var me = await session.Client.GetAsync("/api/v1/auth/me"))
+            Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<MyProjectDbContext>();
+        Assert.True(await db.Set<User>().IgnoreQueryFilters().Where(user => user.Id == subjectId).Select(user => user.IsActive).SingleAsync());
+#if (IncludeOperationRecords)
+        Assert.False(await db.Set<OperationRecord>().IgnoreQueryFilters()
+            .AnyAsync(record => record.Action == OperationRecordActions.UserDisabled && record.TargetId == subjectId.ToString()
+                && record.Outcome == OperationRecordOutcome.Succeeded));
+#else
+        Assert.DoesNotContain(factory.Services.GetRequiredService<OperationRecordLogCapture>().Snapshot(), entry =>
+            Equals(OperationRecordLogCapture.Field(entry, "OperationAction"), OperationRecordActions.UserDisabled)
+            && Equals(OperationRecordLogCapture.Field(entry, "OperationTargetId"), subjectId.ToString())
+            && OperationRecordLogCapture.Field(entry, "OperationOutcome")?.ToString() == "Succeeded");
+#endif
     }
 
     [Fact]

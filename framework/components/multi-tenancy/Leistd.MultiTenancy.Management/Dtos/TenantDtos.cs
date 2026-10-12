@@ -78,7 +78,7 @@ public record CreateTenantInputDto
     /// <summary>租户名称，须匹配 <see cref="TenantConfiguration.NamePattern"/>。</summary>
     [Required]
     [MaxLength(TenantConfiguration.MaxNameLength)]
-    public required string Name { get; init; }
+    public string Name { get; init; } = null!;
 
     /// <summary>显示名。</summary>
     [MaxLength(128)]
@@ -114,12 +114,12 @@ public record CreateTenantConnectionInputDto
     /// <summary>连接名，对应使用方 DbContext 的 <c>[ConnectionStringName]</c>；不区分大小写。</summary>
     [Required]
     [MaxLength(TenantConnectionConfiguration.MaxNameLength)]
-    public required string Name { get; init; }
+    public string Name { get; init; } = null!;
 
     /// <summary>连接串。</summary>
     [Required]
     [MaxLength(TenantConnectionConfiguration.MaxConnectionStringLength)]
-    public required string ConnectionString { get; init; }
+    public string ConnectionString { get; init; } = null!;
 
     /// <summary>不输出连接串。</summary>
     public override string ToString() => $"{nameof(CreateTenantConnectionInputDto)} {{ Name = {Name} }}";
@@ -134,7 +134,7 @@ public record UpdateTenantInputDto
     /// </summary>
     [Required]
     [MaxLength(TenantConfiguration.MaxStoredNameLength)]
-    public required string Name { get; init; }
+    public string Name { get; init; } = null!;
 
     /// <summary>显示名；传 <see langword="null"/> 即清空。</summary>
     [MaxLength(128)]
@@ -148,6 +148,8 @@ public record UpdateTenantInputDto
 /// <summary>租户启停入参。</summary>
 public record UpdateTenantActivationInputDto
 {
-    /// <summary>停用后该租户的请求自下一次校验起被拒绝。</summary>
-    public required bool IsActive { get; init; }
+    /// <summary>目标状态；停用后该租户的请求自下一次校验起被拒绝。</summary>
+    /// <remarks>可空只为让请求体漏掉该字段时按字段报验证错误，而不是静默当成停用；用例入口验证后才取值。</remarks>
+    [Required]
+    public bool? IsActive { get; init; }
 }

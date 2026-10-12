@@ -187,6 +187,27 @@ public sealed class OperationRecordQueryTests
         Assert.Equal(["StartTime", "EndTime"], error.ValidationResult?.MemberNames);
     }
 
+    /// <summary>未定义的结果值由用例自己按 Outcome 字段拒绝：不查存储，导出也不留导出记录。</summary>
+    /// <remarks>HTTP 端点先用字符串解析器拦掉了 <c>999</c>，内部直接调用用例的消费者只能靠这一层。</remarks>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task An_undefined_outcome_is_rejected_as_an_outcome_error_by_the_list_and_export(bool export)
+    {
+        var (service, store) = Create(hostReader: true);
+        const OperationRecordOutcome undefined = (OperationRecordOutcome)999;
+
+        var error = await Assert.ThrowsAsync<System.ComponentModel.DataAnnotations.ValidationException>(() => export
+            ? (Task)service.ExportAsync(
+                new ExportOperationRecordsInputDto { Outcome = undefined },
+                new OperationRecordExportAudit("operation-records.exported", "App.OperationRecords.Export"))
+            : service.GetPagedListAsync(new GetOperationRecordPagedInputDto { Outcome = undefined }));
+
+        Assert.Equal(["Outcome"], error.ValidationResult?.MemberNames);
+        Assert.Null(store.LastQuery);
+        Assert.DoesNotContain(store.Written, record => record.Action == "operation-records.exported");
+    }
+
     /// <summary>导出：带 BOM、用户可控字段防公式注入、仅宿主列只在宿主导出时成列，文件生成后才记导出。</summary>
     /// <remarks>
     /// 目标名是用户可控内容：显示名改成 <c>=cmd|...</c> 的人能让打开审计文件的管理员执行命令。

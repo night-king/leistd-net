@@ -1,4 +1,7 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using Leistd.Data.Paging;
+using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Queries;
 using Leistd.OperationRecords.Dtos;
 using Microsoft.AspNetCore.Builder;
@@ -29,6 +32,8 @@ public static class OperationRecordEndpoints
     /// 授权策略全部必填，漏配在映射时抛出。</para>
     /// <para>查询参数与控制器形态一致：<c>offset</c>、<c>limit</c>、<c>keyword</c>、<c>startTime</c>、<c>endTime</c>、
     /// 可重复的 <c>categories</c> 与 <c>actions</c>、<c>outcome</c>；入参校验失败返回带字段错误的 400。</para>
+    /// <para><c>outcome</c> 只接受 camelCase 名称 <c>succeeded</c>、<c>failed</c>，与输出里的写法一致；
+    /// 其他大小写、数字与未定义的值都是字段 <c>outcome</c> 的验证错误。</para>
     /// <para>要求已注册历史查询（由可回读的存储适配注册），否则映射时抛出。</para>
     /// <para>不要改写成 <c>[AsParameters]</c> 绑定分页类型：它会把没有默认值的非空属性当成必填参数。</para>
     /// </remarks>
@@ -87,7 +92,7 @@ public static class OperationRecordEndpoints
                     EndTime = endTime,
                     Categories = categories,
                     Actions = actions,
-                    Outcome = outcome
+                    Outcome = ParseOutcome(outcome)
                 },
                 cancellationToken))
             .WithName(GetPagedListName)
@@ -118,7 +123,7 @@ public static class OperationRecordEndpoints
                         EndTime = endTime,
                         Categories = categories,
                         Actions = actions,
-                        Outcome = outcome,
+                        Outcome = ParseOutcome(outcome),
                         Limit = limit
                     },
                     audit,
@@ -129,5 +134,29 @@ public static class OperationRecordEndpoints
             .RequireAuthorization(options.ExportPolicy);
 
         return group;
+    }
+
+    // 查询串不经宿主的 JSON 枚举转换器，按公开名称逐字匹配。不用 Enum.TryParse：它接受数字、未定义值与任意大小写。
+    private static OperationRecordOutcome? ParseOutcome(string? outcome)
+    {
+        if (outcome is null)
+        {
+            return null;
+        }
+
+        foreach (var value in Enum.GetValues<OperationRecordOutcome>())
+        {
+            if (string.Equals(JsonNamingPolicy.CamelCase.ConvertName(value.ToString()), outcome, StringComparison.Ordinal))
+            {
+                return value;
+            }
+        }
+
+        throw new ValidationException(
+            new ValidationResult(
+                $"{nameof(GetOperationRecordPagedInputDto.Outcome)} is not an allowed value.",
+                [nameof(GetOperationRecordPagedInputDto.Outcome)]),
+            validatingAttribute: null,
+            value: outcome);
     }
 }

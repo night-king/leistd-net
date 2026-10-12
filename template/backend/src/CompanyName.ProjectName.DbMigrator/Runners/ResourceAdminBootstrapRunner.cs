@@ -31,8 +31,11 @@ namespace CompanyName.ProjectName.DbMigrator.Runners;
 /// 调整 Administrator 的权限、移除其成员关系都能收回。直接授予在本服务没有管理入口，收不回。</para>
 /// <para>本地还没有这个主体（远端用户尚未访问过）时，先建只含主体标识的最小用户行，
 /// 首次真实访问时按令牌补齐资料。</para>
-/// <para>只引导一次：这个人曾被移出 Administrator（成员关系的软删除历史）就不再加回，
-/// 重跑命令不会推翻之后的撤销；要恢复走正式角色管理。</para>
+/// <para>普通引导只做一次：这个人曾被移出 Administrator（成员关系的软删除历史）就不再加回，
+/// 重跑命令不会推翻之后的撤销；被停用、被删除的也原样保留。</para>
+/// <para>显式恢复模式（<c>--restore</c>）用于没有其他可授权管理员时把人请回来：撤回删除、重新启用、
+/// 补回 Admin 成员关系（只有这一条，别的角色不复活），再经 <see cref="IPermissionGrantManager"/> 把当前侧别可用的权限
+/// 补齐给 Admin 角色。Admin 是共享角色，补齐对它的全部成员生效；不恢复已作废的会话与令牌。</para>
 /// </remarks>
 internal sealed class ResourceAdminBootstrapRunner(
     ICurrentTenant currentTenant,
@@ -49,10 +52,11 @@ internal sealed class ResourceAdminBootstrapRunner(
     UserDomainService userDomainService,
     IPermissionDefinitionManager definitions,
     IPermissionGrantStore grants,
+    IPermissionGrantManager grantManager,
     ISystemInitializer initializer,
     IOperationRecorder recorder)
 {
-    public async Task<string> RunAsync(Guid subject, Guid? tenant, bool apply, CancellationToken cancellationToken = default)
+    public async Task<string> RunAsync(Guid subject, Guid? tenant, bool apply, bool restore, CancellationToken cancellationToken = default)
     {
 #if (IncludeMultiTenancy)
         if (tenant is { } tenantId)
@@ -91,8 +95,13 @@ internal sealed class ResourceAdminBootstrapRunner(
             user = await userRepository.GetWithRolesAsync(subject, cancellationToken);
         }
 
+        if (restore)
+        {
+            return await RestoreAsync(uow, subject, side, adminRole, user, apply, cancellationToken);
+        }
+
         if (user is { IsDeleted: true })
-            throw new InvalidOperationException($"User {key} has been deleted in this service and cannot be bootstrapped; recover it through your data recovery procedure first.");
+            throw new InvalidOperationException($"User {key} has been deleted in this service and cannot be bootstrapped; add --restore to restore it as an administrator.");
 
         if (adminRole is not null && user is not null)
         {
@@ -100,13 +109,13 @@ internal sealed class ResourceAdminBootstrapRunner(
             if (memberships.Any(ur => !ur.IsDeleted))
                 return $"User {key} already holds the {AdminConstant.RoleName} role; nothing changed.";
             if (memberships.Count != 0)
-                return $"User {key} was removed from the {AdminConstant.RoleName} role earlier; re-assign it through role management. Nothing changed.";
+                return $"User {key} was removed from the {AdminConstant.RoleName} role earlier; re-assign it through role management, or add --restore when no administrator is left. Nothing changed.";
         }
 
         if (!apply)
         {
             var roleStep = adminRole is null
-                ? $"create the {AdminConstant.RoleName} role and seed {AvailablePermissionCount(side)} {side} permissions"
+                ? $"create the {AdminConstant.RoleName} role and seed {AvailablePermissionNames(side).Count} {side} permissions"
                 : await DescribeExistingRoleAsync(adminRole, side, cancellationToken);
             var userStep = user is null
                 ? "create a minimal local user"
@@ -129,18 +138,66 @@ internal sealed class ResourceAdminBootstrapRunner(
             + ". Later role changes are managed through role management; re-running will not undo them.";
     }
 
+    // 先列出要修的每一项：预演照实说、没有要修的就什么也不写（重复执行不留第二条记录）
+    private async Task<string> RestoreAsync(
+        IUnitOfWork uow, Guid subject, MultiTenancySides side, Role? adminRole, User? user, bool apply, CancellationToken cancellationToken)
+    {
+        var key = subject.ToString();
+        var missing = adminRole is null
+            ? AvailablePermissionNames(side)
+            : await MissingPermissionNamesAsync(adminRole, side, cancellationToken);
+        var repairs = new List<string>();
+        if (user is null) repairs.Add("create a minimal local user");
+        if (user is { IsDeleted: true }) repairs.Add("restore the deleted local user");
+        if (user is { IsActive: false }) repairs.Add("enable the local user");
+        if (adminRole is null) repairs.Add($"create the {AdminConstant.RoleName} role");
+        if (adminRole is null || user is null || !user.IsInRole(adminRole.Id)) repairs.Add($"assign the {AdminConstant.RoleName} role");
+        if (missing.Count != 0) repairs.Add($"grant {missing.Count} missing {side} permissions to the shared {AdminConstant.RoleName} role");
+
+        if (repairs.Count == 0)
+            return $"User {key} already has working administrator access; nothing to restore.";
+
+        if (!apply)
+            return $"Dry run (restore) for {key}: would {string.Join(", ", repairs)}. No data or audit record changed.";
+
+        adminRole = await initializer.InitializeWithinLockAsync(cancellationToken);
+        var target = user ?? (await userDomainService.EnsureSubjectAsync(subject, cancellationToken)).User;
+        if (target.IsDeleted) target.Restore();
+        target.Enable();
+        target.AssignRoles([adminRole.Id]);
+        await userRepository.UpdateAsync(target, cancellationToken);
+        // 角色若刚在上一步首次播种，这里已无缺口；否则按缺口逐项补授，已有的授予与其他角色不动
+        foreach (var permission in await MissingPermissionNamesAsync(adminRole, side, cancellationToken))
+        {
+            await grantManager.GrantAsync(permission, PermissionGrantProviderNames.Role, adminRole.Id.ToString(), cancellationToken);
+        }
+
+        await recorder.RecordSucceededAsync(OperationRecordActions.ResourceAdminRestored,
+            OperationTarget.For($"User/{key}", key), OperationRecordAuthorizations.DeploymentBootstrap, cancellationToken);
+        await uow.CompleteAsync(cancellationToken);
+
+        return $"Restored administrator access for {key}: {string.Join(", ", repairs)}. "
+            + $"The {AdminConstant.RoleName} role is shared, so every member holds the granted permissions; sessions and tokens revoked earlier stay revoked.";
+    }
+
     private Task<Role?> FindAdminRoleAsync(CancellationToken cancellationToken)
         => roleRepository.GetFirstAsync(r => r.Name == AdminConstant.RoleName, cancellationToken: cancellationToken);
 
-    private int AvailablePermissionCount(MultiTenancySides side)
-        => definitions.GetAll().Count(d => definitions.IsAvailableOn(d.Name, side));
+    private List<string> AvailablePermissionNames(MultiTenancySides side)
+        => [.. definitions.GetAll().Select(d => d.Name).Where(name => definitions.IsAvailableOn(name, side))];
+
+    private async Task<List<string>> MissingPermissionNamesAsync(Role adminRole, MultiTenancySides side, CancellationToken cancellationToken)
+    {
+        var current = await grants.GetGrantsAsync(PermissionGrantProviderNames.Role, adminRole.Id.ToString(), cancellationToken);
+        return [.. AvailablePermissionNames(side).Where(name => !current.PermissionNames.Contains(name))];
+    }
 
     // 角色已经播种过就按现状如实说，不能在权限被人为缩减后仍报"将授予全部"
     private async Task<string> DescribeExistingRoleAsync(Role adminRole, MultiTenancySides side, CancellationToken cancellationToken)
     {
         var current = await grants.GetGrantsAsync(PermissionGrantProviderNames.Role, adminRole.Id.ToString(), cancellationToken);
         return current.Version == 0
-            ? $"seed {AvailablePermissionCount(side)} {side} permissions to the existing {AdminConstant.RoleName} role"
+            ? $"seed {AvailablePermissionNames(side).Count} {side} permissions to the existing {AdminConstant.RoleName} role"
             : $"keep the {AdminConstant.RoleName} role's current {current.PermissionNames.Count} permissions";
     }
 }

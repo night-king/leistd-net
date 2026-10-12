@@ -12,7 +12,8 @@ import { getCurrentUser } from '../utils/current-user';
 /** 与后端 `ExportOperationRecordsInputDto.MaximumExportCount` 同值。 */
 export const MAXIMUM_EXPORT_COUNT = 10000;
 
-const OUTCOMES = ['Succeeded', 'Failed'];
+/** 与后端查询串同一口径：只认 camelCase 名称，数字与其他大小写都按字段 `outcome` 拒绝。 */
+const OUTCOMES = ['succeeded', 'failed'];
 
 // 导出记录的标识按序号生成：crypto.randomUUID 只在安全上下文可用，经局域网地址打开开发服务器时不存在。
 let exportSequence = 0;
@@ -204,7 +205,7 @@ export function exportOperationRecords(params: any): MockResponse {
     action: 'operation-records.exported',
     targetId: '-',
     authorizationBasis: 'App.OperationRecords.Export',
-    outcome: 'Succeeded',
+    outcome: 'succeeded',
     creationTime: new Date().toISOString(),
     actorId: actor?.id,
     actorName: actor?.displayName ?? actor?.username,

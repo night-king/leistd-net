@@ -136,17 +136,8 @@ public static class DependencyInjection
 
         services.TryAddTransient<IRoleAppService, RoleAppService>();
 
-        services.AddPermissionAuthorizationCore();
-        // Scoped：一次请求内的主体解析结果被 PermissionSubjectProvider 与 IPermissionChecker 共享。
-        services.TryAddScoped<IPermissionSubjectProvider, PermissionSubjectProvider>();
-        // 权限管理用例（端点由 Api 映射）经它确认主体存在、取显示名
-        services.TryAddTransient<IPermissionSubjectDirectory, PermissionSubjectDirectory>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPermissionDefinitionProvider, PermissionDefinitionProvider>());
+        services.AddApplicationDefinitions();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISettingDefinitionProvider, SettingDefinitionProvider>());
-        // 动作定义与权限、设置同属"启动期一次性登记"的定义族，注册方式与它们一致。
-        // 不注册的话管理器拿到空索引：界面按"未登记码"降级为原样显示裸码，
-        // 症状是页面照常能用、只是动作列全是机器码——不会报错，所以很容易漏。
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IOperationActionDefinitionProvider, OperationActionDefinitionProvider>());
         // 设置值的业务校验：值域（布尔、区间、候选）写在定义上，这里只放定义表达不了的规则
         services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, TimeZoneSettingValidator>());
 #if (Email)
@@ -187,6 +178,26 @@ public static class DependencyInjection
 #endif
 #endif
 
+        return services;
+    }
+
+    /// <summary>注册本项目的权限定义与操作动作定义，以及权限组件解析主体所需的本项目实现。</summary>
+    /// <remarks>
+    /// <see cref="AddApplicationServices"/> 已包含它。只组合部分运行期能力的一次性作业（DbMigrator 的管理员引导与恢复）单独调用：
+    /// 它们要按定义播种或补授权限、记录本项目登记的动作，而不需要登录、发信、实时推送等用例。
+    /// </remarks>
+    public static IServiceCollection AddApplicationDefinitions(this IServiceCollection services)
+    {
+        services.AddPermissionAuthorizationCore();
+        // Scoped：一次请求内的主体解析结果被 PermissionSubjectProvider 与 IPermissionChecker 共享。
+        services.TryAddScoped<IPermissionSubjectProvider, PermissionSubjectProvider>();
+        // 权限管理用例（端点由 Api 映射）经它确认主体存在、取显示名
+        services.TryAddTransient<IPermissionSubjectDirectory, PermissionSubjectDirectory>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPermissionDefinitionProvider, PermissionDefinitionProvider>());
+        // 动作定义与权限、设置同属"启动期一次性登记"的定义族，注册方式与它们一致。
+        // 不注册的话管理器拿到空索引：界面按"未登记码"降级为原样显示裸码，
+        // 症状是页面照常能用、只是动作列全是机器码——不会报错，所以很容易漏。
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IOperationActionDefinitionProvider, OperationActionDefinitionProvider>());
         return services;
     }
 }

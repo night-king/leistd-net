@@ -71,7 +71,9 @@
     "auth.token.issued": "签发了访问令牌",
     "tenant.connection-registered": "为租户 {{target}} 登记了数据库连接",
     "tenant.connection-removed": "删除了租户 {{target}} 的数据库连接登记",
-    "resource.admin-granted": "将 {{target}} 加入管理员角色"
+    "resource.admin-granted": "将 {{target}} 加入管理员角色",
+    "resource.admin-restored": "恢复了 {{target}} 的管理员访问",
+    "tenant.admin-restored": "恢复了租户管理员 {{target}}"
   },
   "actionsNoTarget": {
     "operation-records.exported": "导出了操作记录",

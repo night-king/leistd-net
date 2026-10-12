@@ -27,6 +27,10 @@
 <!--#endif-->
 - 所有需要用户身份的接口必须校验认证状态。
 - 认证失败统一返回 401，不暴露内部认证细节。
+- 不指定认证方案的策略（只写权限名的端点、组件端点）匿名被拒时由宿主默认挑战方案回应；调整认证方案时须保证它对无凭据请求仍回 401。
+<!--#if (OpenIddictServer || ResourceBrowserSession)-->
+- 默认挑战与认证同一分流：带 Authorization 头由 Bearer 验证回应（401 带 `WWW-Authenticate: Bearer`），否则由会话 Cookie 回应，401/403 不带 `WWW-Authenticate`。这是沿用 Cookie 会话 API 不重定向的约定，不满足 RFC 9110 对 401 携带 challenge 的要求：客户端不能靠它发现 Bearer。需要标准 Bearer challenge 的端点在策略里显式指定 Bearer 方案。
+<!--#endif-->
 
 ### 授权
 

@@ -9,5 +9,5 @@ public sealed record TwoFactorCodeInputDto
     [Display(Name = "Verification code")]
     [Required(ErrorMessage = "{0} is required.")]
     [RegularExpression(@"^\s*\d{3}\s?\d{3}\s*$", ErrorMessage = "The verification code must contain exactly 6 digits.")]
-    public required string Code { get; init; }
+    public string Code { get; init; } = null!;
 }

@@ -149,6 +149,32 @@ docker build --build-arg APP_VERSION=1.4.0 --build-arg APP_REVISION="$(git rev-p
 要接着滚动重启各资源服务副本（或等缓存过期后的首次抓取），并用旧证书签的令牌确认每个副本都已拒绝。
 
 <!--#endif-->
+<!--#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))-->
+## 管理员恢复
+
+管理员把自己锁在门外（最后一位管理员被停用、删除、移出 Admin，或 Admin 角色的权限被撤空）时，按正式命令恢复，不手改数据库：
+<!--#if (RemoteTokenAuth)-->
+`DbMigrator --grant-admin <sub> --restore`，命令与语义见 [后端说明](../../backend/README.md#管理员恢复)。
+<!--#else-->
+`DbMigrator --restore-tenant-admin <tenant-id>`，命令与语义见 [后端说明](../../backend/README.md#租户管理员恢复)。宿主有内置超级管理员，不需要这条命令。
+<!--#endif-->
+
+<!--#if (LocalIdentity)-->
+- 以一次性作业运行，使用与迁移作业相同的镜像、数据库身份与 Data Protection 密钥环（独立库租户的连接串靠它解开）；先不带 `--apply` 预演，核对输出逐项列出的修复内容，再加 `--apply` 施加。
+<!--#else-->
+- 以一次性作业运行，使用与迁移作业相同的镜像与数据库身份；先不带 `--apply` 预演，核对输出逐项列出的修复内容，再加 `--apply` 施加。
+<!--#endif-->
+- 恢复补授的权限落在共享的 Admin 角色上，持有该角色的所有人都随之得到；变更窗口需要相应的审批。
+- 命令持有初始化锁，直到自己的事务提交之后才释放。锁只在共用同一锁实现的进程之间互斥：恢复作业是独立进程，只要它可能与在线 API 或另一个恢复作业同时运行，就必须配置与 API 相同的 `ConnectionStrings:Redis`，与 API 副本数无关。锁键还带前缀：默认值由代码给出、各进程一致；部署侧覆盖 `Leistd:Lock:Redis:KeyPrefix` 时，API 与所有迁移、恢复作业必须设成同一个值，否则锁键不同、照样不互斥。
+- 作业收到 SIGTERM 等停止信号时，等锁与提交前的工作随之取消并以非零码退出；提交一旦开始不再响应取消，可能照常完成。被取消后先核实实际状态再重跑（命令幂等）。
+<!--#if (LocalIdentity)-->
+- 不用 Redis 时各进程只有进程内锁、彼此不互斥，这时串行运维：同一时间只跑一个恢复作业，并避开对同一租户的开通。
+- 锁的保证限于恢复一侧：恢复从读取到提交全程持锁。在线租户开通只在写入开通数据期间持锁，返回后由租户管理在外层提交，提交前锁已释放；恢复恰在这个窗口取得锁时读不到尚未提交的开通数据。因此不要对创建请求尚未返回的租户执行恢复，锁不承诺两边整个事务互斥。
+<!--#else-->
+- 不用 Redis 时各进程只有进程内锁、彼此不互斥，这时串行运维：同一时间只跑一个引导或恢复作业，并避开 API 启动（启动初始化取同一把锁）。
+<!--#endif-->
+
+<!--#endif-->
 ## 生产边界
 
 - 密钥和生产凭据由环境变量或密钥管理系统提供，不写入仓库。
@@ -191,7 +217,7 @@ docker build --build-arg APP_VERSION=1.4.0 --build-arg APP_REVISION="$(git rev-p
   配置里的开关与保留天数是基线，界面上的设置优先，归档任务每轮读取；执行时刻与批大小只在配置里。
   归档逐个进入宿主库与每个独立库，某个库失败只记错误、最迟在下一个调度时段重做（按截止时间扫描，积压会一并搬走）；
   多副本部署经分布式锁每轮只跑一份，要求配置 Redis，否则每个副本各跑一遍。
-- **多个服务共用一个 Redis 时，每个服务的 `Leistd:Lock:Redis:KeyPrefix` 必须互不相同**（配置文件里给的是应用名，环境部分由部署侧追加）。
+- **多个服务共用一个 Redis 时，每个服务的 `Leistd:Lock:Redis:KeyPrefix` 必须互不相同**（默认取应用名，由代码给出；追加环境时由部署侧覆盖，同一服务的 API 与所有迁移、恢复作业必须同值）。
   周期任务的锁键是固定的作业名（如 `operation-records.archive`），前缀相同的两个服务会互相抢同一把锁——
   抢不到的那个当轮直接跳过自己的库，而两边日志各自都正常。
 - 「只增不减」由应用契约保证。需要数据库层也保证时，把 Runtime Secret 对 `OperationRecords` 表的权限收敛到 INSERT／SELECT；
@@ -199,7 +225,7 @@ docker build --build-arg APP_VERSION=1.4.0 --build-arg APP_REVISION="$(git rev-p
 - 操作记录表增长到按时间范围查询变慢时，再按时间分区（数据库层 DDL，由 `DbMigrator` 的 DDL 身份执行），不预先做。
 <!--#else-->
 - 安全行为写入 `Leistd.OperationRecords` 结构化日志。成功事件在真实事务提交后输出，失败事件立即输出；必须保留 Information 级别并配置生产日志采集与保留策略。提交后、输出前进程退出仍可能丢失记录，日志模式不提供数据库模式的同事务持久化保证。
-- 多个服务共用 Redis 时，各服务的 `Leistd:Lock:Redis:KeyPrefix` 必须互不相同，避免周期任务相互抢锁。
+- 多个服务共用 Redis 时，各服务的 `Leistd:Lock:Redis:KeyPrefix` 必须互不相同，避免周期任务相互抢锁；默认取应用名，覆盖时同一服务的 API 与所有迁移、恢复作业必须同值。
 <!--#endif-->
 <!--#if (LocalIdentity)-->
 - 原始 IP 保存在三处，各有各的期限，合规评估按这三处分别写明：

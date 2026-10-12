@@ -38,7 +38,10 @@ Client 与 DbMigrator 的职责分类及根目录例外见 [§9](#9-client-与-d
 | 特性 | 场景 |
 | --- | --- |
 | 主构造函数 | 服务类 |
-| `record` + `init` + `required` | DTO |
+| `record` + `init` | DTO；输出与内部程序载荷的必填成员加 `required` |
+
+HTTP 输入模型（Controller 绑定的请求体与查询 DTO、交给框架端点绑定的派生入参）的必填字段写 `[Required]`，不用 `required`：`required` 让缺键在反序列化阶段失败，错误落在 `$` 上而不是字段上。引用类型写 `= null!`；值类型声明为可空（`Guid?`、`bool?`）再加 `[Required]`，否则缺键静默得到默认值，验证通过后才取 `.Value`。可选字段保持原有默认值，不借此改成必填。
+例外是"必须出现、可以为 null"的存在性字段（如并发版本 `ExpectedVersion`，`null` 表示首次登记）：保留 `required` 或 `[JsonRequired]` 约束键的存在，缺键在解析阶段拒绝、没有字段级错误；`[Required]` 会把显式 `null` 一并拒掉，不能替代。
 
 异步：I/O 一律 `async/await`，方法名以 `Async` 结尾（协议规定的名字除外），不用 `.Result`/`.Wait()`。
 

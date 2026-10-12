@@ -8,7 +8,7 @@ public record UpdateRoleInputDto
     [Display(Name = "Display name")]
     [Required(ErrorMessage = "{0} is required.")]
     [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string DisplayName { get; init; }
+    public string DisplayName { get; init; } = null!;
 
     [Display(Name = "Description")]
     [StringLength(512, ErrorMessage = "{0} cannot exceed {1} characters.")]

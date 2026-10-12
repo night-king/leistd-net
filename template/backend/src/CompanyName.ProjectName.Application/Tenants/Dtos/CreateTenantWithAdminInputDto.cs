@@ -17,7 +17,7 @@ public record CreateTenantWithAdminInputDto : CreateTenantInputDto
     [Required(ErrorMessage = "{0} is required.")]
     [EmailAddress(ErrorMessage = "{0} has an invalid format.")]
     [MaxLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string AdminEmail { get; init; }
+    public string AdminEmail { get; init; } = null!;
 
     /// <summary>租户管理员初始密码（仅存哈希）。</summary>
     [Display(Name = "Admin password")]
@@ -25,7 +25,7 @@ public record CreateTenantWithAdminInputDto : CreateTenantInputDto
     // 仅快速反馈；权威在服务端 PasswordPolicy
     [MinLength(PasswordPolicy.MinimumLength, ErrorMessage = "{0} must be at least {1} characters.")]
     [MaxLength(PasswordPolicy.MaximumLength, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string AdminPassword { get; init; }
+    public string AdminPassword { get; init; } = null!;
 
     /// <summary>不输出初始密码与连接串：记录类型默认打印全部属性，随手写进日志就是泄露。</summary>
     public override string ToString() =>

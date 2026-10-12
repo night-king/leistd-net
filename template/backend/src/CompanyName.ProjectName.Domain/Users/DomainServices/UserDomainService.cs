@@ -98,7 +98,7 @@ public class UserDomainService(
     /// <para>最小行按投影的回落规则命名（用户名取主体标识、邮箱留空），不编造资料；
     /// 首次真实访问时由 <see cref="EnsureProjectedAsync"/> 按令牌补齐。</para>
     /// <para>已有用户原样返回：资料归签发方，启停归本服务，引导都不改。
-    /// 已被删除的用户不恢复——删除是本服务做过的授权决定，模板不提供恢复入口，由项目自己的数据恢复流程处理。</para>
+    /// 已被删除的用户不在这里恢复：删除是本服务做过的授权决定，只有部署级恢复命令（<c>--grant-admin --restore</c>）显式撤回它。</para>
     /// </remarks>
     /// <param name="subjectId">签发方主体标识。</param>
     /// <param name="cancellationToken">取消令牌。</param>
@@ -113,7 +113,7 @@ public class UserDomainService(
             if (existing is { IsDeleted: true })
             {
                 throw new InvalidOperationException(
-                    $"User {subjectId} has been deleted in this service and cannot be bootstrapped; recover it through your data recovery procedure first.");
+                    $"User {subjectId} has been deleted in this service and cannot be bootstrapped; add --restore to restore it as an administrator.");
             }
 
             if (existing is not null)

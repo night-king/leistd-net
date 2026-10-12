@@ -12,6 +12,6 @@ public record ResetUserPasswordInputDto
     // 仅快速反馈；权威在服务端 PasswordPolicy
     [StringLength(PasswordPolicy.MaximumLength, MinimumLength = PasswordPolicy.MinimumLength,
         ErrorMessage = "{0} must be between {2} and {1} characters.")]
-    public required string Password { get; init; }
+    public string Password { get; init; } = null!;
 }
 #endif

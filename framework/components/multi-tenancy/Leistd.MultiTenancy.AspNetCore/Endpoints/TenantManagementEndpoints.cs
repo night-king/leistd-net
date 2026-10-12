@@ -61,10 +61,9 @@ public static class TenantManagementEndpoints
                 CancellationToken cancellationToken,
                 int offset = 0,
                 int limit = PageRequest.DefaultLimit,
-                string? sorting = null,
                 string? keyword = null)
                 => service.GetPagedAsync(
-                    new GetTenantPagedInputDto { Offset = offset, Limit = limit, Sorting = sorting, Keyword = keyword },
+                    new GetTenantPagedInputDto { Offset = offset, Limit = limit, Keyword = keyword },
                     cancellationToken))
             .WithName(NamePrefix + "GetTenants")
             .RequireAuthorization(options.ReadPolicy);
@@ -173,7 +172,8 @@ public static class TenantManagementEndpoints
         configure(options);
         options.Validate();
 
-        // 路由组上不挂默认策略：它通常要求自然人，会让机器令牌 403；每个端点的命名策略已隐含“已认证”。
+        // 路由组上不挂默认策略：它通常要求自然人，会让机器令牌 403。组件不替宿主指定认证方案：
+        // 具名策略省略方案时，由认证结果决定 Challenge 还是 Forbid，再由宿主默认方案回应；策略指定方案时用该方案。
         var group = endpoints.MapGroup(string.Empty);
 
         group.MapGet("{tenantId:guid}", (Guid tenantId, ITenantConnectionManagementService service, CancellationToken cancellationToken)

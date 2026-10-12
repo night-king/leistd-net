@@ -331,7 +331,7 @@ internal sealed class AuthAppService(
 
         if (options.EnableEmailVerification)
         {
-            if (input.EmailVerification is null || input.EmailVerification.ChallengeId == Guid.Empty)
+            if (input.EmailVerification?.ChallengeId is null || input.EmailVerification.ChallengeId == Guid.Empty)
             {
                 throw new BusinessException(AuthErrorCodes.EmailCodeRequired, "Please enter the email verification code.");
             }

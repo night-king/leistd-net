@@ -420,7 +420,7 @@ describe('SettingSection groups', () => {
     const host = await render({});
 
     expect(sectionsOf(host)).toEqual(['Display', 'Operations', 'NotificationPreferences']);
-    expect([...host.querySelectorAll('h3')].map((h) => h.textContent?.trim())).toEqual([
+    expect([...host.querySelectorAll('h4')].map((h) => h.textContent?.trim())).toEqual([
       '显示',
       '运维',
       '通知',
@@ -432,7 +432,7 @@ describe('SettingSection groups', () => {
     const host = await render({ group: 'notification-preferences' });
 
     expect(sectionsOf(host)).toEqual(['NotificationPreferences']);
-    expect(host.querySelector('h3')).toBeNull();
+    expect(host.querySelector('h4')).toBeNull();
   });
 
   // 有专属面板的分组从通用面板里排除，免得同一项设置出现在两个面板上

@@ -23,7 +23,7 @@
     <PackageReference Include="Leistd.Data" />
   </ItemGroup>
   <ItemGroup>
-<!--#if (RemoteTokenAuth)-->
+<!--#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))-->
     <ProjectReference Include="..\CompanyName.ProjectName.Application\CompanyName.ProjectName.Application.csproj" />
     <PackageReference Include="Leistd.Tracing.Core" />
 <!--#if (!IncludeOperationRecords)-->
@@ -34,7 +34,7 @@
     <ProjectReference Include="..\CompanyName.ProjectName.Infrastructure\CompanyName.ProjectName.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- 资源服务的管理员引导要在进程内暂停在提交前验证持锁范围：集成测试直接驱动内部的执行器 -->
+    <!-- 管理员引导要在进程内暂停在提交前验证持锁范围：集成测试直接驱动内部的执行器 -->
     <InternalsVisibleTo Include="CompanyName.ProjectName.IntegrationTests" />
   </ItemGroup>
 </Project>

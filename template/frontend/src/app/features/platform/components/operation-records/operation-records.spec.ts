@@ -51,9 +51,9 @@ describe('OperationRecords', () => {
   const filterOptions: OperationRecordFilterOptionsDto = {
     categories: ['alpha', 'beta'],
     actions: [
-      { code: 'alpha.created', category: 'alpha', severity: 'Info' },
-      { code: 'alpha.deleted', category: 'alpha', severity: 'Critical' },
-      { code: 'beta.updated', category: 'beta', severity: 'Notice' },
+      { code: 'alpha.created', category: 'alpha', severity: 'info' },
+      { code: 'alpha.deleted', category: 'alpha', severity: 'critical' },
+      { code: 'beta.updated', category: 'beta', severity: 'notice' },
     ],
   };
 
@@ -162,7 +162,7 @@ describe('OperationRecords', () => {
       keyword: 'alice',
       category: 'alpha',
       action: 'alpha.created',
-      outcome: 'Failed',
+      outcome: 'failed',
       startTime: '2026-02-28T16:00:00.000Z',
       endTime: '2026-03-01T15:59:59.999Z',
       page: '3',
@@ -178,7 +178,7 @@ describe('OperationRecords', () => {
       endTime: '2026-03-01T15:59:59.999Z',
       categories: ['alpha'],
       actions: ['alpha.created'],
-      outcome: 'Failed',
+      outcome: 'failed',
     });
     expect(component.hasActiveFilters()).toBe(true);
   });
@@ -306,13 +306,13 @@ describe('OperationRecords', () => {
   });
 
   it('does not refetch when a filter reports the value it already has', async () => {
-    await open({ category: 'alpha', action: 'alpha.created', outcome: 'Succeeded' });
+    await open({ category: 'alpha', action: 'alpha.created', outcome: 'succeeded' });
     fixture.detectChanges();
     const requests = service.getOperationRecords.mock.calls.length;
 
     filters()[0].valueChange.emit('alpha');
     filters()[1].valueChange.emit('alpha.created');
-    filters()[2].valueChange.emit('Succeeded');
+    filters()[2].valueChange.emit('succeeded');
     await fixture.whenStable();
 
     expect(service.getOperationRecords).toHaveBeenCalledTimes(requests);
@@ -322,12 +322,12 @@ describe('OperationRecords', () => {
     await open();
     fixture.detectChanges();
 
-    filters()[2].valueChange.emit('Failed');
+    filters()[2].valueChange.emit('failed');
     await fixture.whenStable();
     filters()[1].valueChange.emit('beta.updated');
     await fixture.whenStable();
 
-    expect(lastQuery().outcome).toBe('Failed');
+    expect(lastQuery().outcome).toBe('failed');
     expect(lastQuery().actions).toEqual(['beta.updated']);
 
     filters()[2].valueChange.emit(null);
@@ -401,7 +401,7 @@ describe('OperationRecords', () => {
       action: 'alpha.created',
       targetId: 't-1',
       authorizationBasis: 'alpha',
-      outcome: 'Succeeded',
+      outcome: 'succeeded',
       creationTime: '2026-09-20T10:00:00Z',
     };
     service.getOperationRecords.mockReturnValue(of({ items: [record], totalCount: 1 }));
@@ -442,7 +442,7 @@ describe('OperationRecords', () => {
       keyword: 'alice',
       category: 'alpha',
       action: 'alpha.created',
-      outcome: 'Failed',
+      outcome: 'failed',
       startTime: '2026-02-28T16:00:00.000Z',
       endTime: '2026-03-01T15:59:59.999Z',
       page: '2',
@@ -467,7 +467,7 @@ describe('OperationRecords', () => {
       endTime: '2026-03-01T15:59:59.999Z',
       categories: ['alpha'],
       actions: ['alpha.created'],
-      outcome: 'Failed',
+      outcome: 'failed',
     });
 
     const blob = new Blob(['csv'], { type: 'text/csv' });

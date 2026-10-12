@@ -43,7 +43,7 @@ public sealed class SettingConcurrencyTests(ProjectWebApplicationFactory factory
             second.Client.PutAsJsonAsync("/api/v1/settings/current-user",
                 new { Name = SettingConstant.Display.TimeZone, Value = "Asia/Tokyo" }));
 
-        Assert.True(race.Released, "两个写入没有同时走到提交，竞争没有发生，用例证明不了任何事");
+        Assert.True(race.Released, "The two writes did not reach commit together; no race occurred, so the test proves nothing");
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.NoContent, response.StatusCode));
         foreach (var response in responses) response.Dispose();
 
@@ -96,7 +96,7 @@ public sealed class SettingConcurrencyTests(ProjectWebApplicationFactory factory
             await unitOfWork.CompleteAsync();
         }
 
-        Assert.True(winner.Committed, "赢家没有在本次插入前提交，交错没有发生，用例证明不了任何事");
+        Assert.True(winner.Committed, "The winner did not commit before this insert; no interleaving occurred, so the test proves nothing");
         Assert.Equal(1, winner.LoserFailures);
 
         await using var verify = host.Services.CreateAsyncScope();

@@ -40,6 +40,13 @@ public class TenantSeeder(
     ISettingStore settingStore,
     ILogger<TenantSeeder> logger) : ITenantProvisioner
 {
+    /// <summary>租户初始化互斥锁的键，按租户隔离。</summary>
+    /// <remarks>
+    /// 开通与 DbMigrator 的租户管理员恢复共用：两者都改该租户的 Admin 角色与管理员账号。
+    /// 恢复持锁到自己提交之后；开通在本方法返回时放锁，外层工作单元随后才提交，两边的整个事务并不互斥。
+    /// </remarks>
+    public static string InitializationLockKey(Guid tenantId) => $"MyProject:tenant-init:{tenantId}";
+
     /// <inheritdoc />
     public async Task ProvisionAsync(TenantProvisioningContext context, CancellationToken cancellationToken = default)
     {
@@ -54,7 +61,7 @@ public class TenantSeeder(
         }
 
         // 按租户互斥，避免不同租户相互阻塞。
-        await using var lockHandle = await distributedLock.LockAsync($"MyProject:tenant-init:{tenantId}", cancellationToken);
+        await using var lockHandle = await distributedLock.LockAsync(InitializationLockKey(tenantId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lockHandle.LockLost);
         cancellationToken = lockScope.Token;
 
@@ -153,11 +160,12 @@ public class TenantSeeder(
     /// <summary>建立租户管理员：<b>普通用户</b> + 本租户 Admin 角色。</summary>
     /// <remarks>
     /// <para><b>刻意不打 <c>IsSuperAdmin</c>。</b>那是宿主的防锁死逃生舱，代价与适用范围见
-    /// <c>UserDomainService.CreateSuperAdminAsync</c>。租户侧不需要它：本租户 Admin 角色已在
-    /// 上一步拿到全部 Tenant 侧权限（含权限管理本身），升级后新增的权限由租户管理员自己授给
-    /// 自己的角色，不存在锁死。</para>
-    /// <para>于是租户管理员的权限完全由角色承载：在租户自己的角色页里可查看、可编辑、可撤销，
-    /// 撤权即时生效。</para>
+    /// <c>UserDomainService.CreateSuperAdminAsync</c>。租户管理员的权限完全由角色承载：本租户 Admin 角色
+    /// 在上一步拿到全部 Tenant 侧权限（含权限管理本身），之后在租户自己的角色页里可查看、可编辑、可撤销，
+    /// 撤权即时生效；升级后新增的权限由租户管理员自己授给自己的角色。</para>
+    /// <para>代价是租户可以把自己锁死：管理员被停用、删除、移出 Admin，或 Admin 角色的权限被撤空后，
+    /// 租户内再没有人能把它改回来（宿主的模拟登录进的也是这个账号）。恢复走部署级命令
+    /// <c>DbMigrator --restore-tenant-admin &lt;tenant-id&gt;</c>，见后端 README。</para>
     /// </remarks>
     private async Task<User> EnsureTenantAdminAsync(string adminEmail, string adminPassword, CancellationToken cancellationToken)
     {

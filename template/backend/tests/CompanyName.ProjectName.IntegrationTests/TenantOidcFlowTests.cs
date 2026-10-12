@@ -3,10 +3,7 @@ using System.Buffers.Text;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using CompanyName.ProjectName.Application.OpenApplications.Dtos;
 using CompanyName.ProjectName.Application.Auth.Options;
 using Leistd.MultiTenancy.AspNetCore.Options;
@@ -253,7 +250,7 @@ public sealed class TenantOidcFlowTests(ProjectWebApplicationFactory factory)
 
         using var hostAdmin = await ProjectWebApplicationFactory.LoginAsync(
             host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        using var machine = await CreateMachineClientAsync(host, hostAdmin.Client);
+        using var machine = await CreateMachineClientAsync(host, hostAdmin.Client, "tenant-routing.read");
         var databases = await machine.GetAsync("/api/v1/tenant-connections/databases?name=Default");
         Assert.NotEqual(HttpStatusCode.Unauthorized, databases.StatusCode);
         Assert.NotEqual(HttpStatusCode.Forbidden, databases.StatusCode);
@@ -293,7 +290,7 @@ public sealed class TenantOidcFlowTests(ProjectWebApplicationFactory factory)
         Assert.Equal(broken, failure.TenantId);
         Assert.DoesNotContain("billing-secret", failure.Reason);
 
-        using var routing = await CreateMachineClientAsync(isolated, hostAdmin.Client);
+        using var routing = await CreateMachineClientAsync(isolated, hostAdmin.Client, "tenant-routing.read");
         using var denied = await routing.GetAsync("/api/v1/tenant-connections/migration?name=Default");
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
     }
@@ -359,128 +356,5 @@ public sealed class TenantOidcFlowTests(ProjectWebApplicationFactory factory)
             .Select(value => value.Split(';', 2)[0]));
         return new AuthenticatedSession(client, cookie);
     }
-
-    private static async Task<(string ClientId, string ClientSecret)> CreateClientAsync(
-        HttpClient hostAdmin, params string[] extraScopes)
-    {
-        var clientId = $"client-{Guid.CreateVersion7():N}";
-        var created = await hostAdmin.PostAsJsonAsync("/api/v1/open-applications", new
-        {
-            sessionBound = false,
-            clientId,
-            displayName = "Tenant OIDC probe",
-            applicationType = "web",
-            clientType = "confidential",
-            permissions = (string[])
-            [
-                "ept:authorization", "ept:token", "gt:authorization_code", "gt:refresh_token", "rst:code",
-                "scp:openid", "scp:offline_access", .. extraScopes.Select(scope => $"scp:{scope}")
-            ],
-            requirements = Array.Empty<string>(),
-            redirectUris = new[] { RedirectUri },
-            postLogoutRedirectUris = Array.Empty<string>()
-        });
-        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
-        var application = await created.Content.ReadFromJsonAsync<OpenApplicationOutputDto>();
-        Assert.NotNull(application);
-
-        var reset = await hostAdmin.PostAsync($"/api/v1/open-applications/{application.Id}/reset-secret", null);
-        Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
-        var secret = await reset.Content.ReadFromJsonAsync<ResetOpenApplicationSecretOutputDto>();
-        Assert.NotNull(secret);
-        return (clientId, secret.ClientSecret);
-    }
-
-    // 授权端点凭会话 Cookie 直接签发授权码（无同意页）；PKCE 必须是真的 S256
-    private static async Task<TokenResponse> AuthorizeAndExchangeAsync(
-        WebApplicationFactory<Program> host, AuthenticatedSession session, string clientId, string clientSecret, string apiScope)
-    {
-        var verifier = Guid.CreateVersion7().ToString("N") + Guid.CreateVersion7().ToString("N");
-        var challenge = Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-
-        using var browser = CreateHttpsClient(host);
-        browser.DefaultRequestHeaders.Add("Cookie", session.Cookie);
-        var authorize = await browser.GetCachedAsync(
-            "/connect/authorize" +
-            $"?client_id={Uri.EscapeDataString(clientId)}" +
-            $"&redirect_uri={Uri.EscapeDataString(RedirectUri)}" +
-            $"&response_type=code&scope=openid%20offline_access%20{Uri.EscapeDataString(apiScope)}" +
-            $"&code_challenge={challenge}&code_challenge_method=S256");
-        Assert.Equal(HttpStatusCode.Found, authorize.StatusCode);
-
-        var code = authorize.Headers.Location!.Query.TrimStart('?')
-            .Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .Select(pair => pair.Split('=', 2))
-            .Where(pair => pair.Length == 2 && pair[0] == "code")
-            .Select(pair => Uri.UnescapeDataString(pair[1]))
-            .Single();
-
-        using var exchange = CreateHttpsClient(host);
-        var token = await exchange.PostAsync("/connect/token", new FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("grant_type", "authorization_code"),
-            new KeyValuePair<string, string>("code", code),
-            new KeyValuePair<string, string>("redirect_uri", RedirectUri),
-            new KeyValuePair<string, string>("client_id", clientId),
-            new KeyValuePair<string, string>("client_secret", clientSecret),
-            new KeyValuePair<string, string>("code_verifier", verifier)
-        ]));
-        Assert.True(token.IsSuccessStatusCode, await token.Content.ReadAsStringAsync());
-
-        var payload = await token.Content.ReadFromJsonAsync<TokenResponse>();
-        Assert.NotNull(payload);
-        return payload;
-    }
-
-    /// <summary>注册一个带 tenant-routing.read 的 client_credentials 应用，返回已带 Bearer 的客户端。</summary>
-    private static async Task<HttpClient> CreateMachineClientAsync(
-        WebApplicationFactory<Program> host, HttpClient hostAdmin, string scope = "tenant-routing.read")
-    {
-        var clientId = $"client-{Guid.CreateVersion7():N}";
-        var created = await hostAdmin.PostAsJsonAsync("/api/v1/open-applications", new
-        {
-            sessionBound = false,
-            clientId,
-            displayName = "Workload",
-            applicationType = "service",
-            clientType = "confidential",
-            permissions = new[] { "ept:token", "gt:client_credentials", $"scp:{scope}" },
-            requirements = Array.Empty<string>(),
-            redirectUris = Array.Empty<string>(),
-            postLogoutRedirectUris = Array.Empty<string>()
-        });
-        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
-        var application = await created.Content.ReadFromJsonAsync<OpenApplicationOutputDto>();
-        Assert.NotNull(application);
-        var reset = await hostAdmin.PostAsync($"/api/v1/open-applications/{application.Id}/reset-secret", null);
-        var secret = await reset.Content.ReadFromJsonAsync<ResetOpenApplicationSecretOutputDto>();
-        Assert.NotNull(secret);
-
-        var machine = CreateHttpsClient(host);
-        var token = await machine.PostAsync("/connect/token", new FormUrlEncodedContent(
-        [
-            new KeyValuePair<string, string>("grant_type", "client_credentials"),
-            new KeyValuePair<string, string>("client_id", clientId),
-            new KeyValuePair<string, string>("client_secret", secret.ClientSecret),
-            new KeyValuePair<string, string>("scope", scope)
-        ]));
-        Assert.True(token.IsSuccessStatusCode, await token.Content.ReadAsStringAsync());
-        var payload = await token.Content.ReadFromJsonAsync<TokenResponse>();
-        Assert.NotNull(payload);
-        machine.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", payload.AccessToken);
-        return machine;
-    }
-
-    // OpenIddict 的授权与令牌端点只收 HTTPS；改基地址即可让 Request.IsHttps 成立
-    private static HttpClient CreateHttpsClient(WebApplicationFactory<Program> host)
-    {
-        var client = ProjectWebApplicationFactory.CreateProjectClient(host);
-        client.BaseAddress = new Uri("https://localhost");
-        return client;
-    }
-
-    private sealed record TokenResponse(
-        [property: JsonPropertyName("access_token")] string AccessToken,
-        [property: JsonPropertyName("refresh_token")] string? RefreshToken);
 }
 #endif

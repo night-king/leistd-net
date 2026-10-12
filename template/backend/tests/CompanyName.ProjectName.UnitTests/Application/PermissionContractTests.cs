@@ -54,10 +54,10 @@ public class PermissionContractTests
         var duplicates = Permissions()
             .GroupBy(p => p.Value)
             .Where(g => g.Count() > 1)
-            .Select(g => $"{g.Key}（{string.Join("、", g.Select(x => x.Path))}）")
+            .Select(g => $"{g.Key} ({string.Join(", ", g.Select(x => x.Path))})")
             .ToArray();
 
-        Assert.True(duplicates.Length == 0, "权限名重复：" + string.Join("；", duplicates));
+        Assert.True(duplicates.Length == 0, "Duplicate permission names: " + string.Join("; ", duplicates));
     }
 
     // 分组是"模块"这一级，不是权限。组名与任一权限同名会让同一个名字

@@ -92,7 +92,7 @@ public sealed class ReauthenticationLockoutTests(ProjectWebApplicationFactory fa
         using var admin = await ProjectWebApplicationFactory.LoginAsync(factory, "admin", ProjectWebApplicationFactory.TestAdminPassword);
 #if (IncludeOperationRecords)
         using var body = JsonDocument.Parse(await admin.Client.GetStringAsync(
-            "/api/v1/operation-records?offset=0&limit=50&actions=auth.password.changed&outcome=Failed"));
+            "/api/v1/operation-records?offset=0&limit=50&actions=auth.password.changed&outcome=failed"));
 
         var failureCodes = body.RootElement.GetProperty("items").EnumerateArray()
             .Select(item => item.GetProperty("failureCode").GetString())

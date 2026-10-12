@@ -9,7 +9,7 @@ public sealed record TwoFactorLoginInputDto : IValidatableObject
     [Display(Name = "Two-factor token")]
     [Required(ErrorMessage = "{0} is required.")]
     [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string Token { get; init; }
+    public string Token { get; init; } = null!;
 
     /// <summary>身份验证器应用上的 6 位验证码。</summary>
     [Display(Name = "Verification code")]

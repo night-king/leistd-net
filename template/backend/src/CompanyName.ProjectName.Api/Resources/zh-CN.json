@@ -46,6 +46,7 @@
     "Each role name cannot exceed 64 characters.": "每个角色名长度不能超过 64 个字符",
     "Email": "邮箱",
     "Email verification": "邮箱验证",
+    "Email verification challenge": "邮箱验证请求",
     "Email verification code": "邮箱验证码",
     "Email verification status": "邮箱是否已验证",
     "End time": "结束时间",
@@ -226,6 +227,10 @@
     "User:NotFound": "用户 {Id} 不存在。",
     "User:RoleRequired": "请至少选择一个角色。",
     "User:RolesNotFound": "角色不存在：{Roles}",
+//#if (LocalIdentity)
+    "User:SelfDeleteForbidden": "不能删除自己的账号。",
+//#endif
+    "User:SelfDisableForbidden": "不能禁用自己的账号。",
 //#if (LocalIdentity)
     "User:SuperAdminDeleteForbidden": "系统内置超级管理员不允许删除。",
 //#endif

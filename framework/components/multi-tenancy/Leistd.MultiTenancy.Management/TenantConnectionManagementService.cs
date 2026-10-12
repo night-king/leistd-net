@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Leistd.EventBus.Abstractions;
 using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.MultiTenancy.Dtos;
@@ -107,6 +108,8 @@ internal sealed class TenantConnectionManagementService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
+        Validator.ValidateObject(input, new ValidationContext(input), validateAllProperties: true);
+
         var configuration = await manager.SetAsync(tenantId, name, input.ConnectionString, input.ExpectedVersion, cancellationToken);
 
         // 组件只发事件（不含连接串），留痕方式由宿主决定

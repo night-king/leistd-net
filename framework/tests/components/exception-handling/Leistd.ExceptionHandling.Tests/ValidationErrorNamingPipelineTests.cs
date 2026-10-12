@@ -137,6 +137,18 @@ public class ValidationErrorNamingPipelineTests(ValidationErrorNamingPipelineTes
         Assert.Equal(["DISPLAYNAME"], await ReadFieldsAsync(client, "/probe/auto-properties"));
     }
 
+    // 请求体漏掉必填键时，错误要落在字段上而不是 "$"：必填由 [Required] 表达（引用 = null!、值类型可空），
+    // 不用 C# required——后者让缺键在反序列化阶段就失败，只剩解析错误，前端无从定位到输入框。
+    [Fact]
+    public async Task Auto400_for_missing_keys_names_each_required_field()
+    {
+        var client = fixture.Client;
+
+        var fields = await ReadFieldsAsync(client, "/probe/auto-required");
+
+        Assert.Equal(["ENABLED", "NAME"], fields.Order());
+    }
+
     // 读不成 JSON 的请求体只报"哪个字段读不成"，不回显解析器的异常消息（行号、字节位置）
     [Fact]
     public async Task Auto400_for_malformed_json_does_not_echo_parser_details()
@@ -265,6 +277,10 @@ public sealed class ProbeController : ControllerBase
     [HttpPost("auto-properties")]
     public IActionResult AutoProperties([FromBody] ProbePropertyInput input) => Ok();
 
+    // 缺键：必填写成 [Required]，而不是 C# required。
+    [HttpPost("auto-required")]
+    public IActionResult AutoRequired([FromBody] ProbeRequiredInput input) => Ok();
+
     // 显式验证：标准 ValidationException 由全局处理器产出 errors。
     [HttpPost("manual")]
     public IActionResult Manual() => throw new ValidationException(
@@ -277,4 +293,13 @@ public sealed record ProbePropertyInput
 {
     [Required]
     public string? DisplayName { get; init; }
+}
+
+public sealed record ProbeRequiredInput
+{
+    [Required]
+    public string Name { get; init; } = null!;
+
+    [Required]
+    public bool? Enabled { get; init; }
 }

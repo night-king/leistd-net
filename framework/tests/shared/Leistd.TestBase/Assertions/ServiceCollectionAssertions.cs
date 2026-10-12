@@ -68,7 +68,7 @@ public static class ServiceCollectionAssertions
 
         Assert.True(
             duplicates.Length == 0,
-            "重复调用产生了新的服务注册：" + string.Join("；", duplicates.Select(d => $"{d.Service} -> {d.Implementation}")));
+            "Repeated calls added new service registrations: " + string.Join("; ", duplicates.Select(d => $"{d.Service} -> {d.Implementation}")));
 
         static List<(string Service, string Implementation)> Meaningful(IServiceCollection services) =>
             [.. services

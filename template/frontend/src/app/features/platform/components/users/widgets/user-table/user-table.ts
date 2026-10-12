@@ -259,8 +259,18 @@ export class UserTable {
     return user.isSuperAdmin;
   }
 
+  /** 当前登录者本人：不能停用或删除自己（服务端同样拒绝）。 */
+  isSelf(user: UserManagementOutputDto): boolean {
+    return user.id === this.authService.currentUser()?.id;
+  }
+
   isOtherSuperAdmin(user: UserManagementOutputDto): boolean {
     return user.isSuperAdmin && user.id !== this.authService.currentUser()?.id;
+  }
+
+  /** 他人查看内置超管行时，菜单内原因说明的元素 id，供被禁用的菜单项 aria-describedby 引用；其他行为 null。 */
+  superAdminReasonId(user: UserManagementOutputDto): string | null {
+    return this.isOtherSuperAdmin(user) ? `user-super-admin-${user.id}` : null;
   }
 
   /** 角色徽章样式：角色由管理员自由创建，统一用中性样式，只按是否默认角色弱区分。 */
@@ -297,6 +307,10 @@ const ENGLISH: Record<string, string> = {
   'users.tooltip.resetTwoFactor': 'Reset two-factor authentication',
   'users.tooltip.disable': 'Disable',
   'users.tooltip.enable': 'Enable',
+  'users.tooltip.selfNoDisable': "You can't disable your own account",
+  'users.tooltip.selfNoDelete': "You can't delete your own account",
+  'users.tooltip.superAdminNoManage':
+    'Only the built-in super administrator can do this to their own account',
   'common.delete': 'Delete',
   'users.table.emptyFilteredTitle': 'No matching users',
   'users.table.emptyFilteredHint': 'Adjust the search or filters',

@@ -10,7 +10,7 @@ public record CreateOpenApplicationInputDto : IValidatableObject
     [Display(Name = "Client ID")]
     [Required(ErrorMessage = "{0} is required.")]
     [MaxLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string ClientId { get; init; }
+    public string ClientId { get; init; } = null!;
 
     /// <summary>显示名称。</summary>
     [Display(Name = "Display name")]
@@ -21,13 +21,13 @@ public record CreateOpenApplicationInputDto : IValidatableObject
     [Display(Name = "Application type")]
     [Required(ErrorMessage = "{0} is required.")]
     [RegularExpression("^(web|native|service)$", ErrorMessage = "{0} is not an allowed value.")]
-    public required string ApplicationType { get; init; }
+    public string ApplicationType { get; init; } = null!;
 
     /// <summary>客户端类型。</summary>
     [Display(Name = "Client type")]
     [Required(ErrorMessage = "{0} is required.")]
     [RegularExpression("^(public|confidential)$", ErrorMessage = "{0} is not an allowed value.")]
-    public required string ClientType { get; init; }
+    public string ClientType { get; init; } = null!;
 
     /// <summary>Redirect URIs</summary>
     public List<string> RedirectUris { get; init; } = [];
@@ -47,7 +47,7 @@ public record CreateOpenApplicationInputDto : IValidatableObject
     /// </summary>
     [Display(Name = "Session bound")]
     [Required(ErrorMessage = "{0} is required.")]
-    public required bool? SessionBound { get; init; }
+    public bool? SessionBound { get; init; }
 
     /// <inheritdoc />
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>

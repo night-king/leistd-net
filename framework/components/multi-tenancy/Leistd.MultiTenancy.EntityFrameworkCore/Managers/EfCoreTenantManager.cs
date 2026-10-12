@@ -145,6 +145,7 @@ public class EfCoreTenantManager<TDbContext>(
         var total = await query.LongCountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(t => t.CreationTime)
+            .ThenByDescending(t => t.Id)
             .Skip(page.Offset)
             .Take(page.Limit)
             .ToListAsync(cancellationToken);

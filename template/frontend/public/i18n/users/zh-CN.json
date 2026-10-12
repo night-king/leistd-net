@@ -65,14 +65,12 @@
     "rolesTitle": "角色 ({{count}})"
   },
   "tooltip": {
-    "superAdminNoEdit": "系统内置超级管理员不允许被其他管理员更新",
-    "superAdminNoDisable": "系统内置超级管理员不允许被其他管理员禁用",
-    "superAdminNoDisableSelf": "系统内置超级管理员不允许禁用自己",
     "disable": "禁用",
     "enable": "启用",
-    "superAdminNoReset": "系统内置超级管理员的密码不允许被其他管理员重置",
+    "selfNoDisable": "不能禁用自己的账号",
+    "selfNoDelete": "不能删除自己的账号",
+    "superAdminNoManage": "系统内置超级管理员的这些操作只能由其本人进行",
     "resetPassword": "重置密码",
-    "superAdminNoDelete": "系统内置超级管理员不允许删除",
     "unlock": "解除锁定",
     "resetTwoFactor": "重置两步验证"
   },
