@@ -40,7 +40,7 @@ public interface ITenantConnectionManagementService
     /// <summary>登记或更新一条连接。</summary>
     /// <param name="tenantId">租户标识。</param>
     /// <param name="name">连接名。</param>
-    /// <param name="input">连接串与期望版本。</param>
+    /// <param name="input">连接串与期望版本；先按 DataAnnotations 校验，失败抛 <see cref="System.ComponentModel.DataAnnotations.ValidationException"/>。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     Task<TenantConnectionOutputDto> SetAsync(
         Guid tenantId,

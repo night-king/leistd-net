@@ -1,6 +1,7 @@
 using Leistd.TestBase.Doubles;
 using System.ComponentModel.DataAnnotations;
 using System.Data.Common;
+using Leistd.Data.Paging;
 using Leistd.EventBus.Abstractions;
 using Leistd.EventBus.Events;
 using Leistd.ExceptionHandling;
@@ -9,6 +10,7 @@ using Leistd.MultiTenancy.Context;
 using Leistd.MultiTenancy.Errors;
 using Leistd.MultiTenancy.Management;
 using Leistd.MultiTenancy.EntityFrameworkCore;
+using Leistd.MultiTenancy.EntityFrameworkCore.Managers;
 using Leistd.MultiTenancy.Exceptions;
 using Leistd.MultiTenancy.Stores;
 using Leistd.UnitOfWork;
@@ -18,6 +20,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 using Leistd.MultiTenancy.Management.Dtos;
 using Leistd.MultiTenancy.Management.Events;
@@ -37,6 +40,9 @@ public sealed class TenantManagementTests : IAsyncLifetime
     private ServiceProvider _provider = default!;
     private SqliteConnection _connection = default!;
     private ITenantManagementService _service = default!;
+
+    // 在用例读完快照之后、调用管理器删除之前插入的动作，用来确定性地制造并发交错
+    private Func<Guid, Task>? _beforeDelete;
 
     public async Task InitializeAsync()
     {
@@ -58,6 +64,8 @@ public sealed class TenantManagementTests : IAsyncLifetime
         services.AddSingleton<ITenantProvisioner>(_provisioner);
         services.AddSingleton<ITenantActivationGuard>(_guard);
         services.AddSingleton<ILocalEventBus>(_events);
+        services.Replace(ServiceDescriptor.Transient<ITenantManager>(sp => new InterleavingTenantManager(
+            ActivatorUtilities.CreateInstance<EfCoreTenantManager<TestDbContext>>(sp), () => _beforeDelete)));
 
         _provider = services.BuildServiceProvider();
         await using (var scope = _provider.CreateAsyncScope())
@@ -249,6 +257,55 @@ public sealed class TenantManagementTests : IAsyncLifetime
         await Assert.ThrowsAsync<TenantNotFoundException>(() => _service.GetAsync(tenant.Id));
     }
 
+    /// <summary>删除幂等：不存在与重复删除都直接成功，且不发事件——宿主据事件记的"已删除"只对应真正发生的那一次。</summary>
+    [Fact]
+    public async Task Deleting_a_missing_or_already_deleted_tenant_succeeds_without_an_event()
+    {
+        var tenant = await _service.CreateAsync(new CreateTenantInputDto { Name = "acme" });
+        _events.Published.Clear();
+
+        await _service.DeleteAsync(Guid.NewGuid());
+        await _service.DeleteAsync(tenant.Id);
+        await _service.DeleteAsync(tenant.Id);
+
+        Assert.Equal(TenantChangeKind.Deleted, Assert.IsType<TenantChangedEvent>(Assert.Single(_events.Published)).Change);
+    }
+
+    /// <summary>快照之后、删除之前被另一请求删掉：管理器按严格契约抛不存在，用例按删除幂等视为成功，不发事件。</summary>
+    [Fact]
+    public async Task A_tenant_deleted_concurrently_after_the_snapshot_is_treated_as_deleted_without_an_event()
+    {
+        var tenant = await _service.CreateAsync(new CreateTenantInputDto { Name = "acme" });
+        _events.Published.Clear();
+        var raced = false;
+        _beforeDelete = async id =>
+        {
+            await using var scope = _provider.CreateAsyncScope();
+            await ActivatorUtilities.CreateInstance<EfCoreTenantManager<TestDbContext>>(scope.ServiceProvider).DeleteAsync(id);
+            raced = true;
+        };
+
+        await _service.DeleteAsync(tenant.Id);
+
+        Assert.True(raced, "The concurrent deletion was not injected; the race path was not exercised");
+        Assert.Empty(_events.Published);
+        await Assert.ThrowsAsync<TenantNotFoundException>(() => _service.GetAsync(tenant.Id));
+    }
+
+    /// <summary>只有"目标已不存在"算成功：并发冲突等真实失败照常抛出，租户仍在，也没有成功事件。</summary>
+    [Fact]
+    public async Task A_concurrency_conflict_while_deleting_is_still_thrown_without_an_event()
+    {
+        var tenant = await _service.CreateAsync(new CreateTenantInputDto { Name = "acme" });
+        _events.Published.Clear();
+        _beforeDelete = id => throw new TenantConcurrencyConflictException(id);
+
+        await Assert.ThrowsAsync<TenantConcurrencyConflictException>(() => _service.DeleteAsync(tenant.Id));
+
+        Assert.Empty(_events.Published);
+        Assert.Equal(tenant.Id, (await _service.GetAsync(tenant.Id)).Id);
+    }
+
     [Fact]
     public async Task Paging_uses_the_registry()
     {
@@ -381,6 +438,45 @@ public sealed class TenantManagementTests : IAsyncLifetime
                 ConnectionString = c.ConnectionString
             })]
         };
+
+    // 透传真实管理器，只在删除前执行测试给的动作
+    private sealed class InterleavingTenantManager(ITenantManager inner, Func<Func<Guid, Task>?> beforeDelete) : ITenantManager
+    {
+        public Task<TenantConfiguration> CreateAsync(
+            string name,
+            string? displayName,
+            bool isActive,
+            string? description = null,
+            CancellationToken cancellationToken = default)
+            => inner.CreateAsync(name, displayName, isActive, description, cancellationToken);
+
+        public Task<TenantConfiguration> UpdateAsync(
+            Guid id,
+            string name,
+            string? displayName,
+            string? description = null,
+            CancellationToken cancellationToken = default)
+            => inner.UpdateAsync(id, name, displayName, description, cancellationToken);
+
+        public Task<TenantConfiguration> SetActiveAsync(Guid id, bool isActive, CancellationToken cancellationToken = default)
+            => inner.SetActiveAsync(id, isActive, cancellationToken);
+
+        public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            if (beforeDelete() is { } hook)
+            {
+                await hook(id);
+            }
+
+            await inner.DeleteAsync(id, cancellationToken);
+        }
+
+        public Task<TenantConfiguration?> FindAsync(Guid id, CancellationToken cancellationToken = default)
+            => inner.FindAsync(id, cancellationToken);
+
+        public Task<PagedResult<TenantConfiguration>> GetPagedAsync(string? keyword, PageRequest page, CancellationToken cancellationToken = default)
+            => inner.GetPagedAsync(keyword, page, cancellationToken);
+    }
 
     private sealed class FakeDbException(string sqlState) : DbException("database failure")
     {

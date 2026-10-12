@@ -221,7 +221,16 @@ app.MapGroup("/api/v1/tenants").MapTenantManagement<CreateTenantWithAdminInputDt
 `MultiTenancyErrorCodes` 的四个专属库错误码（不可达、库不存在、未迁移、凭据被拒），认不出的返回 `null` 走 5xx。
 
 开通需要更多信息（如管理员邮箱）时派生 `CreateTenantInputDto`，端点按派生类型绑定请求体，开通器从 `TenantProvisioningContext.Input` 取回。
+派生类型的必填字段写 `[Required]`（引用类型 `= null!`），不用 C# `required`：后者让缺键在反序列化阶段失败，只有 400、没有字段错误。
+
+入参的 DataAnnotations 由用例入口执行（Minimal API 不自动验证），含创建入参里的每条连接；缺字段、超长返回带字段错误的 400，此时不写入、不发事件。
+启停入参 `UpdateTenantActivationInputDto.IsActive` 是 `bool?` + `[Required]`：漏传按字段 `isActive` 拒绝，不会被当成停用。
 成功的创建、更新、启停、删除发布 `TenantChangedEvent`（带显示名快照），宿主据此记审计。
+
+删除幂等：租户不存在或已删除（含并发删除先完成）时 `DELETE /{id}` 返回 204，不发事件；并发冲突（`TenantConcurrencyConflictException`）、存储故障照常失败。
+幂等只在用例层，`ITenantManager.DeleteAsync` 仍对不存在的租户抛 `TenantNotFoundException`。
+
+`GET /` 接收 `offset`、`limit`、`keyword`，按创建时间倒序、同刻按 Id 倒序分页，不提供排序参数；`GetTenantPagedInputDto` 继承的 `PageRequest.Sorting` 不生效。
 
 租户名须是单个 DNS 标签：匹配 `TenantConfiguration.NamePattern`（`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`），最长 `TenantConfiguration.MaxNameLength`（63）个字符；
 未配置 `DomainFormat` 也照样校验。`ITenantManager` 在创建与改名时校验（名称逐字不变时不校验，更新入参按存储容量 `MaxStoredNameLength`（64）接受原名），
@@ -292,6 +301,9 @@ app.MapGroup("/api/v1/tenant-connections").MapTenantConnections(options =>
 ```
 
 管理面（`GET /{tenantId}`、`PUT /{tenantId}/{name}`、`DELETE /{tenantId}/{name}?expectedVersion=`）只回名字与版本，不读取密文。机器端点的敏感度见「注意事项」。
+
+`PUT` 请求体的 `expectedVersion` 必须出现、可以为 `null`：显式 `null` 表示首次登记，缺键不当成首次登记。
+它保留 C# `required`（约束 JSON 里有没有这个键），缺键在反序列化阶段即被拒绝，返回不带字段错误的 400；`connectionString` 缺失按字段报错。
 
 登记、改写、删除成功后发布 `TenantConnectionChangedEvent(TenantId, TenantDisplayName, Name, Change, Version)`，不含连接串，宿主据此留痕；
 `Name` 是连接名，记录“为哪个租户改的”用 `TenantDisplayName`。写入失败时不发事件。

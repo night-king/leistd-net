@@ -52,6 +52,25 @@ public sealed class OpenApiDocumentTests
         // 组件以 Minimal API 映射的端点同样收录
         Assert.Contains("\"/api/v1/settings", document);
     }
+#if (LocalIdentity && IncludeMultiTenancy)
+
+    /// <summary>租户列表固定排序：文档不声明 <c>sorting</c>，客户端不会把它当成可用的排序参数。</summary>
+    [Fact]
+    public async Task Tenant_listing_does_not_declare_a_sorting_parameter()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        using var host = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
+
+        using var document = JsonDocument.Parse(await host.CreateClient().GetStringAsync("/openapi/v1.json"));
+        var names = document.RootElement.GetProperty("paths").GetProperty("/api/v1/tenants")
+            .GetProperty("get").GetProperty("parameters").EnumerateArray()
+            .Select(parameter => parameter.GetProperty("name").GetString())
+            .ToList();
+
+        Assert.Contains("keyword", names);
+        Assert.DoesNotContain("sorting", names, StringComparer.OrdinalIgnoreCase);
+    }
+#endif
 
     [Fact]
     public async Task Other_environments_do_not_expose_the_document()

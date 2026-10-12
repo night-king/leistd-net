@@ -1536,4 +1536,76 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
         var recreated = await CreateTenantAsync(hostAdmin, "recycled");
         Assert.NotEqual(tenantId, recreated);
     }
+
+    /// <summary>删除幂等：不存在与重复删除都是 204，只有真正发生的那次删除留下成功记录，其他租户不受影响。</summary>
+    [Fact]
+    public async Task Deleting_a_missing_or_already_deleted_tenant_returns_204_without_operation_records()
+    {
+        var hostAdmin = await LoginHostAdminAsync();
+        var tenantId = await CreateTenantAsync(hostAdmin, "idem-delete");
+        var bystanderId = await CreateTenantAsync(hostAdmin, "idem-bystander");
+        var missingId = Guid.NewGuid();
+
+        var missing = await hostAdmin.Client.DeleteAsync($"/api/v1/tenants/{missingId}");
+        var first = await hostAdmin.Client.DeleteAsync($"/api/v1/tenants/{tenantId}");
+        var repeated = await hostAdmin.Client.DeleteAsync($"/api/v1/tenants/{tenantId}");
+
+        Assert.Equal(
+            (HttpStatusCode.NoContent, HttpStatusCode.NoContent, HttpStatusCode.NoContent),
+            (missing.StatusCode, first.StatusCode, repeated.StatusCode));
+        Assert.Equal(0, await OperationRecordQueries.CountSucceededAsync(
+            _factory, hostAdmin.Client, OperationRecordActions.TenantDeleted, missingId.ToString()));
+        Assert.Empty(await OperationRecordQueries.GetFailuresAsync(
+            _factory, hostAdmin.Client, OperationRecordActions.TenantDeleted, missingId.ToString()));
+        Assert.Equal(1, await OperationRecordQueries.CountSucceededAsync(
+            _factory, hostAdmin.Client, OperationRecordActions.TenantDeleted, tenantId.ToString()));
+        Assert.Empty(await OperationRecordQueries.GetFailuresAsync(
+            _factory, hostAdmin.Client, OperationRecordActions.TenantDeleted, tenantId.ToString()));
+
+        var bystander = await hostAdmin.Client.GetAsync($"/api/v1/tenants/{bystanderId}");
+        Assert.Equal(HttpStatusCode.OK, bystander.StatusCode);
+        using var body = JsonDocument.Parse(await bystander.Content.ReadAsStringAsync());
+        Assert.True(body.RootElement.GetProperty("isActive").GetBoolean());
+    }
+
+    /// <summary>租户列表固定按创建时间倒序、同刻按 Id 倒序：创建时间相同的租户逐页翻完不重不漏，关键字照常过滤。</summary>
+    /// <remarks>
+    /// 租户按 Id 递增的顺序写入，物理顺序与 Id 倒序相反；缺少 Id 尾序时同刻记录按存储顺序或任意顺序返回，断言即失败。
+    /// 同刻且不匹配关键字的租户不能出现在任何一页里。
+    /// </remarks>
+    [Fact]
+    public async Task Tenants_created_at_the_same_instant_page_by_id_descending_with_a_keyword()
+    {
+        var hostAdmin = await LoginHostAdminAsync();
+        List<Guid> matching = [];
+        foreach (var name in new[] { "tiepage-a", "tiepage-b", "tiepage-c", "tiepage-d" })
+        {
+            matching.Add(await CreateTenantAsync(hostAdmin, name));
+        }
+
+        var unrelated = await CreateTenantAsync(hostAdmin, "tieother");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var control = scope.ServiceProvider.GetRequiredService<IdentityControlDbContext>();
+            var tie = await control.Set<TenantRecord>().Where(record => record.Id == matching[0])
+                .Select(record => record.CreationTime).SingleAsync();
+            List<Guid> tied = [.. matching, unrelated];
+            await control.Set<TenantRecord>().Where(record => tied.Contains(record.Id))
+                .ExecuteUpdateAsync(setters => setters.SetProperty(record => record.CreationTime, tie));
+        }
+
+        List<Guid> paged = [];
+        for (var offset = 0; offset < matching.Count; offset++)
+        {
+            using var page = JsonDocument.Parse(await hostAdmin.Client.GetStringAsync(
+                $"/api/v1/tenants?offset={offset}&limit=1&keyword=tiepage"));
+            Assert.Equal(matching.Count, page.RootElement.GetProperty("totalCount").GetInt32());
+            paged.Add(Assert.Single(page.RootElement.GetProperty("items").EnumerateArray()).GetProperty("id").GetGuid());
+        }
+
+        // PostgreSQL 的 uuid 按字节比较，与小写无连字符十六进制串的序数次序一致
+        Assert.Equal(matching.OrderByDescending(id => id.ToString("N"), StringComparer.Ordinal), paged);
+        Assert.DoesNotContain(unrelated, paged);
+    }
 }

@@ -22,13 +22,17 @@ public sealed record TenantConnectionOutputDto
 public sealed record UpsertTenantConnectionInputDto
 {
     /// <summary>调用方读到的该行版本；<see langword="null"/> 表示预期这一行尚不存在（首次登记）。</summary>
-    /// <remarks>声明为 <c>required</c>：缺失时直接拒绝输入，而不是静默按后写者胜出处理。</remarks>
+    /// <remarks>
+    /// 字段必须出现、值可以是 <see langword="null"/>：遗漏不能被当成首次登记而按后写者胜出处理。
+    /// 声明为 <c>required</c> 约束的是 JSON 里有没有这个键，缺键在反序列化阶段即被拒绝（400，没有字段级错误），
+    /// 而 <c>[Required]</c> 会连显式 <see langword="null"/> 一并拒掉，因此不用它。
+    /// </remarks>
     public required long? ExpectedVersion { get; init; }
 
     /// <summary>连接串（明文）；加密后存入控制库，运行与迁移共用。</summary>
     [Required]
     [MaxLength(TenantConnectionConfiguration.MaxConnectionStringLength)]
-    public required string ConnectionString { get; init; }
+    public string ConnectionString { get; init; } = null!;
 
     /// <summary>不输出连接串。</summary>
     public override string ToString() =>
