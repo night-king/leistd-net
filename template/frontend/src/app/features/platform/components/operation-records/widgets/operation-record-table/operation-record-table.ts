@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 //#if (IncludeLocalization)
-import { TranslocoDirective, translateObjectSignal } from '@jsverse/transloco';
+import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
@@ -16,9 +16,7 @@ import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTableImports } from '@spartan-ng/helm/table';
 import { ColumnDef, PaginationState } from '@tanstack/angular-table';
 
-//#if (IncludeLocalization)
-import { textAt } from '../../../../../../core/i18n/translation-text';
-//#endif
+import { injectOperationActionSentence } from './operation-action-sentence';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
@@ -34,81 +32,6 @@ import { resolveTableUpdater } from '../../../../../../shared/utils/table-query-
 import { tableViewportSignal } from '../../../../../../shared/utils/table-viewport';
 import { OperationRecordOutputDto } from '../../../../dtos/operation-record.dto';
 //#if (!IncludeLocalization)
-
-/**
- * 不启用多语言时的英文句子表，与 `public/i18n/en.json` 的 `operationRecords.actions` 必须同步改：
- * 该场景不生成词条文件，不内联就只能显示裸动作码。
- */
-const ACTION_SENTENCES: Record<string, (target: string) => string> = {
-  'user.created': (t) => `Created user ${t}`,
-  'user.updated': (t) => `Updated user ${t}`,
-  'user.deleted': (t) => `Deleted user ${t}`,
-  'user.enabled': (t) => `Enabled user ${t}`,
-  'user.disabled': (t) => `Disabled user ${t}`,
-  'user.password-reset': (t) => `Reset the password of user ${t}`,
-  'user.unlocked': (t) => `Unlocked user ${t}`,
-  'user.two-factor-reset': (t) => `Reset two-factor authentication for user ${t}`,
-  'user.roles-replaced': (t) => `Changed roles for user ${t}`,
-  'role.created': (t) => `Created role ${t}`,
-  'role.updated': (t) => `Updated role ${t}`,
-  'role.deleted': (t) => `Deleted role ${t}`,
-  //#if (OpenIddictServer)
-  'open-application.created': (t) => `Created open application ${t}`,
-  'open-application.updated': (t) => `Updated open application ${t}`,
-  'open-application.deleted': (t) => `Deleted open application ${t}`,
-  'open-application.secret-reset': (t) => `Reset the secret of open application ${t}`,
-  //#endif
-  //#if (RemoteTokenAuth)
-  'resource.admin-granted': (t) => `Added ${t} to the administrator role`,
-  'resource.admin-restored': (t) => `Restored administrator access for ${t}`,
-  //#endif
-  'permission-grants.replaced': (t) => `Changed permissions for ${t}`,
-  'tenant.created': (t) => `Created tenant ${t}`,
-  'tenant.updated': (t) => `Updated tenant ${t}`,
-  'tenant.activation-changed': (t) => `Changed activation of tenant ${t}`,
-  'tenant.deleted': (t) => `Deleted tenant ${t}`,
-  'tenant.connection-registered': (t) => `Registered a database connection for tenant ${t}`,
-  'tenant.connection-changed': (t) => `Changed the database connection of tenant ${t}`,
-  'tenant.connection-removed': (t) => `Removed the database connection of tenant ${t}`,
-  //#if (LocalIdentity && IncludeMultiTenancy)
-  'tenant.admin-restored': (t) => `Restored tenant administrator ${t}`,
-  //#endif
-  'setting.changed': (t) => `Changed setting ${t}`,
-  'setting.test-email-sent': () => 'Sent a test email',
-  'operation-records.exported': () => 'Exported operation records',
-  'auth.login.succeeded': () => 'Signed in',
-  'auth.login.failed': (t) => `Failed to sign in (${t})`,
-  'auth.locked-out': (t) => `Account ${t} was locked after repeated failed sign-ins`,
-  'auth.password.changed': () => 'Changed their own password',
-  'auth.avatar.changed': () => 'Changed their avatar',
-  'auth.email.verified': () => 'Verified their email address',
-  'auth.session.revoked': (t) => `Signed out a device (${t})`,
-  'auth.sessions.others-revoked': () => 'Signed out all other devices',
-  'auth.two-factor.enabled': () => 'Turned on two-factor authentication',
-  'auth.two-factor.disabled': () => 'Turned off two-factor authentication',
-  'auth.two-factor.recovery-codes-regenerated': () => 'Regenerated recovery codes',
-  'auth.two-factor.recovery-code-used': (t) => `Account ${t} signed in with a recovery code`,
-  //#if (ExternalLogin)
-  'auth.external-login.linked': (t) => `Linked external account ${t}`,
-  'auth.external-login.unlinked': (t) => `Unlinked external account ${t}`,
-  //#endif
-  'auth.registered': (t) => `Registered account ${t}`,
-  'impersonation.started': (t) => `Started acting as ${t}`,
-  'impersonation.ended': () => 'Ended impersonation',
-  'tenant.impersonation-started': (t) => `Signed in as the administrator of tenant ${t}`,
-  'tenant.impersonation-ended': (t) => `Ended impersonation of tenant ${t}`,
-  'auth.token.issued': () => 'Issued an access token',
-};
-
-/** 无目标时的变体（目标记为 `-`）：创建类端点在授权阶段被拒，以及本来就不带目标的动作。 */
-const ACTION_SENTENCES_NO_TARGET: Record<string, string> = {
-  'user.created': 'Created a user',
-  'role.created': 'Created a role',
-  //#if (OpenIddictServer)
-  'open-application.created': 'Created an open application',
-  //#endif
-  'setting.test-email-sent': 'Sent a test email',
-};
 
 /**
  * 失败原因的英文文案，键是失败码。不启用多语言时后端 `failureMessage` 恒为空，须与后端
@@ -127,13 +50,6 @@ const FAILURE_REASONS: Record<string, string> = {
   'Auth:TwoFactorCodeInvalid': 'The verification code is incorrect.',
 };
 //#endif
-
-/** 「操作内容」那句话：`key` 非空时模板经 t 取词条并填 `params`，否则直接显示 `text`。 */
-interface ActionSentence {
-  key: string | null;
-  params: Record<string, string>;
-  text: string;
-}
 
 @Component({
   selector: 'app-operation-record-table',
@@ -168,21 +84,10 @@ export class OperationRecordTable {
   // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间。
   protected readonly displayTimeZone = inject(SettingContextService).timeZone;
   protected readonly displayLocale = inject(SettingContextService).displayLocale;
-  //#if (IncludeLocalization)
-  /** 动作句子模板整段取成对象，只用来判断动作码登记了没有：句子本身在模板里经 t 带参数取。 */
-  private readonly actionTexts = translateObjectSignal(
-    'operationRecords.actions',
-    {},
-    { scope: 'operationRecords' },
-  );
-  private readonly actionNoTargetTexts = translateObjectSignal(
-    'operationRecords.actionsNoTarget',
-    {},
-    { scope: 'operationRecords' },
-  );
-  //#else
+  //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif
+  private readonly actionSentence = injectOperationActionSentence();
 
   readonly records = input<OperationRecordOutputDto[]>([]);
   readonly totalCount = input(0);
@@ -279,49 +184,6 @@ export class OperationRecordTable {
         ]),
       ),
   );
-
-  /**
-   * 「操作内容」那句话：给出词条键与参数，未登记时给原样文字。整句进语言包，不拼片段（各语言
-   * 语序不同）。目标降级：名称 → 截断的标识 → 无目标（`-`）走 `actionsNoTarget`；未登记的动作码
-   * 显示裸码，不造假句子。
-   */
-  private actionSentence(record: OperationRecordOutputDto): ActionSentence {
-    //#if (IncludeLocalization)
-    if (
-      record.targetId === '-' &&
-      textAt(this.actionNoTargetTexts(), record.action) !== undefined
-    ) {
-      return { key: `operationRecords.actionsNoTarget.${record.action}`, params: {}, text: '' };
-    }
-
-    return textAt(this.actionTexts(), record.action) === undefined
-      ? { key: null, params: {}, text: record.action }
-      : {
-          key: `operationRecords.actions.${record.action}`,
-          params: { target: this.targetDisplay(record) },
-          text: '',
-        };
-    //#else
-    if (record.targetId === '-') {
-      const noTarget = ACTION_SENTENCES_NO_TARGET[record.action];
-      if (noTarget) {
-        return { key: null, params: {}, text: noTarget };
-      }
-    }
-
-    const template = ACTION_SENTENCES[record.action];
-    const text = template ? template(this.targetDisplay(record)) : record.action;
-    return { key: null, params: {}, text };
-    //#endif
-  }
-
-  /** 目标的显示形态：无名称（如授权阶段被拒）时退到截断的标识，避免 36 位 GUID 撑开整行。 */
-  targetDisplay(record: OperationRecordOutputDto): string {
-    if (record.targetName) {
-      return record.targetName;
-    }
-    return record.targetId.length > 12 ? `${record.targetId.slice(0, 8)}…` : record.targetId;
-  }
 
   /** 失败原因：显示后端按当前语言渲染的 `failureMessage`，取不到时回落到原始码。 */
   private failureReason(record: OperationRecordOutputDto): string | null {

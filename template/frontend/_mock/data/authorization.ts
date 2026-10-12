@@ -41,6 +41,18 @@ export const ROLES: MockRole[] = [
  */
 export const PERMISSION_DEFINITIONS = [
   {
+    name: 'Work',
+    displayName: 'Work',
+    permissions: [
+      {
+        name: PERMISSIONS.dashboard.default,
+        displayName: 'Dashboard',
+        parentName: undefined,
+        children: [],
+      },
+    ],
+  },
+  {
     name: 'Identity',
     displayName: 'Identity & access',
     permissions: [

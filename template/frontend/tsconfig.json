@@ -50,7 +50,8 @@
       "@spartan-ng/helm/date-picker": ["./libs/ui/date-picker/src/index.ts"],
       "@spartan-ng/helm/input-otp": ["./libs/ui/input-otp/src/index.ts"],
       "@spartan-ng/helm/item": ["./libs/ui/item/src/index.ts"],
-      "@spartan-ng/helm/navigation-menu": ["./libs/ui/navigation-menu/src/index.ts"]
+      "@spartan-ng/helm/navigation-menu": ["./libs/ui/navigation-menu/src/index.ts"],
+      "@spartan-ng/helm/chart": ["./libs/ui/chart/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

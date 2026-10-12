@@ -35,7 +35,9 @@
     "@ng-icons/core": "36.0.0",
     "@ng-icons/lucide": "36.0.0",
     "@spartan-ng/brain": "1.6.3",
+    "@tanstack/angular-charts": "0.16.0",
     "@tanstack/angular-table": "9.2.4",
+    "@tanstack/charts": "0.16.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     //#if (LocalIdentity)

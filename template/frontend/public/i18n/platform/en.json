@@ -1,8 +1,56 @@
 {
   "dashboard": {
-    "welcome": "Welcome to the Admin Console",
-    "currentUser": "Currently signed in as: {{name}}",
-    "intro": "This is a starter template project. You can manage users under \"User Management\" and extend more feature modules from the left-hand menu.",
-    "title": "Dashboard"
+    "title": "Dashboard",
+    "greeting": {
+      "morning": "Good morning, {{name}}",
+      "afternoon": "Good afternoon, {{name}}",
+      "evening": "Good evening, {{name}}"
+    },
+    "subtitle": "Overview of the last {{days}} days",
+    "noStatistics": "Statistics require the Dashboard permission.",
+    "rangeLabel": "Statistics range",
+    "range7": "7 days",
+    "range30": "30 days",
+    "loadFailed": "Couldn't load statistics.",
+    "refreshFailed": "Couldn't refresh. Showing earlier data.",
+    "kpi": {
+      "totalUsers": "Total users",
+      "newUsers": "New sign-ups",
+      "activeUsers": "Active users",
+      "failedLogins": "Failed sign-ins",
+      "vsPrevious": "vs previous {{days}} days",
+      "noComparison": "No earlier data to compare"
+    },
+    "trend": {
+      "title": "Sign-in trend",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "total": "successful sign-ins in the last {{days}} days",
+      "failedApprox": "Failed sign-ins are approximate: repeated anonymous failures are sampled.",
+      "ariaLabel": "Sign-ins per day"
+    },
+    "attention": {
+      "title": "Needs attention",
+      "lockedUsers": "{{count}} locked accounts",
+      "lockedUsersHint": "Locked after repeated failed sign-ins or by an administrator",
+      "adminsWithoutTwoFactor": "{{count}} administrators without two-factor authentication",
+      "adminsWithoutTwoFactorHint": "Turn it on for accounts with elevated access",
+      "unconfirmedEmailUsers": "{{count}} users with unverified email",
+      "unconfirmedEmailUsersHint": "They can't receive password reset emails",
+      "disabledTenants": "{{count}} disabled tenants",
+      "disabledTenantsHint": "Users of a disabled tenant can't sign in",
+      "review": "Review",
+      "allClear": "Nothing needs attention right now."
+    },
+    "recent": {
+      "title": "Recent activity",
+      "viewAll": "View all",
+      "empty": "No activity yet",
+      "anonymous": "Anonymous",
+      "rejected": "Rejected"
+    },
+    "quick": {
+      "title": "Quick links"
+    }
   }
 }

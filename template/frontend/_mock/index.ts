@@ -14,6 +14,7 @@ export * from './api/auth';
 export * from './api/user';
 export * from './api/authorization';
 export * from './api/setting';
+export * from './api/platform-statistics';
 //#if (IncludeOperationRecords)
 export * from './api/operation-record';
 //#endif

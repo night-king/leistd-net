@@ -104,6 +104,9 @@
 
 嵌套的块用 `md` 不用 `xl`：内外同圆角就分不出层次。组件内部的小元素（菜单项、清除按钮）跟随所在组件的写法。
 
+- **托盘卡**（`frontend/src/app/shared/components/stat-panel`）：灰底外框放标题与右侧操作，内层白卡放内容，用于仪表盘这类同屏多块数据；内卡圆角按嵌套规则取 `rounded-lg`（外框 `rounded-xl` 减去 4px 间距）。普通页面区块仍用 Spartan Card，不套托盘。
+- **图表**用 Spartan `chart`（TanStack Charts），序列颜色只取 `--chart-1…5` 令牌、主题用 `HLM_CHART_THEME`，不写色值；`chart` 只在用到它的懒加载页面里引入。
+
 - **当前项用中性色，不用品牌色**：侧栏菜单沿用 Spartan 的 `data-active` 样式（`sidebar-accent` 底），细描边由 `styles.css` 统一补；顶栏导航沿用 navigation-menu 的默认当前态；抽屉与设置面板里的 ghost 按钮挂 `aria-[current=page]:bg-muted`。品牌色留给主操作、焦点环与链接。
 - **间距**：兄弟元素之间用 `flex` / `grid` + `gap-*`，不用 `space-y-*` 与逐个元素的外边距。页面外框统一 `p-4 sm:p-6`。
 - **暗色**：表面分五层逐级提亮（`sidebar` < `background` < `card` < `popover` < `muted`），不用纯黑；层级都在 `styles.css` 里定好，页面不写 `dark:` 颜色覆盖。

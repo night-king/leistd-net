@@ -3,21 +3,339 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="p-4 sm:p-6">
-    <section hlmCard>
-      <div hlmCardHeader>
-        <h2 hlmCardTitle class="text-2xl font-semibold tracking-tight">
-          {{ t('platform.dashboard.welcome') }}
+  <div class="flex flex-col gap-6 p-4 sm:p-6">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div class="flex min-w-0 flex-col gap-1">
+        <h2 class="text-2xl font-semibold tracking-tight">
+          @switch (greetingPart()) {
+            @case ('morning') {
+              {{ t('platform.dashboard.greeting.morning', { name: userName() }) }}
+            }
+            @case ('afternoon') {
+              {{ t('platform.dashboard.greeting.afternoon', { name: userName() }) }}
+            }
+            @default {
+              {{ t('platform.dashboard.greeting.evening', { name: userName() }) }}
+            }
+          }
         </h2>
-        <p hlmCardDescription>
-          @if (authService.currentUser(); as user) {
-            {{ t('platform.dashboard.currentUser', { name: user.displayName || user.username }) }}
+        <p class="text-muted-foreground text-sm">
+          @if (canViewStatistics()) {
+            {{ t('platform.dashboard.subtitle', { days: days() }) }}
+          } @else {
+            {{ t('platform.dashboard.noStatistics') }}
           }
         </p>
       </div>
-      <div hlmCardContent>
-        <p class="text-muted-foreground">{{ t('platform.dashboard.intro') }}</p>
-      </div>
-    </section>
+      @if (canViewStatistics()) {
+        <hlm-toggle-group
+          type="single"
+          variant="outline"
+          size="sm"
+          [value]="days()"
+          [attr.aria-label]="t('platform.dashboard.rangeLabel')"
+          data-testid="dashboard-range"
+          (valueChange)="setDays($event)"
+        >
+          <button hlmToggleGroupItem [value]="7">{{ t('platform.dashboard.range7') }}</button>
+          <button hlmToggleGroupItem [value]="30">{{ t('platform.dashboard.range30') }}</button>
+        </hlm-toggle-group>
+      }
+    </div>
+
+    @if (canViewStatistics()) {
+      @if (statistics(); as stats) {
+        @if (loadFailed()) {
+          <!-- 已有数据时刷新失败：保留原内容，说明并给重试 -->
+          <div
+            class="text-muted-foreground flex items-center gap-2 text-sm"
+            role="status"
+            data-testid="dashboard-refresh-failed"
+          >
+            {{ t('platform.dashboard.refreshFailed') }}
+            <button hlmBtn variant="link" size="sm" class="px-0" (click)="loadStatistics()">
+              {{ t('common.retry') }}
+            </button>
+          </div>
+        }
+
+        <div
+          class="grid grid-cols-2 gap-4 xl:grid-cols-4"
+          [attr.aria-busy]="loading()"
+        >
+          @for (kpi of kpis(); track kpi.id) {
+            <app-stat-panel
+              [panelTitle]="t(kpiTitleKeys[kpi.id])"
+              [attr.data-testid]="'kpi-' + kpi.id"
+            >
+              <div class="flex flex-col gap-2 p-4">
+                <span class="text-3xl font-semibold tabular-nums">{{ kpi.value }}</span>
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  @if (kpi.change !== null) {
+                    <span
+                      hlmBadge
+                      [variant]="
+                        kpi.change === 0
+                          ? 'secondary'
+                          : kpi.change > 0 !== kpi.higherIsWorse
+                            ? 'success'
+                            : 'destructive'
+                      "
+                    >
+                      @if (kpi.change !== 0) {
+                        <ng-icon
+                          [name]="kpi.change > 0 ? 'lucideArrowUpRight' : 'lucideArrowDownRight'"
+                          data-icon="inline-start"
+                        />
+                      }
+                      {{ kpi.change > 0 ? '+' : '' }}{{ kpi.change }}%
+                    </span>
+                    <span class="text-muted-foreground">{{
+                      t('platform.dashboard.kpi.vsPrevious', { days: stats.days })
+                    }}</span>
+                  } @else {
+                    <span class="text-muted-foreground">{{
+                      t('platform.dashboard.kpi.noComparison')
+                    }}</span>
+                  }
+                </div>
+              </div>
+            </app-stat-panel>
+          }
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <!--#if (IncludeOperationRecords && LocalIdentity)-->
+          @if (trendChart(); as chart) {
+            <app-stat-panel
+              class="lg:col-span-2"
+              [panelTitle]="t('platform.dashboard.trend.title')"
+              data-testid="dashboard-trend"
+            >
+              <div statPanelAction class="text-muted-foreground flex items-center gap-3 text-xs">
+                <span class="flex items-center gap-1.5">
+                  <span class="bg-chart-1 size-2 rounded-full"></span>
+                  {{ t('platform.dashboard.trend.succeeded') }}
+                </span>
+                <span class="flex items-center gap-1.5">
+                  <span class="bg-chart-3 size-2 rounded-full"></span>
+                  {{ t('platform.dashboard.trend.failed') }}
+                </span>
+              </div>
+              <div class="flex flex-col gap-3 p-4">
+                <p class="text-muted-foreground text-sm">
+                  <span class="text-foreground text-base font-semibold tabular-nums">{{
+                    loginTotal()
+                  }}</span>
+                  {{ t('platform.dashboard.trend.total', { days: stats.days }) }}
+                </p>
+                <tanstack-chart hlmChart [options]="chart" />
+                <p class="text-muted-foreground text-xs">
+                  {{ t('platform.dashboard.trend.failedApprox') }}
+                </p>
+              </div>
+            </app-stat-panel>
+          }
+
+          <!--#endif-->
+          <app-stat-panel
+            [class]="hasTrend() ? '' : 'lg:col-span-3'"
+            [panelTitle]="t('platform.dashboard.attention.title')"
+            data-testid="dashboard-attention"
+          >
+            @if (attention().length) {
+              <span statPanelAction hlmBadge variant="outline">{{ attention().length }}</span>
+            }
+            <ul class="flex flex-col p-2">
+              @for (item of attention(); track item.id) {
+                <li class="flex items-start gap-3 rounded-md p-2">
+                  <span
+                    class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
+                  >
+                    <ng-icon [name]="item.icon" />
+                  </span>
+                  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                    @switch (item.id) {
+                      @case ('lockedUsers') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.lockedUsers', { count: item.count })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.lockedUsersHint')
+                        }}</span>
+                      }
+                      <!--#if (LocalIdentity)-->
+                      @case ('adminsWithoutTwoFactor') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.adminsWithoutTwoFactor', {
+                            count: item.count,
+                          })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.adminsWithoutTwoFactorHint')
+                        }}</span>
+                      }
+                      @case ('unconfirmedEmailUsers') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.unconfirmedEmailUsers', {
+                            count: item.count,
+                          })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.unconfirmedEmailUsersHint')
+                        }}</span>
+                      }
+                      <!--#endif-->
+                      <!--#if (LocalIdentity && IncludeMultiTenancy)-->
+                      @case ('disabledTenants') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.disabledTenants', { count: item.count })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.disabledTenantsHint')
+                        }}</span>
+                      }
+                      <!--#endif-->
+                    }
+                  </div>
+                  <a
+                    hlmBtn
+                    variant="outline"
+                    size="sm"
+                    [routerLink]="item.route"
+                    [queryParams]="item.queryParams"
+                  >
+                    {{ t('platform.dashboard.attention.review') }}
+                  </a>
+                </li>
+              } @empty {
+                <li
+                  class="text-muted-foreground flex flex-col items-center justify-center gap-2 py-8 text-sm"
+                >
+                  <ng-icon name="lucideCircleCheck" class="text-success text-xl" />
+                  {{ t('platform.dashboard.attention.allClear') }}
+                </li>
+              }
+            </ul>
+          </app-stat-panel>
+        </div>
+      } @else if (loadFailed()) {
+        <div
+          class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-12 text-sm"
+          role="alert"
+          data-testid="dashboard-load-failed"
+        >
+          <span class="text-muted-foreground">{{ t('platform.dashboard.loadFailed') }}</span>
+          <button hlmBtn variant="outline" size="sm" (click)="loadStatistics()">
+            {{ t('common.retry') }}
+          </button>
+        </div>
+      } @else {
+        <!-- 首次加载：骨架与成稿同布局，数据到达时不跳动 -->
+        <div class="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-busy="true">
+          @for (placeholder of [1, 2, 3, 4]; track placeholder) {
+            <hlm-skeleton class="h-32 rounded-xl" />
+          }
+        </div>
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <hlm-skeleton class="h-80 rounded-xl lg:col-span-2" />
+          <hlm-skeleton class="h-80 rounded-xl" />
+        </div>
+      }
+    }
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <!--#if (IncludeOperationRecords)-->
+      @if (canViewRecentRecords()) {
+        <app-stat-panel
+          class="lg:col-span-2"
+          [panelTitle]="t('platform.dashboard.recent.title')"
+          data-testid="dashboard-recent"
+        >
+          <a
+            statPanelAction
+            hlmBtn
+            variant="ghost"
+            size="sm"
+            routerLink="/platform/operation-records"
+          >
+            {{ t('platform.dashboard.recent.viewAll') }}
+            <ng-icon name="lucideChevronRight" data-icon="inline-end" />
+          </a>
+          @if (recentRecords(); as records) {
+            <ul class="flex flex-col divide-y">
+              @for (record of records; track record.id) {
+                <li class="flex items-center gap-3 px-4 py-3 text-sm">
+                  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span class="truncate">
+                      <span class="font-medium">{{
+                        record.actorName ??
+                          record.actorId ??
+                          t('platform.dashboard.recent.anonymous')
+                      }}</span>
+                      @if (recentSentences().get(record.id); as sentence) {
+                        <span class="text-muted-foreground">
+                          {{ sentence.key ? t(sentence.key, sentence.params) : sentence.text }}
+                        </span>
+                      }
+                    </span>
+                  </div>
+                  @if (record.outcome === 'failed') {
+                    <span hlmBadge variant="destructive">{{
+                      t('platform.dashboard.recent.rejected')
+                    }}</span>
+                  }
+                  <span class="text-muted-foreground shrink-0 text-xs tabular-nums">{{
+                    record.creationTime | appDate: 'short' : displayTimeZone() : displayLocale()
+                  }}</span>
+                </li>
+              } @empty {
+                <li class="text-muted-foreground py-8 text-center text-sm">
+                  {{ t('platform.dashboard.recent.empty') }}
+                </li>
+              }
+            </ul>
+          } @else if (recentRecordsFailed()) {
+            <div class="flex flex-col items-center gap-2 py-8 text-sm" role="alert">
+              <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+              <button hlmBtn variant="outline" size="sm" (click)="loadRecentRecords()">
+                {{ t('common.retry') }}
+              </button>
+            </div>
+          } @else {
+            <div class="flex flex-col gap-3 p-4" aria-busy="true">
+              @for (placeholder of [1, 2, 3]; track placeholder) {
+                <hlm-skeleton class="h-5 w-full" />
+              }
+            </div>
+          }
+        </app-stat-panel>
+      }
+
+      <!--#endif-->
+      @if (quickLinks().length) {
+        <app-stat-panel
+          [panelTitle]="t('platform.dashboard.quick.title')"
+          data-testid="dashboard-quick"
+        >
+          <nav class="flex flex-col p-2" [attr.aria-label]="t('platform.dashboard.quick.title')">
+            @for (link of quickLinks(); track link.route) {
+              <a
+                class="hover:bg-muted flex h-10 items-center gap-3 rounded-md px-2 text-sm font-medium"
+                [routerLink]="link.route"
+              >
+                <span
+                  class="bg-muted text-muted-foreground flex size-7 items-center justify-center rounded-md"
+                >
+                  <ng-icon [name]="link.icon" />
+                </span>
+                <span class="flex-1 truncate">{{ t(link.label) }}</span>
+                <ng-icon name="lucideChevronRight" class="text-muted-foreground" />
+              </a>
+            }
+          </nav>
+        </app-stat-panel>
+      }
+    </div>
   </div>
 </ng-container>

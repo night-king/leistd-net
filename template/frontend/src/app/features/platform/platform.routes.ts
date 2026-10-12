@@ -14,7 +14,12 @@ export const PLATFORM_ROUTES: Routes = [
   {
     path: '',
     //#if (IncludeLocalization)
+    //#if (IncludeOperationRecords)
+    // 最近操作的句子模板在 operationRecords scope
+    providers: [provideTranslocoScope('platform', 'operationRecords')],
+    //#else
     providers: [provideTranslocoScope('platform')],
+    //#endif
     resolve: { translations: resolveTranslationScopes },
     //#endif
     loadComponent: () => import('./components/dashboard/dashboard').then((m) => m.Dashboard),
