@@ -245,6 +245,7 @@
 //#endif
     "User:SuperAdminUpdateForbidden": "The built-in super administrator cannot be updated by other administrators.",
     "User:UsernameTaken": "Username '{Username}' already exists.",
+    "Users": "Users",
     "Username": "Username",
     "Username or email": "Username or email",
     "Verification code": "Verification code",

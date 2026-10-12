@@ -245,6 +245,7 @@
 //#endif
     "User:SuperAdminUpdateForbidden": "系统内置超级管理员不允许被其他管理员更新。",
     "User:UsernameTaken": "用户名 '{Username}' 已存在。",
+    "Users": "用户",
     "Username": "用户名",
     "Username or email": "用户名或邮箱",
     "Verification code": "验证码",

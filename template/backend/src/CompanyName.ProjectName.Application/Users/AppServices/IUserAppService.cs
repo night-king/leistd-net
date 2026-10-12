@@ -96,4 +96,26 @@ public interface IUserAppService : IAppService
         Guid id,
         UpdateUserRolesInputDto input,
         CancellationToken cancellationToken = default);
+
+    /// <summary>批量启用用户：逐条按单个启用的规则执行并留痕，部分失败不回滚已成功的条目。</summary>
+    Task<BatchOperationOutputDto> BatchEnableAsync(
+        BatchUsersInputDto input,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>批量停用用户：逐条按单个停用的规则执行并留痕，部分失败不回滚已成功的条目。</summary>
+    Task<BatchOperationOutputDto> BatchDisableAsync(
+        BatchUsersInputDto input,
+        CancellationToken cancellationToken = default);
+#if (LocalIdentity)
+
+    /// <summary>批量解除登录锁定：逐条按单个解锁的规则执行并留痕，部分失败不回滚已成功的条目。</summary>
+    Task<BatchOperationOutputDto> BatchUnlockAsync(
+        BatchUsersInputDto input,
+        CancellationToken cancellationToken = default);
+#endif
+
+    /// <summary>批量为用户追加角色（不撤销已有角色）。需要 App.Users.ManageRoles。</summary>
+    Task<BatchOperationOutputDto> BatchAssignRolesAsync(
+        BatchAssignUserRolesInputDto input,
+        CancellationToken cancellationToken = default);
 }

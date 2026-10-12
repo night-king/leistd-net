@@ -169,4 +169,53 @@ public sealed class UserController(IUserAppService userAppService) : BaseControl
     {
         return await userAppService.ReplaceRolesAsync(id, input, cancellationToken);
     }
+
+    /// <summary>批量启用用户（需要用户更新权限）。</summary>
+    /// <remarks>
+    /// 批量端点的注解不带目标：授权被拒时记一条目标为 "-" 的失败；逐条的拒绝由应用服务按目标各记一条。
+    /// </remarks>
+    [HttpPost("batch/enable")]
+    [Authorize(Policy = PermissionConstant.Users.Update)]
+    [OperationRecordAction(OperationRecordActions.UserEnabled)]
+    public async Task<BatchOperationOutputDto> BatchEnableAsync(
+        [FromBody] BatchUsersInputDto input,
+        CancellationToken cancellationToken)
+    {
+        return await userAppService.BatchEnableAsync(input, cancellationToken);
+    }
+
+    /// <summary>批量禁用用户（需要用户更新权限）。</summary>
+    [HttpPost("batch/disable")]
+    [Authorize(Policy = PermissionConstant.Users.Update)]
+    [OperationRecordAction(OperationRecordActions.UserDisabled)]
+    public async Task<BatchOperationOutputDto> BatchDisableAsync(
+        [FromBody] BatchUsersInputDto input,
+        CancellationToken cancellationToken)
+    {
+        return await userAppService.BatchDisableAsync(input, cancellationToken);
+    }
+#if (LocalIdentity)
+
+    /// <summary>批量解除用户的登录锁定（需要用户更新权限）。</summary>
+    [HttpPost("batch/unlock")]
+    [Authorize(Policy = PermissionConstant.Users.Update)]
+    [OperationRecordAction(OperationRecordActions.UserUnlocked)]
+    public async Task<BatchOperationOutputDto> BatchUnlockAsync(
+        [FromBody] BatchUsersInputDto input,
+        CancellationToken cancellationToken)
+    {
+        return await userAppService.BatchUnlockAsync(input, cancellationToken);
+    }
+#endif
+
+    /// <summary>批量为用户追加角色（需要角色分配权限）。</summary>
+    [HttpPost("batch/assign-roles")]
+    [Authorize(Policy = PermissionConstant.Users.ManageRoles)]
+    [OperationRecordAction(OperationRecordActions.UserRolesReplaced)]
+    public async Task<BatchOperationOutputDto> BatchAssignRolesAsync(
+        [FromBody] BatchAssignUserRolesInputDto input,
+        CancellationToken cancellationToken)
+    {
+        return await userAppService.BatchAssignRolesAsync(input, cancellationToken);
+    }
 }
