@@ -842,6 +842,26 @@ public sealed class AuthorizationAndAuditingTests(ProjectWebApplicationFactory f
     }
 #endif
 
+    /// <summary>请求体漏掉必填键：错误按字段落回输入框，而不是反序列化失败的 <c>$</c>；也不会建出角色。</summary>
+    /// <remarks>入参 DTO 的必填写 <c>[Required]</c> 而不是 C# <c>required</c>，后者让缺键在模型验证之前就失败。</remarks>
+    [Fact]
+    public async Task Missing_required_keys_are_reported_per_field()
+    {
+        using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var before = await superAdmin.Client.GetFromJsonAsync<JsonElement>("/api/v1/roles?offset=0&limit=1");
+
+        var response = await superAdmin.Client.PostAsJsonAsync("/api/v1/roles", new { sort = 0 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            ["displayName", "name"],
+            problem.RootElement.GetProperty("errors").EnumerateArray()
+                .Select(error => error.GetProperty("field").GetString()).Order(StringComparer.Ordinal));
+        var after = await superAdmin.Client.GetFromJsonAsync<JsonElement>("/api/v1/roles?offset=0&limit=1");
+        Assert.Equal(before.GetProperty("totalCount").GetInt32(), after.GetProperty("totalCount").GetInt32());
+    }
+
     private static async Task<JsonElement> ReadRoleAsync(HttpClient client, Guid roleId)
     {
         using var body = JsonDocument.Parse(await client.GetStringAsync($"/api/v1/roles/{roleId}"));

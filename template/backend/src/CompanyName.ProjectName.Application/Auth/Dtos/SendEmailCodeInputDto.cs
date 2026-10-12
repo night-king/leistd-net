@@ -7,13 +7,13 @@ public record SendEmailCodeInputDto
     [Display(Name = "Email")]
     [Required(ErrorMessage = "{0} is required.")]
     [EmailAddress(ErrorMessage = "{0} has an invalid format.")]
-    public required string Email { get; init; }
+    public string Email { get; init; } = null!;
 
     [Display(Name = "Captcha token")]
     [Required(ErrorMessage = "The captcha has expired. Refresh it and try again.")]
-    public required string CaptchaToken { get; init; }
+    public string CaptchaToken { get; init; } = null!;
 
     [Display(Name = "Captcha")]
     [Required(ErrorMessage = "{0} is required.")]
-    public required string CaptchaCode { get; init; }
+    public string CaptchaCode { get; init; } = null!;
 }

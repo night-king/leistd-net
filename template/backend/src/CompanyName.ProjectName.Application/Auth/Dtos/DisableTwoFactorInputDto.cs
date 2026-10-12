@@ -9,11 +9,11 @@ public sealed record DisableTwoFactorInputDto
     [Display(Name = "Password")]
     [Required(ErrorMessage = "{0} is required.")]
     [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string Password { get; init; }
+    public string Password { get; init; } = null!;
 
     /// <summary>身份验证器应用上的 6 位验证码。</summary>
     [Display(Name = "Verification code")]
     [Required(ErrorMessage = "{0} is required.")]
     [RegularExpression(@"^\s*\d{3}\s?\d{3}\s*$", ErrorMessage = "The verification code must contain exactly 6 digits.")]
-    public required string Code { get; init; }
+    public string Code { get; init; } = null!;
 }

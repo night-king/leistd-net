@@ -183,15 +183,16 @@ public class EmailChallengeStore(
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(email) ||
-            input.ChallengeId == Guid.Empty ||
+            input.ChallengeId is not { } challengeId ||
+            challengeId == Guid.Empty ||
             string.IsNullOrWhiteSpace(input.Code))
         {
             return false;
         }
 
-        var challengeKey = GetChallengeCacheKey(input.ChallengeId);
+        var challengeKey = GetChallengeCacheKey(challengeId);
         await using var challengeLock = await distributedLock.LockAsync(
-            GetChallengeLockKey(input.ChallengeId),
+            GetChallengeLockKey(challengeId),
             cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,

@@ -46,6 +46,7 @@
     "Each role name cannot exceed 64 characters.": "Each role name cannot exceed 64 characters.",
     "Email": "Email",
     "Email verification": "Email verification",
+    "Email verification challenge": "Email verification challenge",
     "Email verification code": "Email verification code",
     "Email verification status": "Email verification status",
     "End time": "End time",

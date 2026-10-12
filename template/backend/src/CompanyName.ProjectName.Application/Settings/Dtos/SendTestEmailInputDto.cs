@@ -12,6 +12,6 @@ public record SendTestEmailInputDto
     [Required(ErrorMessage = "{0} is required.")]
     [EmailAddress(ErrorMessage = "{0} is not a valid email address.")]
     [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
-    public required string To { get; init; }
+    public string To { get; init; } = null!;
 }
 #endif
