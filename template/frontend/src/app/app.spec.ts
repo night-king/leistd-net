@@ -90,7 +90,7 @@ describe('App startup failure page', () => {
 
   function page(host: HTMLElement) {
     return {
-      header: host.querySelector('h3')!.textContent!.trim(),
+      header: host.querySelector('h1')!.textContent!.trim(),
       message: host.querySelector('p')!.textContent!.trim(),
       retry: host.querySelector('button')!.textContent!.trim(),
     };
@@ -317,7 +317,7 @@ describe('App startup failure routing', () => {
       expect(cancel.code).toBe(NavigationCancellationCode.GuardRejected);
       expect(startLogin).not.toHaveBeenCalled();
       expect(router.url).toBe('/');
-      expect(host.querySelector('h3')!.textContent).toBe('Application Failed to Load');
+      expect(host.querySelector('h1')!.textContent).toBe('Application Failed to Load');
       // 地址栏仍是用户打开的深链，手动刷新同样回到这里
       expect(TestBed.inject(Location).path(true)).toBe(target);
     });
@@ -333,7 +333,7 @@ describe('App startup failure routing', () => {
     expect(currentUser()).not.toBeNull();
     expect(cancel.code).toBe(NavigationCancellationCode.GuardRejected);
     expect(router.url).toBe('/');
-    expect(host.querySelector('h3')!.textContent).toBe('Application Failed to Load');
+    expect(host.querySelector('h1')!.textContent).toBe('Application Failed to Load');
   });
 
   it('lands on the original deep link with its query and fragment after a successful retry', async () => {
@@ -348,7 +348,7 @@ describe('App startup failure routing', () => {
     await fixture.whenStable();
 
     expect(TestBed.inject(Location).path(true)).toBe(target);
-    expect(host.querySelector('h3')).toBeNull();
+    expect(host.querySelector('h1')).toBeNull();
     expect(host.textContent).toContain('protected page');
     expect(startLogin).not.toHaveBeenCalled();
   });
@@ -445,7 +445,7 @@ describe('App translation scope recovery', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('h3')!.textContent).toBe('Application Failed to Load');
+    expect(host.querySelector('h1')!.textContent).toBe('Application Failed to Load');
     expect(host.querySelector('p')!.textContent).toBe(
       'An unknown error occurred. Please try again later.',
     );
@@ -460,7 +460,7 @@ describe('App translation scope recovery', () => {
     fixture.detectChanges();
     expect(router.url).toBe(url);
     expect(TestBed.inject(TranslationScopeRecovery).failedUrl()).toBeNull();
-    expect(host.querySelector('h3')).toBeNull();
+    expect(host.querySelector('h1')).toBeNull();
     expect(host.textContent).toContain('Users');
     expect(TestBed.inject(StartupService).retry).not.toHaveBeenCalled();
   });
@@ -502,7 +502,7 @@ describe('App translation scope recovery', () => {
     const recovery = TestBed.inject(TranslationScopeRecovery);
     expect(router.url).toBe('/');
     expect(recovery.failedUrl()).toBe('/');
-    expect(host.querySelector('h3')!.textContent).toBe('Application Failed to Load');
+    expect(host.querySelector('h1')!.textContent).toBe('Application Failed to Load');
     expect(host.querySelector('app-scope-test-page')).toBeNull();
     const attempts = loader.requests.filter((path) => path === 'users/en').length;
     host.querySelector('button')!.click();
@@ -510,7 +510,7 @@ describe('App translation scope recovery', () => {
     fixture.detectChanges();
     expect(loader.requests.filter((path) => path === 'users/en').length).toBeGreaterThan(attempts);
     expect(recovery.failedUrl()).toBe('/');
-    expect(host.querySelector('h3')!.textContent).toBe('Application Failed to Load');
+    expect(host.querySelector('h1')!.textContent).toBe('Application Failed to Load');
     loader.restore('users/en');
     host.querySelector('button')!.click();
     await vi.waitFor(() => expect(loader.gates.get('users/en')!.isStopped).toBe(false));
@@ -519,7 +519,7 @@ describe('App translation scope recovery', () => {
     fixture.detectChanges();
     expect(router.url).toBe('/');
     expect(recovery.failedUrl()).toBeNull();
-    expect(host.querySelector('h3')).toBeNull();
+    expect(host.querySelector('h1')).toBeNull();
     expect(host.textContent).toContain('Users');
     expect(TestBed.inject(StartupService).retry).not.toHaveBeenCalled();
   });

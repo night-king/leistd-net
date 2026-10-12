@@ -6,6 +6,10 @@
   <header
     class="h-14 shrink-0 flex items-center justify-between px-4 md:px-6 bg-background/95 backdrop-blur border-b border-border z-30 sticky top-0"
   >
+    <!-- 页面的 h1 由两种布局共用的页头按页面标题输出，页面内标题从 h2 起；未设标题的页不输出 -->
+    @if (layoutService.title(); as pageTitle) {
+      <h1 class="sr-only" data-testid="page-heading">{{ pageTitle }}</h1>
+    }
     <div class="flex items-center gap-2 flex-1 min-w-0">
       @if (layout() === 'topbar') {
         <app-workspace-nav />

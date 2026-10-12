@@ -67,7 +67,7 @@ const APP_NAME = 'Template Project';
           @if (hasFailure()) {
             <section hlmCard class="w-[360px] text-center">
               <div hlmCardHeader>
-                <h3 hlmCardTitle>{{ failedHeader() }}</h3>
+                <h1 hlmCardTitle>{{ failedHeader() }}</h1>
               </div>
               <div hlmCardContent>
                 <p>{{ errorMessage() }}</p>

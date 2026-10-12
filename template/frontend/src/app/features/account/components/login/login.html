@@ -13,7 +13,7 @@
       />
     } @else {
       <div class="flex flex-col gap-2">
-        <h2 class="text-2xl font-semibold tracking-tight">{{ t('account.login.title') }}</h2>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ t('account.login.title') }}</h1>
         <p class="text-muted-foreground text-sm">{{ t('account.login.subtitle') }}</p>
       </div>
 
@@ -257,10 +257,10 @@
     <!-- 开发环境的测试账号：放在卡片之外，与真正的登录表单分开 -->
     @if (isMockEnabled()) {
       <div authShellFooter class="flex flex-col gap-2 rounded-xl border border-dashed p-4 text-sm">
-        <h4 class="flex items-center gap-2 font-semibold">
+        <h2 class="flex items-center gap-2 font-semibold">
           <ng-icon name="lucideInfo" class="text-primary" />
           {{ t('account.login.testAccount') }}
-        </h4>
+        </h2>
         <div class="bg-muted flex flex-col gap-1 rounded-lg px-3 py-2">
           <span class="text-muted-foreground text-xs">{{ t('account.login.adminRole') }}</span>
           <span class="flex items-center gap-1">
