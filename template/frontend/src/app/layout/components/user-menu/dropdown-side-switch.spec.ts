@@ -29,7 +29,7 @@ class SideSwitchHost {
 
 /**
  * 下拉触发器在打开过之后改弹出方向，下次打开须按新方向定位：侧栏内容在桌面与手机抽屉间复用同一实例，
- * helm 触发器直接赋值给 CDK、不经过 ngOnChanges。libs/ui 的触发器为此做了定制（见 frontend-spartan.md）。
+ * Spartan 1.6 起由 brain 的 updateMenuPosition 通知 CDK 更新已建 overlay 的定位，本用例防止回退。
  */
 describe('dropdown trigger side change after opening', () => {
   afterEach(() => {
