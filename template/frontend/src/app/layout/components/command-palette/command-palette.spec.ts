@@ -6,7 +6,7 @@ import { CommandPalette } from './command-palette';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
 //#endif
-import { CommandPaletteService } from '../../services/command-palette-service';
+import { CommandPaletteService } from '../../../core/services/command-palette-service';
 import { MenuGroup, NavigationService } from '../../services/navigation-service';
 
 /**

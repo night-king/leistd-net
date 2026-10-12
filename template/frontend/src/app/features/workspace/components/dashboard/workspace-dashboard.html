@@ -3,37 +3,357 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="p-4 sm:p-6">
-    <section hlmCard>
-      <div hlmCardHeader>
-        <h2 hlmCardTitle class="text-2xl font-semibold tracking-tight">
-          {{ t('workspace.dashboard.title') }}
-        </h2>
-      </div>
-      <div hlmCardContent>
-        @if (authService.currentUser(); as user) {
-          <!-- 标签列按最长标签取宽（各语言长度不同），不写死宽度 -->
-          <dl class="grid grid-cols-[minmax(6rem,auto)_1fr] items-baseline gap-x-4 gap-y-3">
-            <dt class="text-muted-foreground">{{ t('workspace.dashboard.username') }}</dt>
-            <dd class="min-w-0 font-medium break-words">{{ user.username }}</dd>
-
-            <dt class="text-muted-foreground">{{ t('workspace.dashboard.displayName') }}</dt>
-            <dd class="min-w-0 font-medium break-words">{{ user.displayName || '-' }}</dd>
-
-            <dt class="text-muted-foreground">{{ t('workspace.dashboard.email') }}</dt>
-            <dd class="min-w-0 font-medium break-words">{{ user.email || '-' }}</dd>
-
-            <dt class="text-muted-foreground">{{ t('workspace.dashboard.roles') }}</dt>
-            <dd class="flex min-w-0 flex-wrap gap-1">
-              @for (role of user.roles; track role) {
-                <span hlmBadge variant="secondary">{{ role }}</span>
-              }
-            </dd>
-          </dl>
-        } @else {
-          <p class="text-muted-foreground">{{ t('workspace.dashboard.noUserInfo') }}</p>
+  <div class="flex flex-col gap-8 p-4 sm:p-6">
+    <div class="mx-auto flex w-full max-w-2xl flex-col items-center gap-4 pt-4 text-center">
+      <h2 class="text-2xl font-semibold tracking-tight">
+        @switch (greetingPart()) {
+          @case ('morning') {
+            {{ t('workspace.dashboard.greeting.morning', { name: userName() }) }}
+          }
+          @case ('afternoon') {
+            {{ t('workspace.dashboard.greeting.afternoon', { name: userName() }) }}
+          }
+          @default {
+            {{ t('workspace.dashboard.greeting.evening', { name: userName() }) }}
+          }
+        }
+      </h2>
+      <!-- 命令框：打开与 ⌘K 同一个命令面板 -->
+      <button
+        type="button"
+        hlmBtn
+        variant="outline"
+        size="lg"
+        class="text-muted-foreground w-full justify-start font-normal"
+        data-testid="workbench-search"
+        (click)="commandPalette.open()"
+      >
+        <ng-icon name="lucideSearch" />
+        {{ t('workspace.dashboard.search') }}
+        <kbd hlmKbd class="ms-auto">⌘K</kbd>
+      </button>
+      <div class="flex flex-wrap justify-center gap-2">
+        @for (action of quickActions(); track action.label) {
+          <a hlmBtn variant="outline" size="sm" [routerLink]="action.route">
+            <ng-icon [name]="action.icon" data-icon="inline-start" />
+            {{ t(action.label) }}
+          </a>
         }
       </div>
-    </section>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <!--#if (LocalIdentity)-->
+      <div class="flex min-w-0 flex-col gap-6 lg:col-span-2">
+      <!--#else-->
+      <div class="flex min-w-0 flex-col gap-6 lg:col-span-3">
+      <!--#endif-->
+        <section class="flex flex-col gap-3" data-testid="workbench-continue">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold">{{ t('workspace.dashboard.continue.title') }}</h3>
+            <span class="text-muted-foreground text-xs">{{
+              t('workspace.dashboard.continue.note')
+            }}</span>
+          </div>
+          <!-- 示例卡：不读数据，下游项目换成自己最近处理的业务对象 -->
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <a
+              hlmCard
+              size="sm"
+              routerLink="/workspace/placeholder"
+              class="hover:ring-foreground/20 transition-shadow"
+            >
+              <div hlmCardContent class="flex flex-col gap-3">
+                <span
+                  class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
+                >
+                  <ng-icon name="lucideLayers" />
+                </span>
+                <div class="flex flex-col gap-0.5">
+                  <span class="flex items-center gap-2 font-medium">
+                    {{ t('workspace.dashboard.continue.item1') }}
+                    <span hlmBadge variant="outline">{{
+                      t('workspace.dashboard.continue.example')
+                    }}</span>
+                  </span>
+                  <span class="text-muted-foreground text-xs">{{
+                    t('workspace.dashboard.continue.item1Hint')
+                  }}</span>
+                </div>
+              </div>
+            </a>
+            <a
+              hlmCard
+              size="sm"
+              routerLink="/workspace/placeholder"
+              class="hover:ring-foreground/20 transition-shadow"
+            >
+              <div hlmCardContent class="flex flex-col gap-3">
+                <span
+                  class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
+                >
+                  <ng-icon name="lucideFileText" />
+                </span>
+                <div class="flex flex-col gap-0.5">
+                  <span class="flex items-center gap-2 font-medium">
+                    {{ t('workspace.dashboard.continue.item2') }}
+                    <span hlmBadge variant="outline">{{
+                      t('workspace.dashboard.continue.example')
+                    }}</span>
+                  </span>
+                  <span class="text-muted-foreground text-xs">{{
+                    t('workspace.dashboard.continue.item2Hint')
+                  }}</span>
+                </div>
+              </div>
+            </a>
+            <a
+              hlmCard
+              size="sm"
+              routerLink="/workspace/placeholder"
+              class="hover:ring-foreground/20 transition-shadow"
+            >
+              <div hlmCardContent class="flex flex-col gap-3">
+                <span
+                  class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
+                >
+                  <ng-icon name="lucideActivity" />
+                </span>
+                <div class="flex flex-col gap-0.5">
+                  <span class="flex items-center gap-2 font-medium">
+                    {{ t('workspace.dashboard.continue.item3') }}
+                    <span hlmBadge variant="outline">{{
+                      t('workspace.dashboard.continue.example')
+                    }}</span>
+                  </span>
+                  <span class="text-muted-foreground text-xs">{{
+                    t('workspace.dashboard.continue.item3Hint')
+                  }}</span>
+                </div>
+              </div>
+            </a>
+          </div>
+        </section>
+
+        <section class="flex flex-col gap-3" data-testid="workbench-shortcuts">
+          <h3 class="text-sm font-semibold">{{ t('workspace.dashboard.shortcuts.title') }}</h3>
+          <nav
+            class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6"
+            [attr.aria-label]="t('workspace.dashboard.shortcuts.title')"
+          >
+            @for (link of shortcuts(); track link.route + link.label) {
+              <a
+                hlmCard
+                size="sm"
+                class="hover:ring-foreground/20 transition-shadow"
+                [routerLink]="link.route"
+              >
+                <div hlmCardContent class="flex flex-col items-center gap-2 text-center">
+                  <span
+                    class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
+                  >
+                    <ng-icon [name]="link.icon" />
+                  </span>
+                  <span class="text-xs font-medium">{{ t(link.label) }}</span>
+                </div>
+              </a>
+            }
+          </nav>
+        </section>
+        <!--#if (IncludeNotifications)-->
+
+        <section hlmCard data-testid="workbench-notifications">
+          <div hlmCardHeader>
+            <h3 hlmCardTitle>{{ t('workspace.dashboard.notifications.title') }}</h3>
+            @if (notificationService.unreadCount()) {
+              <div hlmCardAction>
+                <button
+                  hlmBtn
+                  variant="ghost"
+                  size="sm"
+                  (click)="notificationService.markAllAsRead()"
+                >
+                  {{ t('workspace.dashboard.notifications.markAllRead') }}
+                </button>
+              </div>
+            }
+          </div>
+          <div hlmCardContent>
+            @if (recentNotifications().length) {
+              <ul class="flex flex-col divide-y">
+                @for (notification of recentNotifications(); track notification.id) {
+                  <li class="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                    <span
+                      class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
+                    >
+                      <ng-icon [name]="notificationService.getIcon(notification.type)" />
+                    </span>
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span class="flex items-center gap-2 text-sm font-medium">
+                        <span class="truncate">{{ notification.title }}</span>
+                        @if (!notification.isRead) {
+                          <span class="bg-primary size-1.5 shrink-0 rounded-full"></span>
+                        }
+                      </span>
+                      @if (notification.content) {
+                        <span class="text-muted-foreground truncate text-xs">{{
+                          notification.content
+                        }}</span>
+                      }
+                    </div>
+                    <span class="text-muted-foreground shrink-0 text-xs tabular-nums">{{
+                      notification.creationTime
+                        | appDate: 'monthDayTime' : displayTimeZone() : displayLocale()
+                    }}</span>
+                  </li>
+                }
+              </ul>
+            } @else if (notificationService.loadFailed()) {
+              <div class="flex flex-col items-center gap-2 py-6 text-sm" role="alert">
+                <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+                <button
+                  hlmBtn
+                  variant="outline"
+                  size="sm"
+                  (click)="notificationService.loadNotifications()"
+                >
+                  {{ t('common.retry') }}
+                </button>
+              </div>
+            } @else if (notificationService.loading()) {
+              <div class="flex flex-col gap-3" aria-busy="true">
+                @for (placeholder of [1, 2, 3]; track placeholder) {
+                  <hlm-skeleton class="h-5 w-full" />
+                }
+              </div>
+            } @else {
+              <p class="text-muted-foreground py-6 text-center text-sm">
+                {{ t('workspace.dashboard.notifications.empty') }}
+              </p>
+            }
+          </div>
+        </section>
+        <!--#endif-->
+      </div>
+      <!--#if (LocalIdentity)-->
+
+      <div class="flex min-w-0 flex-col gap-6">
+        <section hlmCard data-testid="workbench-security">
+          <div hlmCardHeader>
+            <h3 hlmCardTitle>{{ t('workspace.dashboard.security.title') }}</h3>
+            @if (twoFactor()) {
+              <div hlmCardAction>
+                @if (securityPassed()) {
+                  <span hlmBadge variant="success">{{
+                    t('workspace.dashboard.security.passed')
+                  }}</span>
+                } @else {
+                  <span hlmBadge variant="outline">{{
+                    t('workspace.dashboard.security.suggested')
+                  }}</span>
+                }
+              </div>
+            }
+          </div>
+          <div hlmCardContent>
+            @if (twoFactor()) {
+              <ul class="flex flex-col gap-3 text-sm">
+                <li class="flex items-center gap-2">
+                  @if (securityChecks().emailVerified) {
+                    <ng-icon name="lucideCheck" class="text-success" />
+                    {{ t('workspace.dashboard.security.emailVerified') }}
+                  } @else {
+                    <ng-icon name="lucideTriangleAlert" class="text-warning" />
+                    <span class="flex-1">{{
+                      t('workspace.dashboard.security.emailUnverified')
+                    }}</span>
+                    <a hlmBtn variant="outline" size="sm" routerLink="/workspace/settings/profile">
+                      {{ t('workspace.dashboard.security.fix') }}
+                    </a>
+                  }
+                </li>
+                <li class="flex items-center gap-2">
+                  @if (securityChecks().twoFactorEnabled) {
+                    <ng-icon name="lucideCheck" class="text-success" />
+                    {{ t('workspace.dashboard.security.twoFactorOn') }}
+                  } @else {
+                    <ng-icon name="lucideTriangleAlert" class="text-warning" />
+                    <span class="flex-1">{{ t('workspace.dashboard.security.twoFactorOff') }}</span>
+                    <a hlmBtn size="sm" routerLink="/workspace/settings/security">
+                      {{ t('workspace.dashboard.security.fix') }}
+                    </a>
+                  }
+                </li>
+              </ul>
+            } @else if (twoFactorFailed()) {
+              <div class="flex flex-col items-center gap-2 py-4 text-sm" role="alert">
+                <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+                <button hlmBtn variant="outline" size="sm" (click)="loadTwoFactor()">
+                  {{ t('common.retry') }}
+                </button>
+              </div>
+            } @else {
+              <div class="flex flex-col gap-3" aria-busy="true">
+                <hlm-skeleton class="h-5 w-full" />
+                <hlm-skeleton class="h-5 w-full" />
+              </div>
+            }
+          </div>
+        </section>
+
+        <section hlmCard data-testid="workbench-devices">
+          <div hlmCardHeader>
+            <h3 hlmCardTitle>{{ t('workspace.dashboard.devices.title') }}</h3>
+            <div hlmCardAction>
+              <a hlmBtn variant="ghost" size="sm" routerLink="/workspace/settings/security">
+                {{ t('workspace.dashboard.devices.manage') }}
+              </a>
+            </div>
+          </div>
+          <div hlmCardContent>
+            @if (sessions()) {
+              <ul class="flex flex-col divide-y">
+                @for (row of deviceRows(); track row.id) {
+                  <li class="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                    <span
+                      class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
+                    >
+                      <ng-icon [name]="row.icon" />
+                    </span>
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span class="truncate text-sm font-medium">{{
+                        row.device || t('workspace.dashboard.devices.unknown')
+                      }}</span>
+                      <span class="text-muted-foreground text-xs tabular-nums">{{
+                        row.lastSeenTime | appDate: 'short' : displayTimeZone() : displayLocale()
+                      }}</span>
+                    </div>
+                    @if (row.isCurrent) {
+                      <span hlmBadge variant="success">{{
+                        t('workspace.dashboard.devices.current')
+                      }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            } @else if (sessionsFailed()) {
+              <div class="flex flex-col items-center gap-2 py-4 text-sm" role="alert">
+                <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+                <button hlmBtn variant="outline" size="sm" (click)="loadSessions()">
+                  {{ t('common.retry') }}
+                </button>
+              </div>
+            } @else {
+              <div class="flex flex-col gap-3" aria-busy="true">
+                @for (placeholder of [1, 2, 3]; track placeholder) {
+                  <hlm-skeleton class="h-8 w-full" />
+                }
+              </div>
+            }
+          </div>
+        </section>
+      </div>
+      <!--#endif-->
+    </div>
   </div>
 </ng-container>

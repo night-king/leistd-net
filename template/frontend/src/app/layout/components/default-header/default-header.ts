@@ -29,6 +29,9 @@ import { LanguageSwitcher } from '../../../core/components/language-switcher/lan
 import { ThemeModeToggle } from '../../../core/components/theme-mode-toggle/theme-mode-toggle';
 //#if (Impersonation)
 import { applicationErrorMessage } from '../../../core/errors/application-http-error';
+//#endif
+import { CommandPaletteService } from '../../../core/services/command-palette-service';
+//#if (Impersonation)
 import { ImpersonationService } from '../../../core/services/impersonation-service';
 //#endif
 import { LayoutService } from '../../../core/services/layout-service';
@@ -38,7 +41,6 @@ import { PopoverAria } from '../../../shared/directives/popover-aria';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
-import { CommandPaletteService } from '../../services/command-palette-service';
 //#if (IncludeNotifications)
 import { Notifications } from '../notifications/notifications';
 //#endif

@@ -24,6 +24,7 @@ import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 
 import { applicationErrorMessage } from '../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../core/feedback/confirm-service';
+import { NotificationService } from '../../../core/services/notification-service';
 import { SettingContextService } from '../../../core/settings/setting-context-service';
 import { PopoverAria } from '../../../shared/directives/popover-aria';
 import { NotificationOutputDto } from '../../../shared/dtos/notification.dto';
@@ -31,7 +32,6 @@ import { AppDate } from '../../../shared/pipes/app-date-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
-import { NotificationService } from '../../services/notification-service';
 
 /** 通知中心：铃铛 + 未读角标 + popover 通知列表；仅在启用通知功能时生成（见 template.json 排除规则）。 */
 @Component({

@@ -20,10 +20,10 @@ import {
 import { BrnDialogState } from '@spartan-ng/brain/dialog';
 import { HlmCommandImports } from '@spartan-ng/helm/command';
 
+import { CommandPaletteService } from '../../../core/services/command-palette-service';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
-import { CommandPaletteService } from '../../services/command-palette-service';
 import { NavigationService } from '../../services/navigation-service';
 
 /**

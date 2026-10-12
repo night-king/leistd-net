@@ -15,8 +15,8 @@ import { ConfirmService } from '../../../core/feedback/confirm-service';
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
 import { LanguageService } from '../../../core/services/language-service';
 //#endif
+import { NotificationService } from '../../../core/services/notification-service';
 import { NotificationOutputDto } from '../../../shared/dtos/notification.dto';
-import { NotificationService } from '../../services/notification-service';
 
 import type { Mock, MockedObject } from 'vitest';
 //#if (IncludeLocalization)

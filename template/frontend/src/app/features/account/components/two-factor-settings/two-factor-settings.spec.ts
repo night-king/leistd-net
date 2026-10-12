@@ -6,7 +6,7 @@ import { TwoFactorSettings } from './two-factor-settings';
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
-import { TwoFactorStatusOutputDto } from '../../dtos/account.dto';
+import { TwoFactorStatusOutputDto } from '../../../../shared/dtos/account-security.dto';
 import { AccountService } from '../../services/account-service';
 
 import type { MockedObject } from 'vitest';

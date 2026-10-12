@@ -1,11 +1,59 @@
 {
   "dashboard": {
     "title": "Workbench",
-    "username": "Username",
-    "displayName": "Display name",
-    "email": "Email",
-    "roles": "Roles",
-    "noUserInfo": "No user information available"
+    "greeting": {
+      "morning": "Good morning, {{name}}",
+      "afternoon": "Good afternoon, {{name}}",
+      "evening": "Good evening, {{name}}"
+    },
+    "search": "Search pages and settings…",
+    "actions": {
+      "enableTwoFactor": "Turn on two-factor",
+      "devices": "Signed-in devices",
+      "preferences": "Language & time zone",
+      "notifications": "Notification preferences"
+    },
+    "continue": {
+      "title": "Continue where you left off",
+      "note": "Examples. Replace them with your own business modules.",
+      "example": "Example",
+      "item1": "Example module",
+      "item1Hint": "Turn this page into your business entry",
+      "item2": "Monthly report",
+      "item2Hint": "A document you were working on",
+      "item3": "Customer follow-ups",
+      "item3Hint": "A board you visit often"
+    },
+    "shortcuts": {
+      "title": "Shortcuts",
+      "profile": "Profile",
+      "security": "Account & security",
+      "preferences": "Preferences",
+      "notifications": "Notifications",
+      "exampleModule": "Example module",
+      "platform": "Admin platform"
+    },
+    "notifications": {
+      "title": "Recent notifications",
+      "markAllRead": "Mark all as read",
+      "empty": "No notifications"
+    },
+    "security": {
+      "title": "Account security",
+      "passed": "All set",
+      "suggested": "Could be stronger",
+      "emailVerified": "Email verified",
+      "emailUnverified": "Email not verified",
+      "twoFactorOn": "Two-factor authentication on",
+      "twoFactorOff": "Two-factor authentication off",
+      "fix": "Set up"
+    },
+    "devices": {
+      "title": "Signed-in devices",
+      "manage": "Manage",
+      "current": "This device",
+      "unknown": "Unknown device"
+    }
   },
   "placeholder": {
     "title": "Example module",

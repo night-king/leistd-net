@@ -27,6 +27,7 @@ import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
 import { HlmKbdImports } from '@spartan-ng/helm/kbd';
 import { HlmSidebarImports, HlmSidebarService } from '@spartan-ng/helm/sidebar';
 
+import { CommandPaletteService } from '../../../core/services/command-palette-service';
 import { LayoutService } from '../../../core/services/layout-service';
 //#if (IncludeRealTime)
 import { SignalRService } from '../../../core/services/signalr-service';
@@ -35,7 +36,6 @@ import { Logo } from '../../../shared/components/logo/logo';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
-import { CommandPaletteService } from '../../services/command-palette-service';
 import { MenuItem, NavigationService } from '../../services/navigation-service';
 import { UserMenu } from '../user-menu/user-menu';
 
