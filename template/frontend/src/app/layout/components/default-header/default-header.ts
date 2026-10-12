@@ -6,10 +6,12 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
 //#endif
-//#if (Impersonation)
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideVenetianMask } from '@ng-icons/lucide';
+//#if (Impersonation)
+import { lucideSearch, lucideVenetianMask } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
+//#else
+import { lucideSearch } from '@ng-icons/lucide';
 //#endif
 import { HlmBreadcrumbImports } from '@spartan-ng/helm/breadcrumb';
 import { HlmButton } from '@spartan-ng/helm/button';
@@ -36,6 +38,7 @@ import { PopoverAria } from '../../../shared/directives/popover-aria';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
+import { CommandPaletteService } from '../../services/command-palette-service';
 //#if (IncludeNotifications)
 import { Notifications } from '../notifications/notifications';
 //#endif
@@ -48,6 +51,7 @@ import { WorkspaceNav } from '../workspace-nav/workspace-nav';
   imports: [
     // 基础布局依赖；通知 / 本地化组件按条件补充。
     HlmButton,
+    NgIcon,
     ThemeModeToggle,
     HlmSidebarTrigger,
     ...HlmBreadcrumbImports,
@@ -57,7 +61,6 @@ import { WorkspaceNav } from '../workspace-nav/workspace-nav';
     UserMenu,
     WorkspaceNav,
     //#if (Impersonation)
-    NgIcon,
     ...HlmPopoverImports,
     PopoverAria,
     //#endif
@@ -70,7 +73,9 @@ import { WorkspaceNav } from '../workspace-nav/workspace-nav';
     //#endif
   ],
   //#if (Impersonation)
-  providers: [provideIcons({ lucideVenetianMask })],
+  providers: [provideIcons({ lucideSearch, lucideVenetianMask })],
+  //#else
+  providers: [provideIcons({ lucideSearch })],
   //#endif
   templateUrl: './default-header.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -83,6 +88,7 @@ export class DefaultHeader {
   readonly layout = input<'sidebar' | 'topbar'>('sidebar');
 
   readonly layoutService = inject(LayoutService);
+  protected readonly commandPalette = inject(CommandPaletteService);
   //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif
@@ -133,6 +139,7 @@ export class DefaultHeader {
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
   'common.toggleSidebar': 'Toggle sidebar',
+  'layout.commandPalette.search': 'Search',
   'menu.platform': 'Admin platform',
   'menu.workspace': 'Workspace',
   'impersonation.banner': 'Acting as tenant {{tenant}} · started by {{impersonator}}',

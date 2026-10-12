@@ -226,6 +226,14 @@ body {
   }
 }
 
+/*
+ * 侧栏当前项：Vega 已给 sidebar-accent 底色与 500 字重；再加一圈细描边，亮色下白底当前项才能与
+ * 同为浅色的悬停态区分开。
+ */
+[data-slot='sidebar-menu-button'][data-active='true'] {
+  box-shadow: 0 0 0 1px var(--sidebar-border);
+}
+
 /* Vega 的对话框与抽屉标题不设字号，会继承正文的 14px；恢复到卡片标题同档的 16px，与说明文字拉开层级。 */
 [data-slot='dialog-title'],
 [data-slot='sheet-title'] {

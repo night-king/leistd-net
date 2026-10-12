@@ -30,7 +30,7 @@
                 <a
                   hlmBtn
                   variant="ghost"
-                  class="justify-start aria-[current=page]:bg-primary/10 aria-[current=page]:font-semibold aria-[current=page]:text-primary"
+                  class="justify-start aria-[current=page]:bg-muted"
                   [routerLink]="[panel.path]"
                   [attr.aria-current]="activePanel()?.path === panel.path ? 'page' : null"
                   (click)="ctx.close()"
@@ -67,7 +67,7 @@
             <a
               hlmBtn
               variant="ghost"
-              class="justify-start aria-[current=page]:bg-primary/10 aria-[current=page]:font-semibold aria-[current=page]:text-primary"
+              class="justify-start aria-[current=page]:bg-muted"
               [routerLink]="[panel.path]"
               [attr.aria-current]="activePanel()?.path === panel.path ? 'page' : null"
               [attr.data-testid]="'settings-panel-link-' + panel.path"

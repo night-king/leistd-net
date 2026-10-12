@@ -4,118 +4,148 @@
 <ng-container>
 <!--#endif-->
   <header
-    class="h-14 shrink-0 flex items-center justify-between px-4 md:px-6 bg-background/95 backdrop-blur border-b border-border z-30 sticky top-0"
+    class="h-14 shrink-0 bg-background/95 backdrop-blur border-b border-border z-30 sticky top-0"
   >
     <!-- 页面的 h1 由两种布局共用的页头按页面标题输出，页面内标题从 h2 起；未设标题的页不输出 -->
     @if (layoutService.title(); as pageTitle) {
       <h1 class="sr-only" data-testid="page-heading">{{ pageTitle }}</h1>
     }
-    <div class="flex items-center gap-2 flex-1 min-w-0">
-      @if (layout() === 'topbar') {
-        <app-workspace-nav />
-      } @else {
-        <button
-          hlmSidebarTrigger
-          size="icon"
-          position="bottom"
-          [attr.aria-label]="t('common.toggleSidebar')"
-          [hlmTooltip]="sidebarTip"
-        ></button>
-        <ng-template #sidebarTip>
-          <span class="flex items-center gap-2">
-            {{ t('common.toggleSidebar') }}
-            <kbd hlmKbdGroup><kbd hlmKbd>⌘ B</kbd></kbd>
-          </span>
-        </ng-template>
+    <!-- 顶栏布局的内容与正文同宽（max-w-7xl、同样的左右内边距），左右边缘与页面内容对齐 -->
+    <div
+      class="mx-auto flex h-full w-full items-center justify-between gap-2"
+      [class]="layout() === 'topbar' ? 'max-w-7xl px-4 sm:px-6' : 'px-4 md:px-6'"
+    >
+      <div class="flex items-center gap-2 flex-1 min-w-0">
+        @if (layout() === 'topbar') {
+          <app-workspace-nav />
+        } @else {
+          <button
+            hlmSidebarTrigger
+            size="icon"
+            position="bottom"
+            [attr.aria-label]="t('common.toggleSidebar')"
+            [hlmTooltip]="sidebarTip"
+          ></button>
+          <ng-template #sidebarTip>
+            <span class="flex items-center gap-2">
+              {{ t('common.toggleSidebar') }}
+              <kbd hlmKbdGroup><kbd hlmKbd>⌘ B</kbd></kbd>
+            </span>
+          </ng-template>
 
-        <hlm-separator orientation="vertical" class="me-2 !h-6 !self-center" />
+          <hlm-separator orientation="vertical" class="me-2 !h-6 !self-center" />
 
-        <nav hlmBreadcrumb class="overflow-hidden">
-          <ol hlmBreadcrumbList>
-            <li hlmBreadcrumbItem class="hidden sm:inline-flex">
-              <a hlmBreadcrumbLink [link]="layoutService.homeRoute()">{{
-                layoutService.isPlatform() ? t('menu.platform') : t('menu.workspace')
-              }}</a>
-            </li>
-            <!-- 标题未设置时整个末级不渲染：只留分隔符会是一条断裂的面包屑 -->
-            @if (layoutService.title(); as pageTitle) {
-              <li hlmBreadcrumbSeparator class="hidden sm:inline-flex"></li>
-              <li hlmBreadcrumbItem class="min-w-0">
-                <span hlmBreadcrumbPage class="truncate">{{ pageTitle }}</span>
+          <nav hlmBreadcrumb class="overflow-hidden">
+            <ol hlmBreadcrumbList>
+              <li hlmBreadcrumbItem class="hidden sm:inline-flex">
+                <a hlmBreadcrumbLink [link]="layoutService.homeRoute()">{{
+                  layoutService.isPlatform() ? t('menu.platform') : t('menu.workspace')
+                }}</a>
               </li>
-            }
-          </ol>
-        </nav>
-      }
-    </div>
-
-    <div class="flex items-center gap-2 md:gap-4">
-      @if (layout() === 'topbar') {
-        <app-workspace-nav placement="end" />
-      }
-      <!--#if (Impersonation)-->
-      <!-- 模拟登录状态常驻在顶栏：此刻的每次操作都记在租户账号上，必须一直可见，不用 toast 或 tooltip
-           （tooltip 里不能放可点击的退出按钮）。配色用语义色 warning；用 secondary 变体，警示色前缀即可
-           覆盖亮暗两套底色。窄屏只留图标，完整说明与退出按钮在浮层里。 -->
-      @if (impersonation.status(); as impersonationStatus) {
-        @if (impersonationStatus.isImpersonating) {
-          <hlm-popover align="end" sideOffset="10">
-            <button
-              type="button"
-              hlmBtn
-              hlmPopoverTrigger
-              size="sm"
-              variant="secondary"
-              class="border-warning/60 bg-warning/15 hover:bg-warning/25 aria-expanded:bg-warning/25 max-w-48 gap-1.5 rounded-full"
-              data-testid="impersonation-indicator"
-              [attr.aria-label]="
-                t('impersonation.banner', {
-                  tenant: impersonationStatus.tenantName,
-                  impersonator: impersonationStatus.impersonatorName,
-                })
-              "
-            >
-              <ng-icon name="lucideVenetianMask" />
-              <span class="hidden truncate sm:inline">{{
-                t('impersonation.badge', { tenant: impersonationStatus.tenantName })
-              }}</span>
-            </button>
-            <hlm-popover-content
-              *hlmPopoverPortal
-              class="w-72 max-w-[90vw]"
-              [appPopoverAria]="t('impersonation.title')"
-            >
-              <div class="flex flex-col gap-2 text-sm">
-                <p class="font-medium">{{ t('impersonation.title') }}</p>
-                <p class="text-muted-foreground">
-                  {{
-                    t('impersonation.banner', {
-                      tenant: impersonationStatus.tenantName,
-                      impersonator: impersonationStatus.impersonatorName,
-                    })
-                  }}
-                </p>
-                <p class="text-muted-foreground text-xs">{{ t('impersonation.note') }}</p>
-                <button hlmBtn size="sm" class="self-end" (click)="endImpersonation()">
-                  {{ t('impersonation.exit') }}
-                </button>
-              </div>
-            </hlm-popover-content>
-          </hlm-popover>
+              <!-- 标题未设置时整个末级不渲染：只留分隔符会是一条断裂的面包屑 -->
+              @if (layoutService.title(); as pageTitle) {
+                <li hlmBreadcrumbSeparator class="hidden sm:inline-flex"></li>
+                <li hlmBreadcrumbItem class="min-w-0">
+                  <span hlmBreadcrumbPage class="truncate">{{ pageTitle }}</span>
+                </li>
+              }
+            </ol>
+          </nav>
         }
-      }
-      <!--#endif-->
-      <app-theme-mode-toggle />
-      <!--#if (IncludeNotifications)-->
-      <app-notifications />
-      <!--#endif-->
-      <!--#if (IncludeLocalization)-->
-      <app-language-switcher />
-      <!--#endif-->
-      @if (layout() === 'topbar') {
-        <!-- 侧栏布局里头像在侧栏底部；顶栏布局没有侧栏，放在最右 -->
-        <app-user-menu variant="topbar" />
-      }
+      </div>
+
+      <div class="flex items-center gap-2 md:gap-4">
+        @if (layout() === 'topbar') {
+          <!-- 搜索入口：打开命令面板（⌘K / Ctrl+K）。窄屏收成图标按钮。 -->
+          <button
+            type="button"
+            hlmBtn
+            variant="outline"
+            class="text-muted-foreground hidden w-56 justify-start font-normal md:inline-flex"
+            data-testid="topbar-search"
+            (click)="commandPalette.open()"
+          >
+            <ng-icon name="lucideSearch" />
+            {{ t('layout.commandPalette.search') }}
+            <kbd hlmKbd class="ms-auto">⌘K</kbd>
+          </button>
+          <button
+            type="button"
+            hlmBtn
+            variant="ghost"
+            size="icon"
+            class="md:hidden"
+            [attr.aria-label]="t('layout.commandPalette.search')"
+            (click)="commandPalette.open()"
+          >
+            <ng-icon name="lucideSearch" />
+          </button>
+          <app-workspace-nav placement="end" />
+        }
+        <!--#if (Impersonation)-->
+        <!-- 模拟登录状态常驻在顶栏：此刻的每次操作都记在租户账号上，必须一直可见，不用 toast 或 tooltip
+             （tooltip 里不能放可点击的退出按钮）。配色用语义色 warning；用 secondary 变体，警示色前缀即可
+             覆盖亮暗两套底色。窄屏只留图标，完整说明与退出按钮在浮层里。 -->
+        @if (impersonation.status(); as impersonationStatus) {
+          @if (impersonationStatus.isImpersonating) {
+            <hlm-popover align="end" sideOffset="10">
+              <button
+                type="button"
+                hlmBtn
+                hlmPopoverTrigger
+                size="sm"
+                variant="secondary"
+                class="border-warning/60 bg-warning/15 hover:bg-warning/25 aria-expanded:bg-warning/25 max-w-48 gap-1.5 rounded-full"
+                data-testid="impersonation-indicator"
+                [attr.aria-label]="
+                  t('impersonation.banner', {
+                    tenant: impersonationStatus.tenantName,
+                    impersonator: impersonationStatus.impersonatorName,
+                  })
+                "
+              >
+                <ng-icon name="lucideVenetianMask" />
+                <span class="hidden truncate sm:inline">{{
+                  t('impersonation.badge', { tenant: impersonationStatus.tenantName })
+                }}</span>
+              </button>
+              <hlm-popover-content
+                *hlmPopoverPortal
+                class="w-72 max-w-[90vw]"
+                [appPopoverAria]="t('impersonation.title')"
+              >
+                <div class="flex flex-col gap-2 text-sm">
+                  <p class="font-medium">{{ t('impersonation.title') }}</p>
+                  <p class="text-muted-foreground">
+                    {{
+                      t('impersonation.banner', {
+                        tenant: impersonationStatus.tenantName,
+                        impersonator: impersonationStatus.impersonatorName,
+                      })
+                    }}
+                  </p>
+                  <p class="text-muted-foreground text-xs">{{ t('impersonation.note') }}</p>
+                  <button hlmBtn size="sm" class="self-end" (click)="endImpersonation()">
+                    {{ t('impersonation.exit') }}
+                  </button>
+                </div>
+              </hlm-popover-content>
+            </hlm-popover>
+          }
+        }
+        <!--#endif-->
+        <app-theme-mode-toggle />
+        <!--#if (IncludeNotifications)-->
+        <app-notifications />
+        <!--#endif-->
+        <!--#if (IncludeLocalization)-->
+        <app-language-switcher />
+        <!--#endif-->
+        @if (layout() === 'topbar') {
+          <!-- 侧栏布局里头像在侧栏底部；顶栏布局没有侧栏，放在最右 -->
+          <app-user-menu variant="topbar" />
+        }
+      </div>
     </div>
   </header>
 </ng-container>

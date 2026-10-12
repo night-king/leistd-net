@@ -115,6 +115,19 @@
       "groupAudit": "Audit",
       "toggle": "Toggle sidebar"
     },
+    "commandPalette": {
+      "search": "Search",
+      "title": "Command palette",
+      "description": "Search for a page to open.",
+      "placeholder": "Search pages…",
+      "empty": "No matching pages."
+    },
+    "realtime": {
+      "label": "Real-time",
+      "connected": "Live updates connected",
+      "reconnecting": "Connection lost, reconnecting…",
+      "disconnected": "Live updates offline. Refresh to retry."
+    },
     "topbar": {
       "openNavigation": "Open navigation",
       "navigationDescription": "Choose a page to open"

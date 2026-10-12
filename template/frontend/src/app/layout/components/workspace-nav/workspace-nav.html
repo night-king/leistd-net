@@ -4,8 +4,8 @@
 <ng-container>
 <!--#endif-->
   @if (placement() === 'start') {
-    <!-- 窄屏：导航收进抽屉，点选后自动关闭 -->
-    <hlm-sheet side="left">
+    <!-- 窄屏：导航收进抽屉，点选后自动关闭。宽屏连同宿主一起隐藏，否则空宿主仍占一份 gap，品牌与正文对不齐 -->
+    <hlm-sheet side="left" class="md:hidden">
       <button
         type="button"
         hlmSheetTrigger
@@ -40,7 +40,7 @@
                 <a
                   hlmBtn
                   variant="ghost"
-                  class="justify-start aria-[current=page]:bg-primary/10 aria-[current=page]:font-semibold aria-[current=page]:text-primary"
+                  class="justify-start aria-[current=page]:bg-muted"
                   [routerLink]="item.route"
                   [attr.aria-current]="isItemActive(item) ? 'page' : null"
                   (click)="ctx.close()"
@@ -75,7 +75,6 @@
           <li hlmNavigationMenuItem>
             <a
               hlmNavigationMenuLink
-              class="data-active:bg-primary/10 data-active:font-semibold data-active:text-primary"
               [routerLink]="item.route"
               [active]="isItemActive(item)"
               [attr.aria-current]="isItemActive(item) ? 'page' : null"
@@ -96,7 +95,7 @@
           hlmBtn
           variant="ghost"
           size="icon"
-          class="aria-[current=page]:bg-primary/10 aria-[current=page]:font-semibold aria-[current=page]:text-primary"
+          class="aria-[current=page]:bg-muted"
           [routerLink]="item.route"
           [attr.aria-current]="isItemActive(item) ? 'page' : null"
           [attr.aria-label]="item.label"

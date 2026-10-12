@@ -196,6 +196,10 @@ describe('SignalRService connection lifecycle', () => {
   }
   //#endif
 
+  it('stays idle until a connection is requested', () => {
+    expect(service.connectionStatus()).toBe('idle');
+  });
+
   it('enters the connected state after connecting to the configured hub', async () => {
     await service.connect();
 
@@ -217,6 +221,7 @@ describe('SignalRService connection lifecycle', () => {
     await service.connect();
 
     expect(service.isConnected()).toBe(false);
+    expect(service.connectionStatus()).toBe('disconnected');
     expect(built[0].stopCount).toBe(1);
   });
 
@@ -266,9 +271,19 @@ describe('SignalRService connection lifecycle', () => {
 
     built[0].drop();
     expect(service.isConnected()).toBe(false);
+    expect(service.connectionStatus()).toBe('reconnecting');
 
     built[0].dropAndRecover();
     expect(service.isConnected()).toBe(true);
+  });
+
+  it('returns to idle after a deliberate reset', async () => {
+    await service.connect();
+
+    await service.reset();
+
+    // 登出是主动断开，不应显示成掉线
+    expect(service.connectionStatus()).toBe('idle');
   });
   //#if (IncludeNotifications && IncludeRealTime)
 

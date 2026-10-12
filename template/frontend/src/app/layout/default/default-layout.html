@@ -1,9 +1,8 @@
 <div hlmSidebarWrapper data-layout="default" class="h-svh">
-  <!-- 侧边栏（默认 sidebar 变体：与内容区平铺相接；桌面折叠为图标轨，移动端渲染为 sheet） -->
+  <!-- 侧边栏（inset 变体）：桌面端侧栏与四周同为画布色，主内容区浮成圆角面板；桌面折叠为图标轨，移动端渲染为 sheet。 -->
   <app-default-sidebar />
 
-  <!-- 主内容区：Header + 内容。hlmSidebarInset 只在侧栏为 inset 变体时才浮为圆角卡片；
-       侧栏包在 app-default-sidebar 里，与本元素不是兄弟，改用 inset 时还要把 peer 与状态属性转到组件宿主上。 -->
+  <!-- 主内容区：Header + 内容。inset 所需的 peer 与状态属性由 app-default-sidebar 的宿主转出。 -->
   <main hlmSidebarInset class="overflow-hidden">
     <app-default-header />
 
@@ -11,4 +10,6 @@
       <router-outlet></router-outlet>
     </div>
   </main>
+
+  <app-command-palette />
 </div>
