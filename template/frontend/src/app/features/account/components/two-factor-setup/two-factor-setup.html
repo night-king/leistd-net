@@ -27,7 +27,7 @@
               [alt]="t('account.twoFactor.qrAlt')"
               width="160"
               height="160"
-              class="size-40 shrink-0 self-center rounded-lg border border-border bg-white p-1 sm:self-auto"
+              class="size-40 shrink-0 self-center rounded-md border border-border bg-white p-1 sm:self-auto"
               data-testid="two-factor-qr"
             />
           }
@@ -36,7 +36,7 @@
               t('account.twoFactor.manualHint')
             }}</span>
             <code
-              class="bg-muted rounded-lg px-3 py-2 font-mono text-sm break-all select-all"
+              class="bg-muted rounded-md px-3 py-2 font-mono text-sm break-all select-all"
               data-testid="two-factor-secret"
               >{{ groupedSecret() }}</code
             >

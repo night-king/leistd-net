@@ -56,7 +56,7 @@
         </div>
 
         <!-- 滚动容器必须是画边框的这一层：第三方滚动组件会撑到内容高度，不被 flex 约束。 -->
-        <div class="min-h-0 flex-1 overflow-y-auto rounded-lg border">
+        <div class="min-h-0 flex-1 overflow-y-auto rounded-md border">
           @if (hasNoMatch()) {
             <p class="py-10 text-center text-sm text-muted-foreground">
               {{ t('common.noResults') }}

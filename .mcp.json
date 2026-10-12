@@ -2,7 +2,7 @@
   "mcpServers": {
     "spartan": {
       "command": "npx",
-      "args": ["-y", "@spartan-ng/mcp@1.5.0"]
+      "args": ["-y", "@spartan-ng/mcp@1.6.3"]
     }
   }
 }

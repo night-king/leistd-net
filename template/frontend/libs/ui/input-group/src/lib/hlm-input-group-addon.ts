@@ -7,8 +7,8 @@ const inputGroupAddonVariants = cva(
   {
     variants: {
       align: {
-        'inline-start': 'ps-2 has-[>button]:ms-[-0.3rem] has-[>kbd]:ms-[-0.15rem] order-first',
-        'inline-end': 'pe-2 has-[>button]:me-[-0.3rem] has-[>kbd]:me-[-0.15rem] order-last',
+        'inline-start': 'ps-2 has-[>button]:-ms-1 has-[>kbd]:ms-[-0.15rem] order-first',
+        'inline-end': 'pe-2 has-[>button]:-me-1 has-[>kbd]:me-[-0.15rem] order-last',
         'block-start':
           'px-2.5 pt-2 group-has-[>input]/input-group:pt-2 [.border-b]:pb-2 order-first w-full justify-start',
         'block-end':

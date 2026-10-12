@@ -40,7 +40,7 @@
             <!-- 版式照 shadcn 侧栏的 team switcher：小标题 + 带边框的图标方块 + 名称。
                不放快捷键（没有实现对应的键位），当前区域在快捷键的位置打勾。 -->
             <ng-template #areaMenu>
-              <hlm-dropdown-menu class="min-w-56 rounded-lg">
+              <hlm-dropdown-menu class="min-w-56">
                 <hlm-dropdown-menu-label class="text-muted-foreground text-xs">
                   {{ t('layout.sidebar.switchArea') }}
                 </hlm-dropdown-menu-label>
@@ -53,7 +53,7 @@
                       (click)="goToArea(area.route)"
                     >
                       <span
-                        class="flex size-6 shrink-0 items-center justify-center rounded-lg border"
+                        class="flex size-6 shrink-0 items-center justify-center rounded-md border"
                       >
                         <ng-icon [name]="area.icon" class="text-[length:--spacing(3.5)]" />
                       </span>

@@ -5,14 +5,14 @@
 <!--#endif-->
   <div class="flex flex-col gap-4" data-testid="recovery-codes">
     <div
-      class="border-border bg-muted/50 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
+      class="border-border bg-muted/50 flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
     >
       <ng-icon name="lucideTriangleAlert" class="text-warning mt-0.5 shrink-0" />
       <span>{{ t('account.twoFactor.recoveryCodesWarning') }}</span>
     </div>
     <ol class="grid grid-cols-1 gap-2 font-mono text-sm sm:grid-cols-2">
       @for (code of codes(); track code) {
-        <li class="bg-muted rounded-lg px-3 py-1.5 text-center select-all">{{ code }}</li>
+        <li class="bg-muted rounded-md px-3 py-1.5 text-center select-all">{{ code }}</li>
       }
     </ol>
     <div class="flex flex-wrap gap-2">

@@ -32,7 +32,7 @@
     //#endif
     "@ng-icons/core": "36.0.0",
     "@ng-icons/lucide": "36.0.0",
-    "@spartan-ng/brain": "1.5.0",
+    "@spartan-ng/brain": "1.6.3",
     "@tanstack/angular-table": "9.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -48,7 +48,7 @@
     "@angular/cli": "22.2.0",
     "@angular/compiler-cli": "22.2.0",
     "@eslint/js": "^10.0.1",
-    "@spartan-ng/cli": "1.5.0",
+    "@spartan-ng/cli": "1.6.3",
     "@tailwindcss/postcss": "^4.3.3",
     //#if (LocalIdentity)
     "@types/qrcode": "^1.5.6",
