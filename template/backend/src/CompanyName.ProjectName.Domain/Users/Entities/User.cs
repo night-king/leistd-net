@@ -186,9 +186,39 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
         return !IsSuperAdmin;
     }
 
+    /// <summary>能否由 <paramref name="actorUserId"/> 停用：在 <see cref="CanBeDisabled"/> 之上，任何人都不能停用自己。</summary>
+    /// <remarks>
+    /// 停用会立刻作废本人全部会话，操作者当场被关在门外，而能把他请回来的往往只剩他自己。
+    /// 自己移出角色、收窄权限不在此列：那是正当的自我降级，误操作由部署级恢复命令兜底。
+    /// </remarks>
+    public bool CanBeDisabledBy(Guid? actorUserId)
+    {
+        return CanBeDisabled() && Id != actorUserId;
+    }
+
     public bool CanBeDeleted()
     {
         return !IsSuperAdmin;
+    }
+#if (LocalIdentity)
+
+    /// <summary>能否由 <paramref name="actorUserId"/> 删除：在 <see cref="CanBeDeleted"/> 之上，任何人都不能删除自己，理由同 <see cref="CanBeDisabledBy"/>。</summary>
+    public bool CanBeDeletedBy(Guid? actorUserId)
+    {
+        return CanBeDeleted() && Id != actorUserId;
+    }
+#endif
+
+    /// <summary>撤回软删除，让这一行按原 Id 回到正常查询里；删除时间与删除者一并清空。</summary>
+    /// <remarks>
+    /// 只供部署级的管理员恢复命令使用，在线管理没有"恢复已删除用户"的入口。
+    /// 不碰启停、角色与凭据：删除前的状态原样回来，其余由调用方逐项决定。
+    /// </remarks>
+    public void Restore()
+    {
+        IsDeleted = false;
+        DeleterId = null;
+        DeletionTime = null;
     }
 
     /// <summary>当前持有该角色（未撤销）。</summary>

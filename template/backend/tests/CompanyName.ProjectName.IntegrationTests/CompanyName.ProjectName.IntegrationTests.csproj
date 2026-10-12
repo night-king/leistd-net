@@ -44,7 +44,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CompanyName.ProjectName.Api\CompanyName.ProjectName.Api.csproj" />
-<!--#if (RemoteTokenAuth)-->
+<!--#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))-->
+    <!-- 管理员引导与恢复命令经真实 CLI 测试：别名避开迁移作业与 Api 同名的顶级 Program -->
     <ProjectReference Include="..\..\src\CompanyName.ProjectName.DbMigrator\CompanyName.ProjectName.DbMigrator.csproj" Aliases="Migrator" />
 <!--#endif-->
     <!-- 服务间调用闭环测试经真实 Client 包发起调用（签发与资源两种形态） -->

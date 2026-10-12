@@ -19,7 +19,7 @@
 | 全栈功能 | 以上两行必读的并集与 [API](standards/api.md) | 同上两行 |
 <!--#endif-->
 | 只审查代码 | 被审查改动涉及的端对应的必读文档 | 改动触及的专题 |
-| 部署、迁移或回滚 | [部署](deploy/README.md) | [技术栈](standards/tech-stack.md) |
+| 部署、迁移、回滚或恢复管理员 | [部署](deploy/README.md) | [技术栈](standards/tech-stack.md) |
 
 ## 全部规范
 

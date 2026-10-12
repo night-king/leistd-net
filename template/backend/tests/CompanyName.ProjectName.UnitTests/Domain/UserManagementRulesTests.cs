@@ -53,6 +53,43 @@ public sealed class UserManagementRulesTests
         Assert.False(user.CanBeDeleted());
     }
 
+    /// <summary>任何人都不能停用自己：停用当场作废本人会话，操作者把自己关在门外。别人照常可以停用他。</summary>
+    [Fact]
+    public void A_user_cannot_be_disabled_by_themselves_but_can_by_another_administrator()
+    {
+        var user = CreateUser();
+
+        Assert.False(user.CanBeDisabledBy(user.Id));
+        Assert.True(user.CanBeDisabledBy(Guid.NewGuid()));
+        // 没有操作者（系统作业）不算本人
+        Assert.True(user.CanBeDisabledBy(null));
+    }
+
+    [Fact]
+    public void The_built_in_super_admin_cannot_be_disabled_by_anyone()
+    {
+        var user = CreateUser();
+        user.MarkAsSuperAdmin();
+
+        Assert.False(user.CanBeDisabledBy(user.Id));
+        Assert.False(user.CanBeDisabledBy(Guid.NewGuid()));
+    }
+#if (LocalIdentity)
+
+    [Fact]
+    public void A_user_cannot_be_deleted_by_themselves_but_can_by_another_administrator()
+    {
+        var user = CreateUser();
+
+        Assert.False(user.CanBeDeletedBy(user.Id));
+        Assert.True(user.CanBeDeletedBy(Guid.NewGuid()));
+        Assert.True(user.CanBeDeletedBy(null));
+
+        user.MarkAsSuperAdmin();
+        Assert.False(user.CanBeDeletedBy(Guid.NewGuid()));
+    }
+#endif
+
 #if (LocalIdentity)
     [Fact]
     public void Enabling_two_factor_twice_is_rejected_and_keeps_the_secret_in_use()

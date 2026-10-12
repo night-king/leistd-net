@@ -228,6 +228,10 @@
     "User:RoleRequired": "Please select at least one role.",
     "User:RolesNotFound": "Roles not found: {Roles}",
 //#if (LocalIdentity)
+    "User:SelfDeleteForbidden": "You cannot delete your own account.",
+//#endif
+    "User:SelfDisableForbidden": "You cannot disable your own account.",
+//#if (LocalIdentity)
     "User:SuperAdminDeleteForbidden": "The built-in super administrator cannot be deleted.",
 //#endif
     "User:SuperAdminDisableForbidden": "The built-in super administrator cannot be disabled by other administrators.",

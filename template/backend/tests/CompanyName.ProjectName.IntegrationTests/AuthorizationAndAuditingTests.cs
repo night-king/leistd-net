@@ -1006,6 +1006,54 @@ public sealed class AuthorizationAndAuditingTests(ProjectWebApplicationFactory f
             (await session.Client.GetAsync("/api/v1/auth/me")).StatusCode);
     }
 
+    /// <summary>管理员不能停用或删除自己：拒绝发生在任何写入之前，本人的会话照常可用，也不留成功记录。</summary>
+    /// <remarks>停用会当场作废本人全部会话；若拒绝落在撤销之后，请求虽然报错，操作者照样被关在门外。</remarks>
+    [Fact]
+    public async Task An_administrator_cannot_disable_or_delete_their_own_account()
+    {
+        using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        // 用自建角色显式授予所需权限：同类里有用例改动内置 Admin 角色的授予，依赖它会随执行顺序变化
+        var role = await CreateRoleAsync(superAdmin.Client);
+        await ReplaceGrantsAsync(
+            PermissionGrantProviderNames.Role,
+            role.Id,
+            [PermissionConstant.Users.Default, PermissionConstant.Users.Update, PermissionConstant.Users.Delete]);
+        var administrator = await CreateUserAsync(superAdmin.Client, [role.Id]);
+        using var acting = await Factory.LoginAsync(administrator.Username, TestPassword);
+        // 同一个人的另一台设备：撤销会话的话它最先失效
+        using var otherDevice = await Factory.LoginAsync(administrator.Username, TestPassword);
+        var targetId = administrator.Id.ToString();
+
+        using (var disable = await acting.Client.PatchAsync($"/api/v1/users/{administrator.Id}/disable", null))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, disable.StatusCode);
+            Assert.Equal(UserErrorCodes.SelfDisableForbidden, await ErrorCodeAsync(disable));
+        }
+
+        using (var delete = await acting.Client.DeleteAsync($"/api/v1/users/{administrator.Id}"))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, delete.StatusCode);
+            Assert.Equal(UserErrorCodes.SelfDeleteForbidden, await ErrorCodeAsync(delete));
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await GetUsersAsync(acting.Client)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await GetUsersAsync(otherDevice.Client)).StatusCode);
+        var current = await superAdmin.Client.GetFromJsonAsync<UserManagementOutputDto>($"/api/v1/users/{administrator.Id}");
+        Assert.True(current!.IsActive);
+        Assert.Equal(0, await OperationRecordQueries.CountSucceededAsync(Factory, superAdmin.Client, OperationRecordActions.UserDisabled, targetId));
+        Assert.Equal(0, await OperationRecordQueries.CountSucceededAsync(Factory, superAdmin.Client, OperationRecordActions.UserDeleted, targetId));
+
+        // 规则只针对本人：另一位管理员照常可以停用他，他的会话随之失效
+        Assert.Equal(HttpStatusCode.OK, (await superAdmin.Client.PatchAsync($"/api/v1/users/{administrator.Id}/disable", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await GetUsersAsync(otherDevice.Client)).StatusCode);
+    }
+
+    private static async Task<string?> ErrorCodeAsync(HttpResponseMessage response)
+    {
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return body.RootElement.TryGetProperty("code", out var code) ? code.GetString() : null;
+    }
+
     /// <summary>绕过应用直接改库锁定（无截止时间）的账号，已有会话在下一次会话校验时被拒。</summary>
     /// <remarks>
     /// 经应用停用、删除账号会当场撤销会话；直接改库不经过那条路，靠会话校验在缓存未命中时确认账号仍可用。

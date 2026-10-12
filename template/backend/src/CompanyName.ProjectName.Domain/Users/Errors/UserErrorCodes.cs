@@ -16,6 +16,12 @@ public static class UserErrorCodes
     public const string NotFound = "User:NotFound";
     public const string RolesNotFound = "User:RolesNotFound";
 #if (LocalIdentity)
+    /// <summary>不能删除自己：默认 400，不登记映射。</summary>
+    public const string SelfDeleteForbidden = "User:SelfDeleteForbidden";
+#endif
+    /// <summary>不能停用自己：默认 400，不登记映射。</summary>
+    public const string SelfDisableForbidden = "User:SelfDisableForbidden";
+#if (LocalIdentity)
     public const string SortingCredentialsForbidden = "User:SortingCredentialsForbidden";
     public const string SuperAdminDeleteForbidden = "User:SuperAdminDeleteForbidden";
 #endif

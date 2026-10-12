@@ -60,6 +60,7 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   //#endif
   //#if (RemoteTokenAuth)
   'resource.admin-granted': (t) => `Added ${t} to the administrator role`,
+  'resource.admin-restored': (t) => `Restored administrator access for ${t}`,
   //#endif
   'permission-grants.replaced': (t) => `Changed permissions for ${t}`,
   'tenant.created': (t) => `Created tenant ${t}`,
@@ -69,6 +70,9 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'tenant.connection-registered': (t) => `Registered a database connection for tenant ${t}`,
   'tenant.connection-changed': (t) => `Changed the database connection of tenant ${t}`,
   'tenant.connection-removed': (t) => `Removed the database connection of tenant ${t}`,
+  //#if (LocalIdentity && IncludeMultiTenancy)
+  'tenant.admin-restored': (t) => `Restored tenant administrator ${t}`,
+  //#endif
   'setting.changed': (t) => `Changed setting ${t}`,
   'setting.test-email-sent': () => 'Sent a test email',
   'operation-records.exported': () => 'Exported operation records',

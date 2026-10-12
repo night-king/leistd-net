@@ -1,6 +1,6 @@
 using CompanyName.ProjectName.DbMigrator;
 using CompanyName.ProjectName.DbMigrator.Runners;
-#if (RemoteTokenAuth)
+#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))
 using Leistd.DependencyInjection.DynamicProxy.Registration;
 #endif
 using Microsoft.Extensions.DependencyInjection;
@@ -12,6 +12,10 @@ var apply = false;
 #if (RemoteTokenAuth)
 Guid? adminSubject = null;
 Guid? adminTenant = null;
+var restore = false;
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+Guid? restoreTenant = null;
 #endif
 for (var index = 0; index < args.Length; index++)
 {
@@ -46,6 +50,21 @@ for (var index = 0; index < args.Length; index++)
 #endif
             }
             break;
+
+        case "--restore":
+            restore = true;
+            break;
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+        case "--restore-tenant-admin":
+            if (index + 1 >= args.Length || !Guid.TryParse(args[++index], out var tenantId) || tenantId == Guid.Empty)
+            {
+                Console.Error.WriteLine($"{argument} requires a non-empty tenant GUID.");
+                return 2;
+            }
+            if (restoreTenant.HasValue) { Console.Error.WriteLine("Duplicate --restore-tenant-admin."); return 2; }
+            restoreTenant = tenantId;
+            break;
 #endif
         case "--help" or "-h":
             WriteUsage();
@@ -65,15 +84,37 @@ if (adminTenant.HasValue && !adminSubject.HasValue)
     Console.Error.WriteLine("--tenant requires --grant-admin.");
     return 2;
 }
+if (restore && !adminSubject.HasValue)
+{
+    Console.Error.WriteLine("--restore requires --grant-admin.");
+    return 2;
+}
 #endif
 // 刻意不把 args 交给宿主：命令行配置提供程序会把 `--apply`（无值开关）当配置键解析。
 // 本作业的配置来自环境变量与 appsettings——K8s Job 的标准做法，不需要命令行覆盖。
 var builder = Host.CreateApplicationBuilder();
+#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))
+// 管理员命令走正式业务路径，要织入工作单元等拦截器；与 API 一样，生产以外都校验作用域与构建期依赖
+var validateServiceProvider = !builder.Environment.IsProduction();
+var containerFactory = new DynamicProxyServiceRegistrationCallbackFactory(new ServiceProviderOptions
+{
+    ValidateScopes = validateServiceProvider,
+    ValidateOnBuild = validateServiceProvider
+});
+#endif
 #if (RemoteTokenAuth)
 if (adminSubject.HasValue)
 {
-    builder.ConfigureContainer(new DynamicProxyServiceRegistrationCallbackFactory());
+    builder.ConfigureContainer(containerFactory);
     builder.Services.AddResourceAdminBootstrapServices(builder.Configuration);
+}
+else
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+if (restoreTenant.HasValue)
+{
+    builder.ConfigureContainer(containerFactory);
+    builder.Services.AddTenantAdminRestoreServices(builder.Configuration, builder.Environment);
 }
 else
 #endif
@@ -90,8 +131,22 @@ try
     {
         // 启动期闸门（包括必需日志级别）必须在写入前成立。
         await host.StartAsync();
+        // 收到 SIGTERM 等停止信号时取消等锁与提交前的写库，作业以非零码退出；提交一旦开始不再响应取消，可能照常完成
         var result = await scope.ServiceProvider.GetRequiredService<ResourceAdminBootstrapRunner>()
-            .RunAsync(subject, adminTenant, apply);
+            .RunAsync(subject, adminTenant, apply, restore, host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
+        Console.WriteLine(result);
+        await host.StopAsync();
+        return 0;
+    }
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+    if (restoreTenant is { } tenant)
+    {
+        // 启动期闸门（包括必需日志级别）必须在写入前成立。
+        await host.StartAsync();
+        // 收到 SIGTERM 等停止信号时取消等锁与提交前的写库，作业以非零码退出；提交一旦开始不再响应取消，可能照常完成
+        var result = await scope.ServiceProvider.GetRequiredService<TenantAdminRestoreRunner>()
+            .RunAsync(tenant, apply, host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
         Console.WriteLine(result);
         await host.StopAsync();
         return 0;
@@ -107,6 +162,12 @@ try
 #else
     return 0;
 #endif
+}
+catch (OperationCanceledException)
+{
+    // 取消可能发生在任何阶段（含提交之后的分发），这里不推断是否已写入，由运维按实际状态核实
+    Console.Error.WriteLine("The command was cancelled. Check the current state before running it again.");
+    return 1;
 }
 catch (Exception exception)
 {
@@ -133,6 +194,12 @@ static void WriteUsage()
 #else
     Console.WriteLine("  --grant-admin <sub>  Preview first administrator grants; add --apply to persist.");
 #endif
+    Console.WriteLine("  --restore      With --grant-admin: also restore a deleted, disabled or removed administrator");
+    Console.WriteLine("                 and re-grant the shared Admin role's missing permissions.");
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+    Console.WriteLine("  --restore-tenant-admin <tenant-id>  Preview restoring the tenant's original administrator account,");
+    Console.WriteLine("                 its Admin membership and the shared Admin role's missing permissions; add --apply to persist.");
 #endif
 }
 

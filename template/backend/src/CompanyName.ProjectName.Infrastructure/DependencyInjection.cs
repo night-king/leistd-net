@@ -10,6 +10,7 @@ using Leistd.MultiTenancy.Management.Provisioning;
 using Leistd.BackgroundJobs.EntityFrameworkCore;
 using Leistd.Ddd.Infrastructure;
 using Leistd.Lock.Redis;
+using Leistd.Lock.Redis.Options;
 using Leistd.Lock.Memory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -102,26 +103,7 @@ public static class DependencyInjection
 #endif
         // 集群周期任务的完成水位与业务表同库：多副本同一时段只跑一次
         services.AddBackgroundJobsEfCore<MyProjectDbContext>();
-        // 连接串使用 StackExchange.Redis 原生格式（host:port,password=...,ssl=true），原样交给官方解析器。
-        var redisConnStr = configuration.GetConnectionString("Redis");
-
-        if (!string.IsNullOrEmpty(redisConnStr))
-        {
-            services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnStr));
-
-            services.AddStackExchangeRedisCache(options =>
-            {
-                options.Configuration = redisConnStr;
-                options.InstanceName = "MyProject:";
-            });
-
-            services.AddRedisDistributedLock(redisConnStr);
-        }
-        else
-        {
-            services.AddDistributedMemoryCache();
-            services.AddMemoryLocalLock();
-        }
+        services.AddMyProjectCacheAndLock(configuration);
 
 #if (LocalIdentity)
         services.AddOptions<PasswordHasherOptions>()
@@ -151,6 +133,45 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddHttpClient();
 #endif
+
+        return services;
+    }
+
+    /// <summary>注册分布式缓存与分布式锁：配置了 Redis 时跨进程共享，否则用进程内实现。</summary>
+    /// <remarks>
+    /// <para><see cref="AddInfrastructureServices"/> 已包含它。只组合部分运行期能力的一次性作业（DbMigrator 的管理员恢复）单独调用：
+    /// 它要与 API 里的初始化拿同一把锁，而不需要发信等外部适配器及其启动期校验。</para>
+    /// <para>Redis 锁键前缀的默认值在这里登记，可由 <c>Leistd:Lock:Redis:KeyPrefix</c> 覆盖；覆盖时 API 与所有迁移、恢复作业必须同值，否则锁键不同、彼此不互斥。</para>
+    /// <para>进程内实现只在本进程内互斥。多副本 API，以及恢复作业与在线 API 或其他恢复作业同时运行（单副本 API 也是两个进程），
+    /// 都要配置同一个 Redis；不配置时由运维串行执行这些作业。</para>
+    /// </remarks>
+    public static IServiceCollection AddMyProjectCacheAndLock(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // 连接串使用 StackExchange.Redis 原生格式（host:port,password=...,ssl=true），原样交给官方解析器。
+        var redisConnStr = configuration.GetConnectionString("Redis");
+
+        if (!string.IsNullOrEmpty(redisConnStr))
+        {
+            services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnStr));
+
+            services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = redisConnStr;
+                options.InstanceName = "MyProject:";
+            });
+
+            // 锁键前缀的默认值只在这里给：API 与迁移、恢复作业都经这里注册，同一个 Redis 上取的才是同一把锁。
+            // 先于组件注册登记，组件随后绑定的 Leistd:Lock:Redis 配置节仍可覆盖它（覆盖时各进程必须同值）
+            services.AddOptions<RedisLockOptions>().Configure(options => options.KeyPrefix = "companyname-projectname:");
+            services.AddRedisDistributedLock(redisConnStr);
+        }
+        else
+        {
+            services.AddDistributedMemoryCache();
+            services.AddMemoryLocalLock();
+        }
 
         return services;
     }

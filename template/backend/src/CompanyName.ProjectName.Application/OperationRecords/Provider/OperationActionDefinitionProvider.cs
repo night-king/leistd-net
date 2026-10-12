@@ -20,6 +20,13 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
 #if (RemoteTokenAuth)
         context.Add(OperationRecordActions.ResourceAdminGranted,
             OperationRecordCategories.Authorization, OperationVisibility.Tenant, OperationSeverity.Critical);
+        context.Add(OperationRecordActions.ResourceAdminRestored,
+            OperationRecordCategories.Authorization, OperationVisibility.Tenant, OperationSeverity.Critical);
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+        // 租户自己的管理员看得到：部署方在他们的租户里动了管理员账号与 Admin 角色
+        context.Add(OperationRecordActions.TenantAdminRestored,
+            OperationRecordCategories.Authorization, OperationVisibility.Tenant, OperationSeverity.Critical);
 #endif
         // 账号：用户与角色自身的增删改。
         context.Add(

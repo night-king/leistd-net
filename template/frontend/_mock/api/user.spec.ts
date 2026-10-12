@@ -1,9 +1,7 @@
 import { USER_API, addUser, getUsers, updateUser } from './user';
 import { MockException } from '../core/models';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
-//#if (LocalIdentity)
 import { setMockSessionUserId } from '../utils/current-user';
-//#endif
 
 type Handler = (req: { params: { id: string } }) => unknown;
 
@@ -97,6 +95,41 @@ describe('user mock', () => {
       expect(error.status).toBe(403);
       expect(error.error.code).toBe('User:SuperAdminDeleteForbidden');
       expect(USERS.some((user) => user.id === 'user_admin')).toBe(true);
+    });
+
+    it('refuses to delete the signed-in user with 400', () => {
+      setMockSessionUserId('user_demo');
+      onTestFinished(() => setMockSessionUserId(null));
+
+      const error = rejectionOf(() => remove({ params: { id: 'user_demo' } }));
+
+      expect(error.status).toBe(400);
+      expect(error.error.code).toBe('User:SelfDeleteForbidden');
+      expect(USERS.some((user) => user.id === 'user_demo')).toBe(true);
+    });
+  });
+
+  describe('disable', () => {
+    const disable = USER_API['PATCH /api/v1/users/:id/disable'] as Handler;
+
+    afterEach(() => setMockSessionUserId(null));
+
+    it('refuses to disable the signed-in user with 400 and keeps the account active', () => {
+      setMockSessionUserId('user_demo');
+
+      const error = rejectionOf(() => disable({ params: { id: 'user_demo' } }));
+
+      expect(error.status).toBe(400);
+      expect(error.error.code).toBe('User:SelfDisableForbidden');
+      expect(USERS.find((user) => user.id === 'user_demo')!.isActive).toBe(true);
+    });
+
+    it('lets another administrator disable the user', () => {
+      setMockSessionUserId('user_admin');
+
+      disable({ params: { id: 'user_demo' } });
+
+      expect(USERS.find((user) => user.id === 'user_demo')!.isActive).toBe(false);
     });
   });
   //#if (LocalIdentity)

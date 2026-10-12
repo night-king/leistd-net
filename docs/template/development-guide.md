@@ -69,7 +69,9 @@ Impersonation = LocalIdentity && IncludeMultiTenancy && IncludeOperationRecords
 
 通知与实时四种组合分别为无 Hub、通知 Hub、业务实时 Hub、合并实时 Hub；合并形态只建立一条前端连接。邮件关闭同时裁剪完整发送和验证资产，联系信息字段按实际消费者保留。历史关闭同时裁剪数据库与读侧产品，成功安全日志在真实事务提交后输出；日志模式有提交后进程退出导致丢失的窗口，不等同于数据库同事务保证。
 
-Resource 的首位管理员通过正式 DbMigrator `--grant-admin <sub> [--tenant <id>]` 引导，默认只读，`--apply` 才写入；不依赖人工 SQL 或首次访问自动授权。授权载体是 Admin 角色成员关系（本地无此用户时先建最小主体行），不写用户级直接授予；曾被移出 Admin 的不再加回。初始化锁由命令持有到提交之后。生成项目的具体命令说明放在其后端 README。
+Resource 的首位管理员通过正式 DbMigrator `--grant-admin <sub> [--tenant <id>]` 引导，默认只读，`--apply` 才写入；不依赖人工 SQL 或首次访问自动授权。授权载体是 Admin 角色成员关系（本地无此用户时先建最小主体行），不写用户级直接授予；普通引导不推翻之后的停用、删除与移出 Admin。初始化锁由命令持有到提交之后。生成项目的具体命令说明放在其后端 README。
+
+管理员不能停用自己（`User.CanBeDisabledBy`），本地身份另不能删除自己（`CanBeDeletedBy`），拒绝都在任何副作用之前；Resource 本地没有删除用户的端点，这条规则不为它新增删除能力。自我降级不拦，由部署级恢复兜底，不做运行期的"最后一位管理员"预测。Resource 在同一命令上加 `--restore`；多租户本地身份用 `--restore-tenant-admin <tenant-id>` 恢复开通时建的原 `admin` 记录（宿主有内置超管，不需要）。两者都在一个工作单元里撤回删除、启用、只补回 Admin 成员关系，并经 `IPermissionGrantManager` 把当前侧别可用、Admin 角色缺少的权限补授给这个共享角色（`IPermissionGrantSeeder` 只在授权版本为 0 时播种，补不回撤过的授予），预演不写、无缺口不写。目标不存在时两形态不同：租户恢复找不到原 `admin` 记录就失败，不新建账号；Resource 恢复在本地没有该主体时按正规引导建最小投影行，不创建远端身份或凭据。两条命令的服务组合都不含 `AddInfrastructureServices` 与 `AddApplicationServices`，只组合存储、锁与 `AddApplicationDefinitions`（权限与操作动作定义），租户恢复另加密钥环，Resource 引导另加用户与角色的领域服务和系统初始化器（首次播种）；发信等适配器的启动期校验不挡部署作业，只在 API 注册的能力（如实时推送的发布器）也不进组合；两条命令的容器与 API 一样在生产以外开启 `ValidateScopes` / `ValidateOnBuild`。
 
 ### 3.3 模板引擎限制
 

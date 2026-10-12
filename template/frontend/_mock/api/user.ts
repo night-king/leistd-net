@@ -17,9 +17,7 @@ import {
   //#endif
   toUserManagementOutput,
 } from '../data/user';
-//#if (LocalIdentity)
 import { getCurrentUser } from '../utils/current-user';
-//#endif
 
 function getQueryValue(value: unknown) {
   const normalized = Array.isArray(value) ? value[0] : value;
@@ -177,12 +175,28 @@ export function enableUser(id: string) {
   user.isActive = true;
 }
 
+/** 与后端一致：内置超级管理员不可被停用（403），任何人都不能停用自己（400）；拒绝时不改任何状态。 */
 export function disableUser(id: string) {
   const user = USERS.find((w) => w.id === id);
   if (!user) {
     throw new MockException(404, {
       code: 'User:NotFound',
       message: 'User does not exist or has been deleted',
+    });
+  }
+  const self = user.id === getCurrentUser()?.id;
+  if (user.isSuperAdmin) {
+    throw new MockException(403, {
+      code: self ? 'User:SuperAdminDisableSelfForbidden' : 'User:SuperAdminDisableForbidden',
+      message: self
+        ? 'The built-in super administrator cannot disable itself.'
+        : 'The built-in super administrator cannot be disabled by other administrators.',
+    });
+  }
+  if (self) {
+    throw new MockException(400, {
+      code: 'User:SelfDisableForbidden',
+      message: 'You cannot disable your own account.',
     });
   }
   user.isActive = false;
@@ -242,7 +256,7 @@ export function resetTwoFactor(id: string) {
 }
 
 /**
- * 与后端一致：删除幂等，不存在（含已删除）即成功；内置超级管理员不可删（403）。
+ * 与后端一致：删除幂等，不存在（含已删除）即成功；内置超级管理员不可删（403），不能删除自己（400）。
  * 删除是软删除：移出列表但仍占着用户名与邮箱。
  */
 export function deleteUser(id: string) {
@@ -254,6 +268,12 @@ export function deleteUser(id: string) {
     throw new MockException(403, {
       code: 'User:SuperAdminDeleteForbidden',
       message: 'The built-in super administrator cannot be deleted',
+    });
+  }
+  if (USERS[index].id === getCurrentUser()?.id) {
+    throw new MockException(400, {
+      code: 'User:SelfDeleteForbidden',
+      message: 'You cannot delete your own account.',
     });
   }
   DELETED_USERS.push(...USERS.splice(index, 1));

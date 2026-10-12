@@ -23,6 +23,7 @@ describe('UserTable', () => {
   let fixture: ComponentFixture<UserTable>;
   let component: UserTable;
   let viewport: BehaviorSubject<BreakpointState>;
+  const currentUser = signal<{ id: string } | null>(null);
 
   const desktop = (matches: boolean): BreakpointState => ({
     matches,
@@ -31,6 +32,10 @@ describe('UserTable', () => {
       '(min-width: 1024px)': matches,
     },
   });
+
+  /** 内置超管且开了两步验证：菜单里各项（含重置两步验证）都会出现。 */
+  const superAdmin = { isSuperAdmin: true, isTwoFactorEnabled: true };
+  const SUPER_ADMIN_REASON = /to their own account|superAdminNoManage/;
 
   function user(id: string, username: string): UserManagementOutputDto {
     return {
@@ -47,6 +52,7 @@ describe('UserTable', () => {
 
   beforeEach(async () => {
     viewport = new BehaviorSubject<BreakpointState>(desktop(true));
+    currentUser.set(null);
 
     await TestBed.configureTestingModule({
       imports: [UserTable],
@@ -54,7 +60,7 @@ describe('UserTable', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: AuthService, useValue: { currentUser: signal(null) } },
+        { provide: AuthService, useValue: { currentUser } },
         //#if (IncludeLocalization)
         ...provideTranslocoTesting(['en']),
         //#endif
@@ -195,6 +201,110 @@ describe('UserTable', () => {
     expect(rowMenuTrigger()).toBeNull();
   });
 
+  // 停用会当场作废本人会话，服务端同样拒绝：本人行置灰，原因就地写在菜单里（禁用项上的提示悬停不到）
+  it('greys out disabling and deleting the signed-in user and says why', async () => {
+    const menu = await openMenuAs('1');
+
+    const disable = menuButton(menu, /Disable|users\.tooltip\.disable/);
+    expect(disable.disabled).toBe(true);
+    const disableReason = menu.querySelector('[data-testid="user-self-disable-reason"]')!;
+    expect(disable.getAttribute('aria-describedby')).toBe(disableReason.id);
+    expect(disableReason.textContent).toMatch(/disable your own account|selfNoDisable/);
+
+    const remove = menuButton(menu, /Delete|common\.delete/);
+    expect(remove.disabled).toBe(true);
+    const deleteReason = menu.querySelector('[data-testid="user-self-delete-reason"]')!;
+    expect(remove.getAttribute('aria-describedby')).toBe(deleteReason.id);
+    expect(deleteReason.textContent).toMatch(/delete your own account|selfNoDelete/);
+  });
+
+  it("leaves disabling and deleting someone else's account available", async () => {
+    const menu = await openMenuAs('2');
+
+    expect(menuButton(menu, /Disable|users\.tooltip\.disable/).disabled).toBe(false);
+    expect(menuButton(menu, /Delete|common\.delete/).disabled).toBe(false);
+    expect(menu.querySelector('[data-testid^="user-self-"]')).toBeNull();
+    expect(menu.querySelector('[data-testid^="user-super-admin-"]')).toBeNull();
+    expect(host().querySelector('[data-testid^="user-super-admin-"]')).toBeNull();
+  });
+
+  // 内置超管的受保护操作只能由本人进行：他人查看其行时这些项置灰，原因在菜单首说一次（禁用项上的提示悬停不到）
+  it('greys out the protected actions on the built-in super admin row for other admins and says why', async () => {
+    await page.viewport(1280, 800);
+    const menu = await openMenuAs('2', { ...user('1', 'admin'), ...superAdmin }, true);
+
+    const reason = menu.querySelector('[data-testid="user-super-admin-reason"]')!;
+    expect(reason.textContent).toMatch(SUPER_ADMIN_REASON);
+    const disabled = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:disabled'));
+    //#if (LocalIdentity)
+    // 编辑、分配角色、重置密码、重置两步验证、停用、删除
+    expect(disabled.length).toBe(6);
+    //#else
+    // 分配角色、停用、删除
+    expect(disabled.length).toBe(3);
+    //#endif
+    for (const button of disabled) {
+      expect(button.getAttribute('aria-describedby')).toBe(reason.id);
+    }
+
+    // 桌面端行内按钮：读屏经 aria-describedby 读到原因，悬停外层可见同一句提示
+    const inlineReason = host().querySelector('[data-testid="user-super-admin-inline-reason"]')!;
+    expect(inlineReason.textContent).toMatch(SUPER_ADMIN_REASON);
+    const inline = inlineButtons();
+    //#if (LocalIdentity)
+    expect(inline.length).toBe(2);
+    //#else
+    expect(inline.length).toBe(1);
+    //#endif
+    for (const button of inline) {
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-describedby')).toBe(inlineReason.id);
+      expect(button.parentElement!.getAttribute('tabindex')).toBe('0');
+    }
+    // 外层可聚焦：键盘聚焦即弹出原因提示（鼠标悬停走同一提示），并由提示自身补 aria-describedby
+    const wrapper = inline[0].parentElement!;
+    wrapper.focus();
+    await expect
+      .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? '')
+      .toMatch(SUPER_ADMIN_REASON);
+    expect(wrapper.getAttribute('aria-describedby')).toBe(
+      document.querySelector('[role="tooltip"]')!.id,
+    );
+  });
+
+  //#if (LocalIdentity)
+  // 解除锁定不在受保护操作之列：锁定的超管仍可由有权限的管理员解锁，原因说明不覆盖它
+  it('leaves unlocking a locked super admin available without the protection reason', async () => {
+    const menu = await openMenuAs('2', { ...user('1', 'admin'), ...superAdmin, isLockedOut: true });
+
+    const unlock = menu.querySelector<HTMLButtonElement>('[data-testid="user-unlock"]')!;
+    expect(unlock.disabled).toBe(false);
+    expect(unlock.getAttribute('aria-describedby')).toBeNull();
+    expect(menu.querySelector('[data-testid="user-super-admin-reason"]')).not.toBeNull();
+  });
+
+  //#endif
+  it('keeps the self reasons when the super admin views their own row', async () => {
+    const menu = await openMenuAs('1', { ...user('1', 'admin'), ...superAdmin }, true);
+
+    const disable = menuButton(menu, /Disable|users\.tooltip\.disable/);
+    expect(disable.disabled).toBe(true);
+    expect(disable.getAttribute('aria-describedby')).toBe(
+      menu.querySelector('[data-testid="user-self-disable-reason"]')!.id,
+    );
+    const remove = menuButton(menu, /Delete|common\.delete/);
+    expect(remove.disabled).toBe(true);
+    expect(remove.getAttribute('aria-describedby')).toBe(
+      menu.querySelector('[data-testid="user-self-delete-reason"]')!.id,
+    );
+    expect(menu.querySelector('[data-testid^="user-super-admin-"]')).toBeNull();
+    expect(host().querySelector('[data-testid^="user-super-admin-"]')).toBeNull();
+    for (const button of inlineButtons()) {
+      expect(button.disabled).toBe(false);
+      expect(button.parentElement!.hasAttribute('tabindex')).toBe(false);
+    }
+  });
+
   it('hides the menu trigger on desktop when it would only repeat the inline buttons', async () => {
     await page.viewport(1280, 800);
     fixture.componentRef.setInput('users', [user('1', 'alice')]);
@@ -299,6 +409,39 @@ describe('UserTable', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     return document.querySelector<HTMLElement>('[data-slot="dropdown-menu"]')!;
+  }
+
+  /** 以 currentUserId 登录、表格只有一行（默认 alice，id 1）时，打开那一行的菜单。 */
+  async function openMenuAs(
+    currentUserId: string,
+    row: UserManagementOutputDto = user('1', 'alice'),
+    canManageRoles = false,
+  ): Promise<HTMLElement> {
+    currentUser.set({ id: currentUserId });
+    fixture.componentRef.setInput('users', [row]);
+    fixture.componentRef.setInput('canManageRoles', canManageRoles);
+    // 表格包在 @defer 里，测试环境不会自己渲染它
+    const [table] = await fixture.getDeferBlocks();
+    await table.render(DeferBlockState.Complete);
+    fixture.detectChanges();
+    onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
+    return openRowMenu();
+  }
+
+  /** 停用项的图标是属性绑定、不反射成 attribute，按文案（或未装词条时的键名）找。 */
+  function menuButton(menu: HTMLElement, label: RegExp): HTMLButtonElement {
+    return Array.from(menu.querySelectorAll<HTMLButtonElement>('button')).find((button) =>
+      label.test(button.textContent ?? ''),
+    )!;
+  }
+
+  /** 行内图标按钮（编辑、分配角色）；菜单在 CDK 浮层里，不在宿主中。 */
+  function inlineButtons(): HTMLButtonElement[] {
+    return Array.from(
+      host().querySelectorAll(
+        'tbody ng-icon[name="lucidePencil"], tbody ng-icon[name="lucideShieldCheck"]',
+      ),
+    ).map((icon) => icon.closest('button')!);
   }
 
   function expandButtons(): HTMLButtonElement[] {

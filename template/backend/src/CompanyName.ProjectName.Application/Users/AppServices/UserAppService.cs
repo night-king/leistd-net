@@ -347,6 +347,11 @@ public class UserAppService(
         {
             throw new BusinessException(UserErrorCodes.SuperAdminDisableSelfForbidden, "The built-in super administrator cannot disable itself.");
         }
+        // 拒绝必须在任何写入之前：后面的撤销会把操作者自己的会话一起作废
+        if (!user.CanBeDisabledBy(currentUser.Id))
+        {
+            throw new BusinessException(UserErrorCodes.SelfDisableForbidden, "You cannot disable your own account.");
+        }
 
         var wasActive = user.IsActive;
         user.Disable();
@@ -483,6 +488,10 @@ public class UserAppService(
         if (!user.CanBeDeleted())
         {
             throw new BusinessException(UserErrorCodes.SuperAdminDeleteForbidden, "The built-in super administrator cannot be deleted.");
+        }
+        if (!user.CanBeDeletedBy(currentUser.Id))
+        {
+            throw new BusinessException(UserErrorCodes.SelfDeleteForbidden, "You cannot delete your own account.");
         }
 
         await userRepository.DeleteAsync(user, cancellationToken);

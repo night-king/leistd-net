@@ -268,36 +268,68 @@
                             <!-- 操作列（7 项 > 3）：桌面端显示 2 个高频操作 + … 溢出菜单；<sm 全部收进菜单省列宽。
                                规则见 docs/standards/frontend-ui.md §1.1。 -->
                             <div class="flex items-center justify-end gap-1">
+                              <!-- 内置超管行（他人查看）：行内按钮置灰。禁用按钮收不到悬停与焦点，
+                                 原因提示挂在外层（Spartan 官方做法），外层此时可聚焦供键盘查看；读屏经 aria-describedby 读到。 -->
+                              @if (isOtherSuperAdmin(row.original)) {
+                                <span
+                                  [id]="'user-super-admin-inline-' + row.original.id"
+                                  data-testid="user-super-admin-inline-reason"
+                                  class="sr-only"
+                                  >{{ t('users.tooltip.superAdminNoManage') }}</span
+                                >
+                              }
                               <!--#if (LocalIdentity)-->
                               @if (canUpdate()) {
-                                <button
-                                  hlmBtn
-                                  variant="ghost"
-                                  size="icon"
+                                <span
                                   class="hidden sm:inline-flex"
-                                  [disabled]="isOtherSuperAdmin(row.original)"
-                                  [hlmTooltip]="t('common.edit')"
-                                  [attr.aria-label]="t('common.edit')"
-                                  (click)="edit.emit(row.original.id)"
+                                  [hlmTooltip]="t('users.tooltip.superAdminNoManage')"
+                                  [tooltipDisabled]="!isOtherSuperAdmin(row.original)"
+                                  [attr.tabindex]="isOtherSuperAdmin(row.original) ? 0 : null"
                                 >
-                                  <ng-icon name="lucidePencil" />
-                                </button>
+                                  <button
+                                    hlmBtn
+                                    variant="ghost"
+                                    size="icon"
+                                    [disabled]="isOtherSuperAdmin(row.original)"
+                                    [hlmTooltip]="t('common.edit')"
+                                    [attr.aria-label]="t('common.edit')"
+                                    [attr.aria-describedby]="
+                                      isOtherSuperAdmin(row.original)
+                                        ? 'user-super-admin-inline-' + row.original.id
+                                        : null
+                                    "
+                                    (click)="edit.emit(row.original.id)"
+                                  >
+                                    <ng-icon name="lucidePencil" />
+                                  </button>
+                                </span>
                               }
                               <!--#endif-->
                               <!-- 角色分配与资料编辑分离：需要 App.Users.ManageRoles 才出现。 -->
                               @if (canManageRoles()) {
-                                <button
-                                  hlmBtn
-                                  variant="ghost"
-                                  size="icon"
+                                <span
                                   class="hidden sm:inline-flex"
-                                  [disabled]="isOtherSuperAdmin(row.original)"
-                                  [hlmTooltip]="t('users.actions.manageRoles')"
-                                  [attr.aria-label]="t('users.actions.manageRoles')"
-                                  (click)="manageRoles.emit(row.original)"
+                                  [hlmTooltip]="t('users.tooltip.superAdminNoManage')"
+                                  [tooltipDisabled]="!isOtherSuperAdmin(row.original)"
+                                  [attr.tabindex]="isOtherSuperAdmin(row.original) ? 0 : null"
                                 >
-                                  <ng-icon name="lucideShieldCheck" />
-                                </button>
+                                  <button
+                                    hlmBtn
+                                    variant="ghost"
+                                    size="icon"
+                                    [disabled]="isOtherSuperAdmin(row.original)"
+                                    [hlmTooltip]="t('users.actions.manageRoles')"
+                                    [attr.aria-label]="t('users.actions.manageRoles')"
+                                    [attr.aria-describedby]="
+                                      isOtherSuperAdmin(row.original)
+                                        ? 'user-super-admin-inline-' + row.original.id
+                                        : null
+                                    "
+                                    (click)="manageRoles.emit(row.original)"
+                                  >
+                                    <ng-icon name="lucideShieldCheck" />
+                                  </button>
+                                </span>
                               }
                               @if (hasRowActions()) {
                                 <!-- 菜单里只剩行内按钮的窄屏副本时，桌面端不显示触发器，免得点开为空。 -->
@@ -316,6 +348,16 @@
                               }
                               <ng-template #rowMenu>
                                 <hlm-dropdown-menu>
+                                  <!-- 内置超管行（他人查看）：各项置灰，原因在菜单首说一次，被禁用的项经 aria-describedby 指向它。 -->
+                                  @if (isOtherSuperAdmin(row.original)) {
+                                    <p
+                                      [id]="superAdminReasonId(row.original)"
+                                      data-testid="user-super-admin-reason"
+                                      class="px-1.5 pt-1 pb-1 text-xs text-muted-foreground"
+                                    >
+                                      {{ t('users.tooltip.superAdminNoManage') }}
+                                    </p>
+                                  }
                                   <hlm-dropdown-menu-group>
                                     <!--#if (LocalIdentity)-->
                                     @if (canUpdate()) {
@@ -323,6 +365,7 @@
                                         hlmDropdownMenuItem
                                         class="sm:hidden"
                                         [disabled]="isOtherSuperAdmin(row.original)"
+                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
                                         (click)="edit.emit(row.original.id)"
                                       >
                                         <ng-icon name="lucidePencil" />
@@ -335,6 +378,7 @@
                                         hlmDropdownMenuItem
                                         class="sm:hidden"
                                         [disabled]="isOtherSuperAdmin(row.original)"
+                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
                                         (click)="manageRoles.emit(row.original)"
                                       >
                                         <ng-icon name="lucideShieldCheck" />
@@ -347,6 +391,7 @@
                                       <button
                                         hlmDropdownMenuItem
                                         [disabled]="isOtherSuperAdmin(row.original)"
+                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
                                         (click)="resetPassword.emit(row.original.id)"
                                       >
                                         <ng-icon name="lucideKey" />
@@ -368,6 +413,7 @@
                                         hlmDropdownMenuItem
                                         data-testid="user-reset-two-factor"
                                         [disabled]="isOtherSuperAdmin(row.original)"
+                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
                                         (click)="resetTwoFactor.emit(row.original)"
                                       >
                                         <ng-icon name="lucideShieldOff" />
@@ -376,9 +422,17 @@
                                     }
                                     <!--#endif-->
                                     @if (canUpdate()) {
+                                      <!-- 本人行：停用会当场作废自己的会话，服务端同样拒绝；置灰并就地说明原因，禁用项上的提示悬停不到。 -->
                                       <button
                                         hlmDropdownMenuItem
-                                        [disabled]="isSuperAdmin(row.original)"
+                                        [disabled]="
+                                          isSuperAdmin(row.original) || isSelf(row.original)
+                                        "
+                                        [attr.aria-describedby]="
+                                          isSelf(row.original)
+                                            ? 'user-self-disable-' + row.original.id
+                                            : superAdminReasonId(row.original)
+                                        "
                                         (click)="toggleActive.emit(row.original)"
                                       >
                                         <ng-icon
@@ -394,6 +448,15 @@
                                             : t('users.tooltip.enable')
                                         }}
                                       </button>
+                                      @if (isSelf(row.original)) {
+                                        <p
+                                          [id]="'user-self-disable-' + row.original.id"
+                                          data-testid="user-self-disable-reason"
+                                          class="px-1.5 pb-1 text-xs text-muted-foreground"
+                                        >
+                                          {{ t('users.tooltip.selfNoDisable') }}
+                                        </p>
+                                      }
                                     }
                                   </hlm-dropdown-menu-group>
                                   @if (canDelete()) {
@@ -401,12 +464,28 @@
                                     <button
                                       hlmDropdownMenuItem
                                       variant="destructive"
-                                      [disabled]="isSuperAdmin(row.original)"
+                                      [disabled]="
+                                        isSuperAdmin(row.original) || isSelf(row.original)
+                                      "
+                                      [attr.aria-describedby]="
+                                        isSelf(row.original)
+                                          ? 'user-self-delete-' + row.original.id
+                                          : superAdminReasonId(row.original)
+                                      "
                                       (click)="delete.emit(row.original)"
                                     >
                                       <ng-icon name="lucideTrash2" />
                                       {{ t('common.delete') }}
                                     </button>
+                                    @if (isSelf(row.original)) {
+                                      <p
+                                        [id]="'user-self-delete-' + row.original.id"
+                                        data-testid="user-self-delete-reason"
+                                        class="px-1.5 pb-1 text-xs text-muted-foreground"
+                                      >
+                                        {{ t('users.tooltip.selfNoDelete') }}
+                                      </p>
+                                    }
                                   }
                                 </hlm-dropdown-menu>
                               </ng-template>

@@ -75,9 +75,17 @@ public static class OperationRecordActions
     /// <summary>删除了租户的数据库连接登记，该租户退回宿主库。</summary>
     public const string TenantConnectionRemoved = "tenant.connection-removed";
 
+#if (LocalIdentity && IncludeMultiTenancy)
+    /// <summary>部署作业恢复了租户管理员：撤回删除、重新启用、补回 Admin 成员关系，并把租户侧可用权限补齐给 Admin 角色。</summary>
+    public const string TenantAdminRestored = "tenant.admin-restored";
+
+#endif
 #if (RemoteTokenAuth)
     /// <summary>部署作业把远端用户首次加入管理员角色。</summary>
     public const string ResourceAdminGranted = "resource.admin-granted";
+
+    /// <summary>部署作业以显式恢复模式恢复了远端用户的管理员访问：撤回删除、重新启用、补回 Admin 成员关系，并补齐 Admin 角色的可用权限。</summary>
+    public const string ResourceAdminRestored = "resource.admin-restored";
 #endif
 
     /// <summary>设置变更。作用域（宿主／租户／用户）随目标标识带出。</summary>
@@ -218,8 +226,8 @@ public static class OperationRecordAuthorizations
     /// 开出用户侧端点时，应先定义相应权限并改用那个权限名。
     /// </remarks>
     public const string DirectUserGrant = "DirectUserGrant";
-#if (RemoteTokenAuth)
-    /// <summary>持有数据库部署权限的命令行作业。</summary>
+#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))
+    /// <summary>持有数据库部署权限的命令行作业（DbMigrator 的管理员引导与恢复）。</summary>
     public const string DeploymentBootstrap = "DeploymentBootstrap";
 #endif
 #if (LocalIdentity)
