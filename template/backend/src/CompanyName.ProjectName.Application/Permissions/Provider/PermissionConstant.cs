@@ -21,6 +21,9 @@ public static class PermissionConstant
     /// </remarks>
     public static class Groups
     {
+        /// <summary>工作：仪表盘。</summary>
+        public const string Work = "Work";
+
         /// <summary>谁能进来：用户、角色与租户。</summary>
         public const string Identity = "Identity";
 #if (OpenIddictServer)
@@ -36,6 +39,17 @@ public static class PermissionConstant
 
         /// <summary>系统：系统设置。</summary>
         public const string System = "System";
+    }
+
+    /// <summary>仪表盘权限。</summary>
+    /// <remarks>
+    /// 只约束"看"，因此是一个扁平权限：仪表盘只读汇总，没有别的动作可授。侧别为 <c>Both</c>——
+    /// 汇总的数据（用户、登录记录）带 <c>TenantId</c> 且受全局查询过滤器分区，宿主看宿主的、租户看自己的。
+    /// </remarks>
+    public static class Dashboard
+    {
+        /// <summary>查看平台统计。</summary>
+        public const string Default = Prefix + ".Dashboard";
     }
 
     /// <summary>用户管理权限。</summary>

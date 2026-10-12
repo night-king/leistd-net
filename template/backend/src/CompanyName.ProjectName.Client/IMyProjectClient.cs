@@ -21,4 +21,12 @@ public interface IMyProjectClient
     /// <param name="cancellationToken">取消令牌</param>
     [Get("/api/v1/service-info/whoami")]
     Task<WhoAmIDto> WhoAmIAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>获取调用身份所在宿主或租户的平台统计（需要 <c>App.Dashboard</c>）。</summary>
+    /// <param name="days">统计区间的天数，只接受 7 或 30</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Get("/api/v1/platform/statistics")]
+    Task<PlatformStatisticsDto> GetPlatformStatisticsAsync(
+        [Query] int days = 7,
+        CancellationToken cancellationToken = default);
 }

@@ -41,6 +41,9 @@ using Leistd.Notifications.EntityFrameworkCore;
 #if (LocalIdentity)
 using CompanyName.ProjectName.Domain.Shared.Security.PasswordHash;
 #endif
+#if (LocalIdentity && (IncludeOperationRecords || IncludeMultiTenancy))
+using CompanyName.ProjectName.Domain.Statistics.Abstractions;
+#endif
 #if (Email)
 using Leistd.Security.OneTimeCodes;
 #endif
@@ -104,6 +107,9 @@ public static class DependencyInjection
         // 集群周期任务的完成水位与业务表同库：多副本同一时段只跑一次
         services.AddBackgroundJobsEfCore<MyProjectDbContext>();
         services.AddMyProjectCacheAndLock(configuration);
+#if (LocalIdentity && (IncludeOperationRecords || IncludeMultiTenancy))
+        services.TryAddTransient<IPlatformStatisticsStore, EfCorePlatformStatisticsStore>();
+#endif
 
 #if (LocalIdentity)
         services.AddOptions<PasswordHasherOptions>()

@@ -1,4 +1,5 @@
 #if (LocalIdentity)
+using System.Linq.Expressions;
 using CompanyName.ProjectName.Domain.Auth.Errors;
 using Leistd.ExceptionHandling;
 #endif
@@ -345,6 +346,10 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     /// 它只挡新的登录，不能拿来把已经登录的本人踢下线。
     /// </remarks>
     public bool IsTemporarilyLockedOut(DateTime now) => Lockout.IsTemporaryAt(now);
+
+    /// <summary>在 <paramref name="now"/> 时刻处于锁定中的用户（与 <see cref="LockoutState.IsActiveAt"/> 同一判据），可翻译成 SQL。</summary>
+    public static Expression<Func<User, bool>> LockedOutAt(DateTime now) =>
+        user => user.Lockout.IsLocked && (user.Lockout.End == null || user.Lockout.End > now);
 
     /// <summary>已建立的会话与已签发的令牌还能否继续使用：账号被禁用、或被锁定且没有截止时间时不能。</summary>
     /// <remarks>

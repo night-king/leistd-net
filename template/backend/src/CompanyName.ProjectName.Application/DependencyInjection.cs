@@ -36,6 +36,7 @@ using Microsoft.Extensions.Options;
 #endif
 #endif
 using CompanyName.ProjectName.Application.Initialization;
+using CompanyName.ProjectName.Application.Statistics.AppServices;
 using CompanyName.ProjectName.Application.Users.AppServices;
 using Leistd.ObjectMapping.Mapster;
 using Mapster;
@@ -135,6 +136,8 @@ public static class DependencyInjection
         services.TryAddTransient<IUserAppService, UserAppService>();
 
         services.TryAddTransient<IRoleAppService, RoleAppService>();
+
+        services.TryAddTransient<IPlatformStatisticsAppService, PlatformStatisticsAppService>();
 
         services.AddApplicationDefinitions();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISettingDefinitionProvider, SettingDefinitionProvider>());
