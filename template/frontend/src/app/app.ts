@@ -48,7 +48,7 @@ const APP_NAME = 'Template Project';
           success: '[&_[data-icon]]:text-success',
           warning: '[&_[data-icon]]:text-warning',
           error: '[&_[data-icon]]:text-destructive',
-          info: '[&_[data-icon]]:text-primary',
+          info: '[&_[data-icon]]:text-info',
         },
       }"
     />
