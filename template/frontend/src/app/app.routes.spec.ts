@@ -27,7 +27,7 @@ describe('top-level routes', () => {
       .filter((i) => i >= 0);
     expect(
       catchAllIndexes.length,
-      '没有找到「空路径 + loadChildren」的公开区——这条断言是空的',
+      'No public area with an empty path and loadChildren was found; this assertion would be vacuous',
     ).toBe(1);
 
     const catchAllAt = catchAllIndexes[0];
@@ -38,7 +38,7 @@ describe('top-level routes', () => {
 
     expect(
       concreteAfter,
-      `这些具体路径排在空路径公开区之后，会被它吞掉：${concreteAfter.join(', ')}`,
+      `These concrete paths come after the empty-path public area and would be swallowed by it: ${concreteAfter.join(', ')}`,
     ).toEqual([]);
   });
 
@@ -50,12 +50,12 @@ describe('top-level routes', () => {
 
     expect(
       authGuarded.length,
-      '没有找到任何使用 authGuard 的顶层路由——这条断言是空的',
+      'No top-level route uses authGuard; this assertion would be vacuous',
     ).toBeGreaterThan(0);
 
     expect(
       [...PROTECTED_ROUTE_PREFIXES].sort() as string[],
-      `路由表里使用 authGuard 的是 ${authGuarded.join(', ')}`,
+      `Routes using authGuard in the route table: ${authGuarded.join(', ')}`,
     ).toEqual(authGuarded);
   });
 
@@ -64,7 +64,10 @@ describe('top-level routes', () => {
 
     expect(wildcards).toHaveLength(1);
     expect(routes.at(-1)).toBe(wildcards[0]);
-    expect(wildcards[0].redirectTo, '未知地址不能悄悄送回首页').toBeUndefined();
+    expect(
+      wildcards[0].redirectTo,
+      'Unknown URLs must not silently redirect to the home page',
+    ).toBeUndefined();
     expect(wildcards[0].loadComponent).toBeDefined();
   });
 
@@ -92,7 +95,7 @@ describe('top-level routes', () => {
   it('shares the /platform route allowlist with canAccessPlatform', () => {
     const platformRoute = routes.find((route) => route.path === 'platform');
 
-    expect(platformRoute, '/platform 路由不存在').toBeDefined();
+    expect(platformRoute, 'The /platform route does not exist').toBeDefined();
     expect(platformRoute?.data?.['permissions']).toEqual([...PLATFORM_ENTRY_PERMISSIONS]);
   });
 });

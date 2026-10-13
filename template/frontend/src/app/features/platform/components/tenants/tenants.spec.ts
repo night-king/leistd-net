@@ -47,7 +47,7 @@ describe('Tenants page query and write flow', () => {
     const calls = vi.mocked(service.getTenants).mock.calls;
     const query = calls.at(-1)?.[0];
     if (!query) {
-      throw new Error('列表请求从未发出');
+      throw new Error('The list request was never sent');
     }
 
     return query;

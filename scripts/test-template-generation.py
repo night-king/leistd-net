@@ -416,8 +416,8 @@ def expected_verify_steps(values):
     steps = ['check-error-codes']
     steps += ['check-i18n'] if values['IncludeLocalization'] else []
     steps += ['check-operation-action-i18n'] if values['SpaFrontend'] and values['IncludeOperationRecords'] else []
-    steps += ['backend-restore', 'backend-build', 'backend-test:Generation.Probe.UnitTests', 'backend-test:Generation.Probe.IntegrationTests']
-    steps += ['frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build'] if values['SpaFrontend'] else []
+    steps += ['check-test-diagnostics', 'backend-restore', 'backend-build', 'backend-test:Generation.Probe.UnitTests', 'backend-test:Generation.Probe.IntegrationTests']
+    steps += ['frontend-audit', 'frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build'] if values['SpaFrontend'] else []
     return steps
 
 

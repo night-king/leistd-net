@@ -25,7 +25,7 @@ describe('TablePaginator', () => {
       .find((element) => element.getAttribute('aria-label') === label);
 
     if (!found) {
-      throw new Error(`按钮未找到：${label}`);
+      throw new Error(`Button not found: ${label}`);
     }
 
     return found;

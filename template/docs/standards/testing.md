@@ -101,7 +101,7 @@ backend/tests/
 
 ### 2.2 通用要求
 
-- 测试方法名用英文句子、首字母大写、单词以下划线分隔，写出行为与条件，力求简短（如 `Revoked_device_cookie_stops_working_immediately`）；不用中文标识符。名字装不下的前因后果写进 XML 注释。断言说明、失败消息等开发者诊断消息用英文；业务词条、预期的本地化内容、中文注释与测试数据不受此限。
+- 测试方法名用英文句子、首字母大写、单词以下划线分隔，写出行为与条件，力求简短（如 `Revoked_device_cookie_stops_working_immediately`）；不用中文标识符。名字装不下的前因后果写进 XML 注释。断言说明、失败消息和测试里抛出的异常（含种子、夹具）等开发者诊断消息用英文，由 `scripts/check-test-diagnostics.py` 检查；业务词条、预期的本地化内容、中文注释、测试数据，以及给人工验收者看的进度日志和报告说明不受此限。
 - 数据库测试使用隔离数据库、独立 schema 或可靠清理机制；集成测试的每个宿主已经各有一份库。
 - 实体配置、唯一索引与全局查询过滤器在集成测试里验证，不用 EF InMemory 或 SQLite 代替（前者放过违反的约束与不可翻译的查询，后者会锁死独立事务写入）。
 - 批量 `ExecuteUpdate` / `ExecuteDelete` 不经过变更跟踪器：断言结果时换一个作用域读，否则读到仍被跟踪的旧实体。
@@ -161,6 +161,8 @@ npm run build
 ```bash
 python3 scripts/check-error-codes.py                      # 错误码形态、归属与引用
 python3 scripts/check-error-codes.py --self-test          # 判据本身还成立吗
+python3 scripts/check-test-diagnostics.py                 # 测试诊断消息不含中日韩字符
+python3 scripts/check-test-diagnostics.py --self-test     # 判据本身还成立吗
 <!--#if (IncludeLocalization)-->
 python3 scripts/check-i18n.py                             # 词条、引用与写死文案
 python3 scripts/check-i18n.py --self-test                 # 判据本身还成立吗
@@ -178,7 +180,7 @@ python3 scripts/check-operation-action-i18n.py --self-test  # 判据本身还成
 
 后端代码风格（日志模板、命名空间、未使用的 using 等）由 `backend/.editorconfig` 在构建期检查，以 0 警告为准，确需违反用 `[SuppressMessage]` 写明理由；控制器授权、路由前缀与实体租户归属由三个 `*ConventionTests` 检查，豁免写在测试白名单里并注明理由。
 
-新增这类闸门时一并写 `--self-test`：判据自己失效之后，它给出的每一次"通过"都是假的。
+新增这类闸门时一并写 `--self-test`：判据自己失效之后，它给出的每一次"通过"都是假的。脚本之间传递判定结果用退出码、结构化字段或稳定标识，不匹配展示文字；闸门自身的输出可随时改写。
 
 ## 6. 数据与结果
 

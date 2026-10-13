@@ -104,6 +104,8 @@ $selection = Get-Content .tmp/local-template-scenarios.json -Raw | ConvertFrom-J
 
 文档引用由 `scripts/check-doc-references.py` 单一实现：check-all 跑源码模式（路径与链接），矩阵文档检查以 `--root` 在生成产物上跑生成模式（另查 npm/ng/脚本命令）；豁免只登记在脚本内的精确白名单。
 
+测试诊断消息由 `template/scripts/check-test-diagnostics.py` 单一实现并随模板分发：生成项目 `verify` 跑项目模式；check-all 跑自检与 `--repository`（模板源测试加 `framework/tests`）；矩阵对每个生成产品以 `python -I` 运行，不依赖 `verify` 路径，并证明脚本不引用仓库其他文件。判据只覆盖直接写出的消息参数与测试中 `throw` 的消息，不做类型推断或间接数据流分析，也不设豁免表。维护工具与闸门脚本（`scripts/*.mjs`、`*.py`、`*.ps1`）面向人的输出不受测试诊断英文规则约束；脚本之间的判定只经退出码、回执字段与稳定标识（如矩阵回执、`verify -List` 的步骤名）传递，不匹配展示文字。
+
 ## 定时任务的覆盖分工
 
 通用调度行为由 BackgroundJobs 组件集中验证：真实 `RecurringJobScheduler` 配合官方 `FakeTimeProvider`、内存依赖与计时器登记/完成信号，覆盖每日排期的未到点、到点、下一轮、全局/单任务禁用、非法排期隔离、等待/执行中的停止。先观察后台初始化完成再推进时钟；停止后同时核对执行任务正常完成与没有新增运行。真实周期等待不加入编辑或提交入口，保护性超时只用于拒绝卡死。

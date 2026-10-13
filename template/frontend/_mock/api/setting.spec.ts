@@ -265,7 +265,7 @@ describe('settings mock', () => {
     const row = (api[get](request(null, headers)) as SettingRow[]).find(
       (s) => s.name === 'Logging.MinimumLevel',
     );
-    if (!row) throw new Error('Logging.MinimumLevel 不在列表里');
+    if (!row) throw new Error('Logging.MinimumLevel is not in the list');
     return row;
   }
 
