@@ -11,6 +11,7 @@
 | 权限不足在**授权阶段**就被拒（请求到不了应用服务） | 端点打 `[OperationRecordAction]`，在授权结果处理器里调一行扩展方法 |
 | 授权通过后，控制器或组件端点被业务规则拒绝 | 同一个注解，紧接授权启用 `UseOperationFailureRecording()` |
 | 管理界面要列表、筛选、导出操作记录 | 路由组上调 `MapOperationRecords(...)`；自定义路由或 DTO 时直接用 `IOperationRecordQueryService` |
+| 仪表盘要按区间统计记录数或涉及的人数（含已归档的记录） | `IOperationRecordReader.CountByDayAsync` / `CountDistinctTargetsAsync` |
 | 记录要有保留期（到期搬入归档表） | `AddOperationRecordRetention<TDbContext>()`，默认关闭 |
 | 不要产品内的历史查询，记录交给日志采集链路（SIEM 等） | `AddOperationRecordsLogging()` 代替数据库存储；记录器与调用点完全不变 |
 | 想知道某次请求的完整细节（入参、堆栈、耗时） | **不要往这里加字段**，按 `CorrelationId` 去请求日志里查 |
@@ -364,12 +365,15 @@ app.UseOperationFailureRecording();
 | `IOperationActionDefinitionManager` | 动作定义的只读索引；`GetOrNull` 返回 `null` 即未登记。写入时记录器据此抛错；读取历史记录时调用方据此降级（原样显示裸码） |
 | `OperationRecordOptions` | `ImpersonatorIdClaimType` / `ImpersonatorNameClaimType` 默认值取自 `CustomClaimTypes`；操作人标识按 `ClaimTypeOptions.UserIds` 读取（`ICurrentUser.SubjectId`），不在这里另配 |
 | `IOperationRecordWriter.InsertAsync(record, ct)` | 写入；成功记录只在它描述的变更生效之后可见（有环境工作单元时跟随它），失败记录立即、独立于调用方事务写出。一个宿主只有一个写入方 |
-| `IOperationRecordReader.GetPagedListAsync(filter, page, ct)` | 只由可回读的存储实现； 按创建时间倒序分页，返回 `PagedResult<OperationRecordInfo>`；`OperationRecordFilter` 的 `Scope` 必填，关键字匹配动作码、目标标识、目标名与操作人名，时间两端都是**闭区间**且按 UTC 比较；`PageRequest.Sorting` 不生效 |
+| `IOperationRecordReader.GetPagedListAsync(filter, page, ct)` | 只由可回读的存储实现； 按创建时间倒序分页，只读未归档的记录，返回 `PagedResult<OperationRecordInfo>`；`OperationRecordFilter` 的 `Scope` 必填，关键字匹配动作码、目标标识、目标名与操作人名，时间两端都是**闭区间**且按 UTC 比较；`PageRequest.Sorting` 不生效 |
+| `IOperationRecordReader.CountByDayAsync(filter, ct)` | 按发生时间的 UTC 日计数，返回 `IReadOnlyDictionary<DateOnly, int>`，没有记录的日子不出现；**覆盖已归档的记录** |
+| `IOperationRecordReader.CountDistinctTargetsAsync(filter, ct)` | 区间内不同目标标识的个数（如登录成功的不同用户数），覆盖已归档的记录，没有目标（`-`）的记录不计入 |
+| `OperationRecordCountFilter` | 计数的筛选条件：`Scope` 必填；`StartTime`（含）与 `EndTime`（不含）必填，是 UTC 的**半开区间**，相邻区间的边界记录只归后一个，起点晚于终点抛 `ArgumentOutOfRangeException`；`Actions` 为空不过滤 |
 | `IOperationRecordQueryService` | 查询、筛选项与导出用例：无租户上下文即宿主读者；租户读者看不到 `Host` 层、`Actor` 层只看本人（`ActorId` 与 `ActorTenantId` 都与读者相同）；仅宿主字段（`FailureDetail`、`CorrelationId`、`ActorTenantId`）只下发给宿主读者；类别与动作维度间取交集，展开为空返回空页；`FailureMessage` 为按请求语言渲染的失败原因（导出另成 `FailureMessage` 列）。**不做权限判定**，由端点策略把守 |
 | `MapOperationRecords(configure)` | AspNetCore 包：`GET /`、`GET /filter-options`、`GET /export`；`ReadPolicy`、`ExportPolicy`、`ExportAction` 必填；未注册查询用例（日志输出模式）时映射即抛错；返回路由组，端点名前缀见 `OperationRecordEndpoints.NamePrefix`。查询串 `outcome` 只收 camelCase 名称 `succeeded`、`failed`，其他大小写、数字与未定义值是字段 `outcome` 的 400 |
 | `AddOperationRecordRetention<TDbContext>(configure?, configSectionPath?)` | EF 包：绑定 `configSectionPath`（默认 `Leistd:OperationRecords:Retention`）并启动期校验，校验消息按实际路径报键，重复调用换用另一配置节时抛出；登记集群周期任务 `operation-records.archive`（每日 `DailyRunHourUtc` 执行） |
 | `IOperationRecordArchiveService` | EF 包：逐库、分批把到期记录搬入 `OperationRecordArchive`，每批一个事务；返回搬运条数与失败库数 |
-| `OperationRecordVisibilityScope` | 可见范围，由调用方算好，只能从三个入口取得：`Host` 见全部，`ForTenantReader(actorId, actorTenantId)` 见租户层加本人的 `Actor` 层（标识与所属租户都相同才算本人），`Unrestricted` 不过滤（仅供不代表读者的内部任务）。存储不判定读者是否为宿主 |
+| `OperationRecordVisibilityScope` | 可见范围，由调用方算好，只能从三个入口取得：`Host` 见全部，`ForTenantReader(actorId, actorTenantId)` 见租户层加本人的 `Actor` 层（标识与所属租户都相同才算本人），`Unrestricted` 不过滤（供不代表读者的内部任务，以及只出聚合数、不下发单条记录的统计）。存储不判定读者是否为宿主 |
 | `AddOperationRecords(services, configure?)` | 注册记录器与动作定义，登记自产失败码的默认译文；`configure` 修改 `OperationRecordOptions`（不绑定配置节），重复调用时依次叠加；不注册写入方与查询 |
 | `AddOperationRecordQueries(services)` | 注册 `IOperationRecordQueryService`；要求 `IOperationRecordReader`，由可回读的存储适配调用 |
 | `AddOperationRecordsEfCore<TDbContext>(services)` | 注册 EF Core 存储（写入与读取）；内部调用 `AddOperationRecords()` 与 `AddOperationRecordQueries()` |
@@ -402,6 +406,9 @@ app.UseOperationFailureRecording();
 - 索引：`(TenantId, CreationTime DESC)`、`(TenantId, Visibility, CreationTime DESC)` 与单列 `CreationTime`（保留期归档整库按时间扫）。
   关键字是对动作码、目标与操作人列的包含匹配，不单独建索引；按时间区间筛选能让它只扫区间内的行。
 - 分页按 `CreationTime` 再按 `Id` 倒序，顺序确定；同一时刻内的先后取决于 Provider 的 Guid 比较方式。
+- 计数把原表与归档表投影后 `UNION ALL`，筛选与聚合在一条语句里完成，归档作业同时搬运时不会重复或漏数。
+  归档表按当前租户显式过滤（宿主上下文只取 `TenantId` 为空的行），`IDataFilter.Disable<IMultiTenant>()` 时与原表一同放开；
+  可见范围与动作筛选在两张表上同样生效。两张表都按 `(TenantId, CreationTime)` 索引取区间，动作在区间内过滤，不另建动作索引。
 - 失败原因存码、读时渲染：查询与导出用容器里的非泛型 `IStringLocalizer`（`AddJsonLocalization` 会注册）按码取文案，
   用 `LocalizationPlaceholders.Fill` 填占位符；`FailureData` 解析不了时按无参数渲染。导出的 CSV 保留码与参数两列，另加按导出请求语言渲染的 `FailureMessage` 列。
   CSV 的 `Outcome` 列固定写 camelCase 名称（`succeeded`、`failed`），与 HTTP 契约一致；它在 CSV 边界转换，不读宿主的 JSON 配置。

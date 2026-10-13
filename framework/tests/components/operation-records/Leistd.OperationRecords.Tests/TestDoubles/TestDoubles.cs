@@ -82,6 +82,16 @@ internal sealed class RecordingOperationRecordStore : IOperationRecordWriter, IO
         LastQuery = (filter, page);
         return Task.FromResult(new PagedResult<OperationRecordInfo>(Written.Count, Written.Skip(page.Offset).Take(page.Limit)));
     }
+
+    public Task<IReadOnlyDictionary<DateOnly, int>> CountByDayAsync(
+        OperationRecordCountFilter filter,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<int> CountDistinctTargetsAsync(
+        OperationRecordCountFilter filter,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
 }
 
 /// <summary>写入必定失败的存储，用于区分"吞掉"与"上抛"两条策略。</summary>
