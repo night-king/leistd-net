@@ -2,18 +2,23 @@ using CompanyName.ProjectName.Application.Statistics.Dtos;
 #if (LocalIdentity && IncludeOperationRecords)
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 #endif
-#if (LocalIdentity && (IncludeOperationRecords || IncludeMultiTenancy))
-using CompanyName.ProjectName.Domain.Statistics.Abstractions;
-#endif
 #if (LocalIdentity)
 using CompanyName.ProjectName.Domain.Users.Constants;
 using CompanyName.ProjectName.Domain.Users.Entities;
 #endif
 using CompanyName.ProjectName.Domain.Users.Repositories;
+using Leistd.Auditing.Abstractions;
+using Leistd.Data.Filters;
 using Leistd.Data.Querying;
 using Leistd.Ddd.Application.AppServices;
 #if (LocalIdentity && IncludeMultiTenancy)
 using Leistd.MultiTenancy.Context;
+using Leistd.MultiTenancy.Management;
+using Leistd.MultiTenancy.Management.Dtos;
+#endif
+#if (LocalIdentity && IncludeOperationRecords)
+using Leistd.OperationRecords.Models;
+using Leistd.OperationRecords.Stores;
 #endif
 using Leistd.Timing;
 
@@ -23,18 +28,21 @@ namespace CompanyName.ProjectName.Application.Statistics.AppServices;
 /// <remarks>
 /// 只读汇总，各项各查一次，不开工作单元：数字之间不要求同一快照。
 /// 区间按 UTC 日划分，与展示时区无关：本区间是含今天在内往前 <c>Days</c> 个整日，上一区间是紧邻其前的等长区间。
+/// 数据归哪个组件就经哪个组件的契约取：登录记录（含已归档的）经操作记录的读取契约，租户状态经租户管理用例。
 /// </remarks>
 public class PlatformStatisticsAppService(
     IUserRepository userRepository,
 #if (LocalIdentity)
     IRoleRepository roleRepository,
 #endif
-#if (LocalIdentity && (IncludeOperationRecords || IncludeMultiTenancy))
-    IPlatformStatisticsStore statisticsStore,
+#if (LocalIdentity && IncludeOperationRecords)
+    IOperationRecordReader operationRecordReader,
 #endif
 #if (LocalIdentity && IncludeMultiTenancy)
+    ITenantManagementService tenantManagementService,
     ICurrentTenant currentTenant,
 #endif
+    IDataFilter dataFilter,
     IClock clock,
     IQueryableAsyncExecuter asyncExecuter) : BaseAppService, IPlatformStatisticsAppService
 {
@@ -48,20 +56,33 @@ public class PlatformStatisticsAppService(
         var currentStart = currentEnd.AddDays(-input.Days);
         var previousStart = currentStart.AddDays(-input.Days);
 
-        // 用户数按创建时间回推：上一区间结束时的总数即本区间开始前已建的用户，已删除的用户不计入任何一项
         var users = await userRepository.GetQueryableAsync(cancellationToken);
         var totalUsers = await asyncExecuter.CountAsync(users, cancellationToken);
-        var usersBeforeCurrent = await asyncExecuter.CountAsync(
-            users.Where(user => user.CreationTime < currentStart), cancellationToken);
-        var usersBeforePrevious = await asyncExecuter.CountAsync(
-            users.Where(user => user.CreationTime < previousStart), cancellationToken);
+
+        // 过去某一时刻的用户数与区间内的注册数要算上之后被删除的用户：关掉软删除过滤、按创建与删除时间回推。
+        // 租户过滤保持开启；过滤器在执行时读取开关，查询须在作用域内执行
+        int usersAtCurrentStart, newUsers, previousNewUsers;
+        using (dataFilter.Disable<ISoftDelete>())
+        {
+            var everCreated = await userRepository.GetQueryableAsync(cancellationToken);
+            usersAtCurrentStart = await asyncExecuter.CountAsync(
+                everCreated.Where(user => user.CreationTime < currentStart
+                    && (!user.IsDeleted || user.DeletionTime >= currentStart)),
+                cancellationToken);
+            newUsers = await asyncExecuter.CountAsync(
+                everCreated.Where(user => user.CreationTime >= currentStart && user.CreationTime < currentEnd),
+                cancellationToken);
+            previousNewUsers = await asyncExecuter.CountAsync(
+                everCreated.Where(user => user.CreationTime >= previousStart && user.CreationTime < currentStart),
+                cancellationToken);
+        }
 #if (LocalIdentity && IncludeOperationRecords)
 
         // 登录趋势与失败数取自登录的操作记录；失败的上一区间值与本区间同一次查询取回
-        var succeededByDay = await statisticsStore.CountOperationRecordsByDayAsync(
-            OperationRecordActions.AuthLoginSucceeded, currentStart, currentEnd, cancellationToken);
-        var failedByDay = await statisticsStore.CountOperationRecordsByDayAsync(
-            OperationRecordActions.AuthLoginFailed, previousStart, currentEnd, cancellationToken);
+        var succeededByDay = await operationRecordReader.CountByDayAsync(
+            LoginRecords(OperationRecordActions.AuthLoginSucceeded, currentStart, currentEnd), cancellationToken);
+        var failedByDay = await operationRecordReader.CountByDayAsync(
+            LoginRecords(OperationRecordActions.AuthLoginFailed, previousStart, currentEnd), cancellationToken);
         var loginTrend = Enumerable.Range(0, input.Days)
             .Select(offset => DateOnly.FromDateTime(currentStart.AddDays(offset)))
             .Select(date => new LoginTrendPointOutputDto
@@ -76,10 +97,10 @@ public class PlatformStatisticsAppService(
         // 登录成功记录的目标就是登录的用户
         var activeUsers = new StatisticValueOutputDto
         {
-            Value = await statisticsStore.CountOperationRecordTargetsAsync(
-                OperationRecordActions.AuthLoginSucceeded, currentStart, currentEnd, cancellationToken),
-            Previous = await statisticsStore.CountOperationRecordTargetsAsync(
-                OperationRecordActions.AuthLoginSucceeded, previousStart, currentStart, cancellationToken)
+            Value = await operationRecordReader.CountDistinctTargetsAsync(
+                LoginRecords(OperationRecordActions.AuthLoginSucceeded, currentStart, currentEnd), cancellationToken),
+            Previous = await operationRecordReader.CountDistinctTargetsAsync(
+                LoginRecords(OperationRecordActions.AuthLoginSucceeded, previousStart, currentStart), cancellationToken)
         };
 #elif (LocalIdentity)
 
@@ -94,12 +115,8 @@ public class PlatformStatisticsAppService(
         return new PlatformStatisticsOutputDto
         {
             Days = input.Days,
-            TotalUsers = new StatisticValueOutputDto { Value = totalUsers, Previous = usersBeforeCurrent },
-            NewUsers = new StatisticValueOutputDto
-            {
-                Value = totalUsers - usersBeforeCurrent,
-                Previous = usersBeforeCurrent - usersBeforePrevious
-            },
+            TotalUsers = new StatisticValueOutputDto { Value = totalUsers, Previous = usersAtCurrentStart },
+            NewUsers = new StatisticValueOutputDto { Value = newUsers, Previous = previousNewUsers },
 #if (LocalIdentity)
             ActiveUsers = activeUsers,
 #endif
@@ -120,6 +137,17 @@ public class PlatformStatisticsAppService(
         };
     }
 
+#if (LocalIdentity && IncludeOperationRecords)
+    // 统计只出聚合数、不下发单条记录，可见性不收窄：登录成功记录对租户读者只显示本人的，按它数活跃用户只会数出自己
+    private static OperationRecordCountFilter LoginRecords(string action, DateTime start, DateTime end) => new()
+    {
+        Scope = OperationRecordVisibilityScope.Unrestricted,
+        Actions = [action],
+        StartTime = start,
+        EndTime = end
+    };
+
+#endif
 #if (LocalIdentity)
     private async Task<PlatformAttentionOutputDto> GetAttentionAsync(
         IQueryable<User> users,
@@ -144,7 +172,8 @@ public class PlatformStatisticsAppService(
             // 租户注册表是宿主的数据，租户管理员不该看到别的租户的状态
             DisabledTenants = currentTenant.IsAvailable
                 ? null
-                : await statisticsStore.CountInactiveTenantsAsync(cancellationToken),
+                : (int)(await tenantManagementService.GetPagedAsync(
+                    new GetTenantPagedInputDto { IsActive = false, Limit = 1 }, cancellationToken)).TotalCount,
 #endif
         };
     }

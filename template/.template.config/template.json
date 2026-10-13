@@ -673,13 +673,6 @@
           ]
         },
         {
-          "condition": "!(LocalIdentity && (IncludeOperationRecords || IncludeMultiTenancy))",
-          "exclude": [
-            "backend/src/CompanyName.ProjectName.Domain/Statistics/**",
-            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/EfCorePlatformStatisticsStore.cs"
-          ]
-        },
-        {
           "condition": "!Impersonation",
           "exclude": [
             "backend/src/CompanyName.ProjectName.Application/Tenants/AppServices/**",

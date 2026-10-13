@@ -15,6 +15,7 @@ using Leistd.Authorization.Grants;
 #if (LocalIdentity && IncludeOperationRecords)
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using Leistd.OperationRecords.EntityFrameworkCore.Entities;
+using Leistd.OperationRecords.EntityFrameworkCore.Retention;
 using Leistd.OperationRecords.Models;
 #endif
 #if (LocalIdentity && IncludeMultiTenancy)
@@ -203,6 +204,98 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
         Assert.Equal(0, month.NewUsers.Previous);
     }
 
+    /// <summary>
+    /// 用户被删除后，在它曾存在过的时刻仍计入：本区间开始前的 10 人里本区间删了 3 人，总数的上一区间值仍是 10；
+    /// 注册数按创建事件计，注册后又被删除的照样计入。
+    /// </summary>
+    /// <remarks>独立宿主与库：断言的是精确计数。删除时间取自同一个可拨的时钟。</remarks>
+    [Fact]
+    public async Task Deleted_users_still_count_where_they_existed_and_as_registrations()
+    {
+        var today = DateTime.UtcNow.Date;
+        var currentStart = today.AddDays(-6);
+        var previousStart = today.AddDays(-13);
+        var clock = new FakeTimeProvider(new DateTimeOffset(previousStart.AddDays(-1)));
+        using var isolated = new ProjectWebApplicationFactory();
+        await using var host = isolated.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        }));
+
+        var existingUsers = (await GetStatisticsAsync(host.Services, 7)).TotalUsers.Value;
+
+        // 上一区间：注册 11 人，其中 1 人当场删掉——它不在本区间开始时的总数里，但算上一区间的注册
+        clock.SetUtcNow(new DateTimeOffset(previousStart.AddHours(1)));
+        var earlier = Enumerable.Range(0, 10).Select(_ => NewUser()).ToArray();
+        var deletedEarlier = NewUser();
+        await InsertUsersAsync(host.Services, [.. earlier, deletedEarlier]);
+        clock.SetUtcNow(new DateTimeOffset(previousStart.AddHours(2)));
+        await DeleteUsersAsync(host.Services, deletedEarlier.Id);
+
+        // 本区间：删掉之前的 3 人；注册 2 人，其中 1 人随后删掉
+        clock.SetUtcNow(new DateTimeOffset(currentStart.AddHours(1)));
+        await DeleteUsersAsync(host.Services, earlier[0].Id, earlier[1].Id, earlier[2].Id);
+        var registeredThenDeleted = NewUser();
+        await InsertUsersAsync(host.Services, registeredThenDeleted, NewUser());
+        clock.SetUtcNow(new DateTimeOffset(currentStart.AddHours(2)));
+        await DeleteUsersAsync(host.Services, registeredThenDeleted.Id);
+
+        clock.SetUtcNow(new DateTimeOffset(today.AddSeconds(30)));
+        var week = await GetStatisticsAsync(host.Services, 7);
+
+        Assert.Equal(new StatisticValueOutputDto { Value = existingUsers + 8, Previous = existingUsers + 10 }, week.TotalUsers);
+        Assert.Equal(new StatisticValueOutputDto { Value = 2, Previous = 11 }, week.NewUsers);
+    }
+#if (IncludeOperationRecords)
+
+    /// <summary>
+    /// 保留期把上一区间的登录记录搬进归档表之后，活跃用户与登录失败的上一区间值不变。
+    /// </summary>
+    /// <remarks>
+    /// 30 天区间配最短保留期（30 天）时，上一区间几乎整段都在归档表里；只数原表的话上一区间值会塌成 0。
+    /// 独立宿主与库：归档按整库搬运，断言的是精确条数。
+    /// </remarks>
+    [Fact]
+    public async Task The_previous_interval_still_counts_logins_moved_to_the_archive()
+    {
+        var today = DateTime.UtcNow.Date;
+        var currentStart = today.AddDays(-29);
+        var previousStart = today.AddDays(-59);
+        using var host = new ProjectWebApplicationFactory();
+
+        string userA = Guid.NewGuid().ToString(), userB = Guid.NewGuid().ToString();
+        await InsertLoginRecordsAsync(host.Services,
+            (OperationRecordActions.AuthLoginSucceeded, userA, previousStart.AddDays(1)),
+            (OperationRecordActions.AuthLoginSucceeded, userB, previousStart.AddDays(10)),
+            (OperationRecordActions.AuthLoginSucceeded, userA, previousStart.AddDays(20)),
+            (OperationRecordActions.AuthLoginFailed, "someone", previousStart.AddDays(2)),
+            (OperationRecordActions.AuthLoginFailed, "someone", previousStart.AddDays(3)),
+            (OperationRecordActions.AuthLoginFailed, "someone", previousStart.AddDays(4)),
+            (OperationRecordActions.AuthLoginSucceeded, userA, currentStart.AddDays(1)),
+            (OperationRecordActions.AuthLoginFailed, "someone", currentStart.AddDays(2)));
+
+        var expectedActiveUsers = new StatisticValueOutputDto { Value = 1, Previous = 2 };
+        var expectedFailedLogins = new StatisticValueOutputDto { Value = 1, Previous = 3 };
+        var beforeArchiving = await GetStatisticsAsync(host.Services, 30);
+        Assert.Equal(expectedActiveUsers, beforeArchiving.ActiveUsers);
+        Assert.Equal(expectedFailedLogins, beforeArchiving.FailedLogins);
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            var result = await scope.ServiceProvider.GetRequiredService<IOperationRecordArchiveService>()
+                .ArchiveOlderThanAsync(DateTime.UtcNow.AddDays(-30), batchSize: 100);
+            // 上一区间的 6 条全部搬走，本区间的 2 条留在原表
+            Assert.Equal(6, result.Archived);
+        }
+
+        var afterArchiving = await GetStatisticsAsync(host.Services, 30);
+        Assert.Equal(expectedActiveUsers, afterArchiving.ActiveUsers);
+        Assert.Equal(expectedFailedLogins, afterArchiving.FailedLogins);
+        Assert.Equal(beforeArchiving.LoginTrend, afterArchiving.LoginTrend);
+    }
+#endif
+
     /// <summary>关注项统计当前状态：锁定看此刻是否仍在生效，管理员按内置管理员角色判定。</summary>
     [Fact]
     public async Task Attention_counts_current_lockouts_admins_without_two_factor_and_unconfirmed_emails()
@@ -328,6 +421,15 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<MyProjectDbContext>();
         db.Users.AddRange(users);
+        await db.SaveChangesAsync();
+    }
+
+    // 经上下文删除：软删除与删除时间由保存拦截器按时钟落定，与业务删除同一条路径
+    private static async Task DeleteUsersAsync(IServiceProvider services, params Guid[] userIds)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<MyProjectDbContext>();
+        db.Users.RemoveRange(await db.Users.Where(user => userIds.Contains(user.Id)).ToListAsync());
         await db.SaveChangesAsync();
     }
 #if (IncludeOperationRecords)

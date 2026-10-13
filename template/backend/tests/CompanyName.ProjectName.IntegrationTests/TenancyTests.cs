@@ -1387,9 +1387,10 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
 
         public Task<PagedResult<TenantConfiguration>> GetPagedAsync(
             string? keyword,
+            bool? isActive,
             PageRequest page,
             CancellationToken cancellationToken = default)
-            => inner.GetPagedAsync(keyword, page, cancellationToken);
+            => inner.GetPagedAsync(keyword, isActive, page, cancellationToken);
     }
 
     /// <summary>种子失败、且清种子也失败并在自己的作用域里留下脏跟踪器。</summary>
@@ -1454,8 +1455,8 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
         public Task<TenantConfiguration?> FindAsync(Guid id, CancellationToken cancellationToken = default)
             => inner.FindAsync(id, cancellationToken);
 
-        public Task<PagedResult<TenantConfiguration>> GetPagedAsync(string? keyword, PageRequest page, CancellationToken cancellationToken = default)
-            => inner.GetPagedAsync(keyword, page, cancellationToken);
+        public Task<PagedResult<TenantConfiguration>> GetPagedAsync(string? keyword, bool? isActive, PageRequest page, CancellationToken cancellationToken = default)
+            => inner.GetPagedAsync(keyword, isActive, page, cancellationToken);
     }
 
 #if (ExternalLogin)

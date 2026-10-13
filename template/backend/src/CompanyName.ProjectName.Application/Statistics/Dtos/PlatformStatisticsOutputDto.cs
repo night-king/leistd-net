@@ -7,10 +7,11 @@ public record PlatformStatisticsOutputDto
     /// <summary>统计区间的天数（7 或 30）。</summary>
     public required int Days { get; init; }
 
-    /// <summary>用户总数；上一区间值为上一区间结束时的用户总数。</summary>
+    /// <summary>用户总数：本区间值为此刻现存（未删除）的用户数；上一区间值为本区间开始时刻存在的用户数。</summary>
+    /// <remarks>开始时刻存在指创建于其前、且当时尚未删除；之后才删除的用户仍计入上一区间值。</remarks>
     public required StatisticValueOutputDto TotalUsers { get; init; }
 
-    /// <summary>区间内新建的用户数。</summary>
+    /// <summary>区间内注册的用户数，按创建事件计：注册后又被删除的用户仍计入。</summary>
     public required StatisticValueOutputDto NewUsers { get; init; }
 #if (LocalIdentity)
 
