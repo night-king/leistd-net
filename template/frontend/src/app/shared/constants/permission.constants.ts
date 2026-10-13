@@ -7,6 +7,13 @@
  * 前端裁剪只影响体验，不构成安全边界——服务端对每个请求仍会独立校验。
  */
 export const PERMISSIONS = {
+  /**
+   * 平台仪表盘的统计数据；没有时仪表盘只显示问候与快捷入口。它只给已能进入平台的岗位附加统计，
+   * 不是平台入口权限：单独持有它进来只能看到一个空的工作组。
+   */
+  dashboard: {
+    default: 'App.Dashboard',
+  },
   users: {
     default: 'App.Users',
     create: 'App.Users.Create',
@@ -58,6 +65,8 @@ export const PERMISSIONS = {
  * （`authorization-service.spec.ts` 与后端契约测试核对同源与覆盖）。
  */
 export const PLATFORM_ENTRY_PERMISSIONS = [
+  // 只持有仪表盘权限也能进平台看统计：仪表盘本身就是平台首页
+  PERMISSIONS.dashboard.default,
   PERMISSIONS.users.default,
   PERMISSIONS.roles.default,
   //#if (LocalIdentity && IncludeMultiTenancy)

@@ -1,5 +1,7 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
+import { resolveDisplayTimeZone } from '../utils/zoned-time';
+
 /**
  * 语义槽位：调用点按用途声明显示什么、要多细。精度属于槽位而不是用户偏好：通知列表要窄，
  * 审计详情要能对时。
@@ -10,6 +12,7 @@ const SLOTS = {
   date: { date: 'full', time: false, seconds: false },
   time: { date: 'none', time: true, seconds: false },
   monthDayTime: { date: 'monthDay', time: true, seconds: false },
+  monthDay: { date: 'monthDay', time: false, seconds: false },
 } as const;
 
 export type AppDateFormat = keyof typeof SLOTS;
@@ -72,13 +75,9 @@ export function formatAppDate(
   const writing = writingFor(locale);
   const options = optionsFor(format, writing);
 
-  try {
-    return render(date, writing, options, timeZone);
-  } catch {
-    // 设置里存了当前运行时不认识的时区（时区数据库更名等）时退回浏览器时区，
-    // 不要让一个偏好设置把整张列表打成空白。
-    return render(date, writing, options);
-  }
+  // 设置里存了当前运行时不认识的时区（时区数据库更名等）时退回浏览器时区，
+  // 不要让一个偏好设置把整张列表打成空白；判定与按时区请求数据的地方共用
+  return render(date, writing, options, resolveDisplayTimeZone(timeZone));
 }
 
 /**

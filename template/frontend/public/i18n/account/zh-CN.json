@@ -140,45 +140,73 @@
   },
   "brand": {
     "title": "模板项目",
-    "subtitle": "基于 Angular + .NET 的全栈开发模板"
+    "subtitle": "基于 Angular + .NET 的全栈开发模板",
+    "headlineLead": "团队、权限与数据，",
+    "headlineAccent": "在同一个控制台里管理",
+    "highlights": {
+      "security": {
+        "title": "安全登录",
+        "description": "口令策略、登录锁定与两步验证开箱即用"
+      },
+      "access": {
+        "title": "角色与权限",
+        "description": "按角色授权，菜单与接口遵循同一套规则"
+      },
+      "fullStack": {
+        "title": "前后端一体",
+        "description": "Angular 与 .NET 已经打通，第一天就能部署上线"
+      }
+    },
+    "note": "开源 · 可私有化部署 · 前后端完整",
+    "register": {
+      "headlineLead": "注册后立刻获得",
+      "headlineAccent": "一个可用的工作台",
+      "subtitle": "开始只需一分钟",
+      "highlights": {
+        "protection": {
+          "title": "默认开启登录保护",
+          "description": "连续失败自动锁定，两步验证随时开启"
+        },
+        "workspace": {
+          "title": "属于你的工作台",
+          "description": "资料、偏好与登录设备集中管理"
+        },
+        "access": {
+          "title": "权限随角色而定",
+          "description": "管理员按角色分配功能，你只看到需要的"
+        }
+      }
+    }
   },
   "login": {
-    "title": "登录",
-    "subtitle": "欢迎回来，请输入您的账号信息",
+    "title": "欢迎回来",
     "usernameOrEmail": "用户名或邮箱",
     "usernameOrEmailPlaceholder": "请输入用户名或邮箱",
     "password": "密码",
     "passwordPlaceholder": "请输入密码",
-    "noAccount": "没有账号？",
-    "registerNow": "立即注册",
+    "noAccount": "还没有账户？",
+    "registerNow": "免费注册",
     "submit": "登录",
-    "or": "或",
-    "testAccount": "测试账号",
-    "adminRole": "管理员",
-    "badgeFastDev": "快速开发",
-    "badgeModernArch": "现代架构",
+    "or": "或使用账号登录",
+    "testAccount": "开发环境测试账号",
     "loginSuccess": "登录成功",
     "welcomeBack": "欢迎回来！",
     "loginFailed": "登录失败",
     "externalLoginFailed": "无法连接到 {{provider}} 登录服务，请稍后重试",
     "externalProvidersLoadFailed": "第三方登录方式加载失败。",
-    "badgeReadyMain": "开箱",
-    "badgeReadySub": "即用",
     "tenant": "租户",
     "tenantPlaceholder": "租户名称，留空为宿主",
     "tenantConfirm": "确认",
-    "tenantClear": "清除租户",
     "tenantFromDomain": "由站点地址自动识别。",
     "tenantResolving": "正在按站点地址识别租户…",
     "tenantUnavailable": "该地址指向的租户当前不可用，请联系管理员。",
     "tenantProbeFailed": "无法确定该地址对应的租户，请检查网络后重试。",
-    "tenantProbeRetry": "重试"
+    "tenantProbeRetry": "重试",
+    "tenantHost": "宿主",
+    "tenantSwitch": "切换租户"
   },
   "register": {
-    "title": "注册账号",
-    "subtitle": "欢迎加入，请填写以下信息注册新账号",
-    "badgeFastRegister": "快速注册",
-    "badgeSecure": "安全保障",
+    "title": "创建账号",
     "email": "邮箱",
     "emailPlaceholder": "输入您的邮箱地址",
     "username": "用户名",
@@ -193,17 +221,18 @@
     "sendCode": "获取验证码",
     "password": "密码",
     "passwordPlaceholder": "至少 12 位",
-    "confirmPassword": "确认密码",
-    "confirmPasswordPlaceholder": "再次输入密码",
     "submit": "注册账号",
     "haveAccount": "已有账号？",
     "loginNow": "直接登录",
+    "or": "或使用邮箱注册",
     "emailRequired": "请先输入有效的邮箱",
     "captchaRequired": "请先输入图形验证码",
     "emailCodeSent": "验证码已发送，请查收邮件",
     "captchaTokenMissing": "请刷新获取图形验证码",
     "registerSuccess": "注册成功",
-    "registerSuccessDetail": "账号创建成功，请登录"
+    "registerSuccessDetail": "账号创建成功，请登录",
+    "passwordLengthProgress": "至少 {{min}} 个字符，还差 {{remaining}} 个",
+    "passwordLengthMet": "长度符合要求"
   },
   "externalCallback": {
     "processingAria": "正在完成登录",

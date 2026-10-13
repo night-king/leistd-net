@@ -4,6 +4,7 @@
 <ng-container>
 <!--#endif-->
   <hlm-sidebar
+    variant="inset"
     collapsible="icon"
     [srOnlySheetTitle]="t('layout.sidebar.navigation')"
     [srOnlySheetDescription]="t('layout.sidebar.navigationDescription')"
@@ -76,6 +77,21 @@
             </a>
           }
         </li>
+        <!-- 搜索入口：打开命令面板。折叠为图标轨时只留放大镜。 -->
+        <li hlmSidebarMenuItem>
+          <button
+            hlmSidebarMenuButton
+            variant="outline"
+            class="text-muted-foreground"
+            [tooltip]="t('layout.commandPalette.search')"
+            data-testid="sidebar-search"
+            (click)="commandPalette.open()"
+          >
+            <ng-icon name="lucideSearch" />
+            <span>{{ t('layout.commandPalette.search') }}</span>
+            <kbd hlmKbd class="ms-auto group-data-[collapsible=icon]:hidden">⌘K</kbd>
+          </button>
+        </li>
       </ul>
     </div>
 
@@ -89,7 +105,6 @@
                 <li hlmSidebarMenuItem>
                   <a
                     hlmSidebarMenuButton
-                    class="data-active:bg-primary/10! data-active:text-primary! data-active:font-semibold!"
                     [routerLink]="item.route"
                     [isActive]="isItemActive(item)"
                     [tooltip]="item.label"
@@ -105,8 +120,39 @@
       }
     </div>
 
-    <!-- Spartan canonical：侧栏底部（nav-user 模式）——仅用户菜单，折叠时收成图标。 -->
+    <!-- Spartan canonical：侧栏底部（nav-user 模式）——用户菜单，折叠时收成图标。 -->
     <div hlmSidebarFooter>
+      <!--#if (IncludeRealTime)-->
+      <!-- 实时连接状态：还没请求连接（或由 Mock 应答）时不显示，掉线与重连要让管理员看得到。 -->
+      @if (realtimeStatus() !== 'idle') {
+        <div
+          class="bg-background flex items-center gap-2 rounded-md border p-2 text-xs group-data-[collapsible=icon]:hidden"
+          role="status"
+          data-testid="realtime-status"
+        >
+          @switch (realtimeStatus()) {
+            @case ('connected') {
+              <span hlmBadge variant="success">{{ t('layout.realtime.label') }}</span>
+              <span class="text-muted-foreground min-w-0">{{
+                t('layout.realtime.connected')
+              }}</span>
+            }
+            @case ('reconnecting') {
+              <span hlmBadge variant="outline">{{ t('layout.realtime.label') }}</span>
+              <span class="text-muted-foreground min-w-0">{{
+                t('layout.realtime.reconnecting')
+              }}</span>
+            }
+            @default {
+              <span hlmBadge variant="destructive">{{ t('layout.realtime.label') }}</span>
+              <span class="text-muted-foreground min-w-0">{{
+                t('layout.realtime.disconnected')
+              }}</span>
+            }
+          }
+        </div>
+      }
+      <!--#endif-->
       <app-user-menu />
     </div>
   </hlm-sidebar>

@@ -1,11 +1,9 @@
 // prettier-ignore
 import {
   Injectable,
+  computed,
   inject,
   signal,
-  //#if (IncludeNotifications)
-  computed,
-  //#endif
   //#if (IncludeRealTime)
   DestroyRef,
   assertInInjectionContext,
@@ -35,6 +33,12 @@ import { MOCKED_URL } from '../mock/mocked-url';
 function isLive(connection: HubConnection | null): boolean {
   return connection != null && connection.state !== HubConnectionState.Disconnected;
 }
+
+/**
+ * 实时连接状态：`idle` 尚未请求连接或已主动断开（登出、Mock 应答时也停在这里）；`reconnecting`
+ * 掉线后自动重连中；`disconnected` 建连失败或自动重连已放弃，下次 `connect()` 会重建。
+ */
+export type RealtimeConnectionStatus = 'idle' | 'connected' | 'reconnecting' | 'disconnected';
 //#if (IncludeRealTime)
 
 /**
@@ -83,9 +87,11 @@ export class SignalRService {
   readonly lastResourceEvent = signal<{ eventName: string; payload: unknown } | null>(null);
   //#endif
 
-  private readonly connected = signal(false);
+  private readonly status = signal<RealtimeConnectionStatus>('idle');
 
-  readonly isConnected = this.connected.asReadonly();
+  readonly connectionStatus = this.status.asReadonly();
+
+  readonly isConnected = computed(() => this.status() === 'connected');
   //#if (IncludeRealTime)
 
   // 需求（谁还持有哪个键）与现状（当前服务端连接上订阅了哪些键）分开记，两者之差由每个键一条
@@ -200,6 +206,9 @@ export class SignalRService {
     } catch (err) {
       console.error('[SignalR] Connection failed:', err);
       await this.disconnect();
+      if (generation === this.generation) {
+        this.status.set('disconnected');
+      }
     }
   }
 
@@ -230,7 +239,7 @@ export class SignalRService {
   async disconnect(): Promise<void> {
     const connection = this.connection;
     this.connection = null;
-    this.connected.set(false);
+    this.status.set('idle');
 
     if (!connection) {
       return;
@@ -409,14 +418,14 @@ export class SignalRService {
     }
     //#endif
 
-    connection.onreconnecting(() => isCurrent() && this.connected.set(false));
-    connection.onclose(() => isCurrent() && this.connected.set(false));
+    connection.onreconnecting(() => isCurrent() && this.status.set('reconnecting'));
+    connection.onclose(() => isCurrent() && this.status.set('disconnected'));
     connection.onreconnected(() => {
       if (!isCurrent()) {
         return;
       }
 
-      this.connected.set(true);
+      this.status.set('connected');
       //#if (IncludeRealTime)
 
       // 重连后是一条新的服务端连接，分组订阅要重新建立。
@@ -430,7 +439,7 @@ export class SignalRService {
     await connection.start();
 
     if (isCurrent()) {
-      this.connected.set(true);
+      this.status.set('connected');
       //#if (IncludeRealTime)
       // 连上之前登记的需求（页面先于连接创建）在这里补齐
       this.resubscribeResources();

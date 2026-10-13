@@ -21,4 +21,50 @@ public interface IMyProjectClient
     /// <param name="cancellationToken">取消令牌</param>
     [Get("/api/v1/service-info/whoami")]
     Task<WhoAmIDto> WhoAmIAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>获取调用身份所在宿主或租户的平台统计（需要 <c>App.Dashboard</c>）。</summary>
+    /// <param name="startDate">起始日（含）</param>
+    /// <param name="endDate">结束日（含），不得晚于 <paramref name="timeZone"/> 的今天；区间最多 366 天</param>
+    /// <param name="timeZone">解释日期与切分统计桶所用的时区（IANA 名，如 <c>Asia/Shanghai</c>）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Get("/api/v1/platform/statistics")]
+    Task<PlatformStatisticsDto> GetPlatformStatisticsAsync(
+        [Query(Format = "yyyy-MM-dd")] DateOnly startDate,
+        [Query(Format = "yyyy-MM-dd")] DateOnly endDate,
+        [Query] string timeZone,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>批量启用用户（需要 <c>App.Users.Update</c>）；逐条执行，部分失败不回滚。</summary>
+    /// <param name="request">目标用户</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Post("/api/v1/users/batch/enable")]
+    Task<BatchOperationDto> BatchEnableUsersAsync(
+        [Body] BatchUsersDto request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>批量禁用用户（需要 <c>App.Users.Update</c>）；逐条执行，部分失败不回滚。</summary>
+    /// <param name="request">目标用户</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Post("/api/v1/users/batch/disable")]
+    Task<BatchOperationDto> BatchDisableUsersAsync(
+        [Body] BatchUsersDto request,
+        CancellationToken cancellationToken = default);
+#if (LocalIdentity)
+
+    /// <summary>批量解除用户的登录锁定（需要 <c>App.Users.Update</c>）；逐条执行，部分失败不回滚。</summary>
+    /// <param name="request">目标用户</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Post("/api/v1/users/batch/unlock")]
+    Task<BatchOperationDto> BatchUnlockUsersAsync(
+        [Body] BatchUsersDto request,
+        CancellationToken cancellationToken = default);
+#endif
+
+    /// <summary>批量为用户追加角色（需要 <c>App.Users.ManageRoles</c>）；已有角色保留，逐条执行，部分失败不回滚。</summary>
+    /// <param name="request">目标用户与要追加的角色</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    [Post("/api/v1/users/batch/assign-roles")]
+    Task<BatchOperationDto> BatchAssignUserRolesAsync(
+        [Body] BatchAssignUserRolesDto request,
+        CancellationToken cancellationToken = default);
 }

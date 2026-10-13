@@ -1,4 +1,11 @@
-import { USER_API, addUser, getUsers, updateUser } from './user';
+import {
+  USER_API,
+  addUser,
+  batchAssignUserRoles,
+  batchDisableUsers,
+  getUsers,
+  updateUser,
+} from './user';
 import { MockException } from '../core/models';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
 import { setMockSessionUserId } from '../utils/current-user';
@@ -32,7 +39,10 @@ describe('user mock', () => {
   it('orders multiple user keys and validates sorting before returning an empty result', () => {
     USERS.forEach((user) => (user.email = 'same@example.test'));
     const result = getUsers({ sorting: 'EMAIL ascending, username descending' });
-    expect(result.items.map((user) => user.username)).toEqual(['demo', 'admin']);
+    // 邮箱全部相同时第二个键生效：用户名降序
+    expect(result.items.map((user) => user.username)).toEqual(
+      USERS.map((user) => user.username).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0)),
+    );
 
     const error = rejectionOf(() => getUsers({ keyword: 'missing', sorting: 'unknownProperty' }));
     expect(error.status).toBe(400);
@@ -40,12 +50,86 @@ describe('user mock', () => {
     expect(error.error.errors.map((item: { field: string }) => item.field)).toEqual(['sorting']);
   });
 
+  describe('batch operations', () => {
+    afterEach(() => setMockSessionUserId(null));
+
+    it('runs each item on its own and keeps the successes when some are rejected', () => {
+      setMockSessionUserId('user_admin');
+
+      const result = batchDisableUsers({ ids: ['user_demo', 'user_admin', 'user_demo'] });
+
+      // 重复的只处理一次；停用自己（超级管理员）被拒，不影响另一条
+      expect(result.items.map((item) => [item.id, item.succeeded])).toEqual([
+        ['user_demo', true],
+        ['user_admin', false],
+      ]);
+      expect(result.items[1].errorCode).toBeTruthy();
+      expect(USERS.find((user) => user.id === 'user_demo')?.isActive).toBe(false);
+    });
+
+    it('rejects an empty or oversized id list with a field error', () => {
+      setMockSessionUserId('user_admin');
+
+      expect(rejectionOf(() => batchDisableUsers({ ids: [] })).status).toBe(400);
+      const tooMany = Array.from({ length: 101 }, (_, i) => `u${i}`);
+      expect(rejectionOf(() => batchDisableUsers({ ids: tooMany })).status).toBe(400);
+      // 数量按提交的原数组算：同一个 Id 重复 101 次也超限，一条都不执行
+      const repeated = Array.from({ length: 101 }, () => 'user_demo');
+      expect(rejectionOf(() => batchDisableUsers({ ids: repeated })).status).toBe(400);
+      expect(USERS.find((user) => user.id === 'user_demo')?.isActive).toBe(true);
+      const roles = Array.from({ length: 21 }, () => 'role_admin');
+      expect(
+        rejectionOf(() => batchAssignUserRoles({ ids: ['user_demo'], roleIds: roles })).status,
+      ).toBe(400);
+    });
+
+    it("refuses to add roles to another administrator's built-in super administrator", () => {
+      // 快照是浅拷贝，换新数组而不是原地追加，用例结束后才能还原
+      const demo = USERS.find((user) => user.id === 'user_demo')!;
+      demo.roles = [...demo.roles, 'Admin'];
+      setMockSessionUserId('user_demo');
+
+      const result = batchAssignUserRoles({ ids: ['user_admin'], roleIds: ['role_admin'] });
+
+      expect(result.items[0]).toMatchObject({
+        id: 'user_admin',
+        succeeded: false,
+        errorCode: 'User:SuperAdminUpdateForbidden',
+      });
+    });
+
+    it('adds roles without removing existing ones and rejects unknown roles as a whole', () => {
+      setMockSessionUserId('user_admin');
+
+      batchAssignUserRoles({ ids: ['user_demo'], roleIds: ['role_admin'] });
+      expect(USERS.find((user) => user.id === 'user_demo')?.roles).toEqual(['Member', 'Admin']);
+
+      const error = rejectionOf(() =>
+        batchAssignUserRoles({ ids: ['user_demo'], roleIds: ['missing'] }),
+      );
+      expect(error.status).toBe(400);
+      expect(error.error.code).toBe('User:RolesNotFound');
+    });
+
+    it('requires the update permission', () => {
+      setMockSessionUserId('user_demo');
+
+      expect(rejectionOf(() => batchDisableUsers({ ids: ['user_admin'] })).status).toBe(403);
+    });
+  });
+
   //#if (LocalIdentity)
   it('sorts the nested last-login API path and places absent timestamps last in ascending order', () => {
     USERS[0].lastLoginTime = undefined;
     const result = getUsers({ sorting: 'lastLogin.Time asc' });
+    const withLogin = USERS.filter((user) => user.lastLoginTime)
+      .sort((a, b) => Date.parse(a.lastLoginTime!) - Date.parse(b.lastLoginTime!))
+      .map((user) => user.username);
 
-    expect(result.items.map((user) => user.username)).toEqual(['demo', 'admin']);
+    // 有时间的按升序在前，没有登录过的（含刚清空的 admin）排在最后
+    const usernames = result.items.map((user) => user.username);
+    expect(usernames.slice(0, withLogin.length)).toEqual(withLogin);
+    expect(usernames.slice(withLogin.length)).toContain('admin');
   });
   //#endif
 
@@ -85,7 +169,9 @@ describe('user mock', () => {
       const changed = rejectionOf(() => updateUser('user_admin', { email: demo.email }));
       expect(changed.status).toBe(409);
       expect(changed.error.code).toBe('User:EmailTaken');
-      expect(USERS.map((user) => user.id)).toEqual(['user_admin']);
+      expect(USERS.map((user) => user.id)).toEqual(
+        snapshot.map((user) => user.id).filter((id) => id !== 'user_demo'),
+      );
       expect(USERS[0].email).toBe(snapshot[0].email);
     });
 

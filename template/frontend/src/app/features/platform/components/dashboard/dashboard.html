@@ -3,21 +3,528 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="p-4 sm:p-6">
-    <section hlmCard>
-      <div hlmCardHeader>
-        <h2 hlmCardTitle class="text-2xl font-semibold tracking-tight">
-          {{ t('platform.dashboard.welcome') }}
+  <div class="@container flex flex-col gap-6 p-4 sm:p-6">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div class="flex min-w-0 flex-col gap-1">
+        <h2 class="text-2xl font-semibold tracking-tight">
+          @switch (greetingPart()) {
+            @case ('morning') {
+              {{ t('platform.dashboard.greeting.morning', { name: userName() }) }}
+            }
+            @case ('afternoon') {
+              {{ t('platform.dashboard.greeting.afternoon', { name: userName() }) }}
+            }
+            @default {
+              {{ t('platform.dashboard.greeting.evening', { name: userName() }) }}
+            }
+          }
         </h2>
-        <p hlmCardDescription>
-          @if (authService.currentUser(); as user) {
-            {{ t('platform.dashboard.currentUser', { name: user.displayName || user.username }) }}
+        <p class="text-muted-foreground text-sm tabular-nums" data-testid="dashboard-summary">
+          @if (canViewStatistics()) {
+            @if (summary(); as summary) {
+              @switch (summary.preset) {
+                @case ('today') {
+                  {{ t('platform.dashboard.range.today') }}
+                }
+                @case (null) {
+                  {{ summary.customText }}
+                }
+                @default {
+                  {{ t('platform.dashboard.range.lastDays', { days: summary.days }) }}
+                }
+              }
+              <!--#if (IncludeOperationRecords && LocalIdentity)-->
+              · {{ t('platform.dashboard.summary.signIns', { count: summary.signIns }) }}
+              <!--#endif-->
+              @if (summary.attention > 0) {
+                · {{ t('platform.dashboard.summary.attention', { count: summary.attention }) }}
+              }
+            }
+          } @else {
+            {{ t('platform.dashboard.noStatistics') }}
           }
         </p>
       </div>
-      <div hlmCardContent>
-        <p class="text-muted-foreground">{{ t('platform.dashboard.intro') }}</p>
-      </div>
-    </section>
+      @if (canViewStatistics()) {
+        <div class="flex flex-wrap items-center gap-2">
+          <hlm-toggle-group
+            type="single"
+            variant="outline"
+            size="sm"
+            [nullable]="false"
+            [value]="preset()"
+            [attr.aria-label]="t('platform.dashboard.rangeLabel')"
+            data-testid="dashboard-range"
+            (valueChange)="setPreset($event)"
+          >
+            <button hlmToggleGroupItem value="today">
+              {{ t('platform.dashboard.range.today') }}
+            </button>
+            <button hlmToggleGroupItem value="7d">{{ t('platform.dashboard.range.days7') }}</button>
+            <button hlmToggleGroupItem value="30d">
+              {{ t('platform.dashboard.range.days30') }}
+            </button>
+          </hlm-toggle-group>
+          <!-- 自定义区间：官方日期区间选择器，结束日不晚于展示时区的今天；清空回到近 7 天 -->
+          <hlm-date-range-picker
+            data-testid="dashboard-range-picker"
+            [date]="pickerRange()"
+            [maxDate]="maxPickerDate()"
+            [formatDates]="formatPickerRange()"
+            (dateChange)="onRangePicked($event)"
+          >
+            <hlm-date-picker-trigger variant="outline" class="h-8 text-sm tabular-nums">
+              <ng-icon name="lucideCalendar" data-icon="inline-start" />
+              {{ t('platform.dashboard.range.custom') }}
+            </hlm-date-picker-trigger>
+          </hlm-date-range-picker>
+        </div>
+      }
+    </div>
+
+    @if (canViewStatistics()) {
+      @if (statistics(); as stats) {
+        @if (loadFailed()) {
+          <!-- 已有数据时刷新失败：保留原内容，说明并给重试 -->
+          <div
+            class="text-muted-foreground flex items-center gap-2 text-sm"
+            role="status"
+            data-testid="dashboard-refresh-failed"
+          >
+            {{ t('platform.dashboard.refreshFailed') }}
+            <button hlmBtn variant="link" size="sm" class="px-0" (click)="loadStatistics()">
+              {{ t('common.retry') }}
+            </button>
+          </div>
+        }
+
+        <!-- 一行四张从内容区约 54rem 起：再窄时四位数与迷你趋势挤不下，两两一行 -->
+        <div class="grid grid-cols-2 gap-4 @[54rem]:grid-cols-4" [attr.aria-busy]="loading()">
+          @for (kpi of kpis(); track kpi.id) {
+            <app-stat-panel
+              [panelTitle]="t(kpiTitleKeys[kpi.id])"
+              [attr.data-testid]="'kpi-' + kpi.id"
+            >
+              <!-- 口径说明：键盘可达的按钮，提示写清这项怎么算；触屏点按尺寸由按钮组件放大，负外边距不撑高标题栏 -->
+              <button
+                statPanelAction
+                hlmBtn
+                variant="ghost"
+                size="icon-sm"
+                type="button"
+                class="text-muted-foreground -my-2 -mr-2"
+                [attr.aria-label]="
+                  t('platform.dashboard.kpi.infoLabel', { metric: t(kpiTitleKeys[kpi.id]) })
+                "
+                [hlmTooltip]="t(kpiInfoKeys[kpi.id])"
+              >
+                <ng-icon name="lucideInfo" class="text-sm" />
+              </button>
+              <div class="flex flex-col gap-2 p-4">
+                <div class="flex items-end justify-between gap-3">
+                  @if (kpi.valueFull; as full) {
+                    <span
+                      tabindex="0"
+                      class="focus-visible:ring-ring/50 shrink-0 rounded-sm text-3xl font-semibold tabular-nums outline-none focus-visible:ring-[3px]"
+                      [hlmTooltip]="full"
+                      >{{ kpi.valueText }}</span
+                    >
+                  } @else {
+                    <span class="shrink-0 text-3xl font-semibold tabular-nums">{{
+                      kpi.valueText
+                    }}</span>
+                  }
+                  @if (kpi.sparkline; as sparkline) {
+                    <tanstack-chart
+                      hlmChart
+                      class="w-22 min-w-14 shrink"
+                      aria-hidden="true"
+                      [options]="sparkline"
+                    />
+                  }
+                </div>
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  @if (kpi.change !== null) {
+                    <span
+                      hlmBadge
+                      [variant]="
+                        kpi.change === 0
+                          ? 'secondary'
+                          : kpi.change > 0 !== kpi.higherIsWorse
+                            ? 'success'
+                            : 'destructive'
+                      "
+                    >
+                      @if (kpi.change !== 0) {
+                        <ng-icon
+                          [name]="kpi.change > 0 ? 'lucideArrowUpRight' : 'lucideArrowDownRight'"
+                          data-icon="inline-start"
+                        />
+                      }
+                      {{ kpi.change | appNumber: 'change' : displayLocale() }}
+                    </span>
+                    <span class="text-muted-foreground">
+                      @if (kpi.id === 'totalUsers') {
+                        {{ t('platform.dashboard.kpi.vsPreviousEnd') }}
+                      } @else if (!includesToday()) {
+                        {{ t('platform.dashboard.kpi.vsPrevious', { days: statisticsDays() }) }}
+                      } @else if (statisticsDays() === 1) {
+                        {{ t('platform.dashboard.kpi.vsYesterday') }}
+                      } @else {
+                        {{
+                          t('platform.dashboard.kpi.vsPreviousProgress', { days: statisticsDays() })
+                        }}
+                      }
+                    </span>
+                  } @else {
+                    <span class="text-muted-foreground">{{
+                      t('platform.dashboard.kpi.noComparison')
+                    }}</span>
+                  }
+                </div>
+              </div>
+            </app-stat-panel>
+          }
+        </div>
+        <!--#if (LocalIdentity)-->
+
+        <!-- 登录趋势与需要关注都是本地身份的数据，资源服务形态下整行不出现 -->
+        <div class="grid grid-cols-1 gap-4 @3xl:grid-cols-3">
+          <!--#if (IncludeOperationRecords)-->
+          @if (trendChart(); as chart) {
+            <app-stat-panel
+              class="@3xl:col-span-2"
+              [panelTitle]="t('platform.dashboard.trend.title')"
+              data-testid="dashboard-trend"
+            >
+              <div statPanelAction class="text-muted-foreground flex items-center gap-3 text-xs">
+                <span class="flex items-center gap-1.5">
+                  <span class="bg-chart-1 size-2 rounded-xs"></span>
+                  {{ t('platform.dashboard.trend.succeeded') }}
+                </span>
+                <span class="flex items-center gap-1.5">
+                  <span class="bg-chart-3 size-2 rounded-xs"></span>
+                  {{ t('platform.dashboard.trend.failed') }}
+                </span>
+              </div>
+              <div class="flex flex-col gap-3 p-4">
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+                  <span class="text-2xl font-semibold tabular-nums">{{
+                    stats.succeededLogins.value | appNumber: 'integer' : displayLocale()
+                  }}</span>
+                  <span class="text-muted-foreground text-sm">{{
+                    t('platform.dashboard.trend.total')
+                  }}</span>
+                  @if (trendChange(); as change) {
+                    <span hlmBadge [variant]="change > 0 ? 'success' : 'destructive'">
+                      <ng-icon
+                        [name]="change > 0 ? 'lucideArrowUpRight' : 'lucideArrowDownRight'"
+                        data-icon="inline-start"
+                      />
+                      {{ change | appNumber: 'change' : displayLocale() }}
+                    </span>
+                  } @else if (trendChange() === 0) {
+                    <span hlmBadge variant="secondary">{{
+                      0 | appNumber: 'change' : displayLocale()
+                    }}</span>
+                  }
+                  @if (canChooseTrendView()) {
+                    <hlm-toggle-group
+                      type="single"
+                      variant="outline"
+                      size="sm"
+                      class="ms-auto"
+                      [nullable]="false"
+                      [value]="trendView()"
+                      [attr.aria-label]="t('platform.dashboard.trend.viewLabel')"
+                      data-testid="dashboard-trend-view"
+                      (valueChange)="chosenTrendView.set($event === 'week' ? 'week' : 'day')"
+                    >
+                      <button hlmToggleGroupItem value="day">
+                        {{ t('platform.dashboard.trend.byDay') }}
+                      </button>
+                      <button hlmToggleGroupItem value="week">
+                        {{ t('platform.dashboard.trend.byWeek') }}
+                      </button>
+                    </hlm-toggle-group>
+                  }
+                </div>
+                <tanstack-chart hlmChart [options]="chart" />
+                <p class="text-muted-foreground text-xs">
+                  {{ t('platform.dashboard.trend.failedApprox') }}
+                </p>
+              </div>
+            </app-stat-panel>
+          }
+
+          <!--#endif-->
+          <app-stat-panel
+            [class]="hasTrend() ? '' : '@3xl:col-span-3'"
+            [panelTitle]="t('platform.dashboard.attention.title')"
+            data-testid="dashboard-attention"
+          >
+            @if (attention().length) {
+              <span statPanelAction hlmBadge variant="warning">{{ attention().length }}</span>
+            }
+            <ul class="flex flex-col p-2">
+              @for (item of attention(); track item.id) {
+                <li class="flex items-start gap-3 rounded-md p-2">
+                  <!-- 描边图标块按严重程度着色：锁定是错误级，未开两步验证与邮箱未验证是警告级 -->
+                  <span
+                    class="bg-card ring-border flex size-8 shrink-0 items-center justify-center rounded-md shadow-xs ring-1"
+                    [class.text-destructive]="item.severity === 'destructive'"
+                    [class.text-warning]="item.severity === 'warning'"
+                    [class.text-muted-foreground]="item.severity === 'neutral'"
+                  >
+                    <ng-icon [name]="item.icon" />
+                  </span>
+                  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                    @switch (item.id) {
+                      @case ('lockedUsers') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.lockedUsers', { count: item.count })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.lockedUsersHint')
+                        }}</span>
+                      }
+                      @case ('adminsWithoutTwoFactor') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.adminsWithoutTwoFactor', {
+                            count: item.count,
+                          })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.adminsWithoutTwoFactorHint')
+                        }}</span>
+                      }
+                      @case ('unconfirmedEmailUsers') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.unconfirmedEmailUsers', {
+                            count: item.count,
+                          })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.unconfirmedEmailUsersHint')
+                        }}</span>
+                      }
+                      <!--#if (IncludeMultiTenancy)-->
+                      @case ('disabledTenants') {
+                        <span class="text-sm font-medium">{{
+                          t('platform.dashboard.attention.disabledTenants', { count: item.count })
+                        }}</span>
+                        <span class="text-muted-foreground text-xs">{{
+                          t('platform.dashboard.attention.disabledTenantsHint')
+                        }}</span>
+                      }
+                      <!--#endif-->
+                    }
+                  </div>
+                  @if (item.route) {
+                    <a
+                      hlmBtn
+                      variant="outline"
+                      size="sm"
+                      [routerLink]="item.route"
+                      [queryParams]="item.queryParams"
+                    >
+                      @if (item.action === 'handle') {
+                        {{ t('platform.dashboard.attention.handle') }}
+                      } @else {
+                        {{ t('platform.dashboard.attention.review') }}
+                      }
+                    </a>
+                  }
+                </li>
+              } @empty {
+                <li
+                  class="text-muted-foreground flex flex-col items-center justify-center gap-2 py-8 text-sm"
+                >
+                  <ng-icon name="lucideCircleCheck" class="text-success text-xl" />
+                  {{ t('platform.dashboard.attention.allClear') }}
+                </li>
+              }
+            </ul>
+          </app-stat-panel>
+        </div>
+        <!--#endif-->
+      } @else if (loadFailed()) {
+        <div
+          class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-12 text-sm"
+          role="alert"
+          data-testid="dashboard-load-failed"
+        >
+          <span class="text-muted-foreground">{{ t('platform.dashboard.loadFailed') }}</span>
+          <button hlmBtn variant="outline" size="sm" (click)="loadStatistics()">
+            {{ t('common.retry') }}
+          </button>
+        </div>
+      } @else {
+        <!-- 首次加载：骨架与成稿同布局，数据到达时不跳动 -->
+        <div class="grid grid-cols-2 gap-4 @[54rem]:grid-cols-4" aria-busy="true">
+          @for (placeholder of [1, 2, 3, 4]; track placeholder) {
+            <hlm-skeleton class="h-32 rounded-xl" />
+          }
+        </div>
+        <div class="grid grid-cols-1 gap-4 @3xl:grid-cols-3">
+          <hlm-skeleton class="h-80 rounded-xl @3xl:col-span-2" />
+          <hlm-skeleton class="h-80 rounded-xl" />
+        </div>
+      }
+    }
+
+    <div class="grid grid-cols-1 gap-4 @3xl:grid-cols-3">
+      <!--#if (IncludeOperationRecords)-->
+      @if (canViewRecentRecords()) {
+        <app-stat-panel
+          class="@3xl:col-span-2"
+          [panelTitle]="t('platform.dashboard.recent.title')"
+          data-testid="dashboard-recent"
+        >
+          <a
+            statPanelAction
+            hlmBtn
+            variant="ghost"
+            size="sm"
+            routerLink="/platform/operation-records"
+          >
+            {{ t('platform.dashboard.recent.viewAll') }}
+            <ng-icon name="lucideChevronRight" data-icon="inline-end" />
+          </a>
+          @if (recentRecords()) {
+            <!-- 宽度够时操作人、结果、时间定宽，各行的列上下对齐；窄时操作人与动作句上下排 -->
+            <ul class="@container flex flex-col divide-y">
+              @for (row of recentRows(); track row.record.id) {
+                @let expanded = expandedRecentId() === row.record.id;
+                <li class="text-sm">
+                  <div class="flex items-center gap-3 px-4 py-3">
+                    <!-- 底色放在内层：helm 管理的类只合并静态 class，动态 [class] 会与它冲突 -->
+                    <hlm-avatar class="size-7 shrink-0">
+                      <span hlmAvatarFallback>
+                        <span
+                          class="flex size-full items-center justify-center rounded-full text-xs font-semibold"
+                          [class]="row.avatarClass"
+                          >{{ row.initials }}</span
+                        >
+                      </span>
+                    </hlm-avatar>
+                    <div
+                      class="flex min-w-0 flex-1 flex-col gap-0.5 @lg:flex-row @lg:items-center @lg:gap-3"
+                    >
+                      <span class="shrink-0 truncate font-medium @lg:w-28">
+                        {{ row.actor ?? t('platform.dashboard.recent.anonymous') }}
+                      </span>
+                      @if (recentSentences().get(row.record.id); as sentence) {
+                        <span class="text-muted-foreground truncate">
+                          {{ sentence.key ? t(sentence.key, sentence.params) : sentence.text }}
+                        </span>
+                        <!-- 登记过的句子已含目标（或目标就是操作人自己）；未登记的动作码裸显示时补上目标，窄屏折叠进详情 -->
+                        @if (!sentence.key && sentence.text === row.record.action) {
+                          <span
+                            class="text-muted-foreground hidden max-w-40 truncate text-xs @lg:block"
+                            [attr.title]="row.target"
+                            >{{ row.target }}</span
+                          >
+                        }
+                      }
+                      @if (row.record.impersonatorName) {
+                        <span class="text-muted-foreground truncate text-xs">{{
+                          t('platform.dashboard.recent.impersonatedBy', {
+                            name: row.record.impersonatorName,
+                          })
+                        }}</span>
+                      }
+                    </div>
+                    <span class="flex shrink-0 @lg:w-20">
+                      <span
+                        hlmBadge
+                        appStatusDot
+                        [variant]="row.record.outcome === 'succeeded' ? 'success' : 'destructive'"
+                      >
+                        @if (row.record.outcome === 'succeeded') {
+                          {{ t('platform.dashboard.recent.succeeded') }}
+                        } @else {
+                          {{ t('platform.dashboard.recent.rejected') }}
+                        }
+                      </span>
+                    </span>
+                    <app-relative-time-label
+                      class="text-muted-foreground text-xs @lg:w-24 @lg:text-end"
+                      [instant]="row.record.creationTime"
+                      [now]="now()"
+                      [timeZone]="timeZone()"
+                      [locale]="displayLocale()"
+                    />
+                    <button
+                      hlmBtn
+                      variant="ghost"
+                      size="icon-sm"
+                      class="-mr-2 shrink-0"
+                      [attr.aria-label]="t('common.details')"
+                      [attr.aria-expanded]="expanded"
+                      [attr.aria-controls]="'recent-detail-' + row.record.id"
+                      (click)="toggleRecentDetail(row.record.id)"
+                    >
+                      <ng-icon
+                        name="lucideChevronRight"
+                        class="transition-transform duration-200"
+                        [class.rotate-90]="expanded"
+                      />
+                    </button>
+                  </div>
+                  @if (expanded) {
+                    <div [id]="'recent-detail-' + row.record.id" class="bg-muted/30 px-4 pt-2 pb-3">
+                      <app-operation-record-detail [record]="row.record" [showTime]="true" />
+                    </div>
+                  }
+                </li>
+              } @empty {
+                <li class="text-muted-foreground py-8 text-center text-sm">
+                  {{ t('platform.dashboard.recent.empty') }}
+                </li>
+              }
+            </ul>
+          } @else if (recentRecordsFailed()) {
+            <div class="flex flex-col items-center gap-2 py-8 text-sm" role="alert">
+              <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+              <button hlmBtn variant="outline" size="sm" (click)="loadRecentRecords()">
+                {{ t('common.retry') }}
+              </button>
+            </div>
+          } @else {
+            <div class="flex flex-col gap-3 p-4" aria-busy="true">
+              @for (placeholder of [1, 2, 3]; track placeholder) {
+                <hlm-skeleton class="h-5 w-full" />
+              }
+            </div>
+          }
+        </app-stat-panel>
+      }
+
+      <!--#endif-->
+      @if (quickLinks().length) {
+        <app-stat-panel
+          [panelTitle]="t('platform.dashboard.quick.title')"
+          data-testid="dashboard-quick"
+        >
+          <nav class="flex flex-col p-2" [attr.aria-label]="t('platform.dashboard.quick.title')">
+            @for (link of quickLinks(); track link.route) {
+              <a
+                class="hover:bg-muted flex h-10 items-center gap-3 rounded-md px-2 text-sm font-medium"
+                [routerLink]="link.route"
+              >
+                <span
+                  class="bg-muted text-muted-foreground flex size-7 items-center justify-center rounded-md"
+                >
+                  <ng-icon [name]="link.icon" />
+                </span>
+                <span class="flex-1 truncate">{{ t(link.label) }}</span>
+                <ng-icon name="lucideChevronRight" class="text-muted-foreground" />
+              </a>
+            }
+          </nav>
+        </app-stat-panel>
+      }
+    </div>
   </div>
 </ng-container>

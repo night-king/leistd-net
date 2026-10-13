@@ -1,16 +1,54 @@
 {
-  "hero": {
-    "title": "Template Project",
-    "subtitle": "A full-stack application development template based on Angular + Spartan UI + .NET 10 DDD architecture",
-    "login": "Sign In",
-    "register": "Sign Up"
+  "nav": {
+    "label": "Sections",
+    "features": "Features",
+    "stack": "Tech stack"
   },
-  "feature": {
-    "authTitle": "Authentication",
-    "authDesc": "Cookie-based authentication with role and permission management",
-    "usersTitle": "User Management",
-    "usersDesc": "Full CRUD operations with permission control",
-    "themeTitle": "Theme System",
-    "themeDesc": "Dark mode + Tailwind CSS + Spartan UI"
+  "hero": {
+    "badgeTag": "New",
+    "badge": "Full-stack starter with admin console and workspace",
+    "titleLead": "Your team, permissions and data",
+    "titleAccent": "in one console",
+    "subtitle": "Sign-in, roles and permissions, auditing and notifications come wired end to end. Built on Angular and .NET 10 — trim what you do not need and ship from day one.",
+    "getStarted": "Get started",
+    "signIn": "Sign in",
+    "note": "Open source · Self-hosted · Front end and back end included",
+    "screenshotAlt": "Admin console dashboard"
+  },
+  "stack": {
+    "title": "Built on proven open-source technology"
+  },
+  "features": {
+    "eyebrow": "Features",
+    "title": "The back office essentials are already wired",
+    "subtitle": "You write the business logic. Sign-in, permissions and auditing come with a complete front end, back end and tests.",
+    "authTitle": "Sign-in & two-factor",
+    "authDesc": "Password and authenticator-app sign-in with lockout, recovery codes and re-authentication sharing one policy.",
+    "rbacTitle": "Roles & permissions",
+    "rbacDesc": "Permissions grouped by module; menus and buttons follow what each role is allowed to do.",
+    "tenantsTitle": "Multi-tenancy",
+    "tenantsDesc": "Tenants resolved by domain or chosen at sign-in, with data isolated per tenant.",
+    "auditTitle": "Operation records",
+    "auditDesc": "Who did what and when — every write is recorded, filterable and exportable.",
+    "notificationsTitle": "Real-time notifications",
+    "notificationsDesc": "Notifications pushed over SignalR, scaled across instances, with history after reconnecting.",
+    "openAppsTitle": "Open applications",
+    "openAppsDesc": "Issue client credentials to other systems through a standard OpenID Connect server.",
+    "i18nTitle": "Languages & themes",
+    "i18nDesc": "English and Chinese switch at runtime; light and dark themes follow the system without flicker.",
+    "themeTitle": "Light & dark themes",
+    "themeDesc": "Semantic color tokens with light and dark modes; rebrand by changing a few variables.",
+    "otpLabel": "Enter the verification code"
+  },
+  "stats": {
+    "capabilities": "Built-in capabilities",
+    "languages": "Interface languages, switched at runtime"
+  },
+  "cta": {
+    "title": "Start building your product",
+    "subtitle": "Sign in to explore the admin console and the workspace."
+  },
+  "footer": {
+    "tagline": "Built with Angular, .NET and spartan/ui"
   }
 }

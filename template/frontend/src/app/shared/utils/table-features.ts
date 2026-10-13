@@ -4,6 +4,7 @@ import {
   metaHelper,
   rowExpandingFeature,
   rowPaginationFeature,
+  rowSelectionFeature,
   rowSortingFeature,
   tableFeatures,
 } from '@tanstack/angular-table';
@@ -21,12 +22,14 @@ export interface AppColumnMeta {
 /**
  * 平台表格共用的能力。排序与分页由服务端完成，不加载客户端排序或分页行模型。
  * 行展开只用它的状态（`row.getIsExpanded()` / `row.toggleExpanded()`）补偿被响应式隐藏的列，
- * 没有子行，因此也不加载展开行模型。
+ * 没有子行，因此也不加载展开行模型。行选择只在需要批量操作的表格里接上状态（用户表），
+ * 选择只在当前页内有效。
  */
 const features = tableFeatures({
   columnVisibilityFeature,
   rowExpandingFeature,
   rowPaginationFeature,
+  rowSelectionFeature,
   rowSortingFeature,
   columnMeta: metaHelper<AppColumnMeta>(),
 });

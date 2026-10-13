@@ -1,0 +1,25 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <time
+    tabindex="0"
+    class="focus-visible:ring-ring/50 rounded-sm outline-none focus-visible:ring-[3px]"
+    [attr.datetime]="instant()"
+    [hlmTooltip]="full()"
+  >
+    @let time = relative();
+    @switch (time.kind) {
+      @case ('justNow') {
+        {{ t('common.time.justNow') }}
+      }
+      @case ('yesterday') {
+        {{ t('common.time.yesterdayAt', { time: time.kind === 'yesterday' ? time.time : '' }) }}
+      }
+      @default {
+        {{ time.kind === 'text' ? time.text : '' }}
+      }
+    }
+  </time>
+</ng-container>

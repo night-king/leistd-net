@@ -17,13 +17,6 @@ export interface TwoFactorLoginInputDto {
   recoveryCode?: string;
 }
 
-export interface TwoFactorStatusOutputDto {
-  enabled: boolean;
-  recoveryCodesLeft: number;
-  /** 所在租户要求两步验证（此时不能停用）。 */
-  requiredByPolicy: boolean;
-}
-
 export interface TwoFactorSetupOutputDto {
   /** Base32 密钥，供无法扫码时手动输入。 */
   secret: string;
@@ -38,20 +31,6 @@ export interface TwoFactorRecoveryCodesOutputDto {
 export interface DisableTwoFactorInputDto {
   password: string;
   code: string;
-}
-
-/** 一个登录中的会话（登录设备）。 */
-export interface UserSessionOutputDto {
-  id: string;
-  creationTime: string;
-  /** 最近活跃时间，按分钟节流更新。 */
-  lastSeenTime: string;
-  ipAddress?: string | null;
-  /** User-Agent 原文，界面归纳成"浏览器 · 系统"。 */
-  userAgent?: string | null;
-  /** 模拟登录建立的会话：发起人名称。 */
-  impersonatorName?: string | null;
-  isCurrent: boolean;
 }
 //#if (Email)
 

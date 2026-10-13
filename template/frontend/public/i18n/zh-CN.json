@@ -52,7 +52,11 @@
       "last": "末页"
     },
     "showPassword": "显示密码",
-    "hidePassword": "隐藏密码"
+    "hidePassword": "隐藏密码",
+    "time": {
+      "justNow": "刚刚",
+      "yesterdayAt": "昨天 {{time}}"
+    }
   },
   "validation": {
     "required": "此字段为必填项",
@@ -114,6 +118,19 @@
       "groupIdentity": "身份与访问",
       "groupAudit": "审计",
       "toggle": "折叠/展开侧边栏"
+    },
+    "commandPalette": {
+      "search": "搜索",
+      "title": "命令面板",
+      "description": "搜索要打开的页面。",
+      "placeholder": "搜索页面…",
+      "empty": "没有匹配的页面。"
+    },
+    "realtime": {
+      "label": "实时",
+      "connected": "实时更新已连接",
+      "reconnecting": "连接中断，正在重连…",
+      "disconnected": "实时更新已断开，刷新页面重试。"
     },
     "topbar": {
       "openNavigation": "打开导航",

@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -17,6 +18,7 @@ import {
   lucideBan,
   lucideBriefcase,
   lucideCircleCheck,
+  lucideLockOpen,
   lucideMail,
   lucideMailCheck,
   lucidePlus,
@@ -24,6 +26,7 @@ import {
   lucideSearch,
   lucideShieldCheck,
   lucideUser,
+  lucideX,
 } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
@@ -32,9 +35,10 @@ import {
   HlmInputGroupInput,
   HlmInputGroupAddon,
 } from '@spartan-ng/helm/input-group';
+import { HlmKbdImports } from '@spartan-ng/helm/kbd';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
-import { PaginationState, SortingState } from '@tanstack/angular-table';
-import { combineLatest, defer, EMPTY, Subject } from 'rxjs';
+import { PaginationState, RowSelectionState, SortingState } from '@tanstack/angular-table';
+import { combineLatest, defer, EMPTY, Observable, Subject } from 'rxjs';
 import {
   catchError,
   debounceTime,
@@ -64,6 +68,7 @@ import { RoleBriefDto } from '../../dtos/role.dto';
 // 条件块不能随形态换折行方式，因此在这里固定住
 // prettier-ignore
 import {
+  BatchOperationOutputDto,
   //#if (LocalIdentity)
   CreateUserInputDto,
   //#endif
@@ -78,6 +83,7 @@ import {
 } from '../../dtos/user-management.dto';
 import { RoleService } from '../../services/role-service';
 import { UserManagementService } from '../../services/user-management-service';
+import { BatchRolesDialog } from './widgets/batch-roles-dialog/batch-roles-dialog';
 //#if (LocalIdentity)
 import { ResetUserPasswordDialog } from './widgets/reset-user-password-dialog/reset-user-password-dialog';
 //#endif
@@ -102,6 +108,7 @@ const DEFAULT_USER_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
     HlmInputGroup,
     HlmInputGroupInput,
     HlmInputGroupAddon,
+    ...HlmKbdImports,
     ...HlmTooltipImports,
     FacetedFilter,
     //#if (IncludeLocalization)
@@ -109,6 +116,7 @@ const DEFAULT_USER_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
     //#endif
     UserTable,
     UserRolesDialog,
+    BatchRolesDialog,
     //#if (LocalIdentity)
     UserEditDialog,
     //#endif
@@ -128,14 +136,19 @@ const DEFAULT_USER_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
       lucideShieldCheck,
       lucideBriefcase,
       lucideUser,
+      lucideLockOpen,
+      lucideX,
     }),
   ],
+  // Esc 取消选择挂在 document 上：点空白处或 Safari 点按钮后焦点落在 body，挂宿主收不到
+  host: { '(document:keydown.escape)': 'onEscape($event)' },
   templateUrl: './users.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Users {
   private readonly service = inject(UserManagementService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
   private readonly confirmService = inject(ConfirmService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -257,6 +270,20 @@ export class Users {
   readonly canManageUserRoles = computed(() =>
     this.authorizationService.has(PERMISSIONS.users.manageRoles),
   );
+  /** 当前页勾选的用户（按 Id）。只在当前页内有效：翻页、筛选、排序或批量操作完成后清空。 */
+  readonly rowSelection = signal<RowSelectionState>({});
+  /** 批量操作的目标：只取当前显示的行里勾选的，不信任选择状态里残留的其他 Id。 */
+  readonly selectedIds = computed(() => {
+    const selection = this.rowSelection();
+    return this.users()
+      .map((user) => user.id)
+      .filter((id) => selection[id]);
+  });
+  /** 有任一批量操作可用时才显示多选列。 */
+  readonly canBatch = computed(() => this.canUpdateUser() || this.canManageUserRoles());
+  readonly batchRolesVisible = signal(false);
+  readonly batchBusy = signal(false);
+
   readonly rolesDialogVisible = signal(false);
   readonly rolesDialogUser = signal<UserManagementOutputDto | null>(null);
 
@@ -284,6 +311,11 @@ export class Users {
     this.searchSubject
       .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe((keyword) => this.updateQuery({ keyword: keyword.trim() || null, page: 1 }, true));
+
+    // 选择只在当前页内有效：翻页、筛选、排序（都写在 URL 上）时清空。
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.rowSelection.set({}));
 
     // 搜索框即时值随 URL 回填（前进后退 / 分享链接场景）。
     effect(() => this.searchQuery.set(this.queryParams().get('keyword') ?? ''));
@@ -315,6 +347,12 @@ export class Users {
       .subscribe((data) => {
         this.loadError.set(null);
         this.users.set(data.items);
+        // 刷新后已不在本页的行不再算作选中
+        this.rowSelection.update((selection) =>
+          Object.fromEntries(
+            data.items.filter((user) => selection[user.id]).map((user) => [user.id, true]),
+          ),
+        );
         this.totalRecords.set(data.totalCount);
       });
     //#if (IncludeLocalization)
@@ -652,6 +690,123 @@ export class Users {
     });
   }
 
+  clearSelection(): void {
+    this.rowSelection.set({});
+  }
+
+  /**
+   * 对话框、菜单已处理的 Esc 会 preventDefault；鼠标打开的菜单焦点仍在触发按钮上，Esc 不经菜单，
+   * 所以浮层里还开着菜单、对话框或下拉列表时也不清。焦点在输入框里时 Esc 留给输入框本身。
+   */
+  protected onEscape(event: Event): void {
+    const target = event.target;
+    const inField =
+      target instanceof HTMLElement &&
+      !!target.closest('input, textarea, select, [contenteditable="true"]');
+    const overlayOpen = !!this.document.querySelector(
+      '.cdk-overlay-container :is([role="menu"], [role="dialog"], [role="alertdialog"], [role="listbox"])',
+    );
+    if (!event.defaultPrevented && !inField && !overlayOpen) {
+      this.clearSelection();
+    }
+  }
+
+  async batchSetActive(active: boolean): Promise<void> {
+    const count = this.selectedIds().length;
+    const confirmed = await this.confirmService.open({
+      message: this.text(active ? 'users.batch.enableMessage' : 'users.batch.disableMessage', {
+        count,
+      }),
+      header: this.text(active ? 'users.batch.enableHeader' : 'users.batch.disableHeader'),
+      //#if (IncludeLocalization)
+      confirmText: this.text('common.ok'),
+      cancelText: this.text('common.cancel'),
+      //#endif
+      variant: active ? undefined : 'destructive',
+    });
+    if (confirmed) {
+      const ids = this.selectedIds();
+      this.runBatch(
+        active ? this.service.batchEnableUsers({ ids }) : this.service.batchDisableUsers({ ids }),
+      );
+    }
+  }
+  //#if (LocalIdentity)
+
+  async batchUnlock(): Promise<void> {
+    const confirmed = await this.confirmService.open({
+      message: this.text('users.batch.unlockMessage', { count: this.selectedIds().length }),
+      header: this.text('users.batch.unlockHeader'),
+      //#if (IncludeLocalization)
+      confirmText: this.text('common.ok'),
+      cancelText: this.text('common.cancel'),
+      //#endif
+    });
+    if (confirmed) {
+      this.runBatch(this.service.batchUnlockUsers({ ids: this.selectedIds() }));
+    }
+  }
+  //#endif
+
+  batchAssignRoles(roleIds: string[]): void {
+    this.runBatch(this.service.batchAssignUserRoles({ ids: this.selectedIds(), roleIds }), () => {
+      this.batchRolesVisible.set(false);
+      // 角色变化会改变有效权限，选中的可能包括自己
+      this.authorizationService.reload().subscribe({ error: () => undefined });
+    });
+  }
+
+  /**
+   * 执行一次批量操作并汇总逐条结果：全部成功给成功提示；有失败时列出失败的用户与原因（说明来自
+   * 服务端，已本地化）。完成后清空选择并刷新当前页；整批被拒（如角色不存在）时保留选择以便重试。
+   */
+  private runBatch(request: Observable<BatchOperationOutputDto>, onDone?: () => void): void {
+    this.batchBusy.set(true);
+    request
+      .pipe(
+        finalize(() => this.batchBusy.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (result) => {
+          this.reportBatch(result);
+          this.rowSelection.set({});
+          onDone?.();
+          this.reloadList();
+        },
+        error: (error) => this.showRequestError(error),
+      });
+  }
+
+  private reportBatch(result: BatchOperationOutputDto): void {
+    const failed = result.items.filter((item) => !item.succeeded);
+    const succeeded = result.items.length - failed.length;
+    if (failed.length === 0) {
+      toast.success(this.text('common.success'), {
+        description: this.text('users.batch.allSucceeded', { count: succeeded }),
+      });
+      return;
+    }
+
+    const names = new Map(this.users().map((user) => [user.id, user.username]));
+    const reasons = failed.map(
+      (item) => `${names.get(item.id) ?? item.id}: ${item.message ?? item.errorCode ?? ''}`,
+    );
+    toast.warning(this.text('users.batch.partial', { succeeded, failed: failed.length }), {
+      description: reasons.join('\n'),
+      duration: 10_000,
+    });
+  }
+
+  /** 事件发生时的一次性文案；两种形态共用一个入口，调用处不必各写一遍条件分支。 */
+  private text(key: string, params?: Record<string, unknown>): string {
+    //#if (IncludeLocalization)
+    return this.transloco.translate(key, params);
+    //#else
+    return this.t(key, params);
+    //#endif
+  }
+
   private showRequestError(error: unknown): void {
     //#if (IncludeLocalization)
     toast.error(this.transloco.translate('common.requestError'), {
@@ -682,5 +837,23 @@ const ENGLISH: Record<string, string> = {
   'users.table.colRole': 'Role',
   'common.refresh': 'Refresh',
   'users.actions.newUser': 'New user',
+  'users.batch.toolbar': 'Bulk actions',
+  'users.batch.selected': '{{count}} selected',
+  'users.batch.enable': 'Enable',
+  'users.batch.disable': 'Disable',
+  'users.batch.unlock': 'Unlock',
+  'users.batch.assignRoles': 'Add roles',
+  'users.batch.clear': 'Clear selection',
+  'users.batch.enableHeader': 'Enable users',
+  'users.batch.enableMessage': 'Enable the {{count}} selected users?',
+  'users.batch.disableHeader': 'Disable users',
+  'users.batch.disableMessage':
+    'Disable the {{count}} selected users? They will be signed out and cannot sign in.',
+  'users.batch.unlockHeader': 'Unlock users',
+  'users.batch.unlockMessage':
+    'Unlock the {{count}} selected users? Their failed sign-in counts are reset too.',
+  'users.batch.allSucceeded': 'Done for {{count}} users.',
+  'users.batch.partial': '{{succeeded}} succeeded, {{failed}} failed',
+  'common.success': 'Success',
 };
 //#endif

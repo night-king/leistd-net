@@ -115,5 +115,27 @@
     "title": "Roles · {{name}}",
     "description": "The user inherits every permission granted to the selected roles.",
     "saved": "Roles updated"
+  },
+  "batch": {
+    "toolbar": "Bulk actions",
+    "selected": "{{count}} selected",
+    "enable": "Enable",
+    "disable": "Disable",
+    "unlock": "Unlock",
+    "assignRoles": "Add roles",
+    "clear": "Clear selection",
+    "selectAll": "Select all users on this page",
+    "selectRow": "Select {{name}}",
+    "enableHeader": "Enable users",
+    "enableMessage": "Enable the {{count}} selected users?",
+    "disableHeader": "Disable users",
+    "disableMessage": "Disable the {{count}} selected users? They will be signed out and cannot sign in.",
+    "unlockHeader": "Unlock users",
+    "unlockMessage": "Unlock the {{count}} selected users? Their failed sign-in counts are reset too.",
+    "allSucceeded": "Done for {{count}} users.",
+    "partial": "{{succeeded}} succeeded, {{failed}} failed",
+    "rolesTitle": "Add roles to {{count}} users",
+    "rolesDescription": "The selected roles are added. Roles the users already have are kept.",
+    "assign": "Add roles"
   }
 }

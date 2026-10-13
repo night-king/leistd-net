@@ -1,11 +1,57 @@
 {
   "dashboard": {
     "title": "工作台",
-    "username": "用户名",
-    "displayName": "显示名称",
-    "email": "邮箱",
-    "roles": "角色",
-    "noUserInfo": "未获取到用户信息"
+    "greeting": {
+      "morning": "早上好，{{name}}",
+      "afternoon": "下午好，{{name}}",
+      "evening": "晚上好，{{name}}"
+    },
+    "search": "搜索页面与设置…",
+    "actions": {
+      "enableTwoFactor": "开启两步验证",
+      "devices": "登录设备"
+    },
+    "continue": {
+      "title": "继续工作",
+      "note": "以下是示例，替换成你自己的业务模块。",
+      "example": "示例",
+      "item1": "示例模块",
+      "item1Hint": "把这一页换成你的业务入口",
+      "item2": "月度报表",
+      "item2Hint": "你最近编辑过的文档",
+      "item3": "客户跟进看板",
+      "item3Hint": "你常去的看板"
+    },
+    "shortcuts": {
+      "title": "快捷入口",
+      "profile": "个人资料",
+      "security": "账户与安全",
+      "preferences": "偏好设置",
+      "notifications": "通知",
+      "platform": "管理平台"
+    },
+    "notifications": {
+      "title": "最近通知",
+      "markAllRead": "全部标为已读",
+      "empty": "暂无通知"
+    },
+    "security": {
+      "title": "账户安全",
+      "passed": "已达标",
+      "suggested": "建议加强",
+      "progress": "完成 {{total}} 项检查中的 {{done}} 项",
+      "emailVerified": "邮箱已验证",
+      "emailUnverified": "邮箱未验证",
+      "twoFactorOn": "已开启两步验证",
+      "twoFactorOff": "未开启两步验证",
+      "fix": "去设置"
+    },
+    "devices": {
+      "title": "登录设备",
+      "manage": "管理",
+      "current": "当前设备",
+      "unknown": "未知设备"
+    }
   },
   "placeholder": {
     "title": "示例模块",

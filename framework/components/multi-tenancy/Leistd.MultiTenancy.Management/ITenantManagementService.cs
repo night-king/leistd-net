@@ -14,8 +14,9 @@ namespace Leistd.MultiTenancy.Management;
 /// </remarks>
 public interface ITenantManagementService
 {
-    /// <summary>按关键字分页查询租户，按创建时间倒序、同刻按 Id 倒序。</summary>
-    /// <param name="input">关键字与分页；<see cref="PageRequest.Sorting"/> 不生效。</param>
+    /// <summary>按关键字与启用状态分页查询未删除的租户，按创建时间倒序、同刻按 Id 倒序。</summary>
+    /// <remarks>只要数量时取 <see cref="PagedResult{T}.TotalCount"/>，总数按同一组筛选计算，与分页无关。</remarks>
+    /// <param name="input">关键字、启用状态与分页；<see cref="PageRequest.Sorting"/> 不生效。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     Task<PagedResult<TenantOutputDto>> GetPagedAsync(GetTenantPagedInputDto input, CancellationToken cancellationToken = default);
 

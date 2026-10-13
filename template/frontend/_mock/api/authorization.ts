@@ -288,6 +288,16 @@ export function getUserRoles(userId: string) {
   }));
 }
 
+/** 与后端一致：内置超级管理员的角色只有本人能改，别的管理员替换或追加都是 403。 */
+export function ensureRolesCanBeManaged(user: (typeof USERS)[number]): void {
+  if (user.isSuperAdmin && user.id !== getCurrentUser()?.id) {
+    throw new MockException(403, {
+      code: 'User:SuperAdminUpdateForbidden',
+      message: 'The built-in super administrator cannot be updated by other administrators.',
+    });
+  }
+}
+
 export function replaceUserRoles(userId: string, body: Record<string, unknown>) {
   requirePermission('App.Users.ManageRoles');
 
@@ -295,6 +305,7 @@ export function replaceUserRoles(userId: string, body: Record<string, unknown>) 
   if (!user) {
     throw new MockException(404, { code: 'User:NotFound', message: 'User does not exist' });
   }
+  ensureRolesCanBeManaged(user);
 
   const roleIds = (body['roleIds'] as string[]) ?? [];
   user.roles = ROLES.filter((role) => roleIds.includes(role.id)).map((role) => role.name);

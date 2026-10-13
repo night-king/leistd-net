@@ -57,7 +57,7 @@ def main():
         planner = importlib.util.module_from_spec(spec); spec.loader.exec_module(planner)
         scenarios = planner.coverage.load_scenarios()
         registered = {name for name, info in scenarios.items() if 'pr' in info['Slices']}
-        front = 'template/frontend/src/app/layout/services/notification-service.ts'
+        front = 'template/frontend/src/app/core/services/notification-service.ts'
         back = 'template/backend/src/CompanyName.ProjectName.Api/Controllers/AuthController.cs'
         fw = next(path for path in paths if path.startswith('framework/components/email/Leistd.Email.Smtp/') and path.endswith('.cs'))
         cases = [

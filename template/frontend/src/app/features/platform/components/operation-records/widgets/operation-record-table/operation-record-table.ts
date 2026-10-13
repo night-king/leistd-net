@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 //#if (IncludeLocalization)
-import { TranslocoDirective, translateObjectSignal } from '@jsverse/transloco';
+import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
@@ -16,12 +16,12 @@ import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTableImports } from '@spartan-ng/helm/table';
 import { ColumnDef, PaginationState } from '@tanstack/angular-table';
 
-//#if (IncludeLocalization)
-import { textAt } from '../../../../../../core/i18n/translation-text';
-//#endif
+import { injectOperationActionSentence } from './operation-action-sentence';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
+import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
+import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
@@ -33,119 +33,20 @@ import {
 import { resolveTableUpdater } from '../../../../../../shared/utils/table-query-state';
 import { tableViewportSignal } from '../../../../../../shared/utils/table-viewport';
 import { OperationRecordOutputDto } from '../../../../dtos/operation-record.dto';
-//#if (!IncludeLocalization)
-
-/**
- * 不启用多语言时的英文句子表，与 `public/i18n/en.json` 的 `operationRecords.actions` 必须同步改：
- * 该场景不生成词条文件，不内联就只能显示裸动作码。
- */
-const ACTION_SENTENCES: Record<string, (target: string) => string> = {
-  'user.created': (t) => `Created user ${t}`,
-  'user.updated': (t) => `Updated user ${t}`,
-  'user.deleted': (t) => `Deleted user ${t}`,
-  'user.enabled': (t) => `Enabled user ${t}`,
-  'user.disabled': (t) => `Disabled user ${t}`,
-  'user.password-reset': (t) => `Reset the password of user ${t}`,
-  'user.unlocked': (t) => `Unlocked user ${t}`,
-  'user.two-factor-reset': (t) => `Reset two-factor authentication for user ${t}`,
-  'user.roles-replaced': (t) => `Changed roles for user ${t}`,
-  'role.created': (t) => `Created role ${t}`,
-  'role.updated': (t) => `Updated role ${t}`,
-  'role.deleted': (t) => `Deleted role ${t}`,
-  //#if (OpenIddictServer)
-  'open-application.created': (t) => `Created open application ${t}`,
-  'open-application.updated': (t) => `Updated open application ${t}`,
-  'open-application.deleted': (t) => `Deleted open application ${t}`,
-  'open-application.secret-reset': (t) => `Reset the secret of open application ${t}`,
-  //#endif
-  //#if (RemoteTokenAuth)
-  'resource.admin-granted': (t) => `Added ${t} to the administrator role`,
-  'resource.admin-restored': (t) => `Restored administrator access for ${t}`,
-  //#endif
-  'permission-grants.replaced': (t) => `Changed permissions for ${t}`,
-  'tenant.created': (t) => `Created tenant ${t}`,
-  'tenant.updated': (t) => `Updated tenant ${t}`,
-  'tenant.activation-changed': (t) => `Changed activation of tenant ${t}`,
-  'tenant.deleted': (t) => `Deleted tenant ${t}`,
-  'tenant.connection-registered': (t) => `Registered a database connection for tenant ${t}`,
-  'tenant.connection-changed': (t) => `Changed the database connection of tenant ${t}`,
-  'tenant.connection-removed': (t) => `Removed the database connection of tenant ${t}`,
-  //#if (LocalIdentity && IncludeMultiTenancy)
-  'tenant.admin-restored': (t) => `Restored tenant administrator ${t}`,
-  //#endif
-  'setting.changed': (t) => `Changed setting ${t}`,
-  'setting.test-email-sent': () => 'Sent a test email',
-  'operation-records.exported': () => 'Exported operation records',
-  'auth.login.succeeded': () => 'Signed in',
-  'auth.login.failed': (t) => `Failed to sign in (${t})`,
-  'auth.locked-out': (t) => `Account ${t} was locked after repeated failed sign-ins`,
-  'auth.password.changed': () => 'Changed their own password',
-  'auth.avatar.changed': () => 'Changed their avatar',
-  'auth.email.verified': () => 'Verified their email address',
-  'auth.session.revoked': (t) => `Signed out a device (${t})`,
-  'auth.sessions.others-revoked': () => 'Signed out all other devices',
-  'auth.two-factor.enabled': () => 'Turned on two-factor authentication',
-  'auth.two-factor.disabled': () => 'Turned off two-factor authentication',
-  'auth.two-factor.recovery-codes-regenerated': () => 'Regenerated recovery codes',
-  'auth.two-factor.recovery-code-used': (t) => `Account ${t} signed in with a recovery code`,
-  //#if (ExternalLogin)
-  'auth.external-login.linked': (t) => `Linked external account ${t}`,
-  'auth.external-login.unlinked': (t) => `Unlinked external account ${t}`,
-  //#endif
-  'auth.registered': (t) => `Registered account ${t}`,
-  'impersonation.started': (t) => `Started acting as ${t}`,
-  'impersonation.ended': () => 'Ended impersonation',
-  'tenant.impersonation-started': (t) => `Signed in as the administrator of tenant ${t}`,
-  'tenant.impersonation-ended': (t) => `Ended impersonation of tenant ${t}`,
-  'auth.token.issued': () => 'Issued an access token',
-};
-
-/** 无目标时的变体（目标记为 `-`）：创建类端点在授权阶段被拒，以及本来就不带目标的动作。 */
-const ACTION_SENTENCES_NO_TARGET: Record<string, string> = {
-  'user.created': 'Created a user',
-  'role.created': 'Created a role',
-  //#if (OpenIddictServer)
-  'open-application.created': 'Created an open application',
-  //#endif
-  'setting.test-email-sent': 'Sent a test email',
-};
-
-/**
- * 失败原因的英文文案，键是失败码。不启用多语言时后端 `failureMessage` 恒为空，须与后端
- * `Api/Resources/en.json` 同步：有 `{码}:Record` 的取它，否则取码本身。`{name}` 占位符用
- * `failureData` 填，键名区分大小写。
- */
-const FAILURE_REASONS: Record<string, string> = {
-  'Auth:InvalidCredentials':
-    'Incorrect username or password (failed attempts in the last {windowMinutes} minutes: {attempts})',
-  'Auth:UserTemporarilyLockedOut':
-    'Locked out for {minutes} minutes after {maxFailedAttempts} failed sign-in attempts',
-  // 框架唯一自产的失败码（RecordDeniedOperationAsync 的默认原因），没有这条会显示裸码
-  'Error:Forbidden': 'Not allowed to perform this action.',
-  // 再认证失败：改口令、停用两步验证、重发恢复码这三处
-  'Security:CurrentPasswordIncorrect': 'The current password is incorrect.',
-  'Auth:TwoFactorCodeInvalid': 'The verification code is incorrect.',
-};
-//#endif
-
-/** 「操作内容」那句话：`key` 非空时模板经 t 取词条并填 `params`，否则直接显示 `text`。 */
-interface ActionSentence {
-  key: string | null;
-  params: Record<string, string>;
-  text: string;
-}
+import { OperationRecordDetail } from '../operation-record-detail/operation-record-detail';
+import { operationRecordActor } from '../operation-record-detail/operation-record-texts';
 
 @Component({
   selector: 'app-operation-record-table',
-  // 不启用多语言时剩下的 7 项刚好不超 printWidth，prettier 会要求折成一行，与另一生成物冲突；
-  // 固定书写形态，与 default-sidebar 的同类数组一致。
-  // prettier-ignore
   imports: [
+    StatusDot,
     AppDate,
+    AppNumber,
     NgIcon,
     HlmBadge,
     HlmButton,
     HlmSpinner,
+    OperationRecordDetail,
     TablePaginator,
     ...HlmTableImports,
     //#if (IncludeLocalization)
@@ -168,21 +69,10 @@ export class OperationRecordTable {
   // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间。
   protected readonly displayTimeZone = inject(SettingContextService).timeZone;
   protected readonly displayLocale = inject(SettingContextService).displayLocale;
-  //#if (IncludeLocalization)
-  /** 动作句子模板整段取成对象，只用来判断动作码登记了没有：句子本身在模板里经 t 带参数取。 */
-  private readonly actionTexts = translateObjectSignal(
-    'operationRecords.actions',
-    {},
-    { scope: 'operationRecords' },
-  );
-  private readonly actionNoTargetTexts = translateObjectSignal(
-    'operationRecords.actionsNoTarget',
-    {},
-    { scope: 'operationRecords' },
-  );
-  //#else
+  //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif
+  private readonly actionSentence = injectOperationActionSentence();
 
   readonly records = input<OperationRecordOutputDto[]>([]);
   readonly totalCount = input(0);
@@ -260,107 +150,18 @@ export class OperationRecordTable {
     return record.outcome === 'succeeded';
   }
 
-  /**
-   * 操作人；都缺失时为 undefined，模板显示"匿名"。宿主未下发 name claim 时只有标识。
-   * `actorIsTarget`（服务端判定）为真时回落到目标名，前端不按动作码前缀猜。
-   */
+  /** 操作人；都缺失时模板显示"匿名"，回落规则见 {@link operationRecordActor}。 */
   actorOf(record: OperationRecordOutputDto): string | undefined {
-    const fromTarget = record.actorIsTarget ? record.targetName : undefined;
-    return record.actorName ?? record.actorId ?? fromTarget;
+    return operationRecordActor(record);
   }
 
-  /** 每条记录的操作句子与失败原因，按记录 Id 取；模板里的 t 表达不了"缺词条"，因此在这里选词条。 */
+  /** 每条记录的操作句子，按记录 Id 取；模板里的 t 表达不了"缺词条"，因此在这里选词条。 */
   protected readonly recordTexts = computed(
     () =>
       new Map(
-        this.records().map((record) => [
-          record.id,
-          { sentence: this.actionSentence(record), failure: this.failureReason(record) },
-        ]),
+        this.records().map((record) => [record.id, { sentence: this.actionSentence(record) }]),
       ),
   );
-
-  /**
-   * 「操作内容」那句话：给出词条键与参数，未登记时给原样文字。整句进语言包，不拼片段（各语言
-   * 语序不同）。目标降级：名称 → 截断的标识 → 无目标（`-`）走 `actionsNoTarget`；未登记的动作码
-   * 显示裸码，不造假句子。
-   */
-  private actionSentence(record: OperationRecordOutputDto): ActionSentence {
-    //#if (IncludeLocalization)
-    if (
-      record.targetId === '-' &&
-      textAt(this.actionNoTargetTexts(), record.action) !== undefined
-    ) {
-      return { key: `operationRecords.actionsNoTarget.${record.action}`, params: {}, text: '' };
-    }
-
-    return textAt(this.actionTexts(), record.action) === undefined
-      ? { key: null, params: {}, text: record.action }
-      : {
-          key: `operationRecords.actions.${record.action}`,
-          params: { target: this.targetDisplay(record) },
-          text: '',
-        };
-    //#else
-    if (record.targetId === '-') {
-      const noTarget = ACTION_SENTENCES_NO_TARGET[record.action];
-      if (noTarget) {
-        return { key: null, params: {}, text: noTarget };
-      }
-    }
-
-    const template = ACTION_SENTENCES[record.action];
-    const text = template ? template(this.targetDisplay(record)) : record.action;
-    return { key: null, params: {}, text };
-    //#endif
-  }
-
-  /** 目标的显示形态：无名称（如授权阶段被拒）时退到截断的标识，避免 36 位 GUID 撑开整行。 */
-  targetDisplay(record: OperationRecordOutputDto): string {
-    if (record.targetName) {
-      return record.targetName;
-    }
-    return record.targetId.length > 12 ? `${record.targetId.slice(0, 8)}…` : record.targetId;
-  }
-
-  /** 失败原因：显示后端按当前语言渲染的 `failureMessage`，取不到时回落到原始码。 */
-  private failureReason(record: OperationRecordOutputDto): string | null {
-    if (!record.failureCode) {
-      return null;
-    }
-    //#if (IncludeLocalization)
-    return record.failureMessage ?? record.failureCode;
-    //#else
-    const text = FAILURE_REASONS[record.failureCode];
-    return (
-      record.failureMessage ??
-      (text ? this.fillPlaceholders(text, this.parseFailureData(record.failureData)) : null) ??
-      record.failureCode
-    );
-    //#endif
-  }
-  //#if (!IncludeLocalization)
-
-  /** 与后端 `LocalizationPlaceholders.Fill` 同一规则：按名替换 `{name}`，没有对应参数的原样保留。 */
-  private fillPlaceholders(text: string, data: Record<string, unknown>): string {
-    return text.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
-      Object.hasOwn(data, name) ? String(data[name] ?? '') : placeholder,
-    );
-  }
-
-  /** `failureData` 是后端序列化的 JSON 参数对象；解析失败按无参数处理，一条坏记录不该整行渲染不出来。 */
-  private parseFailureData(raw: string | undefined): Record<string, unknown> {
-    if (!raw) {
-      return {};
-    }
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
-  }
-  //#endif
 
   /** 每页条数变化：回到第一页并广播新的分页状态。 */
   changePageSize(pageSize: number): void {
@@ -382,12 +183,6 @@ const ENGLISH: Record<string, string> = {
   'operationRecords.outcome.failed': 'Rejected',
   'operationRecords.table.unknownActor': 'Anonymous',
   'operationRecords.table.impersonatedBy': 'acting on behalf, by {{name}}',
-  'operationRecords.table.colTarget': 'Target',
-  'operationRecords.table.colFailure': 'Reason',
-  'operationRecords.table.colFailureDetail': 'Technical detail',
-  'operationRecords.table.colBasis': 'Authorized by',
-  'operationRecords.table.colActorTenantId': 'Operator tenant',
-  'operationRecords.table.colCorrelationId': 'Trace ID',
   'operationRecords.table.emptyFilteredTitle': 'No matching records',
   'operationRecords.table.emptyFilteredHint': 'Adjust the search',
   'operationRecords.table.emptyTitle': 'No operation records yet',

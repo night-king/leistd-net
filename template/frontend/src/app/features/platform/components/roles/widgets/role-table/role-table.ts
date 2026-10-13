@@ -36,6 +36,7 @@ import { SettingContextService } from '../../../../../../core/settings/setting-c
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
+import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
@@ -64,6 +65,7 @@ import { RoleOutputDto } from '../../../../dtos/role.dto';
   imports: [
     TableFit,
     AppDate,
+    AppNumber,
     NgIcon,
     HlmBadge,
     HlmButton,

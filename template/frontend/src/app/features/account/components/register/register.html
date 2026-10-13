@@ -3,13 +3,29 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <app-auth-shell>
+  <app-auth-shell brand="register">
     <div class="flex flex-col gap-2">
       <h1 class="text-2xl font-semibold tracking-tight">
         {{ t('account.register.title') }}
       </h1>
-      <p class="text-muted-foreground text-sm">{{ t('account.register.subtitle') }}</p>
+      <p class="text-muted-foreground text-sm">
+        {{ t('account.register.haveAccount') }}
+        <a
+          [routerLink]="['/auth/login']"
+          [queryParams]="returnUrl ? { returnUrl: returnUrl } : null"
+          class="text-primary font-medium hover:underline"
+          >{{ t('account.register.loginNow') }}</a
+        >
+      </p>
     </div>
+    <!--#if (ExternalLogin)-->
+    <!-- 首次外部登录即建账号，注册页给同一组入口；租户上下文与本页的邮箱注册一致 -->
+    <app-external-login-buttons
+      [returnUrl]="returnUrl"
+      [blocked]="isLoading()"
+      [dividerLabel]="t('account.register.or')"
+    />
+    <!--#endif-->
 
     <form novalidate (submit)="$event.preventDefault(); onSubmit()" class="flex flex-col gap-5">
       <div hlmField>
@@ -46,6 +62,65 @@
         }
       </div>
 
+      <div hlmField>
+        <label hlmFieldLabel for="password">{{ t('account.register.password') }}</label>
+        <hlm-input-group>
+          <input
+            hlmInputGroupInput
+            id="password"
+            autocomplete="new-password"
+            [type]="showPassword() ? 'text' : 'password'"
+            [formField]="registerForm.password"
+            [placeholder]="t('account.register.passwordPlaceholder')"
+          />
+          <button
+            hlmInputGroupButton
+            type="button"
+            size="icon-sm"
+            align="inline-end"
+            [attr.aria-label]="showPassword() ? t('common.hidePassword') : t('common.showPassword')"
+            (click)="showPassword.set(!showPassword())"
+          >
+            <ng-icon [name]="showPassword() ? 'lucideEyeOff' : 'lucideEye'" />
+          </button>
+        </hlm-input-group>
+        <!-- 长度进度：只反映口令策略的最小长度，不另立复杂度规则 -->
+        <div class="flex flex-col gap-1.5" data-testid="password-strength">
+          <div class="grid grid-cols-4 gap-1" aria-hidden="true">
+            @for (segment of strengthSegments; track segment) {
+              <span
+                class="h-1 rounded-full"
+                [class]="
+                  segment > passwordStrength().filled
+                    ? 'bg-muted'
+                    : passwordStrength().met
+                      ? 'bg-success'
+                      : 'bg-warning'
+                "
+              ></span>
+            }
+          </div>
+          <p hlmFieldDescription class="text-xs" aria-live="polite">
+            @if (passwordStrength().met) {
+              {{ t('account.register.passwordLengthMet') }}
+            } @else {
+              {{
+                t('account.register.passwordLengthProgress', {
+                  min: passwordMinLength,
+                  remaining: passwordStrength().remaining,
+                })
+              }}
+            }
+          </p>
+        </div>
+        @for (error of registerForm.password().errors(); track error.kind) {
+          <hlm-field-error [validator]="error.kind">{{
+            t('validation.' + error.kind, error)
+          }}</hlm-field-error>
+        }
+      </div>
+
+      <!-- 图形验证码紧挨提交；开启邮箱验证时获取邮件验证码前要先填它，所以邮件验证码排在它后面 -->
       <div hlmField>
         <label hlmFieldLabel for="captchaCode">{{ t('account.register.captcha') }}</label>
         <div class="flex gap-3 h-9 items-center">
@@ -121,72 +196,6 @@
       }
 
 <!--#endif-->
-      <div class="flex flex-col gap-5">
-        <div hlmField>
-          <label hlmFieldLabel for="password">{{ t('account.register.password') }}</label>
-          <hlm-input-group>
-            <input
-              hlmInputGroupInput
-              id="password"
-              autocomplete="new-password"
-              [type]="showPassword() ? 'text' : 'password'"
-              [formField]="registerForm.password"
-              [placeholder]="t('account.register.passwordPlaceholder')"
-            />
-            <button
-              hlmInputGroupButton
-              type="button"
-              size="icon-sm"
-              align="inline-end"
-              [attr.aria-label]="
-                showPassword() ? t('common.hidePassword') : t('common.showPassword')
-              "
-              (click)="showPassword.set(!showPassword())"
-            >
-              <ng-icon [name]="showPassword() ? 'lucideEyeOff' : 'lucideEye'" />
-            </button>
-          </hlm-input-group>
-          @for (error of registerForm.password().errors(); track error.kind) {
-            <hlm-field-error [validator]="error.kind">{{
-              t('validation.' + error.kind, error)
-            }}</hlm-field-error>
-          }
-        </div>
-
-        <div hlmField>
-          <label hlmFieldLabel for="confirmPassword">{{
-            t('account.register.confirmPassword')
-          }}</label>
-          <hlm-input-group>
-            <input
-              hlmInputGroupInput
-              id="confirmPassword"
-              autocomplete="new-password"
-              [type]="showConfirmPassword() ? 'text' : 'password'"
-              [formField]="registerForm.confirmPassword"
-              [placeholder]="t('account.register.confirmPasswordPlaceholder')"
-            />
-            <button
-              hlmInputGroupButton
-              type="button"
-              size="icon-sm"
-              align="inline-end"
-              [attr.aria-label]="
-                showConfirmPassword() ? t('common.hidePassword') : t('common.showPassword')
-              "
-              (click)="showConfirmPassword.set(!showConfirmPassword())"
-            >
-              <ng-icon [name]="showConfirmPassword() ? 'lucideEyeOff' : 'lucideEye'" />
-            </button>
-          </hlm-input-group>
-          @for (error of registerForm.confirmPassword().errors(); track error.kind) {
-            <hlm-field-error [validator]="error.kind">{{
-              t('validation.' + error.kind, error)
-            }}</hlm-field-error>
-          }
-        </div>
-      </div>
-
       <button hlmBtn type="submit" class="w-full" [disabled]="isLoading()">
         @if (isLoading()) {
           <hlm-spinner class="text-base" data-icon="inline-start" />
@@ -194,15 +203,5 @@
         {{ t('account.register.submit') }}
       </button>
     </form>
-
-    <div class="text-center text-sm">
-      {{ t('account.register.haveAccount') }}
-      <a
-        [routerLink]="['/auth/login']"
-        [queryParams]="returnUrl ? { returnUrl: returnUrl } : null"
-        class="font-semibold text-primary hover:underline transition-colors"
-        >{{ t('account.register.loginNow') }}</a
-      >
-    </div>
   </app-auth-shell>
 </ng-container>

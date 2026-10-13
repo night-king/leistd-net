@@ -36,8 +36,10 @@ import { ColumnDef, PaginationState } from '@tanstack/angular-table';
 
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
+import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
+import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
@@ -59,8 +61,10 @@ import { TenantOutputDto } from '../../../../dtos/tenant.dto';
 @Component({
   selector: 'app-tenant-table',
   imports: [
+    StatusDot,
     TableFit,
     AppDate,
+    AppNumber,
     NgIcon,
     HlmBadge,
     HlmButton,

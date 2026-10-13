@@ -5,6 +5,10 @@ import { Observable, map } from 'rxjs';
 //#if (ExternalLogin && IncludeMultiTenancy)
 import { TenantContextService } from '../../../core/services/tenant-context-service';
 //#endif
+import {
+  TwoFactorStatusOutputDto,
+  UserSessionOutputDto,
+} from '../../../shared/dtos/account-security.dto';
 //#if (ExternalLogin)
 import { SessionLoginOutputDto, UserOutputDto } from '../../../shared/dtos/auth.dto';
 //#else
@@ -32,12 +36,10 @@ import {
 //#if (Email)
   EmailVerificationChallengeOutputDto,
 //#endif
-  UserSessionOutputDto,
   DisableTwoFactorInputDto,
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
   TwoFactorSetupOutputDto,
-  TwoFactorStatusOutputDto,
   //#if (OpenIddictServer)
   LogoutConfirmationOutputDto,
   //#endif

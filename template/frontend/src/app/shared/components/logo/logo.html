@@ -1,27 +1,27 @@
 <div
   [ngClass]="{
-    'size-8 rounded-md': size() === 'normal',
-    'size-14 rounded-xl': size() === 'large',
+    'size-8': size() === 'normal',
+    'size-14': size() === 'large',
   }"
-  class="flex items-center justify-center bg-gradient-to-tr from-primary/40 to-primary/30 text-primary-foreground backdrop-blur-md border border-primary/30 shadow-[0_0_15px_color-mix(in_oklch,var(--primary)_20%,transparent)] group-hover:scale-105 transition-transform duration-300"
+  class="bg-primary text-primary-foreground flex shrink-0 items-center justify-center rounded-md"
 >
   <svg
     [ngClass]="{
       'size-6': size() === 'normal',
       'size-10': size() === 'large',
     }"
-    class="drop-shadow-[0_0_8px_color-mix(in_oklch,var(--primary)_80%,transparent)]"
     viewBox="0 0 100 100"
     xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
   >
     <text
       x="50"
       y="72"
       font-size="60"
-      font-weight="bold"
+      font-weight="600"
       fill="currentColor"
       text-anchor="middle"
-      font-family="Arial, sans-serif"
+      font-family="Geist, system-ui, sans-serif"
     >
       T
     </text>

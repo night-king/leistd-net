@@ -35,7 +35,7 @@ internal sealed class TenantManagementService(
         ArgumentNullException.ThrowIfNull(input);
         Validator.ValidateObject(input, new ValidationContext(input), validateAllProperties: true);
 
-        var page = await tenantManager.GetPagedAsync(input.Keyword, input, cancellationToken);
+        var page = await tenantManager.GetPagedAsync(input.Keyword, input.IsActive, input, cancellationToken);
         return new PagedResult<TenantOutputDto>(page.TotalCount, page.Items.Select(ToOutput));
     }
 

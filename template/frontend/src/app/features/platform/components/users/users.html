@@ -78,6 +78,72 @@
         </div>
       </div>
 
+      @if (selectedIds().length) {
+        <div
+          class="bg-muted -mb-3 flex flex-wrap items-center gap-2 rounded-md px-3 py-2"
+          role="toolbar"
+          [attr.aria-label]="t('users.batch.toolbar')"
+          data-testid="user-batch-bar"
+        >
+          <span class="text-sm font-medium" aria-live="polite">{{
+            t('users.batch.selected', { count: selectedIds().length })
+          }}</span>
+          @if (canUpdateUser()) {
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchSetActive(true)"
+            >
+              <ng-icon name="lucideCircleCheck" data-icon="inline-start" />
+              {{ t('users.batch.enable') }}
+            </button>
+            <!--#if (LocalIdentity)-->
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchUnlock()"
+            >
+              <ng-icon name="lucideLockOpen" data-icon="inline-start" />
+              {{ t('users.batch.unlock') }}
+            </button>
+            <!--#endif-->
+          }
+          @if (canManageUserRoles()) {
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchRolesVisible.set(true)"
+            >
+              <ng-icon name="lucideShieldCheck" data-icon="inline-start" />
+              {{ t('users.batch.assignRoles') }}
+            </button>
+          }
+          @if (canUpdateUser()) {
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              class="text-destructive"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchSetActive(false)"
+            >
+              <ng-icon name="lucideBan" data-icon="inline-start" />
+              {{ t('users.batch.disable') }}
+            </button>
+          }
+          <button hlmBtn variant="ghost" size="sm" class="ms-auto" (click)="clearSelection()">
+            {{ t('users.batch.clear') }}
+            <kbd hlmKbd class="hidden sm:inline-flex">Esc</kbd>
+          </button>
+        </div>
+      }
+
       <app-user-table
         [users]="users()"
         [totalCount]="totalRecords()"
@@ -109,6 +175,9 @@
         <!--#endif-->
         [canManageRoles]="canManageUserRoles()"
         (manageRoles)="openRolesDialog($event)"
+        [selectable]="canBatch()"
+        [rowSelection]="rowSelection()"
+        (rowSelectionChange)="rowSelection.set($event)"
       />
     </div>
   </div>
@@ -123,6 +192,13 @@
     (saved)="handleSave($event)"
   />
   <!--#endif-->
+  <app-batch-roles-dialog
+    [(open)]="batchRolesVisible"
+    [userCount]="selectedIds().length"
+    [availableRoles]="availableRoles()"
+    [saving]="batchBusy()"
+    (assign)="batchAssignRoles($event)"
+  />
   <app-user-roles-dialog
     [(open)]="rolesDialogVisible"
     [user]="rolesDialogUser()"

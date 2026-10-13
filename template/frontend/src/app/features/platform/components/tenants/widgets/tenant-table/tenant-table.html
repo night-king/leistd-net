@@ -12,11 +12,11 @@
       @defer {
         <div hlmTableContainer class="w-full overflow-x-auto">
           <table hlmTable class="w-full">
-            <thead hlmTHead class="bg-card sticky top-0 z-10">
+            <thead hlmTHead class="bg-muted sticky top-0 z-10">
               @for (headerGroup of table.getHeaderGroups(); track headerGroup.id) {
                 <tr hlmTr class="text-sm font-medium">
                   @for (header of headerGroup.headers; track header.id) {
-                    <th hlmTh [class]="header.column.columnDef.meta?.headClass ?? 'px-4 sm:px-6'">
+                    <th hlmTh [class]="header.column.columnDef.meta?.headClass ?? 'first:ps-4'">
                       @switch (header.column.id) {
                         @case ('name') {
                           <span class="whitespace-nowrap">{{ t('tenants.colName') }}</span>
@@ -59,10 +59,7 @@
                 @for (row of table.getRowModel().rows; track row.original.id) {
                   <tr hlmTr class="group text-sm hover:bg-muted/50 transition-colors">
                     @for (cell of row.getVisibleCells(); track cell.id) {
-                      <td
-                        hlmTd
-                        [class]="cell.column.columnDef.meta?.cellClass ?? 'px-4 py-2 sm:px-6'"
-                      >
+                      <td hlmTd [class]="cell.column.columnDef.meta?.cellClass ?? 'first:ps-4'">
                         @switch (cell.column.id) {
                           @case ('name') {
                             <div
@@ -104,26 +101,30 @@
                           }
                           @case ('status') {
                             @if (row.original.isActive) {
-                              <span hlmBadge variant="success">{{ t('tenants.active') }}</span>
+                              <span hlmBadge appStatusDot variant="success">{{
+                                t('tenants.active')
+                              }}</span>
                             } @else {
-                              <span hlmBadge variant="secondary">{{ t('tenants.inactive') }}</span>
+                              <span hlmBadge appStatusDot variant="secondary">{{
+                                t('tenants.inactive')
+                              }}</span>
                             }
                           }
                           @case ('creationTime') {
                             <span class="text-xs text-muted-foreground whitespace-nowrap">{{
                               row.original.creationTime
-                                | appDate: 'full' : displayTimeZone() : displayLocale()
+                                | appDate: 'short' : displayTimeZone() : displayLocale()
                             }}</span>
                           }
                           @case ('actions') {
                             <!-- 操作列（5 项 > 3）：桌面端显示 2 个高频操作 + … 溢出菜单；<sm 全部收进菜单省列宽。
                                规则见 docs/standards/frontend-ui.md §1.1。 -->
-                            <div class="flex items-center justify-end gap-1">
+                            <div class="flex items-center justify-end gap-0.5">
                               <!-- 详情只读，不按修改权限裁剪：能看到这张列表就能看详情。 -->
                               <button
                                 hlmBtn
                                 variant="ghost"
-                                size="icon"
+                                size="icon-sm"
                                 class="hidden sm:inline-flex"
                                 [hlmTooltip]="t('common.details')"
                                 [attr.aria-label]="t('common.details') + ' - ' + row.original.name"
@@ -135,7 +136,7 @@
                                 <button
                                   hlmBtn
                                   variant="ghost"
-                                  size="icon"
+                                  size="icon-sm"
                                   class="hidden sm:inline-flex"
                                   [hlmTooltip]="t('common.edit')"
                                   [attr.aria-label]="t('common.edit') + ' - ' + row.original.name"
@@ -149,7 +150,7 @@
                               <button
                                 hlmBtn
                                 variant="ghost"
-                                size="icon"
+                                size="icon-sm"
                                 align="end"
                                 [attr.aria-label]="t('common.actions')"
                                 [hlmDropdownMenuTrigger]="rowMenu"
@@ -245,7 +246,7 @@
                       <td
                         hlmTd
                         [attr.colspan]="table.getVisibleLeafColumns().length"
-                        class="px-4 pb-3 pt-2 sm:px-6"
+                        class="px-4 pb-3 pt-2"
                       >
                         <dl
                           class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
@@ -340,9 +341,14 @@
     @if (totalCount() > 0) {
       <app-table-paginator
         [labels]="{
-          currentPageReport: t('tenants.table.currentPageReport', { total: totalCount() }),
+          currentPageReport: t('tenants.table.currentPageReport', {
+            total: (totalCount() | appNumber: 'integer' : displayLocale()),
+          }),
           rowsPerPage: t('common.rowsPerPage'),
-          page: t('common.pageOf', { page: currentPage(), total: totalPages() }),
+          page: t('common.pageOf', {
+            page: (currentPage() | appNumber: 'integer' : displayLocale()),
+            total: (totalPages() | appNumber: 'integer' : displayLocale()),
+          }),
           first: t('common.pagination.first'),
           previous: t('common.pagination.previous'),
           next: t('common.pagination.next'),

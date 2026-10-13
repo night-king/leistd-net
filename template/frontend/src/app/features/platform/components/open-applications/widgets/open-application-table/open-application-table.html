@@ -12,13 +12,13 @@
       @defer {
         <div hlmTableContainer class="w-full overflow-x-auto">
           <table hlmTable class="w-full">
-            <thead hlmTHead class="bg-card sticky top-0 z-10">
+            <thead hlmTHead class="bg-muted sticky top-0 z-10">
               @for (headerGroup of table.getHeaderGroups(); track headerGroup.id) {
                 <tr hlmTr class="text-sm font-medium">
                   @for (header of headerGroup.headers; track header.id) {
                     <th
                       hlmTh
-                      [class]="header.column.columnDef.meta?.headClass ?? 'px-4 sm:px-6'"
+                      [class]="header.column.columnDef.meta?.headClass ?? 'first:ps-4'"
                       [attr.aria-sort]="sortAria(header.column.id)"
                     >
                       @switch (header.column.id) {
@@ -86,10 +86,7 @@
                 @for (row of table.getRowModel().rows; track row.original.id) {
                   <tr hlmTr class="group text-sm hover:bg-muted/50 transition-colors">
                     @for (cell of row.getVisibleCells(); track cell.id) {
-                      <td
-                        hlmTd
-                        [class]="cell.column.columnDef.meta?.cellClass ?? 'px-4 py-2 sm:px-6'"
-                      >
+                      <td hlmTd [class]="cell.column.columnDef.meta?.cellClass ?? 'first:ps-4'">
                         @switch (cell.column.id) {
                           @case ('clientId') {
                             <div
@@ -249,20 +246,29 @@
                             </div>
                           }
                           @case ('creationTime') {
-                            <span class="text-xs text-muted-foreground whitespace-nowrap">{{
-                              row.original.creationTime
-                                | appDate: 'full' : displayTimeZone() : displayLocale()
-                            }}</span>
+                            <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
+                            <span
+                              tabindex="0"
+                              class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                              [hlmTooltip]="
+                                row.original.creationTime
+                                  | appDate: 'full' : displayTimeZone() : displayLocale()
+                              "
+                              >{{
+                                row.original.creationTime
+                                  | appDate: 'short' : displayTimeZone() : displayLocale()
+                              }}</span
+                            >
                           }
                           @case ('actions') {
                             <!-- 操作列（3 项 ≤ 3）：桌面端全部平铺；<sm 收进 … 菜单省列宽。
                                规则见 docs/standards/frontend-ui.md §1.1。 -->
-                            <div class="flex items-center justify-end gap-1">
+                            <div class="flex items-center justify-end gap-0.5">
                               @if (canUpdate()) {
                                 <button
                                   hlmBtn
                                   variant="ghost"
-                                  size="icon"
+                                  size="icon-sm"
                                   class="hidden sm:inline-flex"
                                   [hlmTooltip]="t('common.edit')"
                                   [attr.aria-label]="t('common.edit')"
@@ -275,7 +281,7 @@
                                 <button
                                   hlmBtn
                                   variant="ghost"
-                                  size="icon"
+                                  size="icon-sm"
                                   class="hidden sm:inline-flex"
                                   [disabled]="row.original.clientType !== 'confidential'"
                                   [hlmTooltip]="t('openApp.action.resetSecret')"
@@ -289,7 +295,7 @@
                                 <button
                                   hlmBtn
                                   variant="ghost"
-                                  size="icon"
+                                  size="icon-sm"
                                   class="hidden text-destructive hover:text-destructive sm:inline-flex"
                                   [hlmTooltip]="t('common.delete')"
                                   [attr.aria-label]="t('common.delete')"
@@ -302,7 +308,7 @@
                                 <button
                                   hlmBtn
                                   variant="ghost"
-                                  size="icon"
+                                  size="icon-sm"
                                   align="end"
                                   class="sm:hidden"
                                   [attr.aria-label]="t('common.actions')"
@@ -359,7 +365,7 @@
                       <td
                         hlmTd
                         [attr.colspan]="table.getVisibleLeafColumns().length"
-                        class="px-4 pb-3 pt-2 sm:px-6"
+                        class="px-4 pb-3 pt-2"
                       >
                         <dl
                           class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
@@ -517,9 +523,14 @@
     @if (totalCount() > 0) {
       <app-table-paginator
         [labels]="{
-          currentPageReport: t('openApp.table.currentPageReport', { total: totalCount() }),
+          currentPageReport: t('openApp.table.currentPageReport', {
+            total: (totalCount() | appNumber: 'integer' : displayLocale()),
+          }),
           rowsPerPage: t('common.rowsPerPage'),
-          page: t('common.pageOf', { page: currentPage(), total: totalPages() }),
+          page: t('common.pageOf', {
+            page: (currentPage() | appNumber: 'integer' : displayLocale()),
+            total: (totalPages() | appNumber: 'integer' : displayLocale()),
+          }),
           first: t('common.pagination.first'),
           previous: t('common.pagination.previous'),
           next: t('common.pagination.next'),

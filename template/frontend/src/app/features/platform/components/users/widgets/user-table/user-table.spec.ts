@@ -355,6 +355,51 @@ describe('UserTable', () => {
     expect(expandedStates()).toEqual(['false', 'false']);
   });
 
+  //#if (LocalIdentity)
+  // 窄容器里状态列不放"邮箱未验证"徽章，展开详情补上；只读权限也能看到
+  it('shows an unverified email in the expanded row of a narrow table', async () => {
+    const host = fixture.nativeElement as HTMLElement;
+    host.style.display = 'block';
+    host.style.width = '480px';
+    viewport.next(desktop(false));
+    fixture.componentRef.setInput('users', [{ ...user('1', 'alice'), isEmailVerified: false }]);
+    fixture.componentRef.setInput('canUpdate', false);
+    const [table] = await fixture.getDeferBlocks();
+    await table.render(DeferBlockState.Complete);
+    fixture.detectChanges();
+
+    expandButtons()[0].click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const status = host.querySelector<HTMLElement>('[data-testid="user-detail-email-status"]');
+    expect(status).not.toBeNull();
+    expect(getComputedStyle(status!).display).not.toBe('none');
+  });
+
+  //#endif
+  // 时间列写到分钟，完整时刻（含秒）放在可聚焦的提示里：键盘用户也能查到
+  it('keeps the full time of a visible time column reachable by keyboard', async () => {
+    await page.viewport(1600, 900);
+    onTestFinished(() => page.viewport(1280, 800));
+    fixture.componentRef.setInput('users', [
+      { ...user('1', 'alice'), creationTime: '2026-01-01T08:09:07Z' },
+    ]);
+    const [table] = await fixture.getDeferBlocks();
+    await table.render(DeferBlockState.Complete);
+    fixture.autoDetectChanges();
+
+    const time = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>(
+        'tbody span[tabindex="0"]',
+      ),
+    ).find((span) => /:09/.test(span.textContent ?? ''))!;
+    expect(time.textContent).not.toMatch(/:07/);
+
+    time.focus();
+    await expect.poll(() => document.body.textContent?.includes(':09:07')).toBe(true);
+  });
+
   // 最窄一档无列可收时主列截断，表格不横向滚动，状态列与操作列完整可见。
   it('truncates a long name instead of scrolling the table at the narrowest level', async () => {
     // 手机视口：`sm:` 断点（单元格内边距、行内操作按钮）也要按手机生效，只模拟档位不够

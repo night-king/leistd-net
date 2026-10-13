@@ -6,8 +6,8 @@ using CompanyName.ProjectName.Domain.Users.DomainServices;
 #if (RemoteTokenAuth)
 using CompanyName.ProjectName.Domain.Users.ValueObjects;
 using Leistd.MultiTenancy.Context;
-using Leistd.UnitOfWork;
 #endif
+using Leistd.UnitOfWork;
 #if (LocalIdentity)
 using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Sessions;
@@ -44,6 +44,9 @@ using OpenIddict.Abstractions;
 #if (LocalIdentity && IncludeNotifications)
 using Leistd.Notifications.Stores;
 #endif
+#if (IncludeLocalization)
+using Microsoft.Extensions.Localization;
+#endif
 
 namespace CompanyName.ProjectName.Application.Users.AppServices;
 
@@ -54,9 +57,9 @@ public class UserAppService(
     IPermissionChecker permissionChecker,
     IOperationRecorder operationRecorder,
     UserDomainService userDomainService,
+    IUnitOfWorkManager unitOfWorkManager,
 #if (RemoteTokenAuth)
     ICurrentTenant currentTenant,
-    IUnitOfWorkManager unitOfWorkManager,
 #endif
 #if (LocalIdentity)
     UserSortingValidator userSortingValidator,
@@ -71,6 +74,9 @@ public class UserAppService(
     INotificationStore notificationStore,
 #endif
     ILogger<UserAppService> logger,
+#if (IncludeLocalization)
+    IStringLocalizer localizer,
+#endif
     IClock clock,
     IObjectMapper objectMapper,
     IQueryableAsyncExecuter asyncExecuter) : BaseAppService, IUserAppService
@@ -309,7 +315,12 @@ public class UserAppService(
     /// <remarks>两种形态都保留：即使身份由签发方发放，本服务仍要能就地停掉一个人的访问。</remarks>
     public async Task EnableAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserOrThrowAsync(id, cancellationToken);
+        await EnableCoreAsync(await GetUserOrThrowAsync(id, cancellationToken), cancellationToken);
+    }
+
+    // 规则与留痕只写在这里，单个入口与批量入口共用
+    private async Task EnableCoreAsync(User user, CancellationToken cancellationToken)
+    {
         if (!user.CanBeManagedBy(currentUser.Id))
         {
             throw new BusinessException(UserErrorCodes.SuperAdminOperationForbidden, "The built-in super administrator cannot be operated on by other administrators.");
@@ -338,7 +349,12 @@ public class UserAppService(
 #endif
     public async Task DisableAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserOrThrowAsync(id, cancellationToken);
+        await DisableCoreAsync(await GetUserOrThrowAsync(id, cancellationToken), cancellationToken);
+    }
+
+    // 规则与留痕只写在这里，单个入口与批量入口共用；工作单元由入口给出
+    private async Task DisableCoreAsync(User user, CancellationToken cancellationToken)
+    {
         if (!user.CanBeManagedBy(currentUser.Id))
         {
             throw new BusinessException(UserErrorCodes.SuperAdminDisableForbidden, "The built-in super administrator cannot be disabled by other administrators.");
@@ -411,7 +427,12 @@ public class UserAppService(
     /// </remarks>
     public async Task UnlockAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var user = await GetUserOrThrowAsync(id, cancellationToken);
+        await UnlockCoreAsync(await GetUserOrThrowAsync(id, cancellationToken), cancellationToken);
+    }
+
+    // 规则与留痕只写在这里，单个入口与批量入口共用
+    private async Task UnlockCoreAsync(User user, CancellationToken cancellationToken)
+    {
         if (!user.Lockout.HasAnythingToClear)
         {
             return;
@@ -554,10 +575,7 @@ public class UserAppService(
         CancellationToken cancellationToken = default)
     {
         var user = await GetUserWithRolesOrThrowAsync(id, cancellationToken);
-        if (!user.CanBeManagedBy(currentUser.Id))
-        {
-            throw new BusinessException(UserErrorCodes.SuperAdminUpdateForbidden, "The built-in super administrator cannot be updated by other administrators.");
-        }
+        EnsureRolesCanBeManaged(user);
 
         var roles = await GetRolesByIdsAsync(input.RoleIds, cancellationToken);
         user.ReplaceRoles(roles.Select(role => role.Id));
@@ -574,6 +592,152 @@ public class UserAppService(
             cancellationToken);
 
         return ToRoleBriefs(roles);
+    }
+
+    /// <inheritdoc />
+    public Task<BatchOperationOutputDto> BatchEnableAsync(
+        BatchUsersInputDto input,
+        CancellationToken cancellationToken = default)
+        => ExecuteBatchAsync(
+            input.Ids,
+            OperationRecordActions.UserEnabled,
+            PermissionConstant.Users.Update,
+            GetUserOrThrowAsync,
+            EnableCoreAsync,
+            cancellationToken);
+
+    /// <inheritdoc />
+    public Task<BatchOperationOutputDto> BatchDisableAsync(
+        BatchUsersInputDto input,
+        CancellationToken cancellationToken = default)
+        => ExecuteBatchAsync(
+            input.Ids,
+            OperationRecordActions.UserDisabled,
+            PermissionConstant.Users.Update,
+            GetUserOrThrowAsync,
+            DisableCoreAsync,
+            cancellationToken);
+#if (LocalIdentity)
+
+    /// <inheritdoc />
+    public Task<BatchOperationOutputDto> BatchUnlockAsync(
+        BatchUsersInputDto input,
+        CancellationToken cancellationToken = default)
+        => ExecuteBatchAsync(
+            input.Ids,
+            OperationRecordActions.UserUnlocked,
+            PermissionConstant.Users.Update,
+            GetUserOrThrowAsync,
+            UnlockCoreAsync,
+            cancellationToken);
+#endif
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// 角色在逐条执行之前解析一次：有不存在的角色时整个请求被拒，一条都不执行。
+    /// 记录沿用角色替换的动作码，它回答的是同一个问题——这个人的角色变了。
+    /// </remarks>
+    public async Task<BatchOperationOutputDto> BatchAssignRolesAsync(
+        BatchAssignUserRolesInputDto input,
+        CancellationToken cancellationToken = default)
+    {
+        var roleIds = (await GetRolesByIdsAsync(input.RoleIds, cancellationToken)).Select(role => role.Id).ToList();
+        return await ExecuteBatchAsync(
+            input.Ids,
+            OperationRecordActions.UserRolesReplaced,
+            PermissionConstant.Users.ManageRoles,
+            GetUserWithRolesOrThrowAsync,
+            (user, ct) => AssignRolesCoreAsync(user, roleIds, ct),
+            cancellationToken);
+    }
+
+    /// <remarks>用户须已带角色读取。</remarks>
+    private async Task AssignRolesCoreAsync(User user, List<Guid> roleIds, CancellationToken cancellationToken)
+    {
+        EnsureRolesCanBeManaged(user);
+
+        // 已持有全部角色时静默成功、不留记录（同启用与解锁）
+        if (roleIds.All(user.IsInRole))
+        {
+            return;
+        }
+
+        user.AssignRoles(roleIds);
+        await userRepository.UpdateAsync(user, cancellationToken);
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.UserRolesReplaced,
+            OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
+            PermissionConstant.Users.ManageRoles,
+            cancellationToken);
+    }
+
+    // 角色替换与追加共用的前置拒绝
+    private void EnsureRolesCanBeManaged(User user)
+    {
+        if (!user.CanBeManagedBy(currentUser.Id))
+        {
+            throw new BusinessException(UserErrorCodes.SuperAdminUpdateForbidden, "The built-in super administrator cannot be updated by other administrators.");
+        }
+    }
+
+    /// <summary>逐条执行批量操作：每条在自己的工作单元里提交，业务拒绝只回滚这一条。</summary>
+    /// <remarks>
+    /// <para>被拒的条目由这里补一条失败记录：单个入口靠端点注解兜底补记，批量请求里一次有多个目标，兜底推不出是哪一个。</para>
+    /// <para>只接住业务拒绝；技术异常照常抛出，此前已提交的条目保持提交。</para>
+    /// </remarks>
+    private async Task<BatchOperationOutputDto> ExecuteBatchAsync(
+        IEnumerable<Guid> ids,
+        string action,
+        string authorizationBasis,
+        Func<Guid, CancellationToken, Task<User>> load,
+        Func<User, CancellationToken, Task> execute,
+        CancellationToken cancellationToken)
+    {
+        var items = new List<BatchOperationItemOutputDto>();
+        foreach (var id in ids.Distinct())
+        {
+            var target = OperationTarget.For(id);
+            try
+            {
+                using var unitOfWork = unitOfWorkManager.Begin(requiresNew: true);
+                var user = await load(id, cancellationToken);
+                target = OperationTarget.For(user.Id, user.DisplayName ?? user.Username);
+                await execute(user, cancellationToken);
+                await unitOfWork.CompleteAsync(cancellationToken);
+                items.Add(new BatchOperationItemOutputDto { Id = id, Succeeded = true });
+            }
+            catch (BusinessException exception)
+            {
+                await operationRecorder.RecordFailedAsync(
+                    action,
+                    target,
+                    authorizationBasis,
+                    OperationFailure.FromCode(exception.Code, exception.LocalizationData));
+                items.Add(new BatchOperationItemOutputDto
+                {
+                    Id = id,
+                    Succeeded = false,
+                    ErrorCode = exception.Code,
+                    Message = Localize(exception)
+                });
+            }
+        }
+
+        return new BatchOperationOutputDto { Items = items };
+    }
+
+    /// <summary>与错误响应的 <c>detail</c> 同一口径：按错误码取词条填占位符，取不到时用异常自带的安全文案。</summary>
+    private string Localize(BusinessException exception)
+    {
+#if (IncludeLocalization)
+        var localized = localizer[exception.Code];
+        if (!localized.ResourceNotFound)
+        {
+            return LocalizationPlaceholders.Fill(localized.Value, exception.LocalizationData);
+        }
+
+#endif
+        return exception.Message;
     }
 
     /// <summary>解析角色前先确认调用方持有角色分配权限。</summary>

@@ -14,6 +14,8 @@ export interface MockUser {
   isSuperAdmin: boolean;
   isEmailVerified: boolean;
   creationTime: string;
+  /** 软删除时刻；只有 DELETED_USERS 里的用户有值。统计按它回推历史总数。 */
+  deletionTime?: string;
   lastLoginTime?: string;
   /** 登录锁定：有值即锁定中；null 表示无期限（管理员锁定）。 */
   lockoutEnd?: string | null;
@@ -53,6 +55,73 @@ export const USERS: MockUser[] = [
     isEmailVerified: true,
     creationTime: '2025-06-01T00:00:00Z',
     lastLoginTime: '2026-06-09T12:00:00Z',
+    roles: ['Member'],
+  },
+  // 以下几位覆盖列表里的各种状态（多角色、锁定、停用、邮箱未验证），截图与演示不至于只有两行
+  {
+    id: 'user_jiayi',
+    username: 'jiayi.lin',
+    email: 'jiayi.lin@example.com',
+    password: 'Jiayi@123456',
+    displayName: '林嘉怡',
+    isActive: true,
+    isSuperAdmin: false,
+    isEmailVerified: true,
+    creationTime: '2025-03-02T00:00:00Z',
+    lastLoginTime: '2026-06-12T01:41:00Z',
+    roles: ['Admin', 'Member'],
+  },
+  {
+    id: 'user_zihang',
+    username: 'zihang',
+    email: 'zihang.zhou@example.com',
+    password: 'Zihang@123456',
+    displayName: '周子航',
+    isActive: true,
+    isSuperAdmin: false,
+    isEmailVerified: true,
+    creationTime: '2025-04-18T00:00:00Z',
+    lastLoginTime: '2026-06-12T00:15:00Z',
+    roles: ['Member'],
+  },
+  {
+    id: 'user_siyuan',
+    username: 'siyuan.c',
+    email: 'siyuan@example.org',
+    password: 'Siyuan@123456',
+    displayName: '陈思远',
+    isActive: true,
+    isSuperAdmin: false,
+    isEmailVerified: true,
+    creationTime: '2025-06-09T00:00:00Z',
+    lastLoginTime: '2026-06-10T09:48:00Z',
+    // 管理员锁定：无期限，直到解锁
+    lockoutEnd: null,
+    roles: ['Member'],
+  },
+  {
+    id: 'user_yiming',
+    username: 'yiming',
+    email: 'yiming.wang@example.com',
+    password: 'Yiming@123456',
+    displayName: '王一鸣',
+    isActive: false,
+    isSuperAdmin: false,
+    isEmailVerified: true,
+    creationTime: '2025-07-21T00:00:00Z',
+    lastLoginTime: '2026-05-09T03:20:00Z',
+    roles: ['Member'],
+  },
+  {
+    id: 'user_mei',
+    username: 'mei.li',
+    email: 'mei.li@example.net',
+    password: 'Meili@123456',
+    displayName: '李梅',
+    isActive: true,
+    isSuperAdmin: false,
+    isEmailVerified: false,
+    creationTime: '2025-09-30T00:00:00Z',
     roles: ['Member'],
   },
 ];

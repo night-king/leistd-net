@@ -34,19 +34,27 @@ import {
 import { HlmAvatarImports } from '@spartan-ng/helm/avatar';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmCheckbox } from '@spartan-ng/helm/checkbox';
 import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
 import { HlmPopoverImports } from '@spartan-ng/helm/popover';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTableImports } from '@spartan-ng/helm/table';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
-import { ColumnDef, PaginationState, SortingState } from '@tanstack/angular-table';
+import {
+  ColumnDef,
+  PaginationState,
+  RowSelectionState,
+  SortingState,
+} from '@tanstack/angular-table';
 
 import { AuthService } from '../../../../../../core/services/auth-service';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
 import { PopoverAria } from '../../../../../../shared/directives/popover-aria';
+import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
+import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
@@ -75,11 +83,14 @@ type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
 @Component({
   selector: 'app-user-table',
   imports: [
+    StatusDot,
     TableFit,
     AppDate,
+    AppNumber,
     NgIcon,
     HlmBadge,
     HlmButton,
+    HlmCheckbox,
     HlmSpinner,
     TablePaginator,
     ...HlmAvatarImports,
@@ -149,6 +160,14 @@ export class UserTable {
   /** 一个可用操作都没有时不渲染溢出菜单，避免留下点开即空的按钮。 */
   readonly hasRowActions = computed(() => this.hasMenuOnlyActions() || this.canManageRoles());
 
+  /**
+   * 是否显示多选列：有批量操作可用时由页面打开。选择状态归页面所有（翻页、筛选、排序时由页面清空），
+   * 表格只回报勾选变化；选择只在当前页内有效。
+   */
+  readonly selectable = input(false);
+  readonly rowSelection = input<RowSelectionState>({});
+  readonly rowSelectionChange = output<RowSelectionState>();
+
   readonly paginationChange = output<PaginationState>();
   readonly sortingChange = output<SortingState>();
   //#if (LocalIdentity)
@@ -172,6 +191,12 @@ export class UserTable {
   private readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
 
   protected readonly columns: ColumnDef<AppTableFeatures, UserManagementOutputDto>[] = [
+    {
+      id: 'select',
+      enableSorting: false,
+      enableHiding: false,
+      meta: { priority: 'primary', locked: true, headClass: 'w-10 ps-4', cellClass: 'w-10 ps-4' },
+    },
     {
       accessorKey: 'username',
       id: 'username',
@@ -199,9 +224,10 @@ export class UserTable {
     },
   ];
 
-  private readonly columnVisibility = computed(() =>
-    tableColumnVisibility(this.columns, this.foldLevel()),
-  );
+  private readonly columnVisibility = computed(() => ({
+    ...tableColumnVisibility(this.columns, this.foldLevel()),
+    select: this.selectable(),
+  }));
 
   readonly hasCollapsedColumns = computed(() => this.foldLevel() !== 'desktop');
 
@@ -216,12 +242,17 @@ export class UserTable {
     manualPagination: true,
     manualSorting: true,
     rowCount: this.totalCount(),
+    // 加载中表格里还是上一页的行，此时勾选的会是看不见的旧数据
+    enableRowSelection: !this.loading(),
     onPaginationChange: (updater) =>
       this.paginationChange.emit(resolveTableUpdater(updater, this.pagination())),
     onSortingChange: (updater) =>
       this.sortingChange.emit(resolveTableUpdater(updater, this.sorting())),
+    onRowSelectionChange: (updater) =>
+      this.rowSelectionChange.emit(resolveTableUpdater(updater, this.rowSelection())),
     state: {
       columnVisibility: this.columnVisibility(),
+      rowSelection: this.rowSelection(),
       pagination: this.pagination(),
       sorting: this.sorting(),
     },
@@ -291,6 +322,8 @@ const ENGLISH: Record<string, string> = {
   'users.table.colLastLogin': 'Last sign-in',
   'users.table.colCreatedAt': 'Created at',
   'common.actions': 'Actions',
+  'users.batch.selectAll': 'Select all users on this page',
+  'users.batch.selectRow': 'Select {{name}}',
   'common.details': 'View details',
   'users.popover.rolesTitle': 'Roles ({{count}})',
   'users.status.active': 'Active',
@@ -298,8 +331,8 @@ const ENGLISH: Record<string, string> = {
   'users.status.lockedUntil': 'Locked until {{time}}',
   'users.status.lockedIndefinitely': 'Locked until an administrator unlocks it',
   'users.status.locked': 'Locked',
-  'users.status.emailVerified': 'Email verified',
   'users.status.emailUnverified': 'Email not verified',
+  'users.filter.emailLabel': 'Email status',
   'common.edit': 'Edit',
   'users.actions.manageRoles': 'Assign roles',
   'users.tooltip.resetPassword': 'Reset password',

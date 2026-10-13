@@ -6,6 +6,7 @@ import {
   DestroyRef,
   //#endif
   OnInit,
+  computed,
   effect,
   inject,
   signal,
@@ -18,7 +19,6 @@ import {
   maxLength,
   email as emailValidator,
   pattern,
-  validate,
   FormField,
 } from '@angular/forms/signals';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -54,6 +54,9 @@ import { CaptchaOutputDto, SecurityConfigOutputDto } from '../../dtos/account.dt
 import { CaptchaOutputDto } from '../../dtos/account.dto';
 //#endif
 import { AccountService } from '../../services/account-service';
+//#if (ExternalLogin)
+import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
+//#endif
 import { AuthShell } from '../auth-shell/auth-shell';
 
 @Component({
@@ -75,6 +78,9 @@ import { AuthShell } from '../auth-shell/auth-shell';
     TranslocoDirective,
     //#endif
     AuthShell,
+    //#if (ExternalLogin)
+    ExternalLoginButtons,
+    //#endif
   ],
   providers: [
     provideIcons({
@@ -106,8 +112,6 @@ export class Register implements OnInit {
 
   protected readonly showPassword = signal(false);
 
-  protected readonly showConfirmPassword = signal(false);
-
 //#if (Email)
   public securityConfig = signal<SecurityConfigOutputDto | null>(null);
 //#endif
@@ -133,8 +137,22 @@ export class Register implements OnInit {
     emailVerificationCode: '',
 //#endif
     password: '',
-    confirmPassword: '',
   });
+
+  /**
+   * 口令长度进度：口令策略只看长度（见 PASSWORD_MIN_LENGTH 与服务端 PasswordPolicy），这里不另立
+   * 复杂度规则，只把「离最小长度还差多少」画成四格进度，够长即达标。
+   */
+  readonly passwordStrength = computed(() => {
+    const length = this.model().password.length;
+    return {
+      met: length >= PASSWORD_MIN_LENGTH,
+      filled: Math.min(4, Math.ceil((length / PASSWORD_MIN_LENGTH) * 4)),
+      remaining: Math.max(0, PASSWORD_MIN_LENGTH - length),
+    };
+  });
+  protected readonly passwordMinLength = PASSWORD_MIN_LENGTH;
+  protected readonly strengthSegments = [1, 2, 3, 4];
 
   readonly registerForm = form(this.model, (path) => {
     required(path.email);
@@ -153,12 +171,6 @@ export class Register implements OnInit {
     required(path.password);
     minLength(path.password, PASSWORD_MIN_LENGTH);
     maxLength(path.password, PASSWORD_MAX_LENGTH);
-    required(path.confirmPassword);
-    validate(path.confirmPassword, (ctx) => {
-      const confirm = ctx.value();
-      const password = ctx.valueOf(path.password);
-      return password && confirm && password !== confirm ? { kind: 'passwordMismatch' } : null;
-    });
   });
 
   // 用户名是否被用户手动编辑过（一旦手动改动，停止从邮箱自动推导）
@@ -411,9 +423,7 @@ export class Register implements OnInit {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'account.register.title': 'Sign Up',
-  'account.register.subtitle':
-    'Welcome aboard, please fill in the following information to create your account',
+  'account.register.title': 'Create your account',
   'account.register.email': 'Email',
   'account.register.emailPlaceholder': 'Enter your email address',
   'account.register.username': 'Username',
@@ -431,10 +441,14 @@ const ENGLISH: Record<string, string> = {
   'account.register.passwordPlaceholder': 'At least 12 characters',
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
-  'account.register.confirmPassword': 'Confirm Password',
-  'account.register.confirmPasswordPlaceholder': 'Enter the password again',
   'account.register.submit': 'Sign Up',
   'account.register.haveAccount': 'Already have an account?',
-  'account.register.loginNow': 'Sign in directly',
+  'account.register.loginNow': 'Sign in',
+  //#if (ExternalLogin)
+  'account.register.or': 'Or sign up with email',
+  //#endif
+  'account.register.passwordLengthProgress':
+    'At least {{min}} characters, {{remaining}} more to go',
+  'account.register.passwordLengthMet': 'Length requirement met',
 };
 //#endif

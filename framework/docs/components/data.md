@@ -10,6 +10,7 @@
 | 某个 DbContext 要钉在独立的命名连接上（如控制面库） | 在 DbContext 上标 `[ConnectionStringName("...")]`；未标记的走 `ConnectionStringNames.Default` |
 | 共享库形态下要防「一个工作单元写了两个归属的数据」 | 实现 `IConnectionAffinityProvider` 返回归属标识；多租户侧已提供租户实现 |
 | 列表查询要分页 | 查询接收 `PageRequest`、返回 `PagedResult<T>`；MVC 用 `[FromQuery]` 绑定，Minimal API 用带默认值的显式参数 |
+| 要按日、按小时等时间段统计（含按业务时区切的不等长自然日） | `query.GroupByTimeBucket(x => x.CreationTime, edges)` 后再 `Count()` 或去重计数，经 `IQueryableAsyncExecuter` 执行；边界由调用方按自己的日历与时区算好 |
 
 ## 安装
 
@@ -131,12 +132,15 @@ public sealed class VisibleDbContext(DbContextOptions<VisibleDbContext> options)
 | `ConnectionStringNames.Default` | 未标记特性时使用的默认连接名 |
 | `PageRequest` | 分页请求：`Offset`（≥0）、`Limit`（1–`MaximumLimit`，默认 `DefaultLimit`）、`Sorting`；边界以 DataAnnotations 表达，virtual 属性可由派生 record 覆写默认值与校验特性 |
 | `PagedResult<T>` | 分页结果：`TotalCount` 与当前页 `Items`；`Empty` 为空结果 |
+| `TimeBucketQueryableExtensions.GroupByTimeBucket(source, timeSelector, edges)` | 只保留落在 [`edges[0]`, `edges[^1]`) 的元素，按所在时间桶分组，组键为桶下标；第 i 个桶是 [`edges[i]`, `edges[i+1]`)，边界上的元素只归后一个桶。边界至少两个且严格递增，否则抛 `ArgumentException`；没有元素的桶不出现，调用方按下标补零 |
 
 ## 实现行为
 
 解析器必须返回非空连接字符串。配置缺失、外部依赖不可达或凭据无法解析时必须抛出异常，不得回退到调用方未选择的数据库。租户感知解析见[多租户](./multi-tenancy.md)。
 
 `PageRequest` 的基础上限为 `MaximumLimit`。业务请求可覆写属性和校验特性；越界由宿主校验拒绝，类型本身不截断。用派生类型声明实例规则，不修改全局默认值。
+
+`GroupByTimeBucket` 只按时刻比较，与时区无关：桶可以不等长，夏令时当天按本地自然日切出的桶是 23 或 25 小时。桶号写成二分嵌套的条件表达式（366 个桶最深 9 层），不撞数据库对 CASE 嵌套层数的限制；边界作为查询参数传入，同样桶数的查询共用一份 SQL。分组与聚合由持久化 provider 在数据库里完成，不把明细取回应用。
 
 `AffinityKey` 表示逻辑归属，不等同于物理连接。共享库中不同租户可指向同一连接，工作单元仍必须拒绝跨归属写入。该值在每次获取 DbContext 时读取，实现不得执行 I/O；未注册时为 `null`。
 

@@ -52,7 +52,7 @@ public sealed class OperationRecordStoreTests : IDisposable
         IReadOnlyCollection<string>? actions = null,
         OperationRecordOutcome? outcome = null)
         => _store.GetPagedListAsync(
-            new OperationRecordFilter
+            new OperationRecordCriteria
             {
                 Scope = scope,
                 Keyword = keyword,

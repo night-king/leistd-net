@@ -1,55 +1,304 @@
 <!--#if (IncludeLocalization)-->
-<ng-container *transloco="let t; prefix: 'landing'">
+<ng-container *transloco="let t">
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="min-h-screen flex flex-col items-center justify-center bg-background px-6 relative">
-    <div class="absolute end-4 top-4 z-50 flex gap-2 md:gap-4">
-      <app-theme-mode-toggle />
-      <!--#if (IncludeLocalization)-->
-      <app-language-switcher />
-      <!--#endif-->
-    </div>
-
-    <div class="flex max-w-2xl flex-col gap-8 text-center">
-      <h1 class="text-2xl font-semibold tracking-tight text-balance">
-        {{ t('hero.title') }}
-      </h1>
-      <p class="text-muted-foreground text-sm">{{ t('hero.subtitle') }}</p>
-
-      <div class="flex items-center justify-center gap-4">
-        <!--#if (LocalIdentity)-->
-        <a hlmBtn routerLink="/auth/login">{{ t('hero.login') }}</a>
-        <a hlmBtn variant="outline" routerLink="/auth/register">{{ t('hero.register') }}</a>
-        <!--#else-->
-        <!-- 登录与注册都在签发令牌的身份服务上：进入工作台时由守卫发起 OIDC 登录 -->
-        <a hlmBtn routerLink="/workspace">{{ t('hero.login') }}</a>
-        <!--#endif-->
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-8">
-        <div class="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-6">
-          <ng-icon name="lucideShield" class="text-3xl text-primary" />
-          <h2 class="text-base font-medium">{{ t('feature.authTitle') }}</h2>
-          <p class="text-sm text-muted-foreground">
-            {{ t('feature.authDesc') }}
-          </p>
-        </div>
-        <div class="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-6">
-          <ng-icon name="lucideUsers" class="text-3xl text-primary" />
-          <h2 class="text-base font-medium">{{ t('feature.usersTitle') }}</h2>
-          <p class="text-sm text-muted-foreground">
-            {{ t('feature.usersDesc') }}
-          </p>
-        </div>
-        <div class="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-6">
-          <ng-icon name="lucideSunMoon" class="text-3xl text-primary" />
-          <h2 class="text-base font-medium">{{ t('feature.themeTitle') }}</h2>
-          <p class="text-sm text-muted-foreground">
-            {{ t('feature.themeDesc') }}
-          </p>
+  <div class="bg-background flex min-h-svh flex-col">
+    <header class="bg-background/80 sticky top-0 z-40 border-b backdrop-blur">
+      <div class="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4 sm:px-6">
+        <a routerLink="/" class="flex shrink-0 items-center gap-2 text-sm font-semibold">
+          <app-logo />
+          <span>{{ t('layout.sidebar.appTitle') }}</span>
+        </a>
+        <nav class="hidden items-center gap-1 md:flex" [attr.aria-label]="t('landing.nav.label')">
+          <a hlmBtn variant="ghost" size="sm" href="#features">{{ t('landing.nav.features') }}</a>
+          <a hlmBtn variant="ghost" size="sm" href="#stack">{{ t('landing.nav.stack') }}</a>
+        </nav>
+        <div class="ms-auto flex items-center gap-2 md:gap-4">
+          <!--#if (IncludeLocalization)-->
+          <app-language-switcher />
+          <!--#endif-->
+          <app-theme-mode-toggle />
+          <!--#if (LocalIdentity)-->
+          <a hlmBtn variant="ghost" class="hidden sm:inline-flex" routerLink="/auth/login">
+            {{ t('landing.hero.signIn') }}
+          </a>
+          <a hlmBtn routerLink="/auth/register">{{ t('landing.hero.getStarted') }}</a>
+          <!--#else-->
+          <!-- 登录在签发令牌的身份服务上：进入工作台时由守卫发起 OIDC 登录 -->
+          <a hlmBtn routerLink="/workspace">{{ t('landing.hero.signIn') }}</a>
+          <!--#endif-->
         </div>
       </div>
-    </div>
+    </header>
+
+    <main class="flex-1">
+      <!--
+        首屏：光晕与同心细环只在营销页使用，应用内页面不加装饰性背景。
+        与认证页品牌面板同一套语言：细环以标题为圆心向外扩散，径向遮罩让它在边缘淡出
+      -->
+      <section class="relative overflow-hidden">
+        <div
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-x-0 top-0 h-160 [mask-image:radial-gradient(ellipse_60%_60%_at_50%_40%,#000_35%,transparent_80%)]"
+        >
+          <div
+            class="border-border absolute start-1/2 top-72 size-120 -translate-1/2 rounded-full border rtl:translate-x-1/2"
+          ></div>
+          <div
+            class="border-border absolute start-1/2 top-72 size-200 -translate-1/2 rounded-full border rtl:translate-x-1/2"
+          ></div>
+          <div
+            class="border-border absolute start-1/2 top-72 size-280 -translate-1/2 rounded-full border rtl:translate-x-1/2"
+          ></div>
+        </div>
+        <!-- 三团光晕：主色居中偏上，两侧各一团辅色（左 chart-2、右 chart-4），取值不改令牌，只定构图与透明度 -->
+        <div
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-x-0 -top-30 h-225 bg-[radial-gradient(600px_380px_at_50%_18%,color-mix(in_oklch,var(--primary)_22%,transparent),transparent_70%),radial-gradient(520px_320px_at_78%_40%,color-mix(in_oklch,var(--chart-4)_14%,transparent),transparent_70%),radial-gradient(520px_320px_at_22%_45%,color-mix(in_oklch,var(--chart-2)_14%,transparent),transparent_70%)]"
+        ></div>
+
+        <div
+          class="relative mx-auto flex max-w-4xl flex-col items-center gap-6 px-4 pt-20 pb-12 text-center sm:px-6 sm:pt-28"
+        >
+          <span
+            class="bg-background/80 text-muted-foreground inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+          >
+            <span class="bg-primary text-primary-foreground rounded-full px-1.5 text-xs">
+              {{ t('landing.hero.badgeTag') }}
+            </span>
+            {{ t('landing.hero.badge') }}
+          </span>
+          <h1
+            class="text-4xl font-semibold tracking-tight text-balance break-keep wrap-anywhere sm:text-6xl"
+          >
+            {{ t('landing.hero.titleLead') }}
+            <span
+              class="from-primary to-chart-4 block bg-gradient-to-r bg-clip-text pb-1 text-transparent"
+            >
+              {{ t('landing.hero.titleAccent') }}
+            </span>
+          </h1>
+          <p
+            class="text-muted-foreground max-w-2xl text-base text-balance break-keep wrap-anywhere sm:text-lg"
+          >
+            {{ t('landing.hero.subtitle') }}
+          </p>
+          <div class="flex flex-wrap items-center justify-center gap-3">
+            <!--#if (LocalIdentity)-->
+            <a hlmBtn size="lg" routerLink="/auth/register">
+              {{ t('landing.hero.getStarted') }}
+              <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+            </a>
+            <a hlmBtn size="lg" variant="outline" routerLink="/auth/login">
+              {{ t('landing.hero.signIn') }}
+            </a>
+            <!--#else-->
+            <a hlmBtn size="lg" routerLink="/workspace">
+              {{ t('landing.hero.signIn') }}
+              <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+            </a>
+            <!--#endif-->
+          </div>
+          <p class="text-muted-foreground text-xs">{{ t('landing.hero.note') }}</p>
+        </div>
+
+        <!-- 产品截图：亮暗各一张，跟随当前主题；换成自己的产品截图时替换 public/images 下的两张图。
+             底部渐隐到页面底色，截图下缘不露出半个区块 -->
+        <div class="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+          <div
+            aria-hidden="true"
+            class="from-background pointer-events-none absolute inset-x-0 bottom-20 z-10 h-40 bg-linear-to-t to-transparent"
+          ></div>
+          <div class="bg-muted/60 rounded-2xl p-2 shadow-lg ring-1 ring-foreground/10">
+            <img
+              class="block w-full rounded-xl ring-1 ring-foreground/10 dark:hidden"
+              src="images/product-dashboard-light.webp"
+              width="1920"
+              height="1200"
+              [alt]="t('landing.hero.screenshotAlt')"
+            />
+            <img
+              class="hidden w-full rounded-xl ring-1 ring-foreground/10 dark:block"
+              src="images/product-dashboard-dark.webp"
+              width="1920"
+              height="1200"
+              loading="lazy"
+              [alt]="t('landing.hero.screenshotAlt')"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section id="stack" class="border-y py-10">
+        <div class="mx-auto flex max-w-6xl flex-col items-center gap-5 px-4 sm:px-6">
+          <h2 class="text-muted-foreground text-sm">{{ t('landing.stack.title') }}</h2>
+          <!-- 技术名称是专有名词，不随语言变化 -->
+          <ul
+            class="text-muted-foreground flex flex-wrap items-center justify-center gap-x-10 gap-y-3 text-base font-semibold"
+          >
+            <li>Angular</li>
+            <li>.NET 10</li>
+            <li>PostgreSQL</li>
+            <!--#if (OpenIddictServer)-->
+            <li>OpenIddict</li>
+            <!--#endif-->
+            <!--#if (IncludeNotifications || IncludeRealTime)-->
+            <li>SignalR</li>
+            <!--#endif-->
+            <li>spartan/ui</li>
+          </ul>
+        </div>
+      </section>
+
+      <section
+        id="features"
+        class="mx-auto flex max-w-6xl flex-col gap-10 px-4 py-20 sm:px-6 sm:py-28"
+      >
+        <div class="flex max-w-2xl flex-col gap-3">
+          <span class="text-primary text-sm font-medium">{{ t('landing.features.eyebrow') }}</span>
+          <h2
+            class="text-3xl font-semibold tracking-tight text-balance break-keep wrap-anywhere sm:text-4xl"
+          >
+            {{ t('landing.features.title') }}
+          </h2>
+          <p class="text-muted-foreground text-base">{{ t('landing.features.subtitle') }}</p>
+        </div>
+        <!--
+          不等宽拼贴：卡片按行自动伸展填满（flex-grow），身份认证占约两格；功能参数裁掉部分卡片时
+          末行照样排满，不按卡片数维护布局分支
+        -->
+        <ul class="flex flex-wrap gap-4">
+          @for (feature of features; track feature.icon) {
+            <li
+              hlmCard
+              class="min-w-0 grow basis-full sm:basis-[calc(50%-0.5rem)] lg:basis-[calc(33.333%-0.7rem)] lg:data-wide:basis-[calc(66.666%-0.35rem)]"
+              [attr.data-wide]="feature.illustration === 'otp' ? '' : null"
+            >
+              <div hlmCardContent class="flex h-full flex-col gap-3">
+                <span
+                  class="bg-muted text-foreground flex size-9 items-center justify-center rounded-md"
+                >
+                  <ng-icon [name]="feature.icon" />
+                </span>
+                <h3 class="text-base font-semibold">{{ t(feature.title) }}</h3>
+                <p class="text-muted-foreground max-w-md text-sm">{{ t(feature.description) }}</p>
+                <!-- 示意图只做装饰，读屏跳过 -->
+                @switch (feature.illustration) {
+                  @case ('otp') {
+                    <div
+                      aria-hidden="true"
+                      class="mt-auto flex flex-col gap-2 self-end rounded-lg border p-3 pb-4"
+                    >
+                      <span class="text-xs font-medium">{{ t('landing.features.otpLabel') }}</span>
+                      <div class="flex gap-1.5">
+                        @for (digit of otpDigits; track $index) {
+                          <span
+                            class="data-active:border-primary data-active:ring-ring/30 flex size-9 items-center justify-center rounded-md border text-sm font-medium tabular-nums data-active:ring-3"
+                            [attr.data-active]="$index === otpDigits.indexOf('') ? '' : null"
+                            >{{ digit }}</span
+                          >
+                        }
+                      </div>
+                    </div>
+                  }
+                  @case ('theme') {
+                    <!--
+                      亮、暗两张缩略：一张取页面底色、一张取反相的前景色，所以任何主题下都是一亮一暗，
+                      只用语义令牌
+                    -->
+                    <div aria-hidden="true" class="mt-auto grid grid-cols-2 gap-3">
+                      <div class="bg-background flex flex-col gap-1.5 rounded-lg border p-3">
+                        <span class="bg-muted h-1.5 w-3/4 rounded-full"></span>
+                        <span class="bg-muted h-1.5 w-1/2 rounded-full"></span>
+                        <span class="bg-primary mt-1 h-2.5 w-8 rounded-full"></span>
+                      </div>
+                      <div class="bg-foreground flex flex-col gap-1.5 rounded-lg border p-3">
+                        <span class="bg-background/20 h-1.5 w-3/4 rounded-full"></span>
+                        <span class="bg-background/20 h-1.5 w-1/2 rounded-full"></span>
+                        <span class="bg-primary mt-1 h-2.5 w-8 rounded-full"></span>
+                      </div>
+                    </div>
+                  }
+                  @case ('token') {
+                    <pre
+                      aria-hidden="true"
+                      class="bg-muted text-muted-foreground mt-auto overflow-x-auto rounded-lg p-3 font-mono text-xs leading-relaxed"
+                    ><span class="text-foreground">POST</span> /connect/token
+client_id=billing-sync
+grant_type=client_credentials  <span class="text-success">200</span></pre>
+                  }
+                }
+              </div>
+            </li>
+          }
+        </ul>
+        <!-- 数据条：只放这一页能核实的数字（下面列出的能力数、可切换的界面语言数），不写无法核实的宣传数字 -->
+        <dl class="grid grid-cols-1 border-y sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]">
+          @for (stat of stats(); track stat.label) {
+            <div
+              class="flex flex-col gap-1 border-b px-6 py-6 last:border-b-0 sm:border-b-0 sm:border-s sm:first:border-s-0"
+            >
+              <dt class="text-muted-foreground order-2 text-sm">{{ t(stat.label) }}</dt>
+              <dd class="order-1 text-4xl font-semibold tracking-tight tabular-nums">
+                {{ stat.value | appNumber: 'integer' : displayLocale() }}
+              </dd>
+            </div>
+          }
+        </dl>
+      </section>
+
+      <section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6 sm:pb-28">
+        <!-- 跟随主题的卡片，不反相成黑块或白块；光晕与同心细环呼应首屏横幅 -->
+        <div
+          class="bg-card text-card-foreground relative flex flex-col items-start gap-6 overflow-hidden rounded-2xl border px-6 py-12 sm:flex-row sm:items-center sm:justify-between sm:px-12"
+        >
+          <div aria-hidden="true" class="pointer-events-none absolute inset-0">
+            <div
+              class="bg-primary/15 absolute -end-20 top-1/2 size-96 -translate-y-1/2 rounded-full blur-3xl"
+            ></div>
+            <div
+              class="border-border absolute -end-24 top-1/2 size-80 -translate-y-1/2 rounded-full border"
+            ></div>
+            <div
+              class="border-border absolute -end-48 top-1/2 size-128 -translate-y-1/2 rounded-full border"
+            ></div>
+          </div>
+          <div class="relative flex flex-col gap-2">
+            <h2 class="text-2xl font-semibold tracking-tight sm:text-3xl">
+              {{ t('landing.cta.title') }}
+            </h2>
+            <p class="text-muted-foreground text-sm sm:text-base">
+              {{ t('landing.cta.subtitle') }}
+            </p>
+          </div>
+          <!--#if (LocalIdentity)-->
+          <div class="relative flex flex-wrap gap-3">
+            <a hlmBtn size="lg" routerLink="/auth/register">
+              {{ t('landing.hero.getStarted') }}
+              <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+            </a>
+            <a hlmBtn size="lg" variant="outline" routerLink="/auth/login">
+              {{ t('landing.hero.signIn') }}
+            </a>
+          </div>
+          <!--#else-->
+          <a hlmBtn size="lg" class="relative" routerLink="/workspace">
+            {{ t('landing.hero.signIn') }}
+            <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+          </a>
+          <!--#endif-->
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t">
+      <div
+        class="text-muted-foreground mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-6 text-xs sm:px-6"
+      >
+        <span>© {{ year }} {{ t('layout.sidebar.appTitle') }}</span>
+        <span>{{ t('landing.footer.tagline') }}</span>
+      </div>
+    </footer>
   </div>
 </ng-container>

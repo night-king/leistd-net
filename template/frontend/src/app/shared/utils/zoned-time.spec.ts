@@ -1,4 +1,11 @@
-import { isoToZonedDate, zonedEndOfDayIso, zonedStartOfDayIso } from './zoned-time';
+import {
+  addCalendarDays,
+  isoToZonedDate,
+  resolveDisplayTimeZone,
+  zonedCalendarDate,
+  zonedEndOfDayIso,
+  zonedStartOfDayIso,
+} from './zoned-time';
 
 /**
  * 展示时区与 UTC 的换算。时区一律显式传入，输入日期用浏览器本地 `Date` 构造（与日期选择器一致），
@@ -123,5 +130,28 @@ describe('zoned-time', () => {
     expect(zonedStartOfDayIso(picked)).toBe(zonedStartOfDayIso(picked, browserZone));
     expect(zonedEndOfDayIso(picked, '')).toBe(zonedEndOfDayIso(picked, browserZone));
     expect(calendarDay(isoToZonedDate(zonedEndOfDayIso(picked)))).toEqual([2026, 3, 8]);
+  });
+
+  it('uses a configured time zone the runtime can render and the browser one otherwise', () => {
+    const browser = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    expect(resolveDisplayTimeZone('Asia/Kolkata')).toBe('Asia/Kolkata');
+    expect(resolveDisplayTimeZone(null)).toBe(browser);
+    expect(resolveDisplayTimeZone('Mars/Olympus')).toBe(browser);
+  });
+
+  it('tells the calendar day of an instant in the given time zone', () => {
+    const instant = new Date('2026-10-13T20:00:00Z');
+
+    expect(zonedCalendarDate(instant, 'UTC')).toBe('2026-10-13');
+    expect(zonedCalendarDate(instant, 'Asia/Shanghai')).toBe('2026-10-14');
+    expect(zonedCalendarDate('2026-10-13T20:00:00Z', 'America/New_York')).toBe('2026-10-13');
+  });
+
+  it('adds calendar days across month, year and leap-day boundaries', () => {
+    expect(addCalendarDays('2026-10-13', -13)).toBe('2026-09-30');
+    expect(addCalendarDays('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addCalendarDays('2024-02-28', 1)).toBe('2024-02-29');
+    expect(addCalendarDays('0099-12-31', 1)).toBe('0100-01-01');
   });
 });

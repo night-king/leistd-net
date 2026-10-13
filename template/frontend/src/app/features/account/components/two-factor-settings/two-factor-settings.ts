@@ -20,10 +20,10 @@ import { finalize } from 'rxjs/operators';
 
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { AuthService } from '../../../../core/services/auth-service';
+import { TwoFactorStatusOutputDto } from '../../../../shared/dtos/account-security.dto';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
-import { TwoFactorStatusOutputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
 import { OtpCodeInput } from '../otp-code-input/otp-code-input';
 import { RecoveryCodes } from '../recovery-codes/recovery-codes';

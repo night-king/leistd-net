@@ -111,17 +111,21 @@ frontend/
 - 含参数映射、分支或状态的服务、`pipe` 与含复杂业务逻辑的函数必须有单元测试；只把参数原样转发给 `HttpClient` 的服务由使用它的页面测试覆盖。用例名规则见 [测试规范](./testing.md)。
 - 单测跑在真实 Chromium 里，不得触发真实的下载、打印或页面跳转：对副作用那一步打桩（`saveBlob`，或 `vi.spyOn(HTMLAnchorElement.prototype, 'click').mockReturnValue(undefined)`——`vi.spyOn` 默认仍调用原实现），断言"发起了什么"，见 `frontend/src/app/shared/utils/download-file.spec.ts`。
 
-## 9. 日期与时区
+## 9. 日期、时区与数字
 
 时间以 UTC 传输与存储，只在展示时按会话时区换算。时区取自 `Display.TimeZone`（IANA 名，写入端已校验），书写方式取自界面语言，两者由 `SettingContextService` 提供。
 
+- 实际生效的展示时区只有一处判定：`shared/utils/zoned-time` 的 `resolveDisplayTimeZone`（设置值能被当前 `Intl` 使用就用它，否则浏览器时区），`appDate` 与按时区请求数据的地方共用。请求按日历区间统计时带这个值（见 [API 规范 §6.2](./api.md#62-按日历区间统计)），坐标轴与提示按响应回显的时区格式化。
+- 日历日用 `YYYY-MM-DD` 字符串表示；日期选择器给出的浏览器本地 `Date` 按年月日取，不经 `toISOString()`（那是 UTC，会折偏一天）。
 - 业务日期用 `appDate` 管道，不用 Angular 的 `date`：后者传 IANA 名会静默回落到浏览器时区，也表达不了夏令时。
 
   ```html
   {{ row.creationTime | appDate: 'full' : displayTimeZone() : displayLocale() }}
   ```
 
-- 槽位（`full`、`short`、`date`、`time`、`monthDayTime`）由调用点按用途定；locale 取当前界面语言，不由时区推导。精度与格式串不做成设置项，语种写法差异加在管道的 `WRITING_OVERRIDES`。
+- 槽位（`full`、`short`、`date`、`time`、`monthDayTime`、`monthDay`）由调用点按用途定；locale 取当前界面语言，不由时区推导。精度与格式串不做成设置项，语种写法差异加在管道的 `WRITING_OVERRIDES`。图表坐标轴、区间按钮等非模板调用方用同一个 `formatAppDate`，不另写日期格式。
+- 时刻落在展示时区的哪一天用 `zonedCalendarDate`，日历日加减用 `addCalendarDays`；"刚刚 / N 分钟前 / 昨天"这类相对时间用 `shared/utils/relative-time` 的 `formatRelativeTime`（需要词条的种类交给模板翻译）。
+- 业务数字用 `appNumber` 管道（非模板调用方用同一个 `formatAppNumber`）：`integer` 带千分位，`compact` 写大数（完整整数放进提示），`change` 写变化率，输入是比例（0.29 → `+29%`），乘 100 只在格式化处发生。locale 同样取界面语言；不在组件里直接 new `Intl.NumberFormat`。词条里的数字先格式化再作为参数传入。
 - 时区候选项按"能否真的渲染"判定，不用 `Intl.supportedValuesOf('timeZone')` 过滤（它只列规范名，`UTC`、`Asia/Kolkata` 等可用值不在其中）。
 <!--#if (IncludeRealTime)-->
 

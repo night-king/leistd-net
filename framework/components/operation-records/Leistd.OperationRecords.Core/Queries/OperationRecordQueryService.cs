@@ -43,7 +43,7 @@ internal sealed class OperationRecordQueryService(
         }
 
         var page = await store.GetPagedListAsync(
-            Filter(reader, input.Keyword, input.StartTime, input.EndTime, actions, input.Outcome),
+            Criteria(reader, input.Keyword, input.StartTime, input.EndTime, actions, input.Outcome),
             input,
             cancellationToken);
 
@@ -87,7 +87,7 @@ internal sealed class OperationRecordQueryService(
         if (actions is not { Count: 0 })
         {
             var page = await store.GetPagedListAsync(
-                Filter(reader, input.Keyword, input.StartTime, input.EndTime, actions, input.Outcome),
+                Criteria(reader, input.Keyword, input.StartTime, input.EndTime, actions, input.Outcome),
                 new PageRequest { Limit = input.Limit },
                 cancellationToken);
             rows = [.. page.Items.Select(record => Map(record, reader.IsHost))];
@@ -115,7 +115,7 @@ internal sealed class OperationRecordQueryService(
         return (OperationRecordVisibilityScope.ForTenantReader(currentUser.SubjectId, currentUser.TenantId), false);
     }
 
-    private static OperationRecordFilter Filter(
+    private static OperationRecordCriteria Criteria(
         (OperationRecordVisibilityScope Scope, bool IsHost) reader,
         string? keyword,
         DateTime? startTime,

@@ -22,15 +22,17 @@ import {
   EmailVerificationInputDto,
   //#endif
   SetAvatarInputDto,
-  UserSessionOutputDto,
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
   TwoFactorSetupOutputDto,
-  TwoFactorStatusOutputDto,
   //#if (OpenIddictServer)
   LogoutConfirmationOutputDto,
   //#endif
 } from '../../src/app/features/account/dtos/account.dto';
+import {
+  TwoFactorStatusOutputDto,
+  UserSessionOutputDto,
+} from '../../src/app/shared/dtos/account-security.dto';
 import { SessionLoginOutputDto, UserOutputDto } from '../../src/app/shared/dtos/auth.dto';
 import { MockException, MockRequest } from '../core/models';
 import { ensureAcceptablePassword } from '../data/password-policy';

@@ -14,12 +14,13 @@ import { finalize } from 'rxjs/operators';
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
+import { StatusDot } from '../../../../shared/directives/status-dot';
+import { UserSessionOutputDto } from '../../../../shared/dtos/account-security.dto';
 import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 import { DeviceKind, describeUserAgent } from '../../../../shared/utils/user-agent';
-import { UserSessionOutputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
 
 const DEVICE_ICONS: Record<DeviceKind, string> = {
@@ -40,6 +41,7 @@ const OTHERS = 'others';
   selector: 'app-login-devices',
   // prettier-ignore
   imports: [
+    StatusDot,
     NgIcon,
     HlmBadge,
     HlmButton,

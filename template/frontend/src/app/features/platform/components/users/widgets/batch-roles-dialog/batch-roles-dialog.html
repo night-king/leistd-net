@@ -1,0 +1,49 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-dialog [state]="open() ? 'open' : 'closed'" (stateChanged)="open.set($event === 'open')">
+    <hlm-dialog-content *hlmDialogPortal class="sm:max-w-md">
+      <hlm-dialog-header>
+        <h2 hlmDialogTitle>{{ t('users.batch.rolesTitle', { count: userCount() }) }}</h2>
+        <p hlmDialogDescription>{{ t('users.batch.rolesDescription') }}</p>
+      </hlm-dialog-header>
+
+      <div class="flex max-h-[50vh] flex-col gap-1 overflow-y-auto py-2">
+        @for (role of availableRoles(); track role.id) {
+          <div class="flex items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
+            <hlm-checkbox
+              [inputId]="'batch-role-' + role.id"
+              [checked]="isSelected(role.id)"
+              (checkedChange)="toggle(role.id)"
+            />
+            <label class="flex flex-col" [attr.for]="'batch-role-' + role.id">
+              <span>{{ role.displayName }}</span>
+              <span class="text-xs text-muted-foreground">{{ role.name }}</span>
+            </label>
+          </div>
+        } @empty {
+          <p class="py-6 text-center text-sm text-muted-foreground">{{ t('common.noData') }}</p>
+        }
+      </div>
+
+      <hlm-dialog-footer>
+        <button hlmBtn variant="outline" type="button" (click)="open.set(false)">
+          {{ t('common.cancel') }}
+        </button>
+        <button
+          hlmBtn
+          type="button"
+          [disabled]="saving() || selectedIds().length === 0"
+          (click)="assign.emit(selectedIds())"
+        >
+          @if (saving()) {
+            <hlm-spinner class="size-4" data-icon="inline-start" />
+          }
+          {{ t('users.batch.assign') }}
+        </button>
+      </hlm-dialog-footer>
+    </hlm-dialog-content>
+  </hlm-dialog>
+</ng-container>

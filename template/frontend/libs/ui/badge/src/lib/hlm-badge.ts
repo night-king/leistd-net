@@ -15,6 +15,9 @@ const badgeVariants = cva(
         // 工具类——对比度规则（见 styles.css：alpha 上限 0.25）只有集中在这里才改得动一处生效
         success:
           'bg-success/10 [a]:hover:bg-success/20 focus-visible:ring-success/20 dark:focus-visible:ring-success/40 text-success border-success/30',
+        // 待处理、需要关注：与 success 同构，淡底取同一 alpha 上限
+        warning:
+          'bg-warning/10 [a]:hover:bg-warning/20 focus-visible:ring-warning/20 dark:focus-visible:ring-warning/40 text-warning border-warning/30',
         outline: 'border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground',
         ghost: 'hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50',
         link: 'text-primary underline-offset-4 hover:underline',

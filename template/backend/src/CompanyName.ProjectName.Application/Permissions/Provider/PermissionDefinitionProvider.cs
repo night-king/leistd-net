@@ -26,6 +26,14 @@ public class PermissionDefinitionProvider : IPermissionDefinitionProvider
         // Permission:{权限名}、PermissionGroup:{分组名} 在请求阶段查找（资源类型见 Program 的 PermissionManagementOptions）。
         // 分组、顺序与前端导航一致：分组对应菜单分组，根权限对应菜单项，子权限对应页面操作。
 
+        // 工作：仪表盘。汇总的数据都带 TenantId 并受全局查询过滤器分区，宿主与租户各看各的，因此侧别是 Both
+        var workGroup = context.GetOrAddGroup(PermissionConstant.Groups.Work, displayName: "Work");
+        workGroup.AddPermission(
+            PermissionConstant.Dashboard.Default,
+            MultiTenancySides.Both,
+            displayName: "Dashboard"
+        );
+
         // 身份与访问：谁能进来——用户、角色与租户
         var identityGroup = context.GetOrAddGroup(PermissionConstant.Groups.Identity, displayName: "Identity & access");
 

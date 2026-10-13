@@ -57,7 +57,7 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
 #endif
         // 时区同理：`Intl.DateTimeFormat().resolvedOptions().timeZone` 直接给出这台机器的
         // IANA 时区名（ECMA-402，2017 年起各端普遍可用），比租户默认值准得多。
-        // 留空即"跟随系统"；服务端产出文本时回落到 TimeZoneInfo.Local（见 UserTimeZoneProvider）。
+        // 留空即"跟随系统"：浏览器用自己的时区，服务端产出文本时回落到 UTC（见 UserTimeZoneProvider）。
         context.Add(
             SettingConstant.Display.TimeZone,
             defaultValue: null,

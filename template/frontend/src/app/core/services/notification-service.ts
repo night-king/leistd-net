@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { lastValueFrom } from 'rxjs';
 
-import { SignalRService } from '../../core/services/signalr-service';
+import { SignalRService } from './signalr-service';
 import { NotificationOutputDto } from '../../shared/dtos/notification.dto';
 
 /**

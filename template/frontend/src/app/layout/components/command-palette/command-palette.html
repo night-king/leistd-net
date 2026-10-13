@@ -1,0 +1,42 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-command-dialog
+    [state]="palette.isOpen() ? 'open' : 'closed'"
+    [title]="t('layout.commandPalette.title')"
+    [description]="t('layout.commandPalette.description')"
+    (stateChange)="onStateChange($event)"
+  >
+    <hlm-command>
+      <hlm-command-input [placeholder]="t('layout.commandPalette.placeholder')" />
+      <hlm-command-list>
+        <div *hlmCommandEmptyState hlmCommandEmpty>{{ t('layout.commandPalette.empty') }}</div>
+        @for (group of menuGroups(); track group.label) {
+          <hlm-command-group>
+            <hlm-command-group-label>{{ group.label }}</hlm-command-group-label>
+            @for (item of group.items; track item.route) {
+              <button hlm-command-item [value]="item.label" (selected)="go(item.route)">
+                <ng-icon [name]="item.icon" />
+                {{ item.label }}
+              </button>
+            }
+          </hlm-command-group>
+        }
+        @if (otherAreas().length) {
+          <hlm-command-separator />
+          <hlm-command-group>
+            <hlm-command-group-label>{{ t('layout.sidebar.switchArea') }}</hlm-command-group-label>
+            @for (area of otherAreas(); track area.route) {
+              <button hlm-command-item [value]="area.label" (selected)="go(area.route)">
+                <ng-icon [name]="area.icon" />
+                {{ area.label }}
+              </button>
+            }
+          </hlm-command-group>
+        }
+      </hlm-command-list>
+    </hlm-command>
+  </hlm-command-dialog>
+</ng-container>

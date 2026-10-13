@@ -47,6 +47,28 @@ public sealed class UserAccessStatusTests
         Assert.Equal(UserAccessStatus.Allowed, user.GetAccessStatus(lockoutEnd));
     }
 
+    /// <summary>可翻译成 SQL 的锁定判据与实体上的判定逐例一致：统计里的"锁定中"与列表里的锁定标记不会分叉。</summary>
+    [Fact]
+    public void Locked_out_query_matches_the_lockout_state_at_every_boundary()
+    {
+        var unlocked = CreateUser();
+        var administratorLocked = CreateUser();
+        administratorLocked.Lock();
+        var timed = CreateUser();
+        timed.Lock(Now.AddMinutes(5));
+        var lockedOut = User.LockedOutAt(Now.AddMinutes(5)).Compile();
+        var lockedBefore = User.LockedOutAt(Now.AddMinutes(5).AddTicks(-1)).Compile();
+
+        foreach (var user in new[] { unlocked, administratorLocked, timed })
+        {
+            Assert.Equal(user.Lockout.IsActiveAt(Now.AddMinutes(5)), lockedOut(user));
+            Assert.Equal(user.Lockout.IsActiveAt(Now.AddMinutes(5).AddTicks(-1)), lockedBefore(user));
+        }
+
+        Assert.True(lockedBefore(timed));
+        Assert.False(lockedOut(timed));
+    }
+
     [Fact]
     public void Login_success_records_the_callers_time()
     {

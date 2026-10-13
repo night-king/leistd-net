@@ -10,6 +10,7 @@ import { of, Subject, throwError } from 'rxjs';
 
 import { Users } from './users';
 import { UserTable } from './widgets/user-table/user-table';
+import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
@@ -28,7 +29,7 @@ describe('Users page query round trip', () => {
   let fixture: ComponentFixture<Users>;
   let component: Users;
   let router: Router;
-  let service: Pick<MockedObject<UserManagementService>, 'getUsers'>;
+  let service: Pick<MockedObject<UserManagementService>, 'getUsers' | 'batchDisableUsers'>;
 
   function lastQuery(): GetUsersInputDto {
     const calls = vi.mocked(service.getUsers).mock.calls;
@@ -48,6 +49,7 @@ describe('Users page query round trip', () => {
   beforeEach(async () => {
     service = {
       getUsers: vi.fn().mockName('UserManagementService.getUsers'),
+      batchDisableUsers: vi.fn().mockName('UserManagementService.batchDisableUsers'),
     };
     service.getUsers.mockReturnValue(of({ items: [], totalCount: 0 }) as never);
 
@@ -62,6 +64,7 @@ describe('Users page query round trip', () => {
         ...provideTranslocoTesting(['en']),
         //#endif
         { provide: UserManagementService, useValue: service },
+        { provide: ConfirmService, useValue: { open: () => Promise.resolve(true) } },
         { provide: StartupService, useValue: { status: signal('success' as const) } },
       ],
     }).compileComponents();
@@ -260,5 +263,147 @@ describe('Users page query round trip', () => {
     expect(service.getUsers).toHaveBeenCalledTimes(requests + 1);
     expect(host.querySelector('[data-testid="table-retry"]')).toBeNull();
     expect(host.textContent).toMatch(/No users yet|users\.table\.emptyTitle/);
+  });
+
+  describe('batch operations', () => {
+    function grant(...permissions: string[]): void {
+      TestBed.inject(AuthorizationService).setPermissions({
+        permissions: [PERMISSIONS.users.default, ...permissions],
+        isSuperAdmin: false,
+        versionToken: `r-${permissions.join()}`,
+      });
+      fixture.detectChanges();
+    }
+
+    it('shows the selection column only when a bulk action is permitted', () => {
+      expect(table().selectable()).toBe(false);
+
+      grant(PERMISSIONS.users.manageRoles);
+
+      expect(table().selectable()).toBe(true);
+    });
+
+    const secondRow = { ...loadedRow, id: 'row-2', username: 'bob', displayName: 'Bob' };
+
+    async function loadRows(...rows: (typeof loadedRow)[]): Promise<void> {
+      service.getUsers.mockReturnValue(of({ items: rows, totalCount: rows.length }) as never);
+      component.reloadList();
+      await fixture.whenStable();
+    }
+
+    it('clears the selection when the page, filter or sorting changes', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      table().rowSelectionChange.emit({ 'row-1': true });
+      expect(component.selectedIds()).toEqual(['row-1']);
+
+      table().paginationChange.emit({ pageIndex: 1, pageSize: 20 } as PaginationState);
+      await fixture.whenStable();
+
+      expect(component.selectedIds()).toEqual([]);
+    });
+
+    it('clears the selection on Esc even when focus is on the page body', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      table().rowSelectionChange.emit({ 'row-1': true });
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      expect(component.selectedIds()).toEqual([]);
+    });
+
+    it('keeps the selection when Esc was handled by an overlay or typed in a field', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      table().rowSelectionChange.emit({ 'row-1': true });
+
+      const handled = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      handled.preventDefault();
+      document.body.dispatchEvent(handled);
+      const input = document.createElement('input');
+      document.body.append(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      input.remove();
+
+      expect(component.selectedIds()).toEqual(['row-1']);
+    });
+
+    it('keeps the selection on Esc while a menu opened by mouse is still showing', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      table().rowSelectionChange.emit({ 'row-1': true });
+      const overlay = document.createElement('div');
+      overlay.className = 'cdk-overlay-container';
+      overlay.innerHTML = '<div role="menu"></div>';
+      document.body.append(overlay);
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      overlay.remove();
+
+      expect(component.selectedIds()).toEqual(['row-1']);
+    });
+
+    it('reports partial failures, clears the selection and reloads the page', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow, secondRow);
+      service.batchDisableUsers.mockReturnValue(
+        of({
+          items: [
+            { id: 'row-1', succeeded: true },
+            {
+              id: 'row-2',
+              succeeded: false,
+              errorCode: 'User:SelfDisableForbidden',
+              message: 'No',
+            },
+          ],
+        }) as never,
+      );
+      const warning = vi.spyOn(toast, 'warning');
+      const requests = service.getUsers.mock.calls.length;
+      table().rowSelectionChange.emit({ 'row-1': true, 'row-2': true });
+
+      await component.batchSetActive(false);
+
+      expect(service.batchDisableUsers).toHaveBeenCalledWith({ ids: ['row-1', 'row-2'] });
+      expect(warning).toHaveBeenCalledOnce();
+      expect(component.selectedIds()).toEqual([]);
+      expect(service.getUsers.mock.calls.length).toBe(requests + 1);
+    });
+
+    it('does not let rows of the previous page be selected while the next page loads', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      const nextPage = new Subject<{ items: (typeof loadedRow)[]; totalCount: number }>();
+      service.getUsers.mockReturnValue(nextPage as never);
+
+      table().paginationChange.emit({ pageIndex: 1, pageSize: 20 } as PaginationState);
+      await fixture.whenStable();
+      // 表格包在 @defer 里，测试里要显式渲染
+      const [tableBlock] = await fixture.getDeferBlocks();
+      await tableBlock.render(DeferBlockState.Complete);
+      const selectAll = fixture.nativeElement.querySelector(
+        'thead [role="checkbox"]',
+      ) as HTMLButtonElement;
+      selectAll.click();
+      fixture.detectChanges();
+
+      expect(selectAll.disabled).toBe(true);
+      expect(component.selectedIds()).toEqual([]);
+
+      // 即使选择状态里残留了旧行，新页到达后也不会把它们当作批量目标
+      table().rowSelectionChange.emit({ 'row-1': true });
+      nextPage.next({ items: [secondRow], totalCount: 21 });
+      nextPage.complete();
+      await fixture.whenStable();
+
+      expect(component.selectedIds()).toEqual([]);
+      expect(component.rowSelection()).toEqual({});
+    });
   });
 });

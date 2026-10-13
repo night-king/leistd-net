@@ -13,6 +13,7 @@
 
 - 表格用 TanStack Table（`@tanstack/angular-table`，服务端 `manualPagination`/`manualSorting`/`rowCount`）；分页与筛选复用 `frontend/src/app/shared/components/table-paginator`、`faceted-filter`。
 - 列按优先级（`primary`/`secondary`/`tertiary`）裁剪：视口档位（`tableViewportSignal()`）给上限，带吸附操作列的表格外框挂 `[appTableFit]="tableViewport()" [appTableFitContent]="rows()"`，放不下再降一档（更新数据须换新数组）。被裁的列由 TanStack 行展开补偿（按 `getRowId` 的实体 id 记），不另建展开状态。主列用 `TITLE_COLUMN_META` 与 `TITLE_CONTENT_CLASS`：最窄档截断长名称。
+- 表头统一灰底（`thead` 与吸附操作列的表头格都用 `bg-muted`），正文与吸附操作列的正文格跟随行表面与悬停态。单元格密度用 Spartan 表格默认（表头 `px-2`、单元格 `p-2`），只给首列加 `first:ps-4` 留出与外框的间距，不在页面上另写横向内边距。时间列用 `appDate` 的 `short` 槽位，完整时刻在展开详情里给出；审计类表格（操作记录）按秒对时，用 `full`。
 - 操作列按"常用优先、破坏性置后"排序：≤3 项桌面端平铺（icon 按钮 + tooltip），>3 项显示 2 个高频操作 + `…` 溢出菜单；`<sm` 一律收进 `…`，破坏性操作用 `variant="destructive"` 并以分隔线隔开。
 
 ## 2. 组件与样式
@@ -27,18 +28,20 @@
 
 - **必须** 优先使用 Tailwind CSS v4 的原子类进行布局和微调
 - 任何自定义样式都**必须**与 Spartan UI 的主题风格保持一致（基于 Spartan 主题的 CSS 变量与 `.dark` class）
-- 所有页面一律使用语义化主题变量，不写具体色值（`blue-*`、hex 等）。换品牌改 `frontend/src/styles.css` 里的令牌：品牌色亮暗成对改（同一色相，亮色 L≈0.52、暗色 L≈0.72），中性色带一点跟随品牌色相的彩度
+- 所有页面一律使用语义化主题变量，不写具体色值（`blue-*`、hex 等）。换品牌改 `frontend/src/styles.css` 里的令牌：品牌色亮暗成对改（同一色相，亮色 L≈0.52、暗色 L≈0.72），中性色带一点跟随品牌色相的彩度。`--input`（输入框、复选框、描边按钮的边界）与 `--border`（装饰分隔线）分开调，前者深一档、带品牌色相，看得出轮廓又不压过内容，聚焦由 `--ring` 强指示；选中态只靠底色深浅区分不够时由 `styles.css` 按 `data-slot` 补不低于 3:1 的描边
   - 例外只有三类：图像遮罩及其上文字（`bg-black/25 text-white`）、二维码底色（`bg-white`，扫码需浅底）、第三方品牌标识 SVG 的官方色值
+- 居中或带 `text-balance` 的标题与导语加 `break-keep wrap-anywhere`：中文优先在标点和空格处换行，超长连续文本才在内部断开以免溢出；正文段落不加
 <!--#if (LocalIdentity)-->
-- 登录、注册、强制启用两步验证共用 `frontend/src/app/features/account/components/auth-shell`（品牌标识 + 居中卡片 + 主题/语言切换）。这几页在一次登录里连续经过，外观必须一致
+- 登录、注册、强制启用两步验证共用 `frontend/src/app/features/account/components/auth-shell`：五五分栏，左栏是独立贴边的品牌面板（固定深色的 `hero-*` 表面，亮暗主题同色；标识，居中的两行展示标题、导语与三条不随参数变化的亮点，底部一行信任语），右栏是主题/语言切换与居中的表单（不再套卡片）；lg 以下品牌面板隐藏，标识移到表单栏顶部。这几页在一次登录里连续经过，外观必须一致
 <!--#endif-->
 
 ### 2.3 有限语义色板
 
 - 状态/分类标签**只用项目约定的有限几个语义色**，不随意扩色。
 - **分类标签用中性色，不用告警色表达"非告警"的分类**（不要用 warn 橙表达一个普通分类）。
+- **状态徽章前带圆点，分类标签不带**：启用 / 停用、已锁定、邮箱未验证、成功 / 被拒绝、当前设备这类状态在 `hlmBadge` 上加 `appStatusDot`（`shared/directives/status-dot`），圆点取徽章文字色；角色名、客户端类型、"内置"这类分类不加。
 
-> `例`：用 Spartan badge 的有限变体 `default` / `secondary` / `destructive` / `success` / `outline`（`hlmBadge`）；分类标签一律用中性变体（`secondary`）；`success` 只用于启用、已验证、成功这类正向状态。
+> `例`：用 Spartan badge 的有限变体 `default` / `secondary` / `destructive` / `success` / `warning` / `outline`（`hlmBadge`）；分类标签一律用中性变体（`secondary`）；`success` 只用于启用、已验证、成功这类正向状态。
 
 ### 2.4 组件设计
 
@@ -88,6 +91,7 @@
 | 12px | 辅助说明、时间戳、徽章 | `text-xs`                               |
 | 30px | 仅仪表盘大数字         | `text-3xl` + `tabular-nums`             |
 
+- 营销页（着陆页、认证页品牌面板）可以用更大的展示字号（`text-4xl` 到 `text-6xl` 的 Tailwind 档位，仍不写任意值）、光晕、同心细环与渐变字；这些装饰只限营销页，应用内页面不用。唯一例外是用户工作台的欢迎区：问候与搜索背后一层顶部居中的主色淡光晕（约 12%），数据区仍按普通表面规则。
 - 页面不必都有可见标题：列表页可直接从工具栏开始（面包屑与标签页已说明位置）；有页面标题时用 24px 一档，一页一个。
 - 字重只用 400 / 500 / 600，不用 `font-bold` / `font-extrabold`。
 - 16px 一档即 card、dialog、sheet、alert-dialog 标题组件的默认样式，不再手加 `font-semibold`。
@@ -104,7 +108,12 @@
 
 嵌套的块用 `md` 不用 `xl`：内外同圆角就分不出层次。组件内部的小元素（菜单项、清除按钮）跟随所在组件的写法。
 
-- **当前项**：侧栏、顶栏、设置面板导航统一用 `bg-primary/10 text-primary font-semibold`（挂在状态属性上，如 `data-active:`、`aria-[current=page]:`）。
+- **托盘卡**（`frontend/src/app/shared/components/stat-panel`）：灰底外框放标题与右侧操作，内层白卡放内容，用于仪表盘这类同屏多块数据；内卡圆角按嵌套规则取 `rounded-lg`（外框 `rounded-xl` 减去 4px 间距）。普通页面区块仍用 Spartan Card，不套托盘。
+- **图表**用 Spartan `chart`（TanStack Charts），序列颜色只取 `--chart-1…5` 令牌、主题用 `HLM_CHART_THEME`，不写色值；`chart` 只在用到它的懒加载页面里引入。主序列用 `--chart-1`，需要警惕的序列（失败、错误）用琥珀色 `--chart-3`；按时段的离散数据画直线、不做平滑，主序列加自上而下淡出的渐变面积；图例是 2px 圆角方块；提示框写该时段的真实起止，逐行列出各序列的值并带色块；坐标轴与提示里的日期、钟点用 `formatAppDate`、数字用 `formatAppNumber` 的槽位，与其他页面同一写法（见[编码规范 §9](./coding-frontend.md#9-日期时区与数字)）。当前版本的网格没有虚线配置，保持实线。
+- **相对时间**（「刚刚」「N 分钟前」「昨天 HH:mm」）只用在扫一眼即可的近期列表，按展示时区判今天、昨天，更早的写月日与时刻；完整时刻放进 Tooltip，元素可键盘聚焦。审计、详情等需要对时的位置写绝对时间。
+- **指标卡**放在托盘卡里：外框标题右侧是口径说明（键盘可达的按钮 + Tooltip，写清这项怎么算），内卡是数值、迷你趋势（同一 `chart`，`guides: false` 去掉坐标轴与网格）和环比徽章；没有按桶序列的指标不画迷你趋势。
+
+- **当前项用中性色，不用品牌色**：侧栏菜单沿用 Spartan 的 `data-active` 样式（`sidebar-accent` 底），细描边由 `styles.css` 统一补；顶栏导航沿用 navigation-menu 的默认当前态；抽屉与设置面板里的 ghost 按钮挂 `aria-[current=page]:bg-muted`。品牌色留给主操作、焦点环与链接。
 - **间距**：兄弟元素之间用 `flex` / `grid` + `gap-*`，不用 `space-y-*` 与逐个元素的外边距。页面外框统一 `p-4 sm:p-6`。
 - **暗色**：表面分五层逐级提亮（`sidebar` < `background` < `card` < `popover` < `muted`），不用纯黑；层级都在 `styles.css` 里定好，页面不写 `dark:` 颜色覆盖。
 - **图标 + 文案的空态一律用 flex 列**（`flex flex-col items-center justify-center gap-2`），不靠给 `ng-icon` 加 `block`：它的 host 样式按行内盒渲染，`block` 压不住，图标与文字会挤在一行、基线错开。同款写法见通知面板的空态。
@@ -130,6 +139,7 @@
 - 监控、健康检查、后台任务这类"系统怎么跑"的东西以后若要进导航，新开「运维」组；日志级别这类运维**配置**放在系统设置的「运维」面板里，不进导航。
 - **头像菜单里不放「切换租户」。** 会话租户在登录时定案，换租户只能退出后在登录页重选。
 - 菜单项只按权限裁剪（`permissions` 任一命中即可见），整组为空时**整组消失**，不留空标题——空标题看起来像加载失败。
+- 命令面板（⌘K / Ctrl+K，侧栏与顶栏的搜索入口）列的是当前区按权限裁剪后的同一份菜单加另一区入口，不另建命令清单；新增菜单项自动出现在面板里。
 - **按"能不能做"分支，不按"我是谁"分支。** 区分宿主侧与租户侧看权限：服务端下发的权限已按侧别过滤。不要从 `TenantContextService` 推导侧别——本地身份形态下它只是登录页的路由提示，可能与会话租户不一致。权限表达不了的显示决定由页面所属的业务端点连同数据下发结论。
 - 侧栏分组骨架由 `default-sidebar.spec.ts`、头像菜单构成由 `user-menu.spec.ts`（按完整序列断言）钉住，改导航同时改用例。
 - **页面标题只设 `LayoutService.title`**（面包屑末级）：每个布局页在构造函数或 `effect` 里设一次，本地化形态用 `translateSignal`，语言切换随之更新。页头按它输出视觉隐藏的 `h1`（未设不输出），布局内页面的标题因此从 `h2` 起、逐级不跳；登录、注册、错误页等不在这两种布局里的页面自带 `h1`。浏览器标签页标题由根组件统一合成为「页面标题 · 应用名」（`Title` 服务），页面不要自己调 `Title`；页头随布局销毁时清空页面标题，登录页、落地页等不设标题的页因此只显示应用名。应用名是 `frontend/src/app/app.ts` 的 `APP_NAME`，本地化形态取词条 `app.name`、缺词条时回落到它；改项目名时两处连同 `frontend/src/index.html` 的 `<title>` 一起改。

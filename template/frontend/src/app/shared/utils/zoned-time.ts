@@ -3,9 +3,47 @@
  * 不能直接 `toISOString()`（那是浏览器时区）。只用原生 `Intl`，不引入日期库。
  */
 
-/** 解析展示时区，未设置时回落到浏览器默认时区，与 `AppDate` 管道同一口径。 */
+/**
+ * 实际生效的展示时区：设置值能被当前运行时的 `Intl` 使用就用它，为空或用不了（时区数据库更名等）
+ * 时回落到浏览器时区。`AppDate` 管道与按时区请求数据的地方（如仪表盘统计）共用这一处判定，
+ * 列表显示的时区与请求里带的时区不会不一致。
+ */
+export function resolveDisplayTimeZone(timeZone?: string | null): string {
+  if (timeZone) {
+    try {
+      // 原样返回设置值：resolvedOptions() 会把 Asia/Kolkata 规范成旧名 Asia/Calcutta
+      new Intl.DateTimeFormat('en-US', { timeZone });
+      return timeZone;
+    } catch {
+      // 回落到浏览器时区
+    }
+  }
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 function resolveZone(timeZone?: string): string {
-  return timeZone || new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return resolveDisplayTimeZone(timeZone);
+}
+
+/** 某个时刻在该时区的日历日，`YYYY-MM-DD`；传入此刻即该时区的今天。 */
+export function zonedCalendarDate(instant: string | number | Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(instant instanceof Date ? instant : new Date(instant));
+}
+
+/**
+ * `YYYY-MM-DD` 日历日加减天数；纯日历运算，与时区无关。用 `setUTCFullYear` 而不是 `Date.UTC`：
+ * 后者会把 0–99 年读成 1900 年代。
+ */
+export function addCalendarDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const result = new Date(0);
+  result.setUTCFullYear(year, month - 1, day + days);
+  return result.toISOString().slice(0, 10);
 }
 
 /**

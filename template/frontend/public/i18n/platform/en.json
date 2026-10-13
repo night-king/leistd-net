@@ -1,8 +1,81 @@
 {
   "dashboard": {
-    "welcome": "Welcome to the Admin Console",
-    "currentUser": "Currently signed in as: {{name}}",
-    "intro": "This is a starter template project. You can manage users under \"User Management\" and extend more feature modules from the left-hand menu.",
-    "title": "Dashboard"
+    "title": "Dashboard",
+    "greeting": {
+      "morning": "Good morning, {{name}}",
+      "afternoon": "Good afternoon, {{name}}",
+      "evening": "Good evening, {{name}}"
+    },
+    "noStatistics": "Statistics require the Dashboard permission.",
+    "rangeLabel": "Statistics range",
+    "range": {
+      "today": "Today",
+      "days7": "7 days",
+      "days30": "30 days",
+      "lastDays": "Last {{days}} days",
+      "custom": "Custom range"
+    },
+    "summary": {
+      "signIns": "{{count}} successful sign-ins",
+      "attention": "{{count}} items need attention"
+    },
+    "loadFailed": "Couldn't load statistics.",
+    "refreshFailed": "Couldn't refresh. Showing earlier data.",
+    "kpi": {
+      "totalUsers": "Total users",
+      "newUsers": "New sign-ups",
+      "activeUsers": "Active users",
+      "failedLogins": "Failed sign-ins",
+      "vsPrevious": "vs previous {{days}} days",
+      "noComparison": "No earlier data to compare",
+      "infoLabel": "About {{metric}}",
+      "info": {
+        "totalUsers": "Users that existed at the end of the range, not counting deleted ones.",
+        "newUsers": "Accounts created in the range, including ones deleted afterwards.",
+        "activeUsers": "Different users who signed in during the range.",
+        "activeUsersLastLogin": "Users whose latest sign-in falls in the range. Earlier sign-ins are overwritten by later ones, so past ranges are approximate.",
+        "failedLogins": "Approximate: repeated anonymous failures are sampled."
+      },
+      "vsYesterday": "vs same time yesterday",
+      "vsPreviousProgress": "vs same point of previous {{days}} days",
+      "vsPreviousEnd": "vs end of previous range"
+    },
+    "trend": {
+      "title": "Sign-in trend",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "total": "successful sign-ins",
+      "failedApprox": "Failed sign-ins are approximate: repeated anonymous failures are sampled.",
+      "ariaLabel": "Sign-ins per period",
+      "viewLabel": "Group by",
+      "byDay": "Daily",
+      "byWeek": "Weekly"
+    },
+    "attention": {
+      "title": "Needs attention",
+      "lockedUsers": "Locked accounts: {{count}}",
+      "lockedUsersHint": "Locked after repeated failed sign-ins or by an administrator",
+      "adminsWithoutTwoFactor": "Administrators without two-factor: {{count}}",
+      "adminsWithoutTwoFactorHint": "Turn it on for accounts with elevated access",
+      "unconfirmedEmailUsers": "Users with unverified email: {{count}}",
+      "unconfirmedEmailUsersHint": "They can't receive password reset emails",
+      "disabledTenants": "Disabled tenants: {{count}}",
+      "disabledTenantsHint": "Users of a disabled tenant can't sign in",
+      "review": "Review",
+      "allClear": "Nothing needs attention right now.",
+      "handle": "Handle"
+    },
+    "recent": {
+      "title": "Recent activity",
+      "viewAll": "View all",
+      "empty": "No activity yet",
+      "anonymous": "Anonymous",
+      "rejected": "Rejected",
+      "succeeded": "Succeeded",
+      "impersonatedBy": "Done by {{name}} on their behalf"
+    },
+    "quick": {
+      "title": "Quick links"
+    }
   }
 }

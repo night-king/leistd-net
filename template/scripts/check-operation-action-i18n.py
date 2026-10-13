@@ -53,7 +53,7 @@ LOCALES = ('en', 'zh-CN')
 # 而注释拦不住漂移——这道校验就是拦它的。
 TABLE_SOURCE = os.path.join(
     ROOT, 'frontend', 'src', 'app', 'features', 'platform', 'components',
-    'operation-records', 'widgets', 'operation-record-table', 'operation-record-table.ts')
+    'operation-records', 'widgets', 'operation-record-table', 'operation-action-sentence.ts')
 INLINE_TABLE_NAME = 'ACTION_SENTENCES'
 
 # 表体按名字定位到第一个独立的 `};`。键的值有两种形态（箭头函数与字符串字面量），
@@ -302,7 +302,7 @@ def main():
             print(f'  - {problem}')
         print('\n漏配不会报错，只会让那一行显示成裸动作码。词条补 '
               'frontend/public/i18n/*.json 的 operationRecords.actions；'
-              f'英文句子补 operation-record-table.ts 的 {INLINE_TABLE_NAME}（两者必须同步）。')
+              f'英文句子补 operation-action-sentence.ts 的 {INLINE_TABLE_NAME}（两者必须同步）。')
         return 1
 
     with open(ACTIONS_SOURCE, encoding='utf-8') as handle:

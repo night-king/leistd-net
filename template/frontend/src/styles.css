@@ -43,11 +43,19 @@ body {
  * - 中性色带少量跟随品牌色相的彩度（C≈0.004–0.01），纯灰与品牌色并置显脏。
  * - destructive / warning / success 既作文字色又作淡色底（bg-*\/10~25），判据是文字压在自身
  *   淡色底上 ≥ 4.5:1，亮暗分开定值；淡色底 alpha 上限 0.25。改这些值后重新核算。
- * - 暗色不用纯黑，表面分五层逐级提亮（sidebar < background < card < popover < muted）。
+ * - 表面分层：亮色画布（sidebar）最暗，主面板（background）与卡片同为白色，靠描边与阴影分层；
+ *   暗色不用纯黑，分五层逐级提亮（sidebar < background < card < popover < muted）。
+ * - 中性色彩度统一取 0.004–0.006；accent 用于悬停，不带品牌色调。当前导航项用 sidebar-accent
+ *   （亮色白底，与画布拉开）加细描边。
+ * - input 是控件边界，比装饰分隔线 border 深一档，二者分开定值。
+ * - info 是中性提示色（toast 的 info 图标），不借用 primary。
+ * - chart-1…5 是图表序列色，色相彼此间隔 ≥ 60°，亮色在卡片上 ≥ 3:1；暗色整体提亮。
+ * - hero-* 是营销面板（认证页品牌面板）的固定深色表面，亮暗主题同值，不跟随主题切换；
+ *   强调色取品牌色相的浅色档，文字在 hero 上 ≥ 4.5:1。
  */
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.995 0.001 250);
+  --background: oklch(1 0 0);
   --foreground: oklch(0.18 0.01 255);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.18 0.01 255);
@@ -55,62 +63,85 @@ body {
   --popover-foreground: oklch(0.18 0.01 255);
   --primary: oklch(0.52 0.16 250);
   --primary-foreground: oklch(0.99 0.002 250);
-  --secondary: oklch(0.965 0.005 250);
+  --secondary: oklch(0.966 0.004 250);
   --secondary-foreground: oklch(0.24 0.02 255);
-  --muted: oklch(0.968 0.004 250);
+  --muted: oklch(0.966 0.004 250);
   --muted-foreground: oklch(0.505 0.015 255);
-  --accent: oklch(0.955 0.018 250);
+  --accent: oklch(0.955 0.005 250);
   --accent-foreground: oklch(0.24 0.02 255);
   --destructive: oklch(0.457 0.245 27.325);
   --warning: oklch(0.47 0.12 70);
   --warning-foreground: oklch(0.99 0.01 80);
   --success: oklch(0.51 0.13 155);
   --success-foreground: oklch(0.99 0.01 155);
-  --border: oklch(0.912 0.006 250);
-  --input: oklch(0.912 0.006 250);
+  --info: oklch(0.52 0.12 230);
+  --border: oklch(0.925 0.005 250);
+
+  /*
+   * 交互控件的边界（输入框、复选框、描边按钮）比装饰分隔线深一档、带品牌色相的冷灰，
+   * 在白底与 muted 底上都看得出轮廓又不压过内容；聚焦时由 --ring 给出强指示。
+   */
+  --input: oklch(0.86 0.02 250);
   --ring: oklch(0.52 0.16 250);
-  --sidebar: oklch(0.972 0.004 250);
+  --chart-1: oklch(0.52 0.16 250);
+  --chart-2: oklch(0.6 0.11 195);
+  --chart-3: oklch(0.66 0.15 70);
+  --chart-4: oklch(0.55 0.17 300);
+  --chart-5: oklch(0.6 0.02 255);
+  --sidebar: oklch(0.966 0.004 250);
   --sidebar-foreground: oklch(0.18 0.01 255);
   --sidebar-primary: oklch(0.52 0.16 250);
   --sidebar-primary-foreground: oklch(0.99 0.002 250);
-  --sidebar-accent: oklch(0.94 0.012 250);
+  --sidebar-accent: oklch(1 0 0);
   --sidebar-accent-foreground: oklch(0.18 0.01 255);
-  --sidebar-border: oklch(0.912 0.006 250);
+  --sidebar-border: oklch(0.925 0.005 250);
   --sidebar-ring: oklch(0.52 0.16 250);
+  --hero: oklch(0.23 0.015 250);
+  --hero-foreground: oklch(0.97 0.004 250);
+  --hero-muted: oklch(0.78 0.015 250);
+  --hero-accent: oklch(0.78 0.11 250);
+  --hero-border: oklch(1 0 0 / 12%);
+  --hero-surface: oklch(1 0 0 / 5%);
 
   color-scheme: light;
 }
 
 :root.dark {
-  --background: oklch(0.205 0.009 255);
+  --background: oklch(0.2 0.006 255);
   --foreground: oklch(0.94 0.003 255);
-  --card: oklch(0.245 0.009 255);
+  --card: oklch(0.225 0.006 255);
   --card-foreground: oklch(0.94 0.003 255);
-  --popover: oklch(0.285 0.009 255);
+  --popover: oklch(0.25 0.006 255);
   --popover-foreground: oklch(0.94 0.003 255);
   --primary: oklch(0.72 0.14 250);
   --primary-foreground: oklch(0.18 0.02 255);
-  --secondary: oklch(0.305 0.01 255);
+  --secondary: oklch(0.27 0.006 255);
   --secondary-foreground: oklch(0.94 0.003 255);
-  --muted: oklch(0.325 0.009 255);
+  --muted: oklch(0.27 0.006 255);
   --muted-foreground: oklch(0.72 0.012 250);
-  --accent: oklch(0.3 0.035 258);
+  --accent: oklch(0.28 0.006 255);
   --accent-foreground: oklch(0.94 0.003 255);
   --destructive: oklch(0.759 0.191 22.216);
   --warning: oklch(0.8 0.14 75);
   --warning-foreground: oklch(0.2 0.03 70);
   --success: oklch(0.76 0.15 155);
   --success-foreground: oklch(0.2 0.03 155);
+  --info: oklch(0.75 0.11 230);
   --border: oklch(1 0 0 / 10%);
 
   /* 交互控件的边界单独提亮：装饰分隔线可以淡，输入框与描边按钮的边界必须看得清 */
   --input: oklch(1 0 0 / 22%);
   --ring: oklch(0.72 0.14 250);
-  --sidebar: oklch(0.175 0.009 255);
+  --chart-1: oklch(0.72 0.14 250);
+  --chart-2: oklch(0.72 0.11 195);
+  --chart-3: oklch(0.8 0.14 75);
+  --chart-4: oklch(0.68 0.16 300);
+  --chart-5: oklch(0.7 0.02 255);
+  --sidebar: oklch(0.165 0.005 250);
   --sidebar-foreground: oklch(0.94 0.003 255);
   --sidebar-primary: oklch(0.72 0.14 250);
   --sidebar-primary-foreground: oklch(0.18 0.02 255);
-  --sidebar-accent: oklch(0.26 0.012 255);
+  --sidebar-accent: oklch(0.255 0.006 255);
   --sidebar-accent-foreground: oklch(0.94 0.003 255);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.72 0.14 250);
@@ -118,7 +149,7 @@ body {
   color-scheme: dark;
 }
 
-/* 字体与语义色接入 Tailwind：body 用 font-sans；success 与 warning 暴露为语义工具类。 */
+/* 字体与语义色接入 Tailwind：body 用 font-sans；success、warning、info 与 hero-* 暴露为语义工具类。 */
 @theme {
   --font-sans: 'Geist', system-ui, sans-serif;
 }
@@ -128,6 +159,13 @@ body {
   --color-warning-foreground: var(--warning-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-info: var(--info);
+  --color-hero: var(--hero);
+  --color-hero-foreground: var(--hero-foreground);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-accent: var(--hero-accent);
+  --color-hero-border: var(--hero-border);
+  --color-hero-surface: var(--hero-surface);
 }
 
 @layer base {
@@ -205,6 +243,23 @@ body {
   [data-slot='sheet-header'] {
     padding-inline-end: calc(var(--spacing) * 16);
   }
+}
+
+/*
+ * 侧栏当前项：Vega 已给 sidebar-accent 底色与 500 字重；再加一圈细描边，亮色下白底当前项才能与
+ * 同为浅色的悬停态区分开。
+ */
+[data-slot='sidebar-menu-button'][data-active='true'] {
+  box-shadow: 0 0 0 1px var(--sidebar-border);
+}
+
+/*
+ * 分段控件的选中项：Vega 只给 muted 底色，与页面底色差不到 1.3:1，看不出哪一档选中；
+ * 再加一圈中性描边（≥ 3:1）。用 outline 而不是 box-shadow，不挤掉聚焦环。
+ */
+[data-slot='toggle-group-item'][data-state='on'] {
+  outline: 1px solid var(--muted-foreground);
+  outline-offset: -1px;
 }
 
 /* Vega 的对话框与抽屉标题不设字号，会继承正文的 14px；恢复到卡片标题同档的 16px，与说明文字拉开层级。 */

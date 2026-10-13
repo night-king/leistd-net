@@ -1,13 +1,30 @@
 import { MockRequest } from '../core/models';
+//#if (IncludeLocalization)
+import { NOTIFICATION_TEXTS_ZH_CN, NOTIFICATIONS } from '../data/notifications';
+//#else
 import { NOTIFICATIONS } from '../data/notifications';
+//#endif
 
 /** 通知中心 Mock API（对应框架的 NotificationEndpoints）。 */
 export const NOTIFICATION_API = {
-  'GET /api/v1/notifications': () => {
+  //#if (IncludeLocalization)
+  // 中文界面给中文文案，其余语言给英文；请求头不是受支持语言时用英文（与设置接口同一规则）
+  'GET /api/v1/notifications': (req: MockRequest) => {
+    const chinese = req.headers.get('Accept-Language') === 'zh-CN';
+    return [...NOTIFICATIONS]
+      .sort((a, b) => new Date(b.creationTime).getTime() - new Date(a.creationTime).getTime())
+      .map((notification) =>
+        chinese ? { ...notification, ...NOTIFICATION_TEXTS_ZH_CN[notification.id] } : notification,
+      );
+  },
+  //#else
+  // 不含本地化时只有英文文案，请求参数用不上
+  'GET /api/v1/notifications': (_request: MockRequest) => {
     return [...NOTIFICATIONS].sort(
       (a, b) => new Date(b.creationTime).getTime() - new Date(a.creationTime).getTime(),
     );
   },
+  //#endif
 
   'GET /api/v1/notifications/unread-count': () => {
     return NOTIFICATIONS.filter((n) => !n.isRead).length;

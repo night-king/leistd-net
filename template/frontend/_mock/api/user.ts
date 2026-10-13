@@ -1,8 +1,9 @@
+import { ensureRolesCanBeManaged, requirePermission } from './authorization';
 import { PagedResultDto } from '../../src/app/shared/dtos/paged-result.dto';
 import { MockException, MockRequest } from '../core/models';
 import { MockSortFields, sortMockRows } from '../core/sorting';
-//#if (LocalIdentity)
 import { ROLES } from '../data/authorization';
+//#if (LocalIdentity)
 import { ensureAcceptablePassword } from '../data/password-policy';
 //#endif
 // prettier-ignore
@@ -276,10 +277,84 @@ export function deleteUser(id: string) {
       message: 'You cannot delete your own account.',
     });
   }
-  DELETED_USERS.push(...USERS.splice(index, 1));
+  const [deleted] = USERS.splice(index, 1);
+  DELETED_USERS.push({ ...deleted, deletionTime: new Date().toISOString() });
 }
 
 //#endif
+/**
+ * 与后端批量入参校验同形：400 字段错误。数量按提交的原数组校验（后端在去重之前验证），
+ * 通过后重复的只处理一次。
+ */
+function distinctItems(body: Record<string, unknown>, field: string, max: number): string[] {
+  const items = Array.isArray(body[field]) ? body[field].map(String) : [];
+  if (items.length < 1 || items.length > max) {
+    throw new MockException(400, {
+      errors: [{ field, detail: `${field} must contain between 1 and ${max} items.` }],
+    });
+  }
+  return [...new Set(items)];
+}
+
+function batchIds(body: Record<string, unknown>): string[] {
+  return distinctItems(body, 'ids', 100);
+}
+
+/** 逐条执行，复用单条操作的规则；失败的条目带单条接口同样的错误码与说明，不回滚已成功的。 */
+function runBatch(ids: string[], operation: (id: string) => void) {
+  return {
+    items: ids.map((id) => {
+      try {
+        operation(id);
+        return { id, succeeded: true };
+      } catch (error) {
+        const detail = error instanceof MockException ? error.error : undefined;
+        return { id, succeeded: false, errorCode: detail?.code, message: detail?.message };
+      }
+    }),
+  };
+}
+
+export function batchEnableUsers(body: Record<string, unknown>) {
+  requirePermission('App.Users.Update');
+  return runBatch(batchIds(body), enableUser);
+}
+
+export function batchDisableUsers(body: Record<string, unknown>) {
+  requirePermission('App.Users.Update');
+  return runBatch(batchIds(body), disableUser);
+}
+//#if (LocalIdentity)
+
+export function batchUnlockUsers(body: Record<string, unknown>) {
+  requirePermission('App.Users.Update');
+  return runBatch(batchIds(body), unlockUser);
+}
+//#endif
+
+/** 批量追加角色：只追加不覆盖；角色 1–20 个，有不存在的整批 400，一条也不执行。 */
+export function batchAssignUserRoles(body: Record<string, unknown>) {
+  requirePermission('App.Users.ManageRoles');
+  const ids = batchIds(body);
+  const roleIds = distinctItems(body, 'roleIds', 20);
+  const roles = ROLES.filter((role) => roleIds.includes(role.id));
+  if (roles.length !== roleIds.length) {
+    throw new MockException(400, {
+      code: 'User:RolesNotFound',
+      message: 'One or more roles do not exist.',
+    });
+  }
+
+  return runBatch(ids, (id) => {
+    const user = USERS.find((candidate) => candidate.id === id);
+    if (!user) {
+      throw new MockException(404, { code: 'User:NotFound', message: 'User does not exist' });
+    }
+    ensureRolesCanBeManaged(user);
+    user.roles = [...new Set([...user.roles, ...roles.map((role) => role.name)])];
+  });
+}
+
 export const USER_API = {
   'GET /api/v1/users': (req: MockRequest) => getUsers(req.queryParams),
   'GET /api/v1/users/:id': (req: MockRequest) => getUserById(req.params.id),
@@ -289,10 +364,14 @@ export const USER_API = {
   //#endif
   'PATCH /api/v1/users/:id/enable': (req: MockRequest) => enableUser(req.params.id),
   'PATCH /api/v1/users/:id/disable': (req: MockRequest) => disableUser(req.params.id),
+  'POST /api/v1/users/batch/enable': (req: MockRequest) => batchEnableUsers(req.body),
+  'POST /api/v1/users/batch/disable': (req: MockRequest) => batchDisableUsers(req.body),
+  'POST /api/v1/users/batch/assign-roles': (req: MockRequest) => batchAssignUserRoles(req.body),
   //#if (LocalIdentity)
   'POST /api/v1/users/:id/reset-password': (req: MockRequest) =>
     resetPassword(req.params.id, req.body),
   'POST /api/v1/users/:id/unlock': (req: MockRequest) => unlockUser(req.params.id),
+  'POST /api/v1/users/batch/unlock': (req: MockRequest) => batchUnlockUsers(req.body),
   'POST /api/v1/users/:id/reset-two-factor': (req: MockRequest) => resetTwoFactor(req.params.id),
   'DELETE /api/v1/users/:id': (req: MockRequest) => deleteUser(req.params.id),
   //#endif

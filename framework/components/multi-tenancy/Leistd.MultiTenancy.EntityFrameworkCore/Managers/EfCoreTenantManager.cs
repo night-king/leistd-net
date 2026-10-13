@@ -127,6 +127,7 @@ public class EfCoreTenantManager<TDbContext>(
     /// <inheritdoc />
     public async Task<PagedResult<TenantConfiguration>> GetPagedAsync(
         string? keyword,
+        bool? isActive,
         PageRequest page,
         CancellationToken cancellationToken = default)
     {
@@ -140,6 +141,11 @@ public class EfCoreTenantManager<TDbContext>(
             query = query.Where(t =>
                 t.NormalizedName.Contains(normalizedKeyword) ||
                 (t.DisplayName != null && t.DisplayName.Contains(keyword)));
+        }
+
+        if (isActive is { } active)
+        {
+            query = query.Where(t => t.IsActive == active);
         }
 
         var total = await query.LongCountAsync(cancellationToken);

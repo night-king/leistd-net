@@ -12,7 +12,7 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 // prettier-ignore
-import { lucideInfo, lucideEye, lucideEyeOff, lucideX } from '@ng-icons/lucide';
+import { lucideBuilding2, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
@@ -25,13 +25,7 @@ import {
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
-// prettier-ignore
-import {
-  applicationErrorMessage,
-  //#if (ExternalLogin)
-  ApplicationHttpError,
-  //#endif
-} from '../../../../core/errors/application-http-error';
+import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { MOCKED_URL } from '../../../../core/mock/mocked-url';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
@@ -47,12 +41,11 @@ import { englishText } from '../../../../shared/utils/english-text';
 import { HostTenantDecision } from '../../dtos/tenant-by-host.dto';
 //#endif
 import { AccountService } from '../../services/account-service';
+//#if (ExternalLogin)
+import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
+//#endif
 import { AuthShell } from '../auth-shell/auth-shell';
 import { TwoFactorChallenge } from '../two-factor-challenge/two-factor-challenge';
-
-// GitHub 品牌图标（lucide 已下架品牌 logo，用官方 SVG path 自定义注入）
-const githubIcon =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.2 11.39.6.11.82-.26.82-.58v-2.03c-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.31-.54-1.52.11-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.87.12 3.18.77.84 1.23 1.91 1.23 3.22 0 4.61-2.81 5.63-5.49 5.93.43.37.82 1.1.82 2.22v3.29c0 .32.22.7.83.58A12 12 0 0 0 24 12.5C24 5.87 18.63.5 12 .5z"/></svg>';
 
 @Component({
   selector: 'app-login',
@@ -73,15 +66,17 @@ const githubIcon =
     //#endif
     AuthShell,
     TwoFactorChallenge,
+    //#if (ExternalLogin)
+    ExternalLoginButtons,
+    //#endif
   ],
   // prettier-ignore
   providers: [
     provideIcons({
-      lucideX,
+      lucideBuilding2,
       lucideInfo,
       lucideEye,
       lucideEyeOff,
-      github: githubIcon,
     }),
   ],
   templateUrl: './login.html',
@@ -107,17 +102,13 @@ export class Login implements OnInit {
   public readonly isLoading = this._isLoading.asReadonly();
 
   protected readonly showPassword = signal(false);
-  //#if (ExternalLogin)
-
-  /** 部署已配置的外部登录提供商；null 表示还在加载，此时不显示任何入口。 */
-  protected readonly externalProviders = signal<readonly string[] | null>(null);
-  protected readonly externalProvidersFailed = signal(false);
-  /** 5xx 失败时带上本地化的追踪 ID，供支持人员关联服务端日志。 */
-  protected readonly externalProvidersTrace = signal<string | null>(null);
-  //#endif
 
   // 登录接口由 Mock 应答时才提示演示账号：只 Mock 了别的模块时，演示账号登不进真实后端
   public readonly isMockEnabled = signal(inject(MOCKED_URL)(AuthService.loginUrl));
+  //#if (ExternalLogin)
+  /** 外部登录完成后回到的地址（OIDC 授权回跳等），与本地登录同一个来源。 */
+  protected readonly returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
+  //#endif
 
   private readonly model = signal({
     usernameOrEmail: '',
@@ -147,15 +138,10 @@ export class Login implements OnInit {
       ?.twoFactorToken ?? null,
   );
 
-//#if (IncludeMultiTenancy || ExternalLogin)
-  constructor() {
 //#if (IncludeMultiTenancy)
+  constructor() {
     // 子域名部署下按主机名把租户定住，用户完全不必填；未命中则保持原状（上次记住的或空白）。
     void this.resolveTenantFromHost();
-//#endif
-    //#if (ExternalLogin)
-    this.loadExternalProviders();
-    //#endif
   }
 
 //#endif
@@ -392,85 +378,31 @@ export class Login implements OnInit {
     this.tenantContext.clear();
     this.tenantError.set(null);
   }
+
+  /** 「切换租户」展开的输入框；默认收起，只显示当前租户一行。 */
+  readonly tenantEditing = signal(false);
+
+  /** 应用输入框里的租户：填了名称切到该租户，留空回到宿主。 */
+  async applyTenantInput(): Promise<void> {
+    if (this.tenantName().trim()) {
+      await this.onConfirmTenant();
+    } else {
+      this.clearTenant();
+    }
+    this.tenantEditing.set(false);
+  }
   //#else
   readonly authBlocked = signal(false);
-  //#endif
-  //#if (ExternalLogin)
-
-  /** 读取已配置的提供商。失败单独提示并可重试，不当作"未配置"；本地登录不受影响。 */
-  protected loadExternalProviders(): void {
-    this.externalProvidersFailed.set(false);
-    this.externalProvidersTrace.set(null);
-    this.accountService.getExternalLoginProviders().subscribe({
-      next: (result) => this.externalProviders.set(result.providers),
-      error: (error: unknown) => {
-        this.externalProvidersTrace.set(
-          error instanceof ApplicationHttpError && error.status >= 500 && error.traceId
-            ? `${error.traceIdLabel}: ${error.traceId}`
-            : null,
-        );
-        this.externalProvidersFailed.set(true);
-      },
-    });
-  }
-
-  protected hasExternalProvider(provider: string): boolean {
-    return this.externalProviders()?.includes(provider) ?? false;
-  }
-
-  /** 页面只内置 GitHub、Google 入口；目录里只有其他提供商时不显示空的分隔区。 */
-  protected hasRenderableExternalProvider(): boolean {
-    return this.hasExternalProvider('github') || this.hasExternalProvider('google');
-  }
-
-  loginWithGitHub() {
-    this.loginWithExternalProvider('github', 'GitHub');
-  }
-
-  loginWithGoogle() {
-    this.loginWithExternalProvider('google', 'Google');
-  }
-
-  private loginWithExternalProvider(provider: 'github' | 'google', label: string) {
-    // 与本地登录同一条约束：第三方回调最终也落在按主机名解析出的那个上下文里。
-    if (this.authBlocked()) {
-      return;
-    }
-
-    this._isLoading.set(true);
-    try {
-      window.location.href = this.accountService.getExternalLoginUrl(
-        provider,
-        this.route.snapshot.queryParamMap.get('returnUrl'),
-      );
-    } catch (error) {
-      console.error(`${label} login failed`, error);
-      //#if (IncludeLocalization)
-      toast.error(this.transloco.translate('account.login.loginFailed'), {
-        description: this.transloco.translate('account.login.externalLoginFailed', {
-          provider: label,
-        }),
-        duration: 3000,
-      });
-      //#else
-      toast.error('Sign-in failed', {
-        description: `Unable to connect to the ${label} sign-in service, please try again later`,
-        duration: 3000,
-      });
-      //#endif
-      this._isLoading.set(false);
-    }
-  }
   //#endif
 }
 //#if (!IncludeLocalization)
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'account.login.title': 'Sign In',
-  'account.login.subtitle': 'Welcome back, please enter your account information',
+  'account.login.title': 'Welcome back',
   'account.login.tenant': 'Tenant',
-  'account.login.tenantClear': 'Clear tenant',
+  'account.login.tenantHost': 'Host',
+  'account.login.tenantSwitch': 'Switch tenant',
   'account.login.tenantFromDomain': 'Determined by the site address.',
   'account.login.tenantPlaceholder': 'Tenant name, leave empty for host',
   'account.login.tenantConfirm': 'Confirm',
@@ -483,18 +415,13 @@ const ENGLISH: Record<string, string> = {
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
   'account.login.noAccount': "Don't have an account?",
-  'account.login.registerNow': 'Sign up now',
+  'account.login.registerNow': 'Sign up',
   'account.login.submit': 'Sign In',
-  'account.login.or': 'OR',
-  'account.login.testAccount': 'Test Account',
-  'account.login.adminRole': 'Administrator',
+  'account.login.or': 'Or sign in with your account',
+  'account.login.testAccount': 'Development test account',
   'account.login.tenantUnavailable':
     'The tenant this address points to is unavailable. Contact your administrator.',
   'account.login.tenantProbeFailed':
     'Could not determine the tenant for this address. Check your connection and try again.',
-  //#if (ExternalLogin)
-  'account.login.externalProvidersLoadFailed': 'Third-party sign-in options could not be loaded.',
-  'common.retry': 'Retry',
-  //#endif
 };
 //#endif

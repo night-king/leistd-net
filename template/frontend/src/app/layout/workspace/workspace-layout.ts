@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
+import { CommandPalette } from '../components/command-palette/command-palette';
 import { DefaultHeader } from '../components/default-header/default-header';
 
 /**
@@ -9,7 +10,7 @@ import { DefaultHeader } from '../components/default-header/default-header';
  */
 @Component({
   selector: 'app-workspace-layout',
-  imports: [RouterOutlet, DefaultHeader],
+  imports: [RouterOutlet, CommandPalette, DefaultHeader],
   templateUrl: './workspace-layout.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
