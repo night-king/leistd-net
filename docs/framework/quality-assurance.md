@@ -25,7 +25,7 @@ L1 按改动路径选择入口：
 | 数据库映射、迁移、租户路由 | 受影响场景 + `test-template-postgresql-e2e.ps1` | — |
 | 认证、令牌、外部登录协议 | 受影响场景 + `test-template-oidc-e2e.ps1` | 浏览器链路加 `-IncludeBrowserScenarios`；令牌到期变更的 `-IncludeExpiryWait` 责任见[模板质量规范](../template/quality-assurance.md) |
 | Dockerfile、部署资产 | `-Scenarios standalone -ContainerSmokeScenarios standalone` | — |
-| CI、矩阵或闸门脚本 | `check-all.ps1` + 被改脚本的自检与夹具 | 范围/聚合、框架测试回执或发布链接（`PackageReleaseNotes` 与可选升级指南链接）变化运行 `python scripts/test-workflow-change-scope.py`，选测/回执变化运行 `python scripts/test-quality-validation-plan.py`；预检接替变化运行 `python scripts/test-template-source-preflight.py`；影响调度时用远端 CI 验收 |
+| CI、矩阵或闸门脚本 | `check-all.ps1` + 被改脚本的自检与夹具 | 范围/聚合、框架测试回执或发布链接（`PackageReleaseNotes` 与可选升级指南链接）变化运行 `python scripts/test-workflow-change-scope.py`，只改发布推送、产物保存或恢复指引时可加 `--release-publish` 只跑该部分（不需要 .NET）；选测/回执变化运行 `python scripts/test-quality-validation-plan.py`；预检接替变化运行 `python scripts/test-template-source-preflight.py`；影响调度时用远端 CI 验收 |
 
 L0–L2 不以真实时间流逝等待安全有效期（锁定、挑战、令牌寿命、缓存寿命、限频窗口）来验证时间边界：应用控制的判据用官方 `FakeTimeProvider` 或显式时刻在单元、集成测试里验证；端到端只验接线与生效值。跨进程的真实到期只放在 L3：OIDC 端到端的 `-IncludeExpiryWait` 由 `full` 档传入，以快速档（`OAuth__AccessTokenLifetime=00:01:30`）执行撤销到期与交换令牌到期，并从签发的令牌断言快速档已生效。实际 I/O、同步、取消与超时用有上限且观察目标完成的等待，不在此列。生成项目的同一原则见模板 [`testing.md`](../../template/docs/standards/testing.md) §2.2。
 

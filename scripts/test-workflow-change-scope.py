@@ -5,6 +5,9 @@ Run when changing CI/release scope selection, framework test receipts or the rel
 (PackageReleaseNotes and the upgrade-guide link); this is not a per-feature gate.
 The release link check packs a fixture project, so it also requires the .NET SDK.
 Requires PowerShell and the same PyYAML dependency used by Skill validation.
+
+`--release-publish` runs only the release publish/recovery checks (tag push retries against a
+local bare remote, recovery summary stages, artifact bundle rehearsal); they need git and pwsh, not .NET.
 """
 
 from contextlib import contextmanager
@@ -17,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 from xml.etree import ElementTree
 import zipfile
@@ -515,12 +519,415 @@ def check_release_links():
         print('PASS release links: missing link and unknown channel fail closed')
 
 
+def release_step_named(name):
+    data = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8'))
+    return next(s for s in data['jobs']['release']['steps'] if s.get('name') == name)
+
+
+def write_hook(path, body):
+    path.write_text('#!/bin/sh\n' + body, encoding='utf-8')
+    path.chmod(0o755)
+
+
+def count(path):
+    return int(path.read_text(encoding='utf-8').strip() or 0) if path.exists() else 0
+
+
+class ReleaseRemote:
+    """A local bare repository standing in for GitHub; hooks inject server-side push failures."""
+
+    def __init__(self, root):
+        self.root = root
+        self.remote = root / 'origin.git'
+        self.work = root / 'work'
+        self.counter = root / 'receive-count'
+        git(root, 'init', '-q', '--bare', 'origin.git')
+        self.work.mkdir()
+        git(self.work, 'init', '-q', '-b', 'main')
+        git(self.work, 'config', 'user.email', 'release-test@example.invalid')
+        git(self.work, 'config', 'user.name', 'Release test')
+        git(self.work, 'remote', 'add', 'origin', str(self.remote))
+        git(self.work, 'commit', '-q', '--allow-empty', '-m', 'candidate')
+        self.base = git(self.work, 'rev-parse', 'HEAD')
+        git(self.work, 'push', '-q', 'origin', 'main')
+        git(self.work, 'commit', '-q', '--allow-empty', '-m', 'chore: release commit')
+        self.version_commit = git(self.work, 'rev-parse', 'HEAD')
+        git(self.work, 'checkout', '-q', '-b', 'other', self.base)
+        git(self.work, 'commit', '-q', '--allow-empty', '-m', 'someone else')
+        self.other = git(self.work, 'rev-parse', 'HEAD')
+        git(self.work, 'checkout', '-q', 'main')
+        self.fail_pushes(0)
+
+    def fail_pushes(self, times):
+        """Count every receive; reject the first `times` the way GitHub did (remote rejected)."""
+        self.counter.unlink(missing_ok=True)
+        write_hook(self.remote / 'hooks/pre-receive',
+                   f'n=$(cat "{self.counter}" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "{self.counter}"\n'
+                   f'if [ $n -le {times} ]; then echo "Internal Server Error" >&2; exit 1; fi\n')
+
+    def fail_queries(self, times):
+        """Make the first `times` ls-remote calls through `origin` fail (upload-pack is what ls-remote talks to)."""
+        self.queries = self.root / 'query-count'
+        self.queries.unlink(missing_ok=True)
+        wrapper = self.root / 'upload-pack-wrapper.sh'
+        write_hook(wrapper, f'n=$(cat "{self.queries}" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "{self.queries}"\n'
+                            f'if [ $n -le {times} ]; then echo "fatal: Internal Server Error" >&2; exit 128; fi\n'
+                            'exec git upload-pack "$@"\n')
+        git(self.work, 'config', 'remote.origin.uploadpack', str(wrapper))
+
+    def checkout_candidate(self, name):
+        """A maintainer's checkout holding only remote main (the candidate): no tags, no shared objects."""
+        git(self.root, 'clone', '-q', '--no-local', '--single-branch', '--no-tags', str(self.remote), name)
+        return self.root / name
+
+    def apply_but_report_failure(self):
+        """Server applies the update, then the connection fails: local git exits non-zero."""
+        wrapper = self.root / 'receive-pack-wrapper.sh'
+        write_hook(wrapper, 'git receive-pack "$@"\nexit 1\n')
+        git(self.work, 'config', 'remote.origin.receivepack', str(wrapper))
+
+    def remote_sha(self, ref):
+        lines = git(self.work, 'ls-remote', str(self.remote), ref, f'{ref}^{{}}').splitlines()
+        values = dict(reversed(line.split('\t', 1)) for line in lines)
+        return values.get(f'{ref}^{{}}') or values.get(ref, '')
+
+    def push(self, *args, attempts=3):
+        output = self.root / 'push-output.txt'
+        output.unlink(missing_ok=True)
+        result = subprocess.run(['pwsh', '-NoProfile', '-File', str(ROOT / 'scripts/push-release-ref.ps1'), *args,
+                                 '-MaxAttempts', str(attempts), '-RetryDelaySeconds', '0'],
+                                cwd=self.work, env={**os.environ, 'GITHUB_OUTPUT': str(output)},
+                                capture_output=True, text=True, encoding='utf-8', errors='replace')
+        outputs = parse_outputs(output.read_text(encoding='utf-8')) if output.exists() else {}
+        return result.returncode, outputs.get('result'), result.stdout + result.stderr
+
+
+def summary(**params):
+    args = []
+    for name, value in params.items():
+        args += [f'-{name}', value]
+    with tempfile.TemporaryDirectory(prefix='leistd-release-summary-') as directory:
+        path = Path(directory) / 'summary.md'
+        # 与 workflow 一样在同一会话内调用，空值作为空字符串绑定
+        quoted = ' '.join(a if a.startswith('-') else "'" + a.replace("'", "''") + "'" for a in args)
+        result = subprocess.run(['pwsh', '-NoProfile', '-Command',
+                                 f"& '{ROOT / 'scripts/write-release-recovery-summary.ps1'}' {quoted} -SummaryPath '{path}'"],
+                                capture_output=True, text=True, encoding='utf-8', errors='replace')
+        assert result.returncode == 0, result.stdout + result.stderr
+        text = path.read_text(encoding='utf-8')
+    stage = re.match(r'<!-- release-recovery-stage: (\S+) -->', text)
+    assert stage, text
+    return stage.group(1), text
+
+
+def run_recovery_commands(text, cwd, drop_fetch=False):
+    """Execute the summary's git/push-release-ref blocks verbatim (download, NuGet and gh blocks need real services)."""
+    blocks = re.findall(r'```bash\n(.*?)```', text, re.S)
+    selected = [b for b in blocks if not any(s in b for s in ('gh run download', 'gh release', 'dotnet nuget push'))]
+    assert selected, ('summary has no executable recovery block', text)
+    lines = [line for block in selected for line in block.splitlines()
+             if not (drop_fetch and line.startswith('git fetch'))]
+    script = '\n'.join(line.replace('pwsh scripts/push-release-ref.ps1',
+                                     f"pwsh -NoProfile -File '{ROOT / 'scripts/push-release-ref.ps1'}' -RetryDelaySeconds 0")
+                        for line in lines)
+    path = cwd.parent / f'{cwd.name}-recovery.sh'
+    path.write_text(script + '\n', encoding='utf-8')
+    result = subprocess.run(['bash', '-e', '-o', 'pipefail', str(path)], cwd=cwd, capture_output=True,
+                            text=True, encoding='utf-8', errors='replace')
+    return result.returncode, script + '\n---\n' + result.stdout + result.stderr
+
+
+def check_release_ref_push():
+    """Tag/branch push: retries only the push, queries the remote first, never rewrites a conflicting ref."""
+    tag = 'v0.13.0-beta.7'
+    ref = f'refs/tags/{tag}'
+    cases = 0
+    with tempfile.TemporaryDirectory(prefix='leistd-release-push-') as directory:
+        def fresh(name):
+            root = Path(directory) / name
+            root.mkdir()
+            return ReleaseRemote(root)
+
+        r = fresh('retry')
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.base)
+        r.fail_pushes(1)
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (0, 'pushed') and count(r.counter) == 2, (code, result, log)
+        assert r.remote_sha(ref) == r.base, log
+        cases += 1
+
+        r = fresh('applied')
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.base)
+        r.apply_but_report_failure()
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (0, 'already-present') and count(r.counter) == 1, (code, result, log)
+        cases += 1
+
+        # 远端已有同名 tag 且解引用到同一提交（这里是轻量 tag，对象不同）：完成，不再推送
+        r = fresh('present')
+        git(r.work, 'push', '-q', 'origin', f'{r.base}:{ref}')
+        r.fail_pushes(0)
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.base)
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (0, 'already-present') and count(r.counter) == 0, (code, result, log)
+        cases += 1
+
+        r = fresh('conflict')
+        git(r.work, 'push', '-q', 'origin', f'{r.other}:{ref}')
+        r.fail_pushes(0)
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.base)
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (2, 'conflict') and count(r.counter) == 0, (code, result, log)
+        assert r.remote_sha(ref) == r.other and git(r.work, 'rev-parse', f'{tag}^{{commit}}') == r.base, log
+        cases += 1
+
+        r = fresh('local-mismatch')
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.other)
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (1, 'failed') and count(r.counter) == 0 and r.remote_sha(ref) == '', (code, result, log)
+        cases += 1
+
+        r = fresh('exhausted')
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.base)
+        r.fail_pushes(99)
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (1, 'failed') and count(r.counter) == 3 and r.remote_sha(ref) == '', (code, result, log)
+        # 最终失败的 summary 必须带本次的版本、tag、实际 SHA 与阶段
+        stage, text = summary(Channel='beta', Version='0.13.0-beta.7', Tag=tag, CandidateSha=r.base, ReleaseSha=r.base,
+                              Repository='owner/repo', RunId='42', ArtifactName='release-packages-0.13.0-beta.7',
+                              ArtifactOutcome='success', PushOutcome='success', TagOutcome='failure', TagResult=result,
+                              ReleaseOutcome='skipped')
+        assert stage == 'tag', text
+        assert f'-Kind tag -Name {tag} -ExpectedSha {r.base}' in text and '0.13.0-beta.7' in text, text
+        assert 'dotnet nuget push' not in text and 'gh release create' in text, text
+        cases += 1
+
+        r = fresh('branch')
+        code, result, log = r.push('-Kind', 'branch', '-Name', 'main', '-ExpectedSha', r.version_commit, '-BaseSha', r.base)
+        assert (code, result) == (0, 'pushed') and r.remote_sha('refs/heads/main') == r.version_commit, (code, result, log)
+        code, result, log = r.push('-Kind', 'branch', '-Name', 'main', '-ExpectedSha', r.version_commit, '-BaseSha', r.base)
+        assert (code, result) == (0, 'already-present'), (code, result, log)
+        cases += 2
+
+        # 查询失败是"状态未知"，不是冲突：照常推送并按有限次数重试
+        r = fresh('branch-query-recovers')
+        r.fail_queries(1)
+        r.fail_pushes(1)
+        code, result, log = r.push('-Kind', 'branch', '-Name', 'main', '-ExpectedSha', r.version_commit, '-BaseSha', r.base)
+        assert (code, result) == (0, 'pushed') and (count(r.queries), count(r.counter)) == (2, 2), (code, result, log)
+        assert r.remote_sha('refs/heads/main') == r.version_commit, log
+        cases += 1
+
+        r = fresh('branch-query-down')
+        r.fail_queries(99)
+        r.fail_pushes(99)
+        code, result, log = r.push('-Kind', 'branch', '-Name', 'main', '-ExpectedSha', r.version_commit, '-BaseSha', r.base)
+        assert (code, result) == (1, 'failed') and (count(r.queries), count(r.counter)) == (4, 3), (code, result, log)
+        assert r.remote_sha('refs/heads/main') == r.base, log
+        cases += 1
+
+        r = fresh('tag-query-down')
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.base)
+        r.fail_queries(99)
+        r.fail_pushes(99)
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (1, 'failed') and (count(r.queries), count(r.counter)) == (4, 3), (code, result, log)
+        r.fail_pushes(0)
+        code, result, log = r.push('-Kind', 'tag', '-Name', tag, '-ExpectedSha', r.base)
+        assert (code, result) == (0, 'pushed') and r.remote_sha(ref) == r.base, (code, result, log)
+        cases += 2
+
+        r = fresh('branch-moved')
+        git(r.work, 'push', '-q', 'origin', f'{r.other}:refs/heads/main')
+        r.fail_pushes(0)
+        code, result, log = r.push('-Kind', 'branch', '-Name', 'main', '-ExpectedSha', r.version_commit, '-BaseSha', r.base)
+        assert (code, result) == (2, 'conflict') and count(r.counter) == 0, (code, result, log)
+        assert r.remote_sha('refs/heads/main') == r.other, log
+        cases += 1
+    print(f'PASS release ref push: {cases} cases (retry, applied-but-failed, present, conflict, local mismatch, exhausted, '
+          'query failure recovered/persistent, branch)')
+
+
+def check_release_recovery_summary():
+    """Stage comes only from step outcomes/results; guidance matches the channel and actual SHAs."""
+    cand, rel = 'a' * 40, 'b' * 40
+    common = dict(Version='0.13.0', Tag='v0.13.0', CandidateSha=cand, Repository='owner/repo', RunId='42',
+                  ArtifactName='release-packages-0.13.0', ArtifactOutcome='success')
+    tag_cmd, branch_cmd = '-Kind tag', '-Kind branch'
+
+    for push in ('skipped', ''):
+        stage, text = summary(Channel='beta', **{**common, 'ArtifactOutcome': ''}, PushOutcome=push)
+        assert stage == 'before-push', (push, text)
+        assert tag_cmd not in text and 'gh release' not in text and 'dotnet nuget push' not in text, text
+    stage, text = summary(Channel='', PushOutcome='')
+    assert stage == 'before-push', text
+
+    stage, text = summary(Channel='beta', **{**common, 'Version': '0.13.0-beta.7', 'Tag': 'v0.13.0-beta.7'},
+                          ReleaseSha=cand, PushOutcome='failure', TagOutcome='skipped', ReleaseOutcome='skipped')
+    assert stage == 'packages', text
+    assert 'api.nuget.org' in text and f'-ExpectedSha {cand}' in text and '--prerelease --latest=false' in text, text
+
+    stage, text = summary(Channel='nightly', **common, ReleaseSha=cand, PushOutcome='cancelled')
+    assert stage == 'packages' and 'nuget.pkg.github.com/owner/' in text and 'gh release' not in text, text
+
+    stage, text = summary(Channel='beta', **common, ReleaseSha=cand, PushOutcome='success',
+                          TagOutcome='failure', TagResult='conflict')
+    assert stage == 'tag' and tag_cmd not in text and 'force' in text, text
+
+    # stable：tag 在版本回写提交上，main 回写单独恢复，起点是候选 SHA
+    stage, text = summary(Channel='stable', **common, ReleaseSha=rel, PushOutcome='success', TagOutcome='failure',
+                          TagResult='failed', BranchOutcome='skipped', ReleaseOutcome='skipped')
+    assert stage == 'tag' and f'-ExpectedSha {rel}' in text and f'-BaseSha {cand}' in text, text
+    assert '--latest' in text and '--prerelease' not in text, text
+    stage, text = summary(Channel='stable', **common, ReleaseSha=cand, PushOutcome='success', TagOutcome='failure')
+    assert stage == 'tag' and branch_cmd not in text, ('no version commit: nothing to write back', text)
+    stage, text = summary(Channel='stable', **common, ReleaseSha=rel, PushOutcome='success', TagOutcome='success',
+                          BranchOutcome='failure', BranchResult='failed', ReleaseOutcome='skipped')
+    assert stage == 'main' and tag_cmd not in text and branch_cmd in text and 'gh release create' in text, text
+
+    stage, text = summary(Channel='beta', **common, ReleaseSha=cand, PushOutcome='success', TagOutcome='success',
+                          ReleaseOutcome='failure')
+    assert stage == 'release' and tag_cmd not in text and 'dotnet nuget push' not in text and '--clobber' in text, text
+    stage, text = summary(Channel='nightly', **common, ReleaseSha=cand, PushOutcome='success', TagOutcome='success',
+                          ReleaseOutcome='skipped')
+    assert stage == 'unknown', text
+    print('PASS release recovery summary: before-push/packages/tag/main/release/unknown across stable, beta, nightly')
+
+
+def check_release_artifact_rehearsal():
+    """Run the real tag/artifact steps, then recover from the bundle alone: same tag object, same SHA."""
+    tag_step = release_step('tag')
+    files_step = release_step('release-files')
+    prep_step = release_step_named('准备 stable 版本提交')
+    with tempfile.TemporaryDirectory(prefix='leistd-release-artifact-') as directory:
+        for channel, version in (('beta', '0.13.0-beta.7'), ('stable', '0.13.0')):
+            root = Path(directory) / channel
+            root.mkdir()
+            r = ReleaseRemote(root)
+            git(r.work, 'checkout', '-q', '--detach', r.base)
+            (r.work / 'VERSION').write_text('0.12.0', encoding='utf-8')
+            props = r.work / 'template/backend/Directory.Build.props'
+            props.parent.mkdir(parents=True)
+            props.write_text('<Project><PropertyGroup><LeistdFrameworkVersion>0.12.0</LeistdFrameworkVersion>'
+                             '</PropertyGroup></Project>\n', encoding='utf-8')
+            git(r.work, 'add', '-A')
+            git(r.work, 'commit', '-qm', 'candidate files')
+            git(r.work, 'push', '-q', 'origin', 'HEAD:refs/heads/main', '--force')
+            candidate = git(r.work, 'rev-parse', 'HEAD')
+            artifacts = r.work / 'framework/artifacts'
+            artifacts.mkdir(parents=True)
+            for package in ('Leistd.Core', 'Leistd.Ddd.Domain'):
+                (artifacts / f'{package}.{version}.nupkg').write_bytes(package.encode())
+            values = {
+                'steps.ch.outputs.channel': channel, 'steps.ver.outputs.version': version,
+                'steps.ver.outputs.tag': f'v{version}', 'needs.candidate.outputs.sha': candidate, 'github.run_id': '42',
+            }
+            runner_temp = root / 'runner-temp'
+            runner_temp.mkdir()
+            if channel == 'stable':
+                code, _, log = run_pwsh(r.work, substitute(prep_step['run'], values))
+                assert code == 0, log
+            code, output, log = run_pwsh(r.work, substitute(tag_step['run'], values))
+            assert code == 0, log
+            release_sha = parse_outputs(output)['release_sha']
+            assert (release_sha != candidate) == (channel == 'stable'), (channel, release_sha, candidate)
+            values['steps.tag.outputs.release_sha'] = release_sha
+            env = {'RUNNER_TEMP': str(runner_temp), 'RELEASE_NOTES': '## NuGet\n\nnotes'}
+            code, _, log = run_pwsh(r.work, substitute(files_step['run'], values), env)
+            assert code == 0, log
+            out = runner_temp / 'release-artifact'
+            manifest = json.loads((out / 'manifest.json').read_text(encoding='utf-8-sig'))
+            assert manifest['releaseSha'] == release_sha and manifest['candidateSha'] == candidate, manifest
+            assert [p['id'] for p in manifest['packages']] == ['Leistd.Core', 'Leistd.Ddd.Domain'], manifest
+            assert (out / 'release-notes.md').read_text(encoding='utf-8-sig').startswith('## NuGet'), 'notes'
+            tag_object = git(r.work, 'rev-parse', f'v{version}')
+
+            # 恢复：执行 tag 阶段 summary 实际给出的命令；检出里只有候选提交，runner 本地的 tag 与版本提交已消失
+            tag = f'v{version}'
+            stage, text = summary(Channel=channel, Version=version, Tag=tag, CandidateSha=candidate, ReleaseSha=release_sha,
+                                  Repository='owner/repo', RunId='42', ArtifactName=f'release-packages-{version}',
+                                  ArtifactOutcome='success', PushOutcome='success', TagOutcome='failure',
+                                  TagResult='failed', BranchOutcome='skipped', ReleaseOutcome='skipped')
+            assert stage == 'tag', text
+            for drop_fetch in (True, False):
+                restore = r.checkout_candidate(f'restore-{"nofetch" if drop_fetch else "fetch"}')
+                shutil.copytree(out, restore / f'.tmp/release-{version}')  # 代替 gh run download
+                code, log = run_recovery_commands(text, restore, drop_fetch)
+                if drop_fetch:
+                    assert code != 0 and r.remote_sha(f'refs/tags/{tag}') == '', ('commands must need the bundle', log)
+                    assert r.remote_sha('refs/heads/main') == candidate, log
+                else:
+                    assert code == 0, log
+            assert git(restore, 'rev-parse', tag) == tag_object, 'bundle must carry the original tag object'
+            assert r.remote_sha(f'refs/tags/{tag}') == release_sha
+            assert r.remote_sha('refs/heads/main') == (release_sha if channel == 'stable' else candidate)
+            print(f'PASS release artifact {channel}: manifest, notes and bundle restore tag {release_sha[:8]}')
+
+
+def check_release_main_stage_rehearsal():
+    """stable: tag landed, main write-back failed. The main-stage commands must fetch the release commit themselves."""
+    with tempfile.TemporaryDirectory(prefix='leistd-release-main-') as directory:
+        r = ReleaseRemote(Path(directory))
+        tag = 'v0.13.0'
+        git(r.work, 'tag', '-a', tag, '-m', 'Release', r.version_commit)
+        git(r.work, 'push', '-q', 'origin', f'refs/tags/{tag}')
+        stage, text = summary(Channel='stable', Version='0.13.0', Tag=tag, CandidateSha=r.base, ReleaseSha=r.version_commit,
+                              Repository='owner/repo', RunId='42', ArtifactName='release-packages-0.13.0',
+                              ArtifactOutcome='success', PushOutcome='success', TagOutcome='success',
+                              BranchOutcome='failure', BranchResult='failed', ReleaseOutcome='skipped')
+        assert stage == 'main', text
+        code, log = run_recovery_commands(text, r.checkout_candidate('nofetch'), drop_fetch=True)
+        assert code != 0 and r.remote_sha('refs/heads/main') == r.base, ('main commands must fetch the release commit', log)
+        code, log = run_recovery_commands(text, r.checkout_candidate('fetch'))
+        assert code == 0 and r.remote_sha('refs/heads/main') == r.version_commit, log
+        stage, text = summary(Channel='stable', Version='0.13.0', Tag=tag, CandidateSha=r.base, ReleaseSha=r.version_commit,
+                              PushOutcome='success', TagOutcome='success', BranchOutcome='failure', BranchResult='conflict')
+        assert stage == 'main' and f'git fetch origin refs/tags/{tag}' in text and 'git merge' in text, text
+    print('PASS release main stage: summary commands fetch and verify the release commit; without fetch they fail')
+
+
+def check_release_workflow_wiring():
+    """The workflow creates the tag once, uploads before pushing, and the summary reads only real step ids."""
+    data = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8'))
+    steps = data['jobs']['release']['steps']
+    ids = [s.get('id') for s in steps]
+    runs = '\n'.join(s.get('run', '') for s in steps)
+    assert len(re.findall(r'git tag -a ', runs)) == 1, 'release tag must be created exactly once'
+    assert 'git push' not in runs, 'all pushes go through push-release-ref.ps1'
+    script_pushes = [line.strip() for line in (ROOT / 'scripts/push-release-ref.ps1').read_text(encoding='utf-8').splitlines()
+                     if line.strip().startswith('git push')]
+    assert script_pushes and not any(re.search(r'--force|\s-f\b|\+', line) for line in script_pushes), script_pushes
+    for push in ('push-nuget', 'push-gpr'):
+        assert ids.index('artifact') < ids.index(push), 'final packages must be uploaded before pushing'
+    assert ids.index('tag') < ids.index('pack') and ids.index('push-tag') < ids.index('gh-release'), ids
+    final = steps[-1]
+    assert 'failure()' in final['if'] and 'write-release-recovery-summary.ps1' in final['run'], final
+    referenced = set(re.findall(r'steps\.([\w-]+)\.', json.dumps(final)))
+    assert referenced <= set(ids), ('summary references unknown step ids', referenced - set(ids))
+    assert {'push-nuget', 'push-gpr', 'push-tag', 'push-main', 'gh-release', 'artifact'} <= referenced, referenced
+    gh = steps[ids.index('gh-release')]
+    assert gh['uses'].startswith('softprops/action-gh-release@'), gh
+    print('PASS release workflow wiring: single tag creation, upload before push, summary reads existing step ids')
+
+
+def check_release_publish():
+    check_release_workflow_wiring()
+    check_release_ref_push()
+    check_release_recovery_summary()
+    check_release_artifact_rehearsal()
+    check_release_main_stage_rehearsal()
+
+
 def main():
+    if '--release-publish' in sys.argv[1:]:
+        check_release_publish()
+        return
     check_existing_scopes()
     check_docs_scope()
     check_quality_aggregation()
     check_framework_test_receipts()
     check_release_links()
+    check_release_publish()
 
 
 if __name__ == '__main__':

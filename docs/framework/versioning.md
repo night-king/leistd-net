@@ -77,9 +77,9 @@ BREAKING CHANGE: 失败响应的 message/details 改为标准字段 detail/error
 **push 到 `main` 即自动发布**，无需手动打 tag：
 
 1. 对同一候选提交复用 CI 的静态、Framework、Template 矩阵和真实 PostgreSQL 验证；全部通过后按提交推算新正式版本；
-2. 在本地回写 `VERSION`、同步模板，创建 `chore: 发布 vX.Y.Z [skip ci]` 提交和 tag；
-3. 打包并隔离消费最终版本，随后经 Trusted Publishing 推 nuget.org；
-4. 包源写入后立即推送 tag 和版本提交，记录已发布产物；
+2. 在本地回写 `VERSION`、同步模板，创建 `chore: 发布 vX.Y.Z [skip ci]` 提交和 tag（tag 只在此创建一次，beta/nightly 指向候选提交）；
+3. 打包并隔离消费最终版本，把最终 nupkg、清单（版本、tag、发布 SHA、候选 SHA、包哈希）、发布说明与 tag bundle 上传为 Actions artifact `release-packages-<版本>`，随后经 Trusted Publishing 推 nuget.org；
+4. 包源写入后立即推送 tag，stable 再把版本提交快进到 main，记录已发布产物；
 5. 推送成功后直接创建 GitHub Release（自动生成 release notes）。推送接口返回 201/202 即表示已接收，`dotnet nuget push` 据此以退出码判定；nuget.org 随后异步校验并建索引（官方说明通常 15 分钟内），校验失败由 nuget.org 邮件通知所有者，流水线不等待包可见。包内容与依赖在推送前已用同一批 `.nupkg` 隔离消费验证。
 
 机制要点：
@@ -93,7 +93,16 @@ candidate 与 CI 固定相同 SHA，显式传递质量和发布基线及期望�
 
 ### 部分发布恢复
 
-失败时先核对目标包源中已发布和缺失的包、tag 指向、`VERSION` 回写提交及 GitHub Release。tag 记录已发布版本，不能因发布后发现的问题而删除后复用版本号。只从原候选产物补齐缺失包；候选或产物改变时使用新版本并说明旧版本状态。恢复后手工确认目标包源能还原全部精确版本，并补齐缺失的 Release。不要用 `--skip-duplicate` 掩盖不同产物。
+包源、tag 与 Release 是相互独立的系统，推包也逐包进行，流水线无法让它们原子完成，只保证失败后可以按原身份补齐。
+
+- **tag 推送**：`scripts/push-release-ref.ps1` 只推送、不重建 tag，有限次短重试；每次推送前查询远端，同名 tag 已指向预期提交即视为完成，指向其他提交即停止，不 force、不删除。stable 的 main 回写单独推送，只允许从候选 SHA 快进到发布 SHA。git 退出码不区分权限错误与瞬时故障，重试不解析错误文字。Release 沿用 `softprops/action-gh-release` 自带的创建重试与按 tag 查找，不再叠加重试。
+- **恢复指引**：失败时 job summary 由 `scripts/write-release-recovery-summary.ps1` 按步骤 outcome 与推送结果判定阶段，写出版本、tag、实际发布 SHA 与通道对应的命令；推包未开始的失败不给补 tag 指引，nightly 没有 Release。不要整体重跑发布 job：它会重新推算并重打同一版本。
+- **从原产物补齐**：从失败 run 的 artifact `release-packages-<版本>` 取回原 nupkg、`manifest.json`、`release-notes.md` 与 `release.bundle`。按清单逐个核对包源，只推缺失的原包；tag 从 bundle 取回原对象，核对它解引用后等于清单的 `releaseSha` 再用上述脚本推送（stable 的版本提交只存在于 bundle 中，不能拿候选 SHA 代替）；Release 按 tag 查询实际状态，只补缺失的 Release 或附件，不覆盖已有附件。
+- **不自动 unlist**：包完整上传且内容无误时，缺的只是 GitHub 元数据，补齐即可。unlist 只降低可发现性，不撤销发布，按精确版本仍可还原，版本号也不能再用。发现错误或不安全的包时，由维护者明确决定 unlist 或 deprecate。
+
+tag 记录已发布版本，不能因发布后发现的问题而删除后复用版本号。候选或产物改变时使用新版本并说明旧版本状态。恢复后手工确认目标包源能还原全部精确版本。不要用 `--skip-duplicate` 掩盖不同产物。
+
+`python scripts/test-workflow-change-scope.py --release-publish` 以本地 bare 仓库作远端，验证首次推送失败后重试成功、服务端已写入但本地报错、远端同名 tag 已指向同一提交、冲突 tag 不改写、远端查询失败按未知状态重试而不判冲突、重试用尽后 summary 的版本/SHA/阶段；并实际执行 tag 与产物步骤，在只有候选提交的检出里逐条执行 tag 阶段与 main 阶段 summary 给出的命令完成恢复，去掉其中的取回步骤时必须失败。
 
 ## 发布说明
 

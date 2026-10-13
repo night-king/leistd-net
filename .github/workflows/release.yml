@@ -391,7 +391,20 @@ jobs:
           } else {
             Write-Host '没有需要回写的版本文件变更。'
           }
+
+      # tag 只在这里创建一次，后面的推送与失败恢复都用这同一个 tag 对象（随原产物保存为 bundle）。
+      # stable 指向上一步的版本回写提交（无回写变更时即候选 SHA），beta/nightly 指向候选 SHA。
+      - name: 创建发布 tag（仅本地）
+        id: tag
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
           git tag -a '${{ steps.ver.outputs.tag }}' -m 'Release ${{ steps.ver.outputs.tag }}'
+          if ($LASTEXITCODE -ne 0) { throw '创建本地 tag 失败' }
+          $sha = git rev-parse '${{ steps.ver.outputs.tag }}^{commit}'
+          "release_sha=$sha" | Out-File $env:GITHUB_OUTPUT -Append
+          Write-Host "发布 SHA: $sha"
 
       - name: 打包
         id: pack
@@ -423,6 +436,50 @@ jobs:
             -LocalFeedPath .tmp/release-feed -SkipFrontend -SkipRuntime
           if ($LASTEXITCODE -ne 0) { throw '最终 stable 版本的模板生成验证失败' }
 
+      # 推包前保存最终产物：推包或之后任一步失败时，恢复只能用这批原 nupkg 与原 tag，
+      # 不能从包源取回未上传的包，也不能从分支重新打包（见 versioning.md「部分发布恢复」）。
+      - name: 整理最终发布产物
+        id: release-files
+        shell: pwsh
+        env:
+          RELEASE_NOTES: ${{ steps.notes.outputs.content }}
+        run: |
+          # runner 临时目录而非 .tmp：upload-artifact v4 默认排除以点开头的隐藏路径
+          $out = Join-Path $env:RUNNER_TEMP 'release-artifact'
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          New-Item -ItemType Directory -Path "$out/packages" -Force | Out-Null
+          $version = '${{ steps.ver.outputs.version }}'
+          $packages = @(Get-ChildItem framework/artifacts -Filter '*.nupkg' | Sort-Object Name)
+          if ($packages.Count -eq 0) { throw 'framework/artifacts 下没有 nupkg' }
+          $foreign = @($packages | Where-Object { -not $_.Name.EndsWith(".$version.nupkg") })
+          if ($foreign) { throw "包版本与 $version 不符：$($foreign.Name -join ', ')" }
+          $packages | Copy-Item -Destination "$out/packages/"
+          $manifest = [ordered]@{
+            channel = '${{ steps.ch.outputs.channel }}'
+            version = $version
+            tag = '${{ steps.ver.outputs.tag }}'
+            releaseSha = '${{ steps.tag.outputs.release_sha }}'
+            candidateSha = '${{ needs.candidate.outputs.sha }}'
+            runId = '${{ github.run_id }}'
+            packages = @($packages | ForEach-Object {
+              [ordered]@{ id = $_.Name.Substring(0, $_.Name.Length - ".$version.nupkg".Length); file = $_.Name; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+            })
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content "$out/manifest.json" -Encoding utf8
+          $env:RELEASE_NOTES | Set-Content "$out/release-notes.md" -Encoding utf8
+          # tag 对象及 stable 版本提交只在 runner 本地，bundle 让恢复时推送的是同一对象
+          git bundle create "$out/release.bundle" 'refs/tags/${{ steps.ver.outputs.tag }}' --not '${{ needs.candidate.outputs.sha }}'
+          if ($LASTEXITCODE -ne 0) { throw '生成 tag bundle 失败' }
+          Write-Host "已整理 $($packages.Count) 个包，发布 SHA ${{ steps.tag.outputs.release_sha }}"
+
+      - name: 上传最终发布产物
+        id: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages-${{ steps.ver.outputs.version }}
+          path: ${{ runner.temp }}/release-artifact/
+          if-no-files-found: error
+
       - name: 登录 nuget.org
         if: steps.ch.outputs.channel != 'nightly'
         uses: NuGet/login@v1
@@ -431,6 +488,7 @@ jobs:
           user: ${{ secrets.NUGET_USER }}
 
       - name: 推送到 nuget.org
+        id: push-nuget
         if: steps.ch.outputs.channel != 'nightly'
         run: >
           dotnet nuget push "framework/artifacts/*.nupkg"
@@ -438,6 +496,7 @@ jobs:
           --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
 
       - name: 推送到 GitHub Packages（nightly）
+        id: push-gpr
         if: steps.ch.outputs.channel == 'nightly'
         run: >
           dotnet nuget push "framework/artifacts/*.nupkg"
@@ -445,43 +504,56 @@ jobs:
           --api-key ${{ secrets.GITHUB_TOKEN }}
 
       # 包源写入后立即固定版本身份；索引延迟不能阻止 tag 记录已发布产物。
-      - name: 推送 stable tag 与版本提交
+      # 只重试推送，不重建 tag；每次推送前查远端，同名 tag 已指向发布 SHA 即完成，指向其他提交即停止。
+      - name: 推送 tag
+        id: push-tag
+        shell: pwsh
+        run: pwsh scripts/push-release-ref.ps1 -Kind tag -Name '${{ steps.ver.outputs.tag }}' -ExpectedSha '${{ steps.tag.outputs.release_sha }}'
+
+      # stable 的版本回写提交单独推：tag 已落地后，main 只允许从候选 SHA 快进到发布 SHA。
+      - name: 推送 stable 版本回写提交
+        id: push-main
         if: steps.ch.outputs.channel == 'stable'
         shell: pwsh
-        run: |
-          git push origin '${{ steps.ver.outputs.tag }}'
-          if ($LASTEXITCODE -ne 0) { throw 'stable tag 推送失败；检查包源与远端 tag 后恢复' }
-          git push origin HEAD:main
-          if ($LASTEXITCODE -ne 0) { throw 'VERSION 提交推送失败；已发布的 tag 保留，需按远端状态恢复' }
+        run: pwsh scripts/push-release-ref.ps1 -Kind branch -Name main -ExpectedSha '${{ steps.tag.outputs.release_sha }}' -BaseSha '${{ needs.candidate.outputs.sha }}'
 
-      - name: 推送 tag（beta/nightly）
-        if: steps.ch.outputs.channel != 'stable'
-        shell: pwsh
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a '${{ steps.ver.outputs.tag }}' -m 'Release ${{ steps.ver.outputs.tag }}'
-          git push origin '${{ steps.ver.outputs.tag }}'
-          if ($LASTEXITCODE -ne 0) { throw '预发布 tag 推送失败；检查包源与远端 tag 后恢复' }
-
-      - name: 创建 GitHub Release（stable）
-        if: steps.ch.outputs.channel == 'stable'
+      # action 自带创建重试与按 tag 查找已有 Release，这里不再叠加重试；失败时由下一步给出补齐指引。
+      - name: 创建 GitHub Release（stable / beta）
+        id: gh-release
+        if: steps.ch.outputs.channel != 'nightly'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: Release ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ch.outputs.channel == 'stable' && 'Release' || 'Prerelease' }} ${{ steps.ver.outputs.tag }}
           body: ${{ steps.notes.outputs.content }}
           files: framework/artifacts/*.nupkg
-          prerelease: false
-          make_latest: true
+          prerelease: ${{ steps.ch.outputs.channel != 'stable' }}
+          make_latest: ${{ steps.ch.outputs.channel == 'stable' }}
 
-      - name: 创建 GitHub Prerelease（beta）
-        if: steps.ch.outputs.channel == 'beta'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: Prerelease ${{ steps.ver.outputs.tag }}
-          body: ${{ steps.notes.outputs.content }}
-          files: framework/artifacts/*.nupkg
-          prerelease: true
-          make_latest: false
+      # 只按步骤 outcome 与推送脚本的 result 判定到达的阶段，不解析日志文字。
+      - name: 写出恢复指引
+        if: failure() || cancelled()
+        shell: pwsh
+        env:
+          CHANNEL: ${{ steps.ch.outputs.channel }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
+          RELEASE_SHA: ${{ steps.tag.outputs.release_sha }}
+          ARTIFACT_NAME: release-packages-${{ steps.ver.outputs.version }}
+          ARTIFACT_OUTCOME: ${{ steps.artifact.outcome }}
+          PUSH_OUTCOME: ${{ steps.ch.outputs.channel == 'nightly' && steps.push-gpr.outcome || steps.push-nuget.outcome }}
+          TAG_OUTCOME: ${{ steps.push-tag.outcome }}
+          TAG_RESULT: ${{ steps.push-tag.outputs.result }}
+          BRANCH_OUTCOME: ${{ steps.push-main.outcome }}
+          BRANCH_RESULT: ${{ steps.push-main.outputs.result }}
+          RELEASE_OUTCOME: ${{ steps.gh-release.outcome }}
+        # 同一会话内调用：空的 outcome/result 作为空字符串绑定参数，交给子进程会被当作缺省实参丢掉
+        run: >
+          & ./scripts/write-release-recovery-summary.ps1
+          -Channel $env:CHANNEL -Version $env:VERSION -Tag $env:TAG
+          -CandidateSha $env:CANDIDATE_SHA -ReleaseSha $env:RELEASE_SHA
+          -Repository '${{ github.repository }}' -ServerUrl '${{ github.server_url }}' -RunId '${{ github.run_id }}'
+          -ArtifactName $env:ARTIFACT_NAME -ArtifactOutcome $env:ARTIFACT_OUTCOME
+          -PushOutcome $env:PUSH_OUTCOME -TagOutcome $env:TAG_OUTCOME -TagResult $env:TAG_RESULT
+          -BranchOutcome $env:BRANCH_OUTCOME -BranchResult $env:BRANCH_RESULT -ReleaseOutcome $env:RELEASE_OUTCOME
