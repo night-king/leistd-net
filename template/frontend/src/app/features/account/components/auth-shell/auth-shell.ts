@@ -1,10 +1,10 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 //#if (IncludeLocalization)
 import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideLayers, lucideShieldCheck, lucideUsers } from '@ng-icons/lucide';
+import { lucideLayers, lucideShieldCheck, lucideUser, lucideUsers } from '@ng-icons/lucide';
 
 //#if (IncludeLocalization)
 import { LanguageSwitcher } from '../../../../core/components/language-switcher/language-switcher';
@@ -33,7 +33,7 @@ import { englishText } from '../../../../shared/utils/english-text';
     TranslocoDirective,
     //#endif
   ],
-  providers: [provideIcons({ lucideLayers, lucideShieldCheck, lucideUsers })],
+  providers: [provideIcons({ lucideLayers, lucideShieldCheck, lucideUser, lucideUsers })],
   templateUrl: './auth-shell.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -47,23 +47,34 @@ export class AuthShell {
   /** 强制启用两步验证的受限会话写不了账户设置，那一页关掉语言切换器；主题只存本机，照常显示。 */
   readonly showLanguageSwitcher = input(true);
   protected readonly year = new Date().getFullYear();
-  protected readonly highlights = [
-    {
-      icon: 'lucideShieldCheck',
-      title: 'account.brand.highlights.security.title',
-      description: 'account.brand.highlights.security.description',
-    },
-    {
-      icon: 'lucideUsers',
-      title: 'account.brand.highlights.access.title',
-      description: 'account.brand.highlights.access.description',
-    },
-    {
-      icon: 'lucideLayers',
-      title: 'account.brand.highlights.fullStack.title',
-      description: 'account.brand.highlights.fullStack.description',
-    },
-  ] as const;
+  /** 品牌栏讲什么：登录等页面讲产品，注册页讲注册后能得到什么。 */
+  readonly brand = input<'default' | 'register'>('default');
+  /** 品牌栏文案的词条前缀与亮点。亮点只写不随模板参数变化的能力，任何裁剪形态下都成立。 */
+  protected readonly copy = computed(() => {
+    const prefix = this.brand() === 'register' ? 'account.brand.register' : 'account.brand';
+    const highlights =
+      this.brand() === 'register'
+        ? [
+            { icon: 'lucideShieldCheck', key: 'protection' },
+            { icon: 'lucideUser', key: 'workspace' },
+            { icon: 'lucideUsers', key: 'access' },
+          ]
+        : [
+            { icon: 'lucideShieldCheck', key: 'security' },
+            { icon: 'lucideUsers', key: 'access' },
+            { icon: 'lucideLayers', key: 'fullStack' },
+          ];
+    return {
+      headlineLead: `${prefix}.headlineLead`,
+      headlineAccent: `${prefix}.headlineAccent`,
+      subtitle: `${prefix}.subtitle`,
+      highlights: highlights.map(({ icon, key }) => ({
+        icon,
+        title: `${prefix}.highlights.${key}.title`,
+        description: `${prefix}.highlights.${key}.description`,
+      })),
+    };
+  });
 }
 //#if (!IncludeLocalization)
 
@@ -83,5 +94,17 @@ const ENGLISH: Record<string, string> = {
   'account.brand.highlights.fullStack.description':
     'Angular and .NET wired together, ready to deploy from day one',
   'account.brand.note': 'Open source · Self-hosted · Front end and back end included',
+  'account.brand.register.headlineLead': 'Sign up and get',
+  'account.brand.register.headlineAccent': 'a workspace ready to use',
+  'account.brand.register.subtitle': 'Getting started takes about a minute',
+  'account.brand.register.highlights.protection.title': 'Sign-in protection on by default',
+  'account.brand.register.highlights.protection.description':
+    'Repeated failures lock the account; turn on two-factor any time',
+  'account.brand.register.highlights.workspace.title': 'Your own workspace',
+  'account.brand.register.highlights.workspace.description':
+    'Profile, preferences and signed-in devices in one place',
+  'account.brand.register.highlights.access.title': 'Access that follows your role',
+  'account.brand.register.highlights.access.description':
+    'Administrators grant features by role, so you see what you need',
 };
 //#endif

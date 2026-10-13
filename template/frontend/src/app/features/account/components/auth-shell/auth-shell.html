@@ -46,16 +46,16 @@
             <p
               class="text-4xl leading-tight font-semibold tracking-tight text-balance break-keep wrap-anywhere xl:text-5xl xl:leading-tight"
             >
-              {{ t('account.brand.headlineLead') }}
-              <span class="text-hero-accent block">{{ t('account.brand.headlineAccent') }}</span>
+              {{ t(copy().headlineLead) }}
+              <span class="text-hero-accent block">{{ t(copy().headlineAccent) }}</span>
             </p>
-            <p class="text-hero-muted text-base">{{ t('account.brand.subtitle') }}</p>
+            <p class="text-hero-muted text-base">{{ t(copy().subtitle) }}</p>
           </div>
-          <!-- 亮点只写不随模板参数变化的能力，任何裁剪形态下都成立 -->
+          <!-- 亮点只写不随模板参数变化的能力，任何裁剪形态下都成立（见 copy） -->
           <ul
             class="bg-hero-surface border-hero-border divide-hero-border divide-y rounded-xl border"
           >
-            @for (highlight of highlights; track highlight.icon) {
+            @for (highlight of copy().highlights; track highlight.title) {
               <li class="flex items-center gap-4 px-5 py-4">
                 <span
                   class="bg-hero-accent/15 text-hero-accent flex size-9 shrink-0 items-center justify-center rounded-full"

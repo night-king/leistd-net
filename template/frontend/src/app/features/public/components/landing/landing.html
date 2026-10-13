@@ -52,13 +52,10 @@
             class="border-border absolute start-1/2 top-72 size-280 -translate-1/2 rounded-full border rtl:translate-x-1/2"
           ></div>
         </div>
+        <!-- 三团光晕：主色居中偏上，两侧各一团辅色（左 chart-2、右 chart-4），取值不改令牌，只定构图与透明度 -->
         <div
           aria-hidden="true"
-          class="bg-primary/15 pointer-events-none absolute start-1/2 top-24 size-130 -translate-x-1/2 rounded-full blur-3xl rtl:translate-x-1/2"
-        ></div>
-        <div
-          aria-hidden="true"
-          class="bg-chart-2/20 pointer-events-none absolute -end-24 -top-24 size-96 rounded-full blur-3xl"
+          class="pointer-events-none absolute inset-x-0 -top-30 h-225 bg-[radial-gradient(600px_380px_at_50%_18%,color-mix(in_oklch,var(--primary)_22%,transparent),transparent_70%),radial-gradient(520px_320px_at_78%_40%,color-mix(in_oklch,var(--chart-4)_14%,transparent),transparent_70%),radial-gradient(520px_320px_at_22%_45%,color-mix(in_oklch,var(--chart-2)_14%,transparent),transparent_70%)]"
         ></div>
 
         <div
@@ -106,8 +103,13 @@
           <p class="text-muted-foreground text-xs">{{ t('landing.hero.note') }}</p>
         </div>
 
-        <!-- 产品截图：亮暗各一张，跟随当前主题；换成自己的产品截图时替换 public/images 下的两张图 -->
+        <!-- 产品截图：亮暗各一张，跟随当前主题；换成自己的产品截图时替换 public/images 下的两张图。
+             底部渐隐到页面底色，截图下缘不露出半个区块 -->
         <div class="relative mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+          <div
+            aria-hidden="true"
+            class="from-background pointer-events-none absolute inset-x-0 bottom-20 z-10 h-40 bg-linear-to-t to-transparent"
+          ></div>
           <div class="bg-muted/60 rounded-2xl p-2 shadow-lg ring-1 ring-foreground/10">
             <img
               class="block w-full rounded-xl ring-1 ring-foreground/10 dark:hidden"
@@ -162,21 +164,88 @@
           </h2>
           <p class="text-muted-foreground text-base">{{ t('landing.features.subtitle') }}</p>
         </div>
-        <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <!--
+          不等宽拼贴：卡片按行自动伸展填满（flex-grow），身份认证占约两格；功能参数裁掉部分卡片时
+          末行照样排满，不按卡片数维护布局分支
+        -->
+        <ul class="flex flex-wrap gap-4">
           @for (feature of features; track feature.icon) {
-            <li hlmCard class="h-full">
-              <div hlmCardContent class="flex flex-col gap-3">
+            <li
+              hlmCard
+              class="min-w-0 grow basis-full sm:basis-[calc(50%-0.5rem)] lg:basis-[calc(33.333%-0.7rem)] lg:data-wide:basis-[calc(66.666%-0.35rem)]"
+              [attr.data-wide]="feature.illustration === 'otp' ? '' : null"
+            >
+              <div hlmCardContent class="flex h-full flex-col gap-3">
                 <span
                   class="bg-muted text-foreground flex size-9 items-center justify-center rounded-md"
                 >
                   <ng-icon [name]="feature.icon" />
                 </span>
                 <h3 class="text-base font-semibold">{{ t(feature.title) }}</h3>
-                <p class="text-muted-foreground text-sm">{{ t(feature.description) }}</p>
+                <p class="text-muted-foreground max-w-md text-sm">{{ t(feature.description) }}</p>
+                <!-- 示意图只做装饰，读屏跳过 -->
+                @switch (feature.illustration) {
+                  @case ('otp') {
+                    <div
+                      aria-hidden="true"
+                      class="mt-auto flex flex-col gap-2 self-end rounded-lg border p-3 pb-4"
+                    >
+                      <span class="text-xs font-medium">{{ t('landing.features.otpLabel') }}</span>
+                      <div class="flex gap-1.5">
+                        @for (digit of otpDigits; track $index) {
+                          <span
+                            class="data-active:border-primary data-active:ring-ring/30 flex size-9 items-center justify-center rounded-md border text-sm font-medium tabular-nums data-active:ring-3"
+                            [attr.data-active]="$index === otpDigits.indexOf('') ? '' : null"
+                            >{{ digit }}</span
+                          >
+                        }
+                      </div>
+                    </div>
+                  }
+                  @case ('theme') {
+                    <!--
+                      亮、暗两张缩略：一张取页面底色、一张取反相的前景色，所以任何主题下都是一亮一暗，
+                      只用语义令牌
+                    -->
+                    <div aria-hidden="true" class="mt-auto grid grid-cols-2 gap-3">
+                      <div class="bg-background flex flex-col gap-1.5 rounded-lg border p-3">
+                        <span class="bg-muted h-1.5 w-3/4 rounded-full"></span>
+                        <span class="bg-muted h-1.5 w-1/2 rounded-full"></span>
+                        <span class="bg-primary mt-1 h-2.5 w-8 rounded-full"></span>
+                      </div>
+                      <div class="bg-foreground flex flex-col gap-1.5 rounded-lg border p-3">
+                        <span class="bg-background/20 h-1.5 w-3/4 rounded-full"></span>
+                        <span class="bg-background/20 h-1.5 w-1/2 rounded-full"></span>
+                        <span class="bg-primary mt-1 h-2.5 w-8 rounded-full"></span>
+                      </div>
+                    </div>
+                  }
+                  @case ('token') {
+                    <pre
+                      aria-hidden="true"
+                      class="bg-muted text-muted-foreground mt-auto overflow-x-auto rounded-lg p-3 font-mono text-xs leading-relaxed"
+                    ><span class="text-foreground">POST</span> /connect/token
+client_id=billing-sync
+grant_type=client_credentials  <span class="text-success">200</span></pre>
+                  }
+                }
               </div>
             </li>
           }
         </ul>
+        <!-- 数据条：只放这一页能核实的数字（下面列出的能力数、可切换的界面语言数），不写无法核实的宣传数字 -->
+        <dl class="grid grid-cols-1 border-y sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]">
+          @for (stat of stats(); track stat.label) {
+            <div
+              class="flex flex-col gap-1 border-b px-6 py-6 last:border-b-0 sm:border-b-0 sm:border-s sm:first:border-s-0"
+            >
+              <dt class="text-muted-foreground order-2 text-sm">{{ t(stat.label) }}</dt>
+              <dd class="order-1 text-4xl font-semibold tracking-tight tabular-nums">
+                {{ stat.value | appNumber: 'integer' : displayLocale() }}
+              </dd>
+            </div>
+          }
+        </dl>
       </section>
 
       <section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6 sm:pb-28">
@@ -204,10 +273,15 @@
             </p>
           </div>
           <!--#if (LocalIdentity)-->
-          <a hlmBtn size="lg" class="relative" routerLink="/auth/register">
-            {{ t('landing.hero.getStarted') }}
-            <ng-icon name="lucideArrowRight" data-icon="inline-end" />
-          </a>
+          <div class="relative flex flex-wrap gap-3">
+            <a hlmBtn size="lg" routerLink="/auth/register">
+              {{ t('landing.hero.getStarted') }}
+              <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+            </a>
+            <a hlmBtn size="lg" variant="outline" routerLink="/auth/login">
+              {{ t('landing.hero.signIn') }}
+            </a>
+          </div>
           <!--#else-->
           <a hlmBtn size="lg" class="relative" routerLink="/workspace">
             {{ t('landing.hero.signIn') }}

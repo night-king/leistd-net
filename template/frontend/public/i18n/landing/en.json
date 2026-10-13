@@ -37,7 +37,12 @@
     "i18nTitle": "Languages & themes",
     "i18nDesc": "English and Chinese switch at runtime; light and dark themes follow the system without flicker.",
     "themeTitle": "Light & dark themes",
-    "themeDesc": "Semantic color tokens with light and dark modes; rebrand by changing a few variables."
+    "themeDesc": "Semantic color tokens with light and dark modes; rebrand by changing a few variables.",
+    "otpLabel": "Enter the verification code"
+  },
+  "stats": {
+    "capabilities": "Built-in capabilities",
+    "languages": "Interface languages, switched at runtime"
   },
   "cta": {
     "title": "Start building your product",

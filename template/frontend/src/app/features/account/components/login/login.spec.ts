@@ -586,7 +586,11 @@ describe('Login', () => {
           // 停在整页导航前，验证真实组件传给导航地址构造器的参数。
           throw new Error('Stop before browser navigation');
         });
-      component.loginWithGoogle();
+      // 主机名探测在首帧之后才回来：重新渲染一次，按钮才从等待态解除禁用
+      fixture.detectChanges();
+      (fixture.nativeElement as HTMLElement)
+        .querySelector<HTMLButtonElement>('[data-testid="external-login-google"]')!
+        .click();
       expect(externalLogin).toHaveBeenCalledWith('google', queryParams['returnUrl']);
     });
 
@@ -598,7 +602,11 @@ describe('Login', () => {
         .spyOn(TestBed.inject(AccountService), 'getExternalLoginUrl')
         .mockReturnValue('/api/v1/external-auth/github/challenge');
 
-      component.loginWithGitHub();
+      const github = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '[data-testid="external-login-github"]',
+      )!;
+      expect(github.disabled).toBe(true);
+      github.click();
 
       expect(externalLogin).not.toHaveBeenCalled();
     });

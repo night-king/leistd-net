@@ -157,7 +157,26 @@
         "description": "Angular and .NET wired together, ready to deploy from day one"
       }
     },
-    "note": "Open source · Self-hosted · Front end and back end included"
+    "note": "Open source · Self-hosted · Front end and back end included",
+    "register": {
+      "headlineLead": "Sign up and get",
+      "headlineAccent": "a workspace ready to use",
+      "subtitle": "Getting started takes about a minute",
+      "highlights": {
+        "protection": {
+          "title": "Sign-in protection on by default",
+          "description": "Repeated failures lock the account; turn on two-factor any time"
+        },
+        "workspace": {
+          "title": "Your own workspace",
+          "description": "Profile, preferences and signed-in devices in one place"
+        },
+        "access": {
+          "title": "Access that follows your role",
+          "description": "Administrators grant features by role, so you see what you need"
+        }
+      }
+    }
   },
   "login": {
     "title": "Welcome back",
@@ -202,11 +221,10 @@
     "sendCode": "Get Code",
     "password": "Password",
     "passwordPlaceholder": "At least 12 characters",
-    "confirmPassword": "Confirm Password",
-    "confirmPasswordPlaceholder": "Enter the password again",
     "submit": "Sign Up",
     "haveAccount": "Already have an account?",
     "loginNow": "Sign in",
+    "or": "Or sign up with email",
     "emailRequired": "Please enter a valid email first",
     "captchaRequired": "Please enter the captcha first",
     "emailCodeSent": "Verification code sent, please check your email",

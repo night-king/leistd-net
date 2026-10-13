@@ -19,7 +19,6 @@ import {
   maxLength,
   email as emailValidator,
   pattern,
-  validate,
   FormField,
 } from '@angular/forms/signals';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -55,6 +54,9 @@ import { CaptchaOutputDto, SecurityConfigOutputDto } from '../../dtos/account.dt
 import { CaptchaOutputDto } from '../../dtos/account.dto';
 //#endif
 import { AccountService } from '../../services/account-service';
+//#if (ExternalLogin)
+import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
+//#endif
 import { AuthShell } from '../auth-shell/auth-shell';
 
 @Component({
@@ -76,6 +78,9 @@ import { AuthShell } from '../auth-shell/auth-shell';
     TranslocoDirective,
     //#endif
     AuthShell,
+    //#if (ExternalLogin)
+    ExternalLoginButtons,
+    //#endif
   ],
   providers: [
     provideIcons({
@@ -107,8 +112,6 @@ export class Register implements OnInit {
 
   protected readonly showPassword = signal(false);
 
-  protected readonly showConfirmPassword = signal(false);
-
 //#if (Email)
   public securityConfig = signal<SecurityConfigOutputDto | null>(null);
 //#endif
@@ -134,7 +137,6 @@ export class Register implements OnInit {
     emailVerificationCode: '',
 //#endif
     password: '',
-    confirmPassword: '',
   });
 
   /**
@@ -169,12 +171,6 @@ export class Register implements OnInit {
     required(path.password);
     minLength(path.password, PASSWORD_MIN_LENGTH);
     maxLength(path.password, PASSWORD_MAX_LENGTH);
-    required(path.confirmPassword);
-    validate(path.confirmPassword, (ctx) => {
-      const confirm = ctx.value();
-      const password = ctx.valueOf(path.password);
-      return password && confirm && password !== confirm ? { kind: 'passwordMismatch' } : null;
-    });
   });
 
   // 用户名是否被用户手动编辑过（一旦手动改动，停止从邮箱自动推导）
@@ -445,11 +441,12 @@ const ENGLISH: Record<string, string> = {
   'account.register.passwordPlaceholder': 'At least 12 characters',
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
-  'account.register.confirmPassword': 'Confirm Password',
-  'account.register.confirmPasswordPlaceholder': 'Enter the password again',
   'account.register.submit': 'Sign Up',
   'account.register.haveAccount': 'Already have an account?',
   'account.register.loginNow': 'Sign in',
+  //#if (ExternalLogin)
+  'account.register.or': 'Or sign up with email',
+  //#endif
   'account.register.passwordLengthProgress':
     'At least {{min}} characters, {{remaining}} more to go',
   'account.register.passwordLengthMet': 'Length requirement met',

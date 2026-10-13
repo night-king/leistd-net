@@ -25,6 +25,12 @@ describe('Register', () => {
   //#else
   let accountService: Pick<MockedObject<AccountService>, 'register' | 'getCaptcha'>;
   //#endif
+  //#if (ExternalLogin)
+  let externalAuth: Pick<
+    MockedObject<AccountService>,
+    'getExternalLoginProviders' | 'getExternalLoginUrl'
+  >;
+  //#endif
   let queryParams: Record<string, string>;
 
   //#if (Email)
@@ -54,6 +60,12 @@ describe('Register', () => {
       }) as never,
     );
     //#endif
+    //#if (ExternalLogin)
+    externalAuth = {
+      getExternalLoginProviders: vi.fn().mockReturnValue(of({ providers: ['github'] })),
+      getExternalLoginUrl: vi.fn(),
+    };
+    //#endif
 
     await TestBed.configureTestingModule({
       imports: [Register],
@@ -64,7 +76,11 @@ describe('Register', () => {
         //#if (IncludeLocalization)
         ...provideTranslocoTesting(['en']),
         //#endif
+        //#if (ExternalLogin)
+        { provide: AccountService, useValue: { ...accountService, ...externalAuth } },
+        //#else
         { provide: AccountService, useValue: accountService },
+        //#endif
         {
           provide: ActivatedRoute,
           useValue: { snapshot: { queryParamMap: convertToParamMap(queryParams) } },
@@ -85,7 +101,6 @@ describe('Register', () => {
     component.registerForm.username().value.set('someone');
     component.registerForm.captchaCode().value.set('1234');
     component.registerForm.password().value.set('RegisterSpec!Pw1');
-    component.registerForm.confirmPassword().value.set('RegisterSpec!Pw1');
   }
 
   beforeEach(() => {
@@ -111,20 +126,54 @@ describe('Register', () => {
     expect(autocomplete('email')).toBe('email');
     expect(autocomplete('username')).toBe('username');
     expect(autocomplete('password')).toBe('new-password');
-    expect(autocomplete('confirmPassword')).toBe('new-password');
   });
 
-  it('treats the form as invalid when the two passwords differ', async () => {
+  // 图形验证码紧挨提交；不再要求第二遍输入密码，由密码框的显隐切换代替
+  it('orders the fields so the image captcha comes right before submitting', async () => {
     await setUp();
-    fillValidForm();
-    // 长度合法但与上面不同：本用例测的是"两次不一致"，
-    // 不该因为长度不足而由另一条规则拒绝——那样断言会通过，但通过的原因是错的
-    component.registerForm.confirmPassword().value.set('RegisterSpec!Pw2');
+    const ids = [...(fixture.nativeElement as HTMLElement).querySelectorAll('form input[id]')].map(
+      (input) => input.id,
+    );
 
-    await component.onSubmit();
-
-    expect(accountService.register).not.toHaveBeenCalled();
+    expect(ids).toEqual(['email', 'username', 'password', 'captchaCode']);
   });
+  //#if (Email)
+
+  // 获取邮件验证码前要先填图形验证码，所以邮件验证码排在它后面
+  it('puts the email code after the image captcha when email verification is on', async () => {
+    await setUp(true);
+    // 安全配置随首帧异步取回：再渲染一次，邮件验证码字段才出现
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const ids = [...(fixture.nativeElement as HTMLElement).querySelectorAll('form input[id]')].map(
+      (input) => input.id,
+    );
+
+    expect(ids).toEqual(['email', 'username', 'password', 'captchaCode', 'emailVerificationCode']);
+  });
+  //#endif
+  //#if (ExternalLogin)
+
+  // 首次外部登录即建账号：注册页给同一组入口，回跳地址与本页一致
+  it('offers the configured external providers and passes the return address', async () => {
+    queryParams = { returnUrl: '/connect/authorize?client_id=resource' };
+    await setUp();
+    vi.spyOn(console, 'error').mockReturnValue(undefined);
+    externalAuth.getExternalLoginUrl.mockImplementation(() => {
+      // 停在整页导航前，验证传给导航地址构造器的参数
+      throw new Error('Stop before browser navigation');
+    });
+
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[data-testid="external-login-github"]')!
+      .click();
+
+    expect(externalAuth.getExternalLoginUrl).toHaveBeenCalledWith(
+      'github',
+      '/connect/authorize?client_id=resource',
+    );
+  });
+  //#endif
 
   // 进度只反映口令策略的最小长度：不另立复杂度规则，够长即达标
   it('fills the length progress toward the minimum and reports how many characters remain', async () => {

@@ -1,7 +1,7 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 //#if (IncludeLocalization)
-import { TranslocoDirective } from '@jsverse/transloco';
+import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 // prettier-ignore
@@ -23,7 +23,9 @@ import { HlmCardImports } from '@spartan-ng/helm/card';
 import { LanguageSwitcher } from '../../../../core/components/language-switcher/language-switcher';
 //#endif
 import { ThemeModeToggle } from '../../../../core/components/theme-mode-toggle/theme-mode-toggle';
+import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { Logo } from '../../../../shared/components/logo/logo';
+import { AppNumber } from '../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
@@ -33,6 +35,8 @@ interface LandingFeature {
   icon: string;
   title: string;
   description: string;
+  /** 卡片下方的示意图；`otp` 那张占约两格宽。 */
+  illustration?: 'otp' | 'theme' | 'token';
 }
 
 /**
@@ -50,6 +54,7 @@ interface LandingFeature {
     ...HlmCardImports,
     Logo,
     ThemeModeToggle,
+    AppNumber,
     //#if (IncludeLocalization)
     LanguageSwitcher,
     TranslocoDirective,
@@ -68,6 +73,12 @@ export class Landing {
   protected readonly t = englishText(ENGLISH);
   //#endif
   protected readonly year = new Date().getFullYear();
+  protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  //#if (IncludeLocalization)
+  private readonly transloco = inject(TranslocoService);
+  //#endif
+  /** 验证码示意（身份认证那张卡）：填了三位，光标停在第四格。 */
+  protected readonly otpDigits = ['4', '8', '2', '', '', ''];
 
   protected readonly features: LandingFeature[] = [
     //#if (LocalIdentity)
@@ -75,6 +86,7 @@ export class Landing {
       icon: 'lucideShieldCheck',
       title: 'landing.features.authTitle',
       description: 'landing.features.authDesc',
+      illustration: 'otp',
     },
     //#endif
     {
@@ -108,6 +120,7 @@ export class Landing {
       icon: 'lucideIdCard',
       title: 'landing.features.openAppsTitle',
       description: 'landing.features.openAppsDesc',
+      illustration: 'token',
     },
     //#endif
     //#if (IncludeLocalization)
@@ -115,15 +128,28 @@ export class Landing {
       icon: 'lucideLanguages',
       title: 'landing.features.i18nTitle',
       description: 'landing.features.i18nDesc',
+      illustration: 'theme',
     },
     //#else
     {
       icon: 'lucideSunMoon',
       title: 'landing.features.themeTitle',
       description: 'landing.features.themeDesc',
+      illustration: 'theme',
     },
     //#endif
   ];
+
+  /**
+   * 数据条：只放这一页能核实的数字——上面列出的能力个数（随模板参数裁剪），以及运行时可切换的界面语言数。
+   * 不写"几分钟跑通""测试覆盖率"这类本页无法核实的宣传数字。
+   */
+  protected readonly stats = computed(() => [
+    { value: this.features.length, label: 'landing.stats.capabilities' },
+    //#if (IncludeLocalization)
+    { value: this.transloco.getAvailableLangs().length, label: 'landing.stats.languages' },
+    //#endif
+  ]);
 }
 //#if (!IncludeLocalization)
 
@@ -179,6 +205,10 @@ const ENGLISH: Record<string, string> = {
   'landing.features.themeTitle': 'Light & dark themes',
   'landing.features.themeDesc':
     'Semantic color tokens with light and dark modes; rebrand by changing a few variables.',
+  //#if (LocalIdentity)
+  'landing.features.otpLabel': 'Enter the verification code',
+  //#endif
+  'landing.stats.capabilities': 'Built-in capabilities',
   'landing.cta.title': 'Start building your product',
   'landing.cta.subtitle': 'Sign in to explore the admin console and the workspace.',
   'landing.footer.tagline': 'Built with Angular, .NET and spartan/ui',
