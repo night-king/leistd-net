@@ -180,22 +180,36 @@
       </section>
 
       <section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6 sm:pb-28">
+        <!-- 跟随主题的卡片，不反相成黑块或白块；光晕与同心细环呼应首屏横幅 -->
         <div
-          class="bg-foreground text-background flex flex-col items-start gap-6 rounded-2xl px-6 py-12 sm:flex-row sm:items-center sm:justify-between sm:px-12"
+          class="bg-card text-card-foreground relative flex flex-col items-start gap-6 overflow-hidden rounded-2xl border px-6 py-12 sm:flex-row sm:items-center sm:justify-between sm:px-12"
         >
-          <div class="flex flex-col gap-2">
+          <div aria-hidden="true" class="pointer-events-none absolute inset-0">
+            <div
+              class="bg-primary/15 absolute -end-20 top-1/2 size-96 -translate-y-1/2 rounded-full blur-3xl"
+            ></div>
+            <div
+              class="border-border absolute -end-24 top-1/2 size-80 -translate-y-1/2 rounded-full border"
+            ></div>
+            <div
+              class="border-border absolute -end-48 top-1/2 size-128 -translate-y-1/2 rounded-full border"
+            ></div>
+          </div>
+          <div class="relative flex flex-col gap-2">
             <h2 class="text-2xl font-semibold tracking-tight sm:text-3xl">
               {{ t('landing.cta.title') }}
             </h2>
-            <p class="text-background/70 text-sm sm:text-base">{{ t('landing.cta.subtitle') }}</p>
+            <p class="text-muted-foreground text-sm sm:text-base">
+              {{ t('landing.cta.subtitle') }}
+            </p>
           </div>
           <!--#if (LocalIdentity)-->
-          <a hlmBtn size="lg" variant="secondary" routerLink="/auth/register">
+          <a hlmBtn size="lg" class="relative" routerLink="/auth/register">
             {{ t('landing.hero.getStarted') }}
             <ng-icon name="lucideArrowRight" data-icon="inline-end" />
           </a>
           <!--#else-->
-          <a hlmBtn size="lg" variant="secondary" routerLink="/workspace">
+          <a hlmBtn size="lg" class="relative" routerLink="/workspace">
             {{ t('landing.hero.signIn') }}
             <ng-icon name="lucideArrowRight" data-icon="inline-end" />
           </a>

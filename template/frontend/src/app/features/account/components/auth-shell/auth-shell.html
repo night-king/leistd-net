@@ -71,7 +71,11 @@
           </ul>
         </div>
       </div>
-      <p class="text-hero-muted relative text-xs">{{ t('account.brand.note') }}</p>
+      <!-- 品牌栏底行：左边一句说明，右边版权，与顶部 Logo 同属这块面板 -->
+      <div class="text-hero-muted relative flex items-center justify-between gap-4 text-xs">
+        <p>{{ t('account.brand.note') }}</p>
+        <p class="shrink-0">© {{ year }} {{ t('account.brand.title') }}</p>
+      </div>
     </aside>
 
     <div class="flex min-w-0 flex-col gap-8 px-4 py-6 sm:px-10">
@@ -102,7 +106,10 @@
         </div>
       </div>
 
-      <p class="text-muted-foreground text-xs">© {{ year }} {{ t('account.brand.title') }}</p>
+      <!-- 窄屏没有品牌栏，版权放到表单下方，与居中的表单对齐 -->
+      <p class="text-muted-foreground text-center text-xs lg:hidden">
+        © {{ year }} {{ t('account.brand.title') }}
+      </p>
     </div>
   </div>
 </ng-container>
