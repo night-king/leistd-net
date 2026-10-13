@@ -203,6 +203,9 @@ $gates = @(
     # 测试报告、CI 日志与 IDE 测试树里的名字统一用英文；中文只在注释与测试数据里
     @{ Name = "测试名规则自检";            Cmd = $pythonCmd; Args = @("scripts/check-test-names.py", "--self-test") }
     @{ Name = "测试名用英文";              Cmd = $pythonCmd; Args = @("scripts/check-test-names.py") }
+    # 随模板分发（template/scripts/）：生成项目的 verify 跑项目模式，本仓以 --repository 另扫框架测试
+    @{ Name = "测试诊断规则自检";          Cmd = $pythonCmd; Args = @("template/scripts/check-test-diagnostics.py", "--self-test") }
+    @{ Name = "测试诊断消息用英文";        Cmd = $pythonCmd; Args = @("template/scripts/check-test-diagnostics.py", "--repository") }
     @{ Name = "XML 注释形态规则自检";      Cmd = $pythonCmd; Args = @("scripts/check-doc-comment-shape.py", "--self-test") }
     @{ Name = "XML 注释形态";              Cmd = $pythonCmd; Args = @("scripts/check-doc-comment-shape.py") }
     @{ Name = "组件文档骨架规则自检";      Cmd = $pythonCmd; Args = @("scripts/check-docs-skeleton.py", "--self-test") }

@@ -34,7 +34,7 @@ describe('Users page query round trip', () => {
     const calls = vi.mocked(service.getUsers).mock.calls;
     const query = calls.at(-1)?.[0];
     if (!query) {
-      throw new Error('列表请求从未发出');
+      throw new Error('The list request was never sent');
     }
 
     return query;

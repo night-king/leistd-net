@@ -192,6 +192,16 @@ function Assert-ErrorCodeGate([string]$ProjectRoot) {
     Invoke-External (Get-Python3Command '运行生成项目的错误码闸门') @($gate) $ProjectRoot
 }
 
+# 测试诊断闸门随每个生成项目下发；以 -I 隔离模式在产物上运行（不加入脚本目录与环境里的 import 路径），
+# 证明它只靠标准库、不依赖本仓库其他脚本。verify 之外的逐阶段路径也由这里执行同一判据。
+function Assert-TestDiagnosticsGate([string]$ProjectRoot) {
+    $gate = Join-Path $ProjectRoot "scripts/check-test-diagnostics.py"
+    if (-not (Test-Path -LiteralPath $gate)) {
+        throw "scripts/check-test-diagnostics.py must ship with every generated project"
+    }
+    Invoke-External (Get-Python3Command '运行生成项目的测试诊断闸门') @('-I', $gate) $ProjectRoot
+}
+
 function Assert-GeneratedProject([string]$ProjectRoot) {
     Assert-GeneratedDocumentation $ProjectRoot
     $textFiles = Get-ChildItem -LiteralPath $ProjectRoot -Recurse -File | Where-Object {
@@ -216,6 +226,7 @@ function Assert-GeneratedProject([string]$ProjectRoot) {
 
     Assert-I18nGate $ProjectRoot
     Assert-ErrorCodeGate $ProjectRoot
+    Assert-TestDiagnosticsGate $ProjectRoot
 }
 
 # 本地化产物与生成源码一一对应，递归核对 scope 文件都已由 postbuild 展平。
@@ -304,13 +315,14 @@ function Assert-VerifySteps([string]$ProjectRoot) {
     foreach ($gate in @('check-i18n', 'check-operation-action-i18n')) {
         if (Test-Path -LiteralPath (Join-Path $ProjectRoot "scripts/$gate.py")) { $expected.Add($gate) }
     }
+    $expected.Add('check-test-diagnostics')
     $expected.Add('backend-restore')
     $expected.Add('backend-build')
     Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'backend') -Filter '*Tests.csproj' -Recurse |
         Sort-Object @{ Expression = { $_.BaseName -notlike '*.UnitTests' } }, BaseName |
         ForEach-Object { $expected.Add("backend-test:$($_.BaseName)") }
     if (Test-Path -LiteralPath (Join-Path $ProjectRoot 'frontend')) {
-        foreach ($stage in @('frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build')) { $expected.Add($stage) }
+        foreach ($stage in @('frontend-audit', 'frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build')) { $expected.Add($stage) }
     }
     if (($actual -join '|') -cne ($expected -join '|')) {
         throw "scripts/verify.ps1 steps differ from the matrix stages.`n  verify: $($actual -join ', ')`n  matrix: $($expected -join ', ')"
@@ -805,9 +817,6 @@ try {
             })
             continue
         }
-        if (-not $SkipFrontend -and $definition.Frontend) {
-            Assert-FrontendDependencySecurity (Join-Path $projectRoot 'frontend')
-        }
 
         $backendValidated = $false
         $runtimeValidated = $false
@@ -821,6 +830,10 @@ try {
             $Configuration -ceq 'Release' -and $FrontendBrowser -ceq 'chromiumHeadless'
         if ($definition.Verify -and -not $useVerify) {
             Write-Warning "Scenario '$scenario' runs matrix stages instead of scripts/verify.ps1 (mode, configuration, browser or frontend skip differs)."
+        }
+        # verify 自带同口径的生产依赖审计步骤；逐阶段路径由矩阵执行，同一锁文件只审计一次。
+        if (-not $useVerify -and -not $SkipFrontend -and $definition.Frontend) {
+            Assert-FrontendDependencySecurity (Join-Path $projectRoot 'frontend')
         }
         if ($useVerify) {
             $env:HUSKY = "0"

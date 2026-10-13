@@ -1219,7 +1219,7 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
 
         public async Task ProvisionAsync(TenantProvisioningContext context, CancellationToken cancellationToken = default)
         {
-            var tenantId = currentTenant.Id ?? throw new InvalidOperationException("种子必须在租户上下文内执行");
+            var tenantId = currentTenant.Id ?? throw new InvalidOperationException("Seeding must run inside a tenant context.");
 
             _seeding.TrySetResult(tenantId);
             await _release.Task;
@@ -1298,7 +1298,7 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
 
         public async Task ProvisionAsync(TenantProvisioningContext context, CancellationToken cancellationToken = default)
         {
-            var tenantId = currentTenant.Id ?? throw new InvalidOperationException("种子必须在租户上下文内执行");
+            var tenantId = currentTenant.Id ?? throw new InvalidOperationException("Seeding must run inside a tenant context.");
 
             if (Probe is not null)
             {

@@ -447,7 +447,10 @@ describe('SignalRService connection lifecycle', () => {
       await Promise.resolve();
 
       const connection = built[0];
-      expect(connection, '连接应当已经建出并写入字段').toBeDefined();
+      expect(
+        connection,
+        'The connection should have been built and stored in the field',
+      ).toBeDefined();
 
       //#if (IncludeRealTime)
       service.registerResourceEvent('OrderChanged');
@@ -495,7 +498,10 @@ describe('SignalRService connection lifecycle', () => {
     const reconnected = staleBusiness.triggerReconnected();
     try {
       await settle();
-      expect(staleBusiness.invocations.length, '重连恢复应当已经发出第一次 Subscribe').toBe(1);
+      expect(
+        staleBusiness.invocations.length,
+        'Reconnect recovery should already have sent the first Subscribe',
+      ).toBe(1);
 
       // 就在这一轮未完成时切换主体，并让新主体订阅自己的资源。
       await service.reset();
@@ -566,7 +572,10 @@ describe('SignalRService connection lifecycle', () => {
       connection.invocations.length = 0;
       await connection.triggerReconnected();
       await settle();
-      expect(calls(connection, 'roles'), '无人持有的键不能在重连时复活').toEqual([]);
+      expect(
+        calls(connection, 'roles'),
+        'A key nobody holds must not be revived on reconnect',
+      ).toEqual([]);
     });
 
     it('stays subscribed when a page is left and immediately re-entered', async () => {
@@ -672,7 +681,10 @@ describe('SignalRService connection lifecycle', () => {
       await settle();
 
       expect(calls(connection, 'a')).toEqual(['Subscribe']);
-      expect(calls(connection, 'b').at(-1), '恢复途中释放的键最终必须退订').toBe('Unsubscribe');
+      expect(
+        calls(connection, 'b').at(-1),
+        'A key released during recovery must eventually be unsubscribed',
+      ).toBe('Unsubscribe');
 
       connection.invocations.length = 0;
       await connection.triggerReconnected();
@@ -797,7 +809,7 @@ describe('SignalRService connection lifecycle', () => {
       expect(calls(built[0], 'roles')).toEqual(['Subscribe', 'Unsubscribe']);
       expect(
         () => service.watchResource('roles'),
-        '注入上下文之外又没传 DestroyRef 必须报错',
+        'Calling outside an injection context without a DestroyRef must throw',
       ).toThrow();
     });
   });

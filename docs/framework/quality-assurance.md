@@ -25,7 +25,7 @@ L1 按改动路径选择入口：
 | 数据库映射、迁移、租户路由 | 受影响场景 + `test-template-postgresql-e2e.ps1` | — |
 | 认证、令牌、外部登录协议 | 受影响场景 + `test-template-oidc-e2e.ps1` | 浏览器链路加 `-IncludeBrowserScenarios`；令牌到期变更的 `-IncludeExpiryWait` 责任见[模板质量规范](../template/quality-assurance.md) |
 | Dockerfile、部署资产 | `-Scenarios standalone -ContainerSmokeScenarios standalone` | — |
-| CI、矩阵或闸门脚本 | `check-all.ps1` + 被改脚本的自检与夹具 | 范围/聚合、框架测试回执或发布链接（`PackageReleaseNotes` 与可选升级指南链接）变化运行 `python scripts/test-workflow-change-scope.py`，选测/回执变化运行 `python scripts/test-quality-validation-plan.py`；预检接替变化运行 `python scripts/test-template-source-preflight.py`；影响调度时用远端 CI 验收 |
+| CI、矩阵或闸门脚本 | `check-all.ps1` + 被改脚本的自检与夹具 | 范围/聚合、框架测试回执或发布链接（`PackageReleaseNotes` 与可选升级指南链接）变化运行 `python scripts/test-workflow-change-scope.py`，只改发布推送、产物保存或恢复指引时可加 `--release-publish` 只跑该部分（不需要 .NET）；选测/回执变化运行 `python scripts/test-quality-validation-plan.py`；预检接替变化运行 `python scripts/test-template-source-preflight.py`；影响调度时用远端 CI 验收 |
 
 L0–L2 不以真实时间流逝等待安全有效期（锁定、挑战、令牌寿命、缓存寿命、限频窗口）来验证时间边界：应用控制的判据用官方 `FakeTimeProvider` 或显式时刻在单元、集成测试里验证；端到端只验接线与生效值。跨进程的真实到期只放在 L3：OIDC 端到端的 `-IncludeExpiryWait` 由 `full` 档传入，以快速档（`OAuth__AccessTokenLifetime=00:01:30`）执行撤销到期与交换令牌到期，并从签发的令牌断言快速档已生效。实际 I/O、同步、取消与超时用有上限且观察目标完成的等待，不在此列。生成项目的同一原则见模板 [`testing.md`](../../template/docs/standards/testing.md) §2.2。
 
@@ -103,6 +103,8 @@ $selection = Get-Content .tmp/local-template-scenarios.json -Raw | ConvertFrom-J
 闸门清单唯一入口是 `scripts/check-all.ps1`，数量不在其他文档或 workflow 另行维护。检查器的正反例自检与生产输入检查保护不同对象，不能互相替代。优化可合并同一输入的重复遍历或索引构建，但仍须执行原自检与完整扫描；不建立没有实测收益的跨 run 索引缓存。 API 漂移入口在同一进程中先执行全部正反例，再以本次源码索引扫描正文；规则失效立即失败，不提供只自检后提前退出的模式。
 
 文档引用由 `scripts/check-doc-references.py` 单一实现：check-all 跑源码模式（路径与链接），矩阵文档检查以 `--root` 在生成产物上跑生成模式（另查 npm/ng/脚本命令）；豁免只登记在脚本内的精确白名单。
+
+测试诊断消息由 `template/scripts/check-test-diagnostics.py` 单一实现并随模板分发：生成项目 `verify` 跑项目模式；check-all 跑自检与 `--repository`（模板源测试加 `framework/tests`）；矩阵对每个生成产品以 `python -I` 运行，不依赖 `verify` 路径，并证明脚本不引用仓库其他文件。判据只覆盖直接写出的消息参数与测试中 `throw` 的消息，不做类型推断或间接数据流分析，也不设豁免表。维护工具与闸门脚本（`scripts/*.mjs`、`*.py`、`*.ps1`）面向人的输出不受测试诊断英文规则约束；脚本之间的判定只经退出码、回执字段与稳定标识（如矩阵回执、`verify -List` 的步骤名）传递，不匹配展示文字。
 
 ## 定时任务的覆盖分工
 

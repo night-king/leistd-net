@@ -62,7 +62,7 @@ describe('libs/ui screen reader labels', () => {
     const fixture = TestBed.createComponent(host);
     fixture.detectChanges();
     const label = fixture.nativeElement.querySelector('.sr-only') as HTMLElement | null;
-    expect(label, '没有渲染出 sr-only 读屏文案').not.toBeNull();
+    expect(label, 'No sr-only screen reader text was rendered').not.toBeNull();
     return label!.textContent!.trim();
   }
 
@@ -105,7 +105,10 @@ describe('libs/ui screen reader labels', () => {
     await fixture.whenStable();
 
     const label = document.querySelector<HTMLElement>('hlm-sheet-content .sr-only');
-    expect(label, '抽屉没有渲染出关闭按钮的读屏文案').not.toBeNull();
+    expect(
+      label,
+      'The sheet did not render screen reader text for its close button',
+    ).not.toBeNull();
     expect(label!.textContent!.trim()).toBe('关闭');
     fixture.destroy();
   });

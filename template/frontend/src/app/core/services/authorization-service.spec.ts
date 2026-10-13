@@ -80,7 +80,10 @@ describe('AuthorizationService', () => {
         versionToken: 'r1',
       });
 
-      expect(service.canAccessPlatform(), `仅持有 ${permission} 时应可进入平台区`).toBe(true);
+      expect(
+        service.canAccessPlatform(),
+        `Holding only ${permission} should grant access to the platform area`,
+      ).toBe(true);
     }
   });
 
