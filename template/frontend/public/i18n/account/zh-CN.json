@@ -141,7 +141,22 @@
   "brand": {
     "title": "模板项目",
     "subtitle": "基于 Angular + .NET 的全栈开发模板",
-    "headline": "团队、权限与数据，在同一个控制台里管理"
+    "headline": "团队、权限与数据，在同一个控制台里管理",
+    "highlights": {
+      "security": {
+        "title": "安全登录",
+        "description": "口令策略、登录锁定与两步验证开箱即用"
+      },
+      "access": {
+        "title": "角色与权限",
+        "description": "按角色授权，菜单与接口遵循同一套规则"
+      },
+      "fullStack": {
+        "title": "前后端一体",
+        "description": "Angular 与 .NET 已经打通，第一天就能部署上线"
+      }
+    },
+    "note": "开源 · 可私有化部署 · 前后端完整"
   },
   "login": {
     "title": "欢迎回来",

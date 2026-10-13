@@ -141,7 +141,22 @@
   "brand": {
     "title": "Template Project",
     "subtitle": "Full-stack development template based on Angular + .NET",
-    "headline": "Your team, permissions and data in one console"
+    "headline": "Your team, permissions and data in one console",
+    "highlights": {
+      "security": {
+        "title": "Secure sign-in",
+        "description": "Password policy, lockout and two-factor authentication out of the box"
+      },
+      "access": {
+        "title": "Roles and permissions",
+        "description": "Grant permissions by role; menus and APIs follow the same rules"
+      },
+      "fullStack": {
+        "title": "Full stack, end to end",
+        "description": "Angular and .NET wired together, ready to deploy from day one"
+      }
+    },
+    "note": "Open source · Self-hosted · Front end and back end included"
   },
   "login": {
     "title": "Welcome back",
