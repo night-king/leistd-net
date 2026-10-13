@@ -317,6 +317,22 @@ public sealed class TenantManagementTests : IAsyncLifetime
         Assert.Equal("acme", Assert.Single(page.Items).Name);
     }
 
+    /// <summary>启用状态筛选经用例传到存储，总数按同一组筛选计算，与分页无关。</summary>
+    [Fact]
+    public async Task Paging_filters_by_activation_state_and_counts_all_matches()
+    {
+        await _service.CreateAsync(new CreateTenantInputDto { Name = "acme" });
+        var paused = await _service.CreateAsync(new CreateTenantInputDto { Name = "contoso" });
+        var stopped = await _service.CreateAsync(new CreateTenantInputDto { Name = "fabrikam" });
+        await _service.SetActivationAsync(paused.Id, new UpdateTenantActivationInputDto { IsActive = false });
+        await _service.SetActivationAsync(stopped.Id, new UpdateTenantActivationInputDto { IsActive = false });
+
+        var page = await _service.GetPagedAsync(new GetTenantPagedInputDto { IsActive = false, Limit = 1 });
+
+        Assert.Equal(2, page.TotalCount);
+        Assert.False(Assert.Single(page.Items).IsActive);
+    }
+
     [Fact]
     public async Task Connection_listing_distinguishes_a_missing_tenant_from_an_unsplit_one()
     {
@@ -474,8 +490,8 @@ public sealed class TenantManagementTests : IAsyncLifetime
         public Task<TenantConfiguration?> FindAsync(Guid id, CancellationToken cancellationToken = default)
             => inner.FindAsync(id, cancellationToken);
 
-        public Task<PagedResult<TenantConfiguration>> GetPagedAsync(string? keyword, PageRequest page, CancellationToken cancellationToken = default)
-            => inner.GetPagedAsync(keyword, page, cancellationToken);
+        public Task<PagedResult<TenantConfiguration>> GetPagedAsync(string? keyword, bool? isActive, PageRequest page, CancellationToken cancellationToken = default)
+            => inner.GetPagedAsync(keyword, isActive, page, cancellationToken);
     }
 
     private sealed class FakeDbException(string sqlState) : DbException("database failure")

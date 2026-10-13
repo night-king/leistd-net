@@ -230,7 +230,7 @@ app.MapGroup("/api/v1/tenants").MapTenantManagement<CreateTenantWithAdminInputDt
 删除幂等：租户不存在或已删除（含并发删除先完成）时 `DELETE /{id}` 返回 204，不发事件；并发冲突（`TenantConcurrencyConflictException`）、存储故障照常失败。
 幂等只在用例层，`ITenantManager.DeleteAsync` 仍对不存在的租户抛 `TenantNotFoundException`。
 
-`GET /` 接收 `offset`、`limit`、`keyword`，按创建时间倒序、同刻按 Id 倒序分页，不提供排序参数；`GetTenantPagedInputDto` 继承的 `PageRequest.Sorting` 不生效。
+`GET /` 接收 `offset`、`limit`、`keyword` 与 `isActive`（`true` / `false` 按启用状态筛选，省略不过滤，无法解析的值回 400），按创建时间倒序、同刻按 Id 倒序分页，不提供排序参数；`GetTenantPagedInputDto` 继承的 `PageRequest.Sorting` 不生效。只要数量时取结果的 `TotalCount`，它按同一组筛选计算，与分页无关。
 
 租户名须是单个 DNS 标签：匹配 `TenantConfiguration.NamePattern`（`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`），最长 `TenantConfiguration.MaxNameLength`（63）个字符；
 未配置 `DomainFormat` 也照样校验。`ITenantManager` 在创建与改名时校验（名称逐字不变时不校验，更新入参按存储容量 `MaxStoredNameLength`（64）接受原名），
@@ -390,7 +390,7 @@ public sealed class IdentityControlDbContext : DbContext;
 | `Leistd.MultiTenancy.Context.ICurrentTenant` | 读取或临时切换租户上下文 |
 | `CurrentTenantKeyExtensions.ScopeKey(currentTenant, key)` | 把缓存键、锁键等租户外部标识限定到当前租户；`this ICurrentTenant` 扩展 |
 | `Leistd.MultiTenancy.Stores.ITenantStore` | 按 Id 或归一化名称查找租户 |
-| `Leistd.MultiTenancy.Stores.ITenantManager` | 创建、修改、启停、软删除和分页查询租户；`GetPagedAsync(keyword, PageRequest, ct)` 返回 `PagedResult<TenantConfiguration>` |
+| `Leistd.MultiTenancy.Stores.ITenantManager` | 创建、修改、启停、软删除和分页查询租户；`GetPagedAsync(keyword, isActive, PageRequest, ct)` 只查未删除的租户，`isActive` 为 `null` 不按状态过滤，返回 `PagedResult<TenantConfiguration>` |
 | `ITenantManagementService` | 租户管理用例：`GetPagedAsync`、`GetAsync`、`CreateAsync`（登记→开通→启用与补偿）、`UpdateAsync`、`SetActivationAsync`、`DeleteAsync`；Management 包注册。不提供按名字查询 |
 | `ITenantProvisioner` | 宿主实现：`ProvisionAsync(context, ct)` 在新租户里写初始数据，`PurgeAsync(context, ct)` 幂等清除；未注册时不开通 |
 | `ITenantActivationGuard` | 宿主实现：手动启用前的前置条件，不满足时抛带码异常 |

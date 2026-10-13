@@ -526,16 +526,33 @@ public class TenantStoreManagerTests : IAsyncLifetime
         var deleted = await _manager.CreateAsync("Acme-Old", null, isActive: true);
         await _manager.DeleteAsync(deleted.Id);
 
-        var all = await _manager.GetPagedAsync(null, new PageRequest { Offset = 0, Limit = 10 });
+        var all = await _manager.GetPagedAsync(null, null, new PageRequest { Offset = 0, Limit = 10 });
         Assert.Equal(2, all.TotalCount);
 
         // 关键字大小写不敏感（按归一化名称匹配），软删行不计入
-        var filtered = await _manager.GetPagedAsync("acme", new PageRequest { Offset = 0, Limit = 10 });
+        var filtered = await _manager.GetPagedAsync("acme", null, new PageRequest { Offset = 0, Limit = 10 });
         Assert.Equal(1, filtered.TotalCount);
         Assert.Equal("Acme", filtered.Items.Single().Name);
 
-        var paged = await _manager.GetPagedAsync(null, new PageRequest { Offset = 1, Limit = 1 });
+        var paged = await _manager.GetPagedAsync(null, null, new PageRequest { Offset = 1, Limit = 1 });
         Assert.Equal(2, paged.TotalCount);
         Assert.Single(paged.Items);
+    }
+
+    /// <summary>按启用状态筛选与关键字取交集；已删除的停用租户不计入停用数。</summary>
+    [Fact]
+    public async Task Paged_query_filters_by_activation_state()
+    {
+        await _manager.CreateAsync("Acme", null, isActive: true);
+        await _manager.CreateAsync("Acme-Paused", null, isActive: false);
+        await _manager.CreateAsync("Contoso", null, isActive: false);
+        var deleted = await _manager.CreateAsync("Fabrikam", null, isActive: false);
+        await _manager.DeleteAsync(deleted.Id);
+
+        var page = new PageRequest { Offset = 0, Limit = 10 };
+
+        Assert.Equal(["Contoso", "Acme-Paused"], (await _manager.GetPagedAsync(null, false, page)).Items.Select(t => t.Name));
+        Assert.Equal(["Acme"], (await _manager.GetPagedAsync(null, true, page)).Items.Select(t => t.Name));
+        Assert.Equal(["Acme-Paused"], (await _manager.GetPagedAsync("acme", false, page)).Items.Select(t => t.Name));
     }
 }

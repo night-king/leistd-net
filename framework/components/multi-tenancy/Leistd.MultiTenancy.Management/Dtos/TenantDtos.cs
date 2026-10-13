@@ -10,6 +10,9 @@ public record GetTenantPagedInputDto : PageRequest
 {
     /// <summary>名称或显示名关键字（大小写不敏感）。</summary>
     public string? Keyword { get; init; }
+
+    /// <summary>只取启用（<see langword="true"/>）或停用（<see langword="false"/>）的租户；为空不过滤。</summary>
+    public bool? IsActive { get; init; }
 }
 
 /// <summary>租户输出。</summary>

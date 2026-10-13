@@ -111,6 +111,28 @@ public sealed class TenantEndpointInputValidationTests : IAsyncLifetime
         Assert.Empty(_events.Published);
     }
 
+    /// <summary>列表端点把 <c>isActive</c> 查询参数交给用例：按启用状态筛选，省略不过滤，无法解析的值是 400。</summary>
+    [Theory]
+    [InlineData("", HttpStatusCode.OK, 2)]
+    [InlineData("?isActive=false", HttpStatusCode.OK, 1)]
+    [InlineData("?isActive=true", HttpStatusCode.OK, 1)]
+    [InlineData("?isActive=paused", HttpStatusCode.BadRequest, null)]
+    public async Task The_list_filters_by_the_activation_state_from_the_query(string query, HttpStatusCode status, int? total)
+    {
+        await CreateTenantAsync();
+        var paused = await Tenants().CreateAsync(new CreateTenantInputDto { Name = "contoso" });
+        await Tenants().SetActivationAsync(paused.Id, new UpdateTenantActivationInputDto { IsActive = false });
+
+        using var response = await _client.GetAsync("/tenants" + query);
+
+        Assert.Equal(status, response.StatusCode);
+        if (total is not null)
+        {
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(total, document.RootElement.GetProperty("totalCount").GetInt32());
+        }
+    }
+
     [Fact]
     public async Task Updating_without_a_name_reports_the_field_and_changes_nothing()
     {

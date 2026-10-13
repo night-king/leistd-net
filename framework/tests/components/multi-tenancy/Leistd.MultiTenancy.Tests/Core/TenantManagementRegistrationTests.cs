@@ -117,7 +117,7 @@ public sealed class TenantManagementRegistrationTests
         public Task<TenantConfiguration?> FindAsync(Guid id, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<PagedResult<TenantConfiguration>> GetPagedAsync(string? keyword, PageRequest page, CancellationToken cancellationToken = default)
+        public Task<PagedResult<TenantConfiguration>> GetPagedAsync(string? keyword, bool? isActive, PageRequest page, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
     }
 

@@ -61,9 +61,10 @@ public static class TenantManagementEndpoints
                 CancellationToken cancellationToken,
                 int offset = 0,
                 int limit = PageRequest.DefaultLimit,
-                string? keyword = null)
+                string? keyword = null,
+                bool? isActive = null)
                 => service.GetPagedAsync(
-                    new GetTenantPagedInputDto { Offset = offset, Limit = limit, Keyword = keyword },
+                    new GetTenantPagedInputDto { Offset = offset, Limit = limit, Keyword = keyword, IsActive = isActive },
                     cancellationToken))
             .WithName(NamePrefix + "GetTenants")
             .RequireAuthorization(options.ReadPolicy);
