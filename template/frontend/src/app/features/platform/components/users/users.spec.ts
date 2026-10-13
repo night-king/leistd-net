@@ -303,6 +303,51 @@ describe('Users page query round trip', () => {
       expect(component.selectedIds()).toEqual([]);
     });
 
+    it('clears the selection on Esc even when focus is on the page body', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      table().rowSelectionChange.emit({ 'row-1': true });
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      expect(component.selectedIds()).toEqual([]);
+    });
+
+    it('keeps the selection when Esc was handled by an overlay or typed in a field', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      table().rowSelectionChange.emit({ 'row-1': true });
+
+      const handled = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      handled.preventDefault();
+      document.body.dispatchEvent(handled);
+      const input = document.createElement('input');
+      document.body.append(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      input.remove();
+
+      expect(component.selectedIds()).toEqual(['row-1']);
+    });
+
+    it('keeps the selection on Esc while a menu opened by mouse is still showing', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      table().rowSelectionChange.emit({ 'row-1': true });
+      const overlay = document.createElement('div');
+      overlay.className = 'cdk-overlay-container';
+      overlay.innerHTML = '<div role="menu"></div>';
+      document.body.append(overlay);
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      overlay.remove();
+
+      expect(component.selectedIds()).toEqual(['row-1']);
+    });
+
     it('reports partial failures, clears the selection and reloads the page', async () => {
       grant(PERMISSIONS.users.update);
       await loadRows(loadedRow, secondRow);

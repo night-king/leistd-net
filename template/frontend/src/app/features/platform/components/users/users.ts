@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -139,14 +140,15 @@ const DEFAULT_USER_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
       lucideX,
     }),
   ],
-  // Esc 取消选择：只在焦点位于本页时生效；对话框渲染在浮层里，按 Esc 关对话框不会冒泡到这里
-  host: { '(keydown.escape)': 'clearSelection()' },
+  // Esc 取消选择挂在 document 上：点空白处或 Safari 点按钮后焦点落在 body，挂宿主收不到
+  host: { '(document:keydown.escape)': 'onEscape($event)' },
   templateUrl: './users.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Users {
   private readonly service = inject(UserManagementService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
   private readonly confirmService = inject(ConfirmService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -690,6 +692,23 @@ export class Users {
 
   clearSelection(): void {
     this.rowSelection.set({});
+  }
+
+  /**
+   * 对话框、菜单已处理的 Esc 会 preventDefault；鼠标打开的菜单焦点仍在触发按钮上，Esc 不经菜单，
+   * 所以浮层里还开着菜单、对话框或下拉列表时也不清。焦点在输入框里时 Esc 留给输入框本身。
+   */
+  protected onEscape(event: Event): void {
+    const target = event.target;
+    const inField =
+      target instanceof HTMLElement &&
+      !!target.closest('input, textarea, select, [contenteditable="true"]');
+    const overlayOpen = !!this.document.querySelector(
+      '.cdk-overlay-container :is([role="menu"], [role="dialog"], [role="alertdialog"], [role="listbox"])',
+    );
+    if (!event.defaultPrevented && !inField && !overlayOpen) {
+      this.clearSelection();
+    }
   }
 
   async batchSetActive(active: boolean): Promise<void> {
