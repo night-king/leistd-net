@@ -196,15 +196,17 @@
                       <!--#endif-->
                     }
                   </div>
-                  <a
-                    hlmBtn
-                    variant="outline"
-                    size="sm"
-                    [routerLink]="item.route"
-                    [queryParams]="item.queryParams"
-                  >
-                    {{ t('platform.dashboard.attention.review') }}
-                  </a>
+                  @if (item.route) {
+                    <a
+                      hlmBtn
+                      variant="outline"
+                      size="sm"
+                      [routerLink]="item.route"
+                      [queryParams]="item.queryParams"
+                    >
+                      {{ t('platform.dashboard.attention.review') }}
+                    </a>
+                  }
                 </li>
               } @empty {
                 <li

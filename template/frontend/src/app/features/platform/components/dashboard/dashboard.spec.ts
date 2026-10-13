@@ -160,6 +160,16 @@ describe('Dashboard', () => {
 
     expect(dashboard.attention().map((item) => item.id)).toEqual(['lockedUsers']);
   });
+
+  it('links an attention item to its page only with permission for that page', async () => {
+    const withoutUsers = await setup([PERMISSIONS.dashboard.default]);
+    expect(withoutUsers.attention()[0].route).toBeNull();
+
+    fixture.destroy();
+    TestBed.resetTestingModule();
+    const withUsers = await setup([PERMISSIONS.dashboard.default, PERMISSIONS.users.default]);
+    expect(withUsers.attention()[0].route).toBe('/platform/users');
+  });
   //#endif
 
   it('keeps only the latest request when the range changes quickly', async () => {

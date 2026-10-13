@@ -97,7 +97,8 @@ interface AttentionView {
   id: 'lockedUsers' | 'adminsWithoutTwoFactor' | 'unconfirmedEmailUsers' | 'disabledTenants';
   count: number;
   icon: string;
-  route: string;
+  /** 处理入口；看得到统计但没有目标页权限时为 null，只显示数量。 */
+  route: string | null;
   queryParams?: Record<string, string>;
 }
 
@@ -227,18 +228,20 @@ export class Dashboard {
       return [];
     }
 
-    const items: AttentionView[] = [
+    const items: (AttentionView & { route: string; permission: string })[] = [
       {
         id: 'lockedUsers',
         count: counts.lockedUsers,
         icon: 'lucideLock',
         route: '/platform/users',
+        permission: PERMISSIONS.users.default,
       },
       {
         id: 'adminsWithoutTwoFactor',
         count: counts.adminsWithoutTwoFactor,
         icon: 'lucideShieldAlert',
         route: '/platform/users',
+        permission: PERMISSIONS.users.default,
       },
       {
         id: 'unconfirmedEmailUsers',
@@ -246,6 +249,7 @@ export class Dashboard {
         icon: 'lucideMailWarning',
         route: '/platform/users',
         queryParams: { isEmailVerified: 'false' },
+        permission: PERMISSIONS.users.default,
       },
       //#if (IncludeMultiTenancy)
       {
@@ -253,10 +257,16 @@ export class Dashboard {
         count: counts.disabledTenants ?? 0,
         icon: 'lucideBuilding2',
         route: '/platform/tenants',
+        permission: PERMISSIONS.tenants.default,
       },
       //#endif
     ];
-    return items.filter((item) => item.count > 0);
+    return items
+      .filter((item) => item.count > 0)
+      .map(({ permission, route, ...item }) => ({
+        ...item,
+        route: this.authorization.has(permission) ? route : null,
+      }));
     //#else
     // 资源服务形态没有本地身份数据，需要关注的事项都不下发
     return [];
