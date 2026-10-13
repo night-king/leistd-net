@@ -107,7 +107,8 @@
 嵌套的块用 `md` 不用 `xl`：内外同圆角就分不出层次。组件内部的小元素（菜单项、清除按钮）跟随所在组件的写法。
 
 - **托盘卡**（`frontend/src/app/shared/components/stat-panel`）：灰底外框放标题与右侧操作，内层白卡放内容，用于仪表盘这类同屏多块数据；内卡圆角按嵌套规则取 `rounded-lg`（外框 `rounded-xl` 减去 4px 间距）。普通页面区块仍用 Spartan Card，不套托盘。
-- **图表**用 Spartan `chart`（TanStack Charts），序列颜色只取 `--chart-1…5` 令牌、主题用 `HLM_CHART_THEME`，不写色值；`chart` 只在用到它的懒加载页面里引入。
+- **图表**用 Spartan `chart`（TanStack Charts），序列颜色只取 `--chart-1…5` 令牌、主题用 `HLM_CHART_THEME`，不写色值；`chart` 只在用到它的懒加载页面里引入。主序列用 `--chart-1`，需要警惕的序列（失败、错误）用琥珀色 `--chart-3`；按时段的离散数据画直线、不做平滑，主序列加自上而下淡出的渐变面积；图例是 2px 圆角方块；提示框写该时段的真实起止，逐行列出各序列的值并带色块。当前版本的网格没有虚线配置，保持实线。
+- **指标卡**放在托盘卡里：外框标题右侧是口径说明（键盘可达的按钮 + Tooltip，写清这项怎么算），内卡是数值、迷你趋势（同一 `chart`，`guides: false` 去掉坐标轴与网格）和环比徽章；没有按桶序列的指标不画迷你趋势。
 
 - **当前项用中性色，不用品牌色**：侧栏菜单沿用 Spartan 的 `data-active` 样式（`sidebar-accent` 底），细描边由 `styles.css` 统一补；顶栏导航沿用 navigation-menu 的默认当前态；抽屉与设置面板里的 ghost 按钮挂 `aria-[current=page]:bg-muted`。品牌色留给主操作、焦点环与链接。
 - **间距**：兄弟元素之间用 `flex` / `grid` + `gap-*`，不用 `space-y-*` 与逐个元素的外边距。页面外框统一 `p-4 sm:p-6`。

@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { Observable, Subject, of, throwError } from 'rxjs';
 
 import { Dashboard } from './dashboard';
@@ -13,44 +13,69 @@ import { AuthorizationService } from '../../../../core/services/authorization-se
 import { StartupService } from '../../../../core/services/startup-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
-import { PlatformStatisticsOutputDto, StatisticsDays } from '../../dtos/platform-statistics.dto';
+import { PlatformStatisticsOutputDto, StatisticsQuery } from '../../dtos/platform-statistics.dto';
 //#if (IncludeOperationRecords)
 import { OperationRecordService } from '../../services/operation-record-service';
 //#endif
 import { PlatformStatisticsService } from '../../services/platform-statistics-service';
 
 /**
- * 仪表盘的加载状态与权限：统计要 `App.Dashboard`，没有时不发请求；首次失败给重试，已有数据时
- * 刷新失败保留原内容；切换区间只保留最后一次请求。
+ * 仪表盘的区间、加载状态与权限：统计要 `App.Dashboard`，没有时不发请求；区间写在 URL 上，带实际生效的
+ * 展示时区请求；首次失败给重试，已有数据时刷新失败保留原内容并按它自己的区间标注；只保留最后一次请求。
  */
 describe('Dashboard', () => {
+  /** 2026-10-13 12:00 UTC；展示时区设为 UTC，今天就是 10-13。 */
+  const NOW = Date.parse('2026-10-13T12:00:00Z');
   let fixture: ComponentFixture<Dashboard>;
+  let timeZone: ReturnType<typeof signal<string | null>>;
   let getStatistics: ReturnType<
-    typeof vi.fn<(days: StatisticsDays) => Observable<PlatformStatisticsOutputDto>>
+    typeof vi.fn<(query: StatisticsQuery) => Observable<PlatformStatisticsOutputDto>>
   >;
   //#if (IncludeOperationRecords)
   let getOperationRecords: ReturnType<typeof vi.fn>;
   //#endif
 
-  function statistics(days: StatisticsDays, newUsers = 3): PlatformStatisticsOutputDto {
+  function statistics(query: StatisticsQuery, newUsers = 3): PlatformStatisticsOutputDto {
+    const days =
+      (Date.parse(`${query.endDate}T00:00:00Z`) - Date.parse(`${query.startDate}T00:00:00Z`)) /
+        86_400_000 +
+      1;
+    const buckets = Array.from({ length: days }, (_, index) =>
+      new Date(Date.parse(`${query.startDate}T00:00:00Z`) + index * 86_400_000).toISOString(),
+    );
+    const series = (value: number) => buckets.map(() => value);
     return {
-      days,
-      totalUsers: { value: 10, previous: 8 },
-      newUsers: { value: newUsers, previous: 0 },
-      activeUsers: { value: 6, previous: 6 },
+      range: {
+        startDate: query.startDate,
+        endDate: query.endDate,
+        timeZone: query.timeZone,
+        granularity: days === 1 ? 'hour' : 'day',
+        start: buckets[0],
+        end: new Date(NOW).toISOString(),
+        previousStart: buckets[0],
+        previousEnd: buckets[0],
+      },
+      buckets,
+      totalUsers: { value: 10, previous: 8, series: series(10) },
+      newUsers: { value: newUsers, previous: 0, series: series(1) },
+      //#if (IncludeOperationRecords)
+      activeUsers: { value: 6, previous: 6, series: series(2) },
+      //#else
+      activeUsers: { value: 6, previous: null, series: null },
+      //#endif
       //#if (IncludeOperationRecords && LocalIdentity)
-      failedLogins: { value: 2, previous: 4 },
-      loginTrend: [{ date: '2026-10-12', succeeded: 5, failed: 1 }],
+      succeededLogins: { value: 40, previous: 20, series: series(5) },
+      failedLogins: { value: 2, previous: 4, series: series(1) },
       //#endif
       //#if (LocalIdentity)
-      attention: { lockedUsers: 1, adminsWithoutTwoFactor: 0, unconfirmedEmailUsers: 0 },
+      attention: { lockedUsers: 1, adminsWithoutTwoFactor: 2, unconfirmedEmailUsers: 0 },
       //#else
       attention: {},
       //#endif
     };
   }
 
-  async function setup(permissions: string[]): Promise<Dashboard> {
+  async function setup(permissions: string[], url = '/'): Promise<Dashboard> {
     await TestBed.configureTestingModule({
       imports: [Dashboard],
       providers: [
@@ -68,6 +93,10 @@ describe('Dashboard', () => {
         },
         //#endif
         { provide: StartupService, useValue: { status: signal('success' as const) } },
+        {
+          provide: SettingContextService,
+          useValue: { timeZone, displayLocale: signal('en') },
+        },
       ],
     }).compileComponents();
 
@@ -76,25 +105,40 @@ describe('Dashboard', () => {
       isSuperAdmin: false,
       versionToken: 'r1',
     });
-    // 先建好设置上下文（连带语言服务），否则首帧渲染途中创建它会让结构指令重入。
-    TestBed.inject(SettingContextService);
+    await TestBed.inject(Router).navigateByUrl(url);
     fixture = TestBed.createComponent(Dashboard);
     fixture.detectChanges();
     await fixture.whenStable();
     return fixture.componentInstance;
   }
+  //#if (IncludeOperationRecords && LocalIdentity)
+
+  async function navigate(url: string): Promise<void> {
+    await TestBed.inject(Router).navigateByUrl(url);
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+  //#endif
 
   const query = (testId: string): HTMLElement | null =>
     fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
 
+  const lastQuery = () => getStatistics.mock.calls.at(-1)?.[0];
+
   beforeEach(() => {
-    getStatistics = vi.fn((days: StatisticsDays) => of(statistics(days)));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    timeZone = signal<string | null>('UTC');
+    getStatistics = vi.fn((statisticsQuery: StatisticsQuery) => of(statistics(statisticsQuery)));
     //#if (IncludeOperationRecords)
     getOperationRecords = vi.fn(() => of({ items: [], totalCount: 0 }));
     //#endif
   });
 
-  afterEach(() => fixture?.destroy());
+  afterEach(() => {
+    fixture?.destroy();
+    vi.useRealTimers();
+  });
 
   it('shows no statistics and sends no request without the dashboard permission', async () => {
     await setup([PERMISSIONS.users.default]);
@@ -104,7 +148,27 @@ describe('Dashboard', () => {
     expect(query('kpi-totalUsers')).toBeNull();
   });
 
-  it('keeps the current range selected when it is clicked again', async () => {
+  it('loads the last 7 days in the display time zone by default', async () => {
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+
+    expect(getStatistics).toHaveBeenCalledExactlyOnceWith({
+      startDate: '2026-10-07',
+      endDate: '2026-10-13',
+      timeZone: 'UTC',
+    });
+    expect(dashboard.preset()).toBe('7d');
+    expect(dashboard.summary()).toMatchObject({ preset: '7d', days: 7 });
+  });
+
+  it('asks with the browser time zone when the configured one cannot be used', async () => {
+    timeZone.set('Mars/Olympus');
+
+    await setup([PERMISSIONS.dashboard.default]);
+
+    expect(lastQuery()?.timeZone).toBe(new Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it('keeps the current preset selected when it is clicked again', async () => {
     const dashboard = await setup([PERMISSIONS.dashboard.default]);
     const current = fixture.nativeElement.querySelector(
       '[data-testid="dashboard-range"] [data-state="on"]',
@@ -114,8 +178,54 @@ describe('Dashboard', () => {
     fixture.detectChanges();
 
     expect(current.getAttribute('data-state')).toBe('on');
-    expect(dashboard.days()).toBe(7);
+    expect(dashboard.preset()).toBe('7d');
     expect(getStatistics).toHaveBeenCalledOnce();
+  });
+
+  it('writes a preset to the URL and asks for that range', async () => {
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+
+    dashboard.setPreset('today');
+    await fixture.whenStable();
+
+    expect(TestBed.inject(Router).url).toContain('startDate=2026-10-13&endDate=2026-10-13');
+    expect(lastQuery()).toMatchObject({ startDate: '2026-10-13', endDate: '2026-10-13' });
+    expect(dashboard.preset()).toBe('today');
+  });
+
+  it('restores a custom range from the URL and selects no preset', async () => {
+    const dashboard = await setup(
+      [PERMISSIONS.dashboard.default],
+      '/?startDate=2026-09-01&endDate=2026-09-30',
+    );
+
+    expect(lastQuery()).toMatchObject({ startDate: '2026-09-01', endDate: '2026-09-30' });
+    expect(dashboard.preset()).toBeNull();
+  });
+
+  it.each([
+    '/?startDate=2026-10-01',
+    '/?startDate=2026-10-10&endDate=2026-10-01',
+    '/?startDate=2026-10-01&endDate=2026-10-14',
+    '/?startDate=2025-01-01&endDate=2026-10-13',
+    '/?startDate=2026-02-30&endDate=2026-03-01',
+  ])('falls back to the last 7 days for an unusable URL range %s', async (url) => {
+    await setup([PERMISSIONS.dashboard.default], url);
+
+    expect(lastQuery()).toMatchObject({ startDate: '2026-10-07', endDate: '2026-10-13' });
+  });
+
+  it('takes the picked calendar days as they are and goes back to 7 days when cleared', async () => {
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+
+    // 选择器给的是浏览器本地 Date，年月日就是选中的日历日，不经 UTC 换算
+    dashboard.onRangePicked([new Date(2026, 8, 1), new Date(2026, 8, 15)]);
+    await fixture.whenStable();
+    expect(lastQuery()).toMatchObject({ startDate: '2026-09-01', endDate: '2026-09-15' });
+
+    dashboard.onRangePicked(null);
+    await fixture.whenStable();
+    expect(lastQuery()).toMatchObject({ startDate: '2026-10-07', endDate: '2026-10-13' });
   });
   //#if (IncludeOperationRecords)
 
@@ -141,29 +251,143 @@ describe('Dashboard', () => {
     expect(getOperationRecords).toHaveBeenCalledTimes(2);
     expect(dashboard.recentRecords()).toEqual([]);
   });
+
+  it('shows the target of a recent operation and opens one record detail at a time', async () => {
+    const record = (id: string, targetName?: string) => ({
+      id,
+      action: 'order.shipped',
+      targetId: `target-${id}`,
+      targetName,
+      authorizationBasis: 'App.Orders.Ship',
+      outcome: 'failed' as const,
+      failureCode: 'Order:Unknown',
+      creationTime: new Date(NOW - 60_000).toISOString(),
+    });
+    getOperationRecords.mockReturnValue(
+      of({ items: [record('r1', 'Order 42'), record('r2')], totalCount: 2 }),
+    );
+    const dashboard = await setup([
+      PERMISSIONS.dashboard.default,
+      PERMISSIONS.operationRecords.default,
+    ]);
+
+    // 名称优先，没有名称时取标识；未登记的动作码裸显示，句子里没有目标，补在旁边
+    expect(dashboard.recentRows().map((row) => row.target)).toEqual(['Order 42', 'target-r2']);
+    expect(query('dashboard-recent')?.textContent).toContain('Order 42');
+    const toggles = () => [
+      ...query('dashboard-recent')!.querySelectorAll<HTMLButtonElement>('button[aria-expanded]'),
+    ];
+    expect(query('dashboard-recent')?.querySelector('app-operation-record-detail')).toBeNull();
+
+    toggles()[0].click();
+    fixture.detectChanges();
+    expect(toggles()[0].getAttribute('aria-expanded')).toBe('true');
+    const detail = query('dashboard-recent')?.querySelector('app-operation-record-detail');
+    expect(detail?.textContent).toContain('Order:Unknown');
+    // 窄屏折叠掉的目标名称在详情里仍在，标识也在
+    expect(detail?.textContent).toContain('Order 42');
+    expect(detail?.textContent).toContain('target-r1');
+
+    toggles()[1].click();
+    fixture.detectChanges();
+    expect(toggles().map((toggle) => toggle.getAttribute('aria-expanded'))).toEqual([
+      'false',
+      'true',
+    ]);
+  });
+
+  it('shows anonymous actors as anonymous and keeps the impersonator visible', async () => {
+    getOperationRecords.mockReturnValue(
+      of({
+        items: [
+          {
+            id: 'r1',
+            action: 'auth.login.failed',
+            targetId: 'someone',
+            outcome: 'failed',
+            creationTime: new Date(NOW - 5 * 60_000).toISOString(),
+          },
+          {
+            id: 'r2',
+            action: 'user.updated',
+            targetId: 'u-1',
+            outcome: 'succeeded',
+            actorId: 'u-2',
+            actorName: 'Ada Lovelace',
+            impersonatorName: 'Support',
+            creationTime: new Date(NOW - 26 * 3_600_000).toISOString(),
+          },
+        ],
+        totalCount: 2,
+      }),
+    );
+    const dashboard = await setup([
+      PERMISSIONS.dashboard.default,
+      PERMISSIONS.operationRecords.default,
+    ]);
+
+    expect(dashboard.recentRows().map((row) => [row.actor, row.initials])).toEqual([
+      [undefined, '?'],
+      ['Ada Lovelace', 'AL'],
+    ]);
+    expect(dashboard.recentTimes().get('r1')).toEqual({ kind: 'text', text: '5 minutes ago' });
+    expect(dashboard.recentTimes().get('r2')?.kind).toBe('yesterday');
+    //#if (IncludeLocalization)
+    // 单测词条为空，文案回落成键名
+    expect(query('dashboard-recent')?.textContent).toContain('platform.dashboard.recent.anonymous');
+    expect(query('dashboard-recent')?.textContent).toContain(
+      'platform.dashboard.recent.impersonatedBy',
+    );
+    //#else
+    expect(query('dashboard-recent')?.textContent).toContain('Anonymous');
+    expect(query('dashboard-recent')?.textContent).toContain('Done by Support');
+    //#endif
+  });
   //#endif
 
-  it('loads the last 7 days and compares with the previous period', async () => {
+  it('compares with the previous range and draws a sparkline only from a series', async () => {
     const dashboard = await setup([PERMISSIONS.dashboard.default]);
 
-    expect(getStatistics).toHaveBeenCalledExactlyOnceWith(7);
     const totalUsers = dashboard.kpis().find((kpi) => kpi.id === 'totalUsers');
     expect(totalUsers).toMatchObject({ value: 10, change: 25 });
+    expect(totalUsers?.sparkline).not.toBeNull();
     // 上一区间为 0 时没有可比口径，不给百分比
     expect(dashboard.kpis().find((kpi) => kpi.id === 'newUsers')?.change).toBeNull();
-    expect(query('kpi-totalUsers')).not.toBeNull();
+    //#if (!IncludeOperationRecords)
+    // 没有操作记录时活跃用户没有序列，不画迷你图
+    expect(dashboard.kpis().find((kpi) => kpi.id === 'activeUsers')?.sparkline).toBeNull();
+    //#endif
+    expect(query('kpi-totalUsers')?.querySelector('button[aria-label]')).not.toBeNull();
   });
+  //#if (IncludeOperationRecords && LocalIdentity)
+
+  it('offers daily or weekly only for ranges of two weeks or more, weekly by default past 31 days', async () => {
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+    expect([dashboard.trendView(), dashboard.canChooseTrendView()]).toEqual(['day', false]);
+
+    await navigate('/?startDate=2026-09-14&endDate=2026-10-13');
+    expect([dashboard.trendView(), dashboard.canChooseTrendView()]).toEqual(['day', true]);
+    dashboard.chosenTrendView.set('week');
+    expect(dashboard.trendView()).toBe('week');
+
+    // 换区间回到该区间的默认粒度
+    await navigate('/?startDate=2026-08-01&endDate=2026-10-13');
+    expect(dashboard.trendView()).toBe('week');
+
+    await navigate('/?startDate=2026-10-13&endDate=2026-10-13');
+    expect([dashboard.trendView(), dashboard.canChooseTrendView()]).toEqual(['hour', false]);
+  });
+  //#endif
   //#if (LocalIdentity)
 
-  it('lists only attention items with a positive count', async () => {
-    const dashboard = await setup([PERMISSIONS.dashboard.default]);
-
-    expect(dashboard.attention().map((item) => item.id)).toEqual(['lockedUsers']);
-  });
-
-  it('links an attention item to its page only with permission for that page', async () => {
+  it('lists attention items with a positive count, colored by severity, linked only with permission', async () => {
     const withoutUsers = await setup([PERMISSIONS.dashboard.default]);
-    expect(withoutUsers.attention()[0].route).toBeNull();
+    expect(
+      withoutUsers.attention().map((item) => [item.id, item.severity, item.action, item.route]),
+    ).toEqual([
+      ['lockedUsers', 'destructive', 'handle', null],
+      ['adminsWithoutTwoFactor', 'warning', 'review', null],
+    ]);
 
     fixture.destroy();
     TestBed.resetTestingModule();
@@ -176,12 +400,14 @@ describe('Dashboard', () => {
     const first = new Subject<PlatformStatisticsOutputDto>();
     const dashboard = await setup([PERMISSIONS.dashboard.default]);
     getStatistics.mockImplementationOnce(() => first);
-    dashboard.setDays(30);
-    dashboard.setDays(7);
+    dashboard.setPreset('30d');
+    await fixture.whenStable();
+    dashboard.setPreset('7d');
+    await fixture.whenStable();
 
     // 30 天的响应晚于 7 天回来，也不能覆盖当前区间
-    first.next(statistics(30, 99));
-    expect(dashboard.statistics()?.days).toBe(7);
+    first.next(statistics({ startDate: '2026-09-14', endDate: '2026-10-13', timeZone: 'UTC' }, 99));
+    expect(dashboard.statistics()?.range.startDate).toBe('2026-10-07');
   });
 
   it('offers a retry when the first load fails', async () => {
@@ -196,14 +422,47 @@ describe('Dashboard', () => {
     expect(query('dashboard-load-failed')).toBeNull();
   });
 
-  it('keeps the earlier data and says so when a refresh fails', async () => {
+  it('keeps the earlier data labelled with its own range when a refresh fails', async () => {
     const dashboard = await setup([PERMISSIONS.dashboard.default]);
     getStatistics.mockReturnValueOnce(throwError(() => new Error('offline')));
 
-    dashboard.setDays(30);
+    dashboard.setPreset('30d');
+    await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(dashboard.statistics()?.days).toBe(7);
+    expect(dashboard.statistics()?.range.startDate).toBe('2026-10-07');
+    expect(dashboard.statisticsDays()).toBe(7);
     expect(query('dashboard-refresh-failed')).not.toBeNull();
+  });
+
+  it('keeps comparing the same progress for kept data after the time zone moves past midnight', async () => {
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+    expect(dashboard.includesToday()).toBe(true);
+    getStatistics.mockReturnValueOnce(throwError(() => new Error('offline')));
+
+    // UTC 12:00 在 +14 时区已是 10-14：新区间请求失败，保留的仍是截到此刻的 10-07 – 10-13
+    timeZone.set('Pacific/Kiritimati');
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(lastQuery()?.endDate).toBe('2026-10-14');
+    expect(dashboard.statistics()?.range.endDate).toBe('2026-10-13');
+    expect(dashboard.includesToday()).toBe(true);
+  });
+
+  it('compares the whole previous range once the kept range has ended', async () => {
+    getStatistics.mockImplementationOnce((statisticsQuery) =>
+      of({
+        ...statistics(statisticsQuery),
+        range: {
+          ...statistics(statisticsQuery).range,
+          endDate: '2026-10-12',
+          end: '2026-10-13T00:00:00Z',
+        },
+      }),
+    );
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+
+    expect(dashboard.includesToday()).toBe(false);
   });
 });

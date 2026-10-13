@@ -1,5 +1,7 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
+import { resolveDisplayTimeZone } from '../utils/zoned-time';
+
 /**
  * 语义槽位：调用点按用途声明显示什么、要多细。精度属于槽位而不是用户偏好：通知列表要窄，
  * 审计详情要能对时。
@@ -72,13 +74,9 @@ export function formatAppDate(
   const writing = writingFor(locale);
   const options = optionsFor(format, writing);
 
-  try {
-    return render(date, writing, options, timeZone);
-  } catch {
-    // 设置里存了当前运行时不认识的时区（时区数据库更名等）时退回浏览器时区，
-    // 不要让一个偏好设置把整张列表打成空白。
-    return render(date, writing, options);
-  }
+  // 设置里存了当前运行时不认识的时区（时区数据库更名等）时退回浏览器时区，
+  // 不要让一个偏好设置把整张列表打成空白；判定与按时区请求数据的地方共用
+  return render(date, writing, options, resolveDisplayTimeZone(timeZone));
 }
 
 /**

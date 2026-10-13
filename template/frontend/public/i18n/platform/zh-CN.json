@@ -6,11 +6,19 @@
       "afternoon": "下午好，{{name}}",
       "evening": "晚上好，{{name}}"
     },
-    "subtitle": "近 {{days}} 天概览",
     "noStatistics": "查看统计数据需要仪表盘权限。",
     "rangeLabel": "统计区间",
-    "range7": "7 天",
-    "range30": "30 天",
+    "range": {
+      "today": "今天",
+      "days7": "7 天",
+      "days30": "30 天",
+      "lastDays": "近 {{days}} 天",
+      "custom": "自定义区间"
+    },
+    "summary": {
+      "signIns": "{{count}} 次成功登录",
+      "attention": "{{count}} 项需要处理"
+    },
     "loadFailed": "统计数据加载失败。",
     "refreshFailed": "刷新失败，显示的是之前的数据。",
     "kpi": {
@@ -19,15 +27,29 @@
       "activeUsers": "活跃用户",
       "failedLogins": "登录失败",
       "vsPrevious": "较前 {{days}} 天",
-      "noComparison": "暂无可对比的数据"
+      "noComparison": "暂无可对比的数据",
+      "infoLabel": "关于{{metric}}",
+      "info": {
+        "totalUsers": "所选区间结束时存在的用户数，不含已删除的用户。",
+        "newUsers": "区间内注册的用户数，之后被删除的也计入。",
+        "activeUsers": "区间内登录成功过的不同用户数。",
+        "activeUsersLastLogin": "最近一次登录落在区间内的用户数。更早的登录会被后来的登录覆盖，看过去的区间时只是近似。",
+        "failedLogins": "近似值：匿名的连续失败会被采样合并。"
+      },
+      "vsYesterday": "较昨天同一时段",
+      "vsPreviousProgress": "较前 {{days}} 天同一进度",
+      "vsPreviousEnd": "较上期末"
     },
     "trend": {
       "title": "登录趋势",
       "succeeded": "成功",
       "failed": "失败",
-      "total": "次成功登录 · 近 {{days}} 天",
+      "total": "次成功登录",
       "failedApprox": "登录失败为近似值：匿名的连续失败会被采样合并。",
-      "ariaLabel": "每天的登录次数"
+      "ariaLabel": "各时段的登录次数",
+      "viewLabel": "聚合方式",
+      "byDay": "按日",
+      "byWeek": "按周"
     },
     "attention": {
       "title": "需要关注",
@@ -40,14 +62,19 @@
       "disabledTenants": "{{count}} 个租户已停用",
       "disabledTenantsHint": "已停用租户的用户无法登录",
       "review": "查看",
-      "allClear": "目前没有需要处理的事项。"
+      "allClear": "目前没有需要处理的事项。",
+      "handle": "处理"
     },
     "recent": {
       "title": "最近操作",
       "viewAll": "查看全部",
       "empty": "暂无操作记录",
       "anonymous": "匿名",
-      "rejected": "已拒绝"
+      "rejected": "被拒绝",
+      "succeeded": "成功",
+      "impersonatedBy": "由 {{name}} 代为操作",
+      "justNow": "刚刚",
+      "yesterdayAt": "昨天 {{time}}"
     },
     "quick": {
       "title": "快捷入口"

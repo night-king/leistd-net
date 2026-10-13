@@ -3,9 +3,36 @@
  * 不能直接 `toISOString()`（那是浏览器时区）。只用原生 `Intl`，不引入日期库。
  */
 
-/** 解析展示时区，未设置时回落到浏览器默认时区，与 `AppDate` 管道同一口径。 */
+/**
+ * 实际生效的展示时区：设置值能被当前运行时的 `Intl` 使用就用它，为空或用不了（时区数据库更名等）
+ * 时回落到浏览器时区。`AppDate` 管道与按时区请求数据的地方（如仪表盘统计）共用这一处判定，
+ * 列表显示的时区与请求里带的时区不会不一致。
+ */
+export function resolveDisplayTimeZone(timeZone?: string | null): string {
+  if (timeZone) {
+    try {
+      // 原样返回设置值：resolvedOptions() 会把 Asia/Kolkata 规范成旧名 Asia/Calcutta
+      new Intl.DateTimeFormat('en-US', { timeZone });
+      return timeZone;
+    } catch {
+      // 回落到浏览器时区
+    }
+  }
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 function resolveZone(timeZone?: string): string {
-  return timeZone || new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return resolveDisplayTimeZone(timeZone);
+}
+
+/** 该时区此刻的日历日期，`YYYY-MM-DD`。 */
+export function zonedToday(timeZone: string, now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
 }
 
 /**

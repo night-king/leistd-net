@@ -2,7 +2,7 @@ import { requirePermission } from './authorization';
 import { PERMISSIONS } from '../../src/app/shared/constants/permission.constants';
 import { MockException, MockRequest } from '../core/models';
 //#if (IncludeOperationRecords && LocalIdentity)
-import { loginActivity } from '../data/platform-statistics';
+import { MockLoginSlot, sumLoginSlots } from '../data/platform-statistics';
 //#endif
 //#if (LocalIdentity && IncludeMultiTenancy)
 import { TENANTS } from '../data/tenant';
@@ -15,32 +15,101 @@ import { USERS } from '../data/user';
 //#if (LocalIdentity && IncludeMultiTenancy)
 import { getMockSessionTenantKey } from '../utils/current-user';
 //#endif
+import {
+  addDays,
+  daysBetween,
+  isUsableTimeZone,
+  resolvePeriod,
+  todayIn,
+} from '../utils/statistics-calendar';
 
-const DAY = 86_400_000;
+/** 区间最多包含的日数，与后端一致。 */
+const MAX_DAYS = 366;
 
-/** 今天（UTC）零点往前 `daysAgo` 天的时间戳。 */
-function startOfUtcDay(daysAgo: number): number {
-  const now = new Date();
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - daysAgo * DAY;
+interface StatisticsQuery {
+  startDate: string;
+  endDate: string;
+  timeZone: string;
+}
+
+/** 与后端同形的字段错误（400，不带业务码）。 */
+function fieldErrors(errors: { field: string; detail: string }[]): MockException {
+  return new MockException(400, { errors });
 }
 
 /**
- * 平台统计：总数与新注册按 Mock 用户计算，登录趋势取样本（见 data/platform-statistics.ts）。
- * 区间与后端一致：含今天在内往前 days 个 UTC 日，上一区间紧邻其前、等长。
+ * 与后端入参校验一致：三个参数必填；日期按 `YYYY-MM-DD`；时区须能被 `Intl` 使用；
+ * 起止不能颠倒、最多 366 天、结束日不能晚于该时区的今天。
  */
-export function getPlatformStatistics(params: Record<string, unknown>) {
-  requirePermission(PERMISSIONS.dashboard.default);
-
-  // 与后端入参校验同形：省略时为 7；其他值是 400 字段错误、不带业务码
-  const days = params['days'] === undefined ? 7 : Number(params['days']);
-  if (days !== 7 && days !== 30) {
-    throw new MockException(400, { errors: [{ field: 'days', detail: 'days must be 7 or 30.' }] });
+function parseQuery(params: Record<string, unknown>, now: number): StatisticsQuery {
+  // 拦截器按 getAll 给出数组，单测直接传字符串：两种都取第一个值
+  const text = (name: string) => {
+    const value = Array.isArray(params[name]) ? (params[name] as unknown[])[0] : params[name];
+    return typeof value === 'string' ? value : '';
+  };
+  const isDate = (value: string) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) &&
+    new Date(`${value}T00:00:00Z`).toISOString().startsWith(value);
+  const errors: { field: string; detail: string }[] = [];
+  for (const field of ['startDate', 'endDate'] as const) {
+    if (!text(field)) {
+      errors.push({ field, detail: `${field} is required.` });
+    } else if (!isDate(text(field))) {
+      errors.push({ field, detail: `${field} is not a valid date.` });
+    }
+  }
+  if (!text('timeZone')) {
+    errors.push({ field: 'timeZone', detail: 'timeZone is required.' });
+  }
+  if (errors.length > 0) {
+    throw fieldErrors(errors);
   }
 
-  const start = startOfUtcDay(days - 1);
-  const previousStart = start - days * DAY;
+  const query = {
+    startDate: text('startDate'),
+    endDate: text('endDate'),
+    timeZone: text('timeZone'),
+  };
+  const days = daysBetween(query.startDate, query.endDate) + 1;
+  if (days < 1) {
+    throw fieldErrors([
+      { field: 'endDate', detail: 'The end date cannot be earlier than the start date.' },
+    ]);
+  }
+  if (days > MAX_DAYS) {
+    throw fieldErrors([{ field: 'endDate', detail: 'The date range cannot exceed 366 days.' }]);
+  }
+  // 与后端一致：上一区间的起点（再算上时区偏移）要落在可表示的日期范围内
+  if (addDays(query.startDate, -days) < '0001-01-02') {
+    throw fieldErrors([{ field: 'startDate', detail: 'The start date is too early.' }]);
+  }
+  if (!isUsableTimeZone(query.timeZone)) {
+    throw fieldErrors([
+      { field: 'timeZone', detail: 'The time zone is not a valid IANA time zone.' },
+    ]);
+  }
+  if (query.endDate > todayIn(query.timeZone, now)) {
+    throw fieldErrors([{ field: 'endDate', detail: 'The end date cannot be later than today.' }]);
+  }
+  return query;
+}
+
+/**
+ * 平台统计：用户总数与新注册按 Mock 用户计算，登录次数取样本（见 data/platform-statistics.ts）。
+ * 区间、上一区间与桶边界和后端同一规则（见 utils/statistics-calendar.ts）。
+ */
+export function getPlatformStatistics(params: Record<string, unknown>, now: number = Date.now()) {
+  requirePermission(PERMISSIONS.dashboard.default);
+
+  const query = parseQuery(params, now);
+  const period = resolvePeriod(query.startDate, query.endDate, query.timeZone, now);
+  const buckets = period.edges.slice(0, -1);
+  const eachBucket = (count: (from: number, to: number) => number) =>
+    buckets.map((from, index) => count(from, period.edges[index + 1]));
+
   const createdAt = (user: (typeof USERS)[number]) => Date.parse(user.creationTime);
-  // 与后端口径一致：新注册按创建事件计（之后删了也算）；历史总数是那一刻存在的用户，
+  // 与后端口径一致：新注册按创建事件计（之后删了也算）；某一时刻的总数是那一刻存在的用户，
   // 即在其前创建、且当时尚未删除的
   //#if (LocalIdentity)
   const everCreated = [...USERS, ...DELETED_USERS];
@@ -56,44 +125,64 @@ export function getPlatformStatistics(params: Record<string, unknown>) {
   const createdBetween = (from: number, to: number) =>
     everCreated.filter((user) => createdAt(user) >= from && createdAt(user) < to).length;
   //#if (IncludeOperationRecords && LocalIdentity)
-  const sum = (from: number, to: number, pick: (day: ReturnType<typeof loginActivity>) => number) =>
-    Array.from({ length: to - from }, (_, i) => pick(loginActivity(from + i))).reduce(
-      (a, b) => a + b,
-      0,
+  const logins = (pick: (slot: MockLoginSlot) => number) => {
+    const series = eachBucket((from, to) => sumLoginSlots(from, to, pick));
+    return {
+      value: series.reduce((sum, count) => sum + count, 0),
+      previous: sumLoginSlots(period.previousStart, period.previousEnd, pick),
+      series,
+    };
+  };
+  // 活跃用户是去重人数：样本按启用中的演示账号轮流登录计，不超过它们的人数
+  const activeCount = USERS.filter((user) => user.isActive).length;
+  const distinctUsers = (from: number, to: number) =>
+    Math.min(
+      activeCount,
+      sumLoginSlots(from, to, (slot) => slot.succeeded),
     );
   //#endif
 
   return {
-    days,
-    totalUsers: { value: USERS.length, previous: existedAt(start) },
+    range: {
+      startDate: query.startDate,
+      endDate: query.endDate,
+      timeZone: query.timeZone,
+      granularity: period.granularity,
+      start: new Date(period.start).toISOString(),
+      end: new Date(period.end).toISOString(),
+      previousStart: new Date(period.previousStart).toISOString(),
+      previousEnd: new Date(period.previousEnd).toISOString(),
+    },
+    buckets: buckets.map((edge) => new Date(edge).toISOString()),
+    totalUsers: {
+      value: existedAt(period.end),
+      previous: existedAt(period.previousEnd),
+      series: eachBucket((_, to) => existedAt(to)),
+    },
     newUsers: {
-      value: createdBetween(start, Number.POSITIVE_INFINITY),
-      previous: createdBetween(previousStart, start),
+      value: createdBetween(period.start, period.end),
+      previous: createdBetween(period.previousStart, period.previousEnd),
+      series: eachBucket(createdBetween),
     },
     //#if (IncludeOperationRecords && LocalIdentity)
-    // 活跃用户是去重人数：样本按启用中的演示账号都登录过计，不超过用户总数
     activeUsers: {
-      value: USERS.filter((user) => user.isActive).length,
-      previous: USERS.filter((user) => user.isActive).length,
+      value: distinctUsers(period.start, period.end),
+      previous: distinctUsers(period.previousStart, period.previousEnd),
+      series: eachBucket(distinctUsers),
     },
-    failedLogins: {
-      value: sum(0, days, (day) => day.failed),
-      previous: sum(days, days * 2, (day) => day.failed),
-    },
-    loginTrend: Array.from({ length: days }, (_, i) => {
-      const daysAgo = days - 1 - i;
-      const { succeeded, failed } = loginActivity(daysAgo);
-      return {
-        date: new Date(startOfUtcDay(daysAgo)).toISOString().slice(0, 10),
-        succeeded,
-        failed,
-      };
-    }),
+    succeededLogins: logins((slot) => slot.succeeded),
+    failedLogins: logins((slot) => slot.failed),
     //#elseif (LocalIdentity)
-    // 没有操作记录时按最近登录时间计，没有可比口径，与后端一样不下发 previous
+    // 没有操作记录时按最近登录时间计：只有本期值，与后端一样不下发 previous 与 series
     activeUsers: {
-      value: USERS.filter((user) => user.lastLoginTime && Date.parse(user.lastLoginTime) >= start)
-        .length,
+      value: USERS.filter(
+        (user) =>
+          user.lastLoginTime &&
+          Date.parse(user.lastLoginTime) >= period.start &&
+          Date.parse(user.lastLoginTime) < period.end,
+      ).length,
+      previous: null,
+      series: null,
     },
     //#endif
     //#if (LocalIdentity)

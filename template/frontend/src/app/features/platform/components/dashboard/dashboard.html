@@ -19,28 +19,66 @@
             }
           }
         </h2>
-        <p class="text-muted-foreground text-sm">
+        <p class="text-muted-foreground text-sm tabular-nums" data-testid="dashboard-summary">
           @if (canViewStatistics()) {
-            {{ t('platform.dashboard.subtitle', { days: days() }) }}
+            @if (summary(); as summary) {
+              @switch (summary.preset) {
+                @case ('today') {
+                  {{ t('platform.dashboard.range.today') }}
+                }
+                @case (null) {
+                  {{ summary.customText }}
+                }
+                @default {
+                  {{ t('platform.dashboard.range.lastDays', { days: summary.days }) }}
+                }
+              }
+              <!--#if (IncludeOperationRecords && LocalIdentity)-->
+              · {{ t('platform.dashboard.summary.signIns', { count: summary.signIns }) }}
+              <!--#endif-->
+              @if (summary.attention > 0) {
+                · {{ t('platform.dashboard.summary.attention', { count: summary.attention }) }}
+              }
+            }
           } @else {
             {{ t('platform.dashboard.noStatistics') }}
           }
         </p>
       </div>
       @if (canViewStatistics()) {
-        <hlm-toggle-group
-          type="single"
-          variant="outline"
-          size="sm"
-          [nullable]="false"
-          [value]="days()"
-          [attr.aria-label]="t('platform.dashboard.rangeLabel')"
-          data-testid="dashboard-range"
-          (valueChange)="setDays($event)"
-        >
-          <button hlmToggleGroupItem [value]="7">{{ t('platform.dashboard.range7') }}</button>
-          <button hlmToggleGroupItem [value]="30">{{ t('platform.dashboard.range30') }}</button>
-        </hlm-toggle-group>
+        <div class="flex flex-wrap items-center gap-2">
+          <hlm-toggle-group
+            type="single"
+            variant="outline"
+            size="sm"
+            [nullable]="false"
+            [value]="preset()"
+            [attr.aria-label]="t('platform.dashboard.rangeLabel')"
+            data-testid="dashboard-range"
+            (valueChange)="setPreset($event)"
+          >
+            <button hlmToggleGroupItem value="today">
+              {{ t('platform.dashboard.range.today') }}
+            </button>
+            <button hlmToggleGroupItem value="7d">{{ t('platform.dashboard.range.days7') }}</button>
+            <button hlmToggleGroupItem value="30d">
+              {{ t('platform.dashboard.range.days30') }}
+            </button>
+          </hlm-toggle-group>
+          <!-- 自定义区间：官方日期区间选择器，结束日不晚于展示时区的今天；清空回到近 7 天 -->
+          <hlm-date-range-picker
+            data-testid="dashboard-range-picker"
+            [date]="pickerRange()"
+            [maxDate]="maxPickerDate()"
+            [formatDates]="formatPickerRange()"
+            (dateChange)="onRangePicked($event)"
+          >
+            <hlm-date-picker-trigger variant="outline" class="h-8 text-sm tabular-nums">
+              <ng-icon name="lucideCalendar" data-icon="inline-start" />
+              {{ t('platform.dashboard.range.custom') }}
+            </hlm-date-picker-trigger>
+          </hlm-date-range-picker>
+        </div>
       }
     </div>
 
@@ -66,8 +104,33 @@
               [panelTitle]="t(kpiTitleKeys[kpi.id])"
               [attr.data-testid]="'kpi-' + kpi.id"
             >
+              <!-- 口径说明：键盘可达的按钮，提示写清这项怎么算；触屏点按尺寸由按钮组件放大，负外边距不撑高标题栏 -->
+              <button
+                statPanelAction
+                hlmBtn
+                variant="ghost"
+                size="icon-sm"
+                type="button"
+                class="text-muted-foreground -my-2 -mr-2"
+                [attr.aria-label]="
+                  t('platform.dashboard.kpi.infoLabel', { metric: t(kpiTitleKeys[kpi.id]) })
+                "
+                [hlmTooltip]="t(kpiInfoKeys[kpi.id])"
+              >
+                <ng-icon name="lucideInfo" class="text-sm" />
+              </button>
               <div class="flex flex-col gap-2 p-4">
-                <span class="text-3xl font-semibold tabular-nums">{{ kpi.value }}</span>
+                <div class="flex items-end justify-between gap-3">
+                  <span class="text-3xl font-semibold tabular-nums">{{ kpi.value }}</span>
+                  @if (kpi.sparkline; as sparkline) {
+                    <tanstack-chart
+                      hlmChart
+                      class="w-22 shrink-0"
+                      aria-hidden="true"
+                      [options]="sparkline"
+                    />
+                  }
+                </div>
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                   @if (kpi.change !== null) {
                     <span
@@ -88,9 +151,19 @@
                       }
                       {{ kpi.change > 0 ? '+' : '' }}{{ kpi.change }}%
                     </span>
-                    <span class="text-muted-foreground">{{
-                      t('platform.dashboard.kpi.vsPrevious', { days: stats.days })
-                    }}</span>
+                    <span class="text-muted-foreground">
+                      @if (kpi.id === 'totalUsers') {
+                        {{ t('platform.dashboard.kpi.vsPreviousEnd') }}
+                      } @else if (!includesToday()) {
+                        {{ t('platform.dashboard.kpi.vsPrevious', { days: statisticsDays() }) }}
+                      } @else if (statisticsDays() === 1) {
+                        {{ t('platform.dashboard.kpi.vsYesterday') }}
+                      } @else {
+                        {{
+                          t('platform.dashboard.kpi.vsPreviousProgress', { days: statisticsDays() })
+                        }}
+                      }
+                    </span>
                   } @else {
                     <span class="text-muted-foreground">{{
                       t('platform.dashboard.kpi.noComparison')
@@ -114,21 +187,54 @@
             >
               <div statPanelAction class="text-muted-foreground flex items-center gap-3 text-xs">
                 <span class="flex items-center gap-1.5">
-                  <span class="bg-chart-1 size-2 rounded-full"></span>
+                  <span class="bg-chart-1 size-2 rounded-xs"></span>
                   {{ t('platform.dashboard.trend.succeeded') }}
                 </span>
                 <span class="flex items-center gap-1.5">
-                  <span class="bg-chart-3 size-2 rounded-full"></span>
+                  <span class="bg-chart-3 size-2 rounded-xs"></span>
                   {{ t('platform.dashboard.trend.failed') }}
                 </span>
               </div>
               <div class="flex flex-col gap-3 p-4">
-                <p class="text-muted-foreground text-sm">
-                  <span class="text-foreground text-base font-semibold tabular-nums">{{
-                    loginTotal()
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
+                  <span class="text-2xl font-semibold tabular-nums">{{
+                    stats.succeededLogins.value
                   }}</span>
-                  {{ t('platform.dashboard.trend.total', { days: stats.days }) }}
-                </p>
+                  <span class="text-muted-foreground text-sm">{{
+                    t('platform.dashboard.trend.total')
+                  }}</span>
+                  @if (trendChange(); as change) {
+                    <span hlmBadge [variant]="change > 0 ? 'success' : 'destructive'">
+                      <ng-icon
+                        [name]="change > 0 ? 'lucideArrowUpRight' : 'lucideArrowDownRight'"
+                        data-icon="inline-start"
+                      />
+                      {{ change > 0 ? '+' : '' }}{{ change }}%
+                    </span>
+                  } @else if (trendChange() === 0) {
+                    <span hlmBadge variant="secondary">0%</span>
+                  }
+                  @if (canChooseTrendView()) {
+                    <hlm-toggle-group
+                      type="single"
+                      variant="outline"
+                      size="sm"
+                      class="ms-auto"
+                      [nullable]="false"
+                      [value]="trendView()"
+                      [attr.aria-label]="t('platform.dashboard.trend.viewLabel')"
+                      data-testid="dashboard-trend-view"
+                      (valueChange)="chosenTrendView.set($event === 'week' ? 'week' : 'day')"
+                    >
+                      <button hlmToggleGroupItem value="day">
+                        {{ t('platform.dashboard.trend.byDay') }}
+                      </button>
+                      <button hlmToggleGroupItem value="week">
+                        {{ t('platform.dashboard.trend.byWeek') }}
+                      </button>
+                    </hlm-toggle-group>
+                  }
+                </div>
                 <tanstack-chart hlmChart [options]="chart" />
                 <p class="text-muted-foreground text-xs">
                   {{ t('platform.dashboard.trend.failedApprox') }}
@@ -144,13 +250,17 @@
             data-testid="dashboard-attention"
           >
             @if (attention().length) {
-              <span statPanelAction hlmBadge variant="outline">{{ attention().length }}</span>
+              <span statPanelAction hlmBadge variant="warning">{{ attention().length }}</span>
             }
             <ul class="flex flex-col p-2">
               @for (item of attention(); track item.id) {
                 <li class="flex items-start gap-3 rounded-md p-2">
+                  <!-- 描边图标块按严重程度着色：锁定是错误级，未开两步验证与邮箱未验证是警告级 -->
                   <span
-                    class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
+                    class="bg-card ring-border flex size-8 shrink-0 items-center justify-center rounded-md shadow-xs ring-1"
+                    [class.text-destructive]="item.severity === 'destructive'"
+                    [class.text-warning]="item.severity === 'warning'"
+                    [class.text-muted-foreground]="item.severity === 'neutral'"
                   >
                     <ng-icon [name]="item.icon" />
                   </span>
@@ -204,7 +314,11 @@
                       [routerLink]="item.route"
                       [queryParams]="item.queryParams"
                     >
-                      {{ t('platform.dashboard.attention.review') }}
+                      @if (item.action === 'handle') {
+                        {{ t('platform.dashboard.attention.handle') }}
+                      } @else {
+                        {{ t('platform.dashboard.attention.review') }}
+                      }
                     </a>
                   }
                 </li>
@@ -263,32 +377,108 @@
             {{ t('platform.dashboard.recent.viewAll') }}
             <ng-icon name="lucideChevronRight" data-icon="inline-end" />
           </a>
-          @if (recentRecords(); as records) {
+          @if (recentRecords()) {
             <ul class="flex flex-col divide-y">
-              @for (record of records; track record.id) {
-                <li class="flex items-center gap-3 px-4 py-3 text-sm">
-                  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span class="truncate">
-                      <span class="font-medium">{{
-                        record.actorName ??
-                          record.actorId ??
-                          t('platform.dashboard.recent.anonymous')
-                      }}</span>
-                      @if (recentSentences().get(record.id); as sentence) {
-                        <span class="text-muted-foreground">
+              @for (row of recentRows(); track row.record.id) {
+                @let expanded = expandedRecentId() === row.record.id;
+                <li class="text-sm">
+                  <div class="flex items-center gap-3 px-4 py-3">
+                    <!-- 底色放在内层：helm 管理的类只合并静态 class，动态 [class] 会与它冲突 -->
+                    <hlm-avatar class="size-7 shrink-0">
+                      <span hlmAvatarFallback>
+                        <span
+                          class="flex size-full items-center justify-center rounded-full text-xs font-semibold"
+                          [class]="row.avatarClass"
+                          >{{ row.initials }}</span
+                        >
+                      </span>
+                    </hlm-avatar>
+                    <div
+                      class="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2"
+                    >
+                      <span class="shrink-0 font-medium">
+                        {{ row.actor ?? t('platform.dashboard.recent.anonymous') }}
+                      </span>
+                      @if (recentSentences().get(row.record.id); as sentence) {
+                        <span class="text-muted-foreground truncate">
                           {{ sentence.key ? t(sentence.key, sentence.params) : sentence.text }}
                         </span>
+                        <!-- 登记过的句子已含目标（或目标就是操作人自己）；未登记的动作码裸显示时补上目标，窄屏折叠进详情 -->
+                        @if (!sentence.key && sentence.text === row.record.action) {
+                          <span
+                            class="text-muted-foreground hidden max-w-40 truncate text-xs md:block"
+                            [attr.title]="row.target"
+                            >{{ row.target }}</span
+                          >
+                        }
+                      }
+                      @if (row.record.impersonatorName) {
+                        <span class="text-muted-foreground truncate text-xs">{{
+                          t('platform.dashboard.recent.impersonatedBy', {
+                            name: row.record.impersonatorName,
+                          })
+                        }}</span>
+                      }
+                    </div>
+                    <span
+                      hlmBadge
+                      [variant]="row.record.outcome === 'succeeded' ? 'success' : 'destructive'"
+                    >
+                      <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
+                      @if (row.record.outcome === 'succeeded') {
+                        {{ t('platform.dashboard.recent.succeeded') }}
+                      } @else {
+                        {{ t('platform.dashboard.recent.rejected') }}
                       }
                     </span>
+                    <time
+                      tabindex="0"
+                      class="text-muted-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm text-xs tabular-nums outline-none focus-visible:ring-[3px]"
+                      [attr.datetime]="row.record.creationTime"
+                      [hlmTooltip]="
+                        row.record.creationTime
+                          | appDate: 'full' : displayTimeZone() : displayLocale()
+                      "
+                    >
+                      @let time = recentTimes().get(row.record.id);
+                      @switch (time?.kind) {
+                        @case ('justNow') {
+                          {{ t('platform.dashboard.recent.justNow') }}
+                        }
+                        @case ('yesterday') {
+                          {{
+                            t('platform.dashboard.recent.yesterdayAt', {
+                              time: time?.kind === 'yesterday' ? time.time : '',
+                            })
+                          }}
+                        }
+                        @default {
+                          {{ time?.kind === 'text' ? time.text : '' }}
+                        }
+                      }
+                    </time>
+                    <button
+                      hlmBtn
+                      variant="ghost"
+                      size="icon-sm"
+                      class="-mr-2 shrink-0"
+                      [attr.aria-label]="t('common.details')"
+                      [attr.aria-expanded]="expanded"
+                      [attr.aria-controls]="'recent-detail-' + row.record.id"
+                      (click)="toggleRecentDetail(row.record.id)"
+                    >
+                      <ng-icon
+                        name="lucideChevronRight"
+                        class="transition-transform duration-200"
+                        [class.rotate-90]="expanded"
+                      />
+                    </button>
                   </div>
-                  @if (record.outcome === 'failed') {
-                    <span hlmBadge variant="destructive">{{
-                      t('platform.dashboard.recent.rejected')
-                    }}</span>
+                  @if (expanded) {
+                    <div [id]="'recent-detail-' + row.record.id" class="bg-muted/30 px-4 pt-2 pb-3">
+                      <app-operation-record-detail [record]="row.record" [showTime]="true" />
+                    </div>
                   }
-                  <span class="text-muted-foreground shrink-0 text-xs tabular-nums">{{
-                    record.creationTime | appDate: 'short' : displayTimeZone() : displayLocale()
-                  }}</span>
                 </li>
               } @empty {
                 <li class="text-muted-foreground py-8 text-center text-sm">

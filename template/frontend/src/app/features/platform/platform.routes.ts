@@ -14,12 +14,16 @@ export const PLATFORM_ROUTES: Routes = [
   {
     path: '',
     //#if (IncludeLocalization)
-    //#if (IncludeOperationRecords)
-    // 最近操作的句子模板在 operationRecords scope
-    providers: [provideTranslocoScope('platform', 'operationRecords')],
-    //#else
-    providers: [provideTranslocoScope('platform')],
-    //#endif
+    // 裁剪后只剩一项时 prettier 会要求折成一行；固定书写形态
+    // prettier-ignore
+    providers: [
+      //#if (IncludeOperationRecords)
+      // 最近操作的句子与记录详情的词条在 operationRecords scope
+      provideTranslocoScope('platform', 'operationRecords'),
+      //#else
+      provideTranslocoScope('platform'),
+      //#endif
+    ],
     resolve: { translations: resolveTranslationScopes },
     //#endif
     loadComponent: () => import('./components/dashboard/dashboard').then((m) => m.Dashboard),

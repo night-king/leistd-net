@@ -6,11 +6,19 @@
       "afternoon": "Good afternoon, {{name}}",
       "evening": "Good evening, {{name}}"
     },
-    "subtitle": "Overview of the last {{days}} days",
     "noStatistics": "Statistics require the Dashboard permission.",
     "rangeLabel": "Statistics range",
-    "range7": "7 days",
-    "range30": "30 days",
+    "range": {
+      "today": "Today",
+      "days7": "7 days",
+      "days30": "30 days",
+      "lastDays": "Last {{days}} days",
+      "custom": "Custom range"
+    },
+    "summary": {
+      "signIns": "{{count}} successful sign-ins",
+      "attention": "{{count}} items need attention"
+    },
     "loadFailed": "Couldn't load statistics.",
     "refreshFailed": "Couldn't refresh. Showing earlier data.",
     "kpi": {
@@ -19,15 +27,29 @@
       "activeUsers": "Active users",
       "failedLogins": "Failed sign-ins",
       "vsPrevious": "vs previous {{days}} days",
-      "noComparison": "No earlier data to compare"
+      "noComparison": "No earlier data to compare",
+      "infoLabel": "About {{metric}}",
+      "info": {
+        "totalUsers": "Users that existed at the end of the range, not counting deleted ones.",
+        "newUsers": "Accounts created in the range, including ones deleted afterwards.",
+        "activeUsers": "Different users who signed in during the range.",
+        "activeUsersLastLogin": "Users whose latest sign-in falls in the range. Earlier sign-ins are overwritten by later ones, so past ranges are approximate.",
+        "failedLogins": "Approximate: repeated anonymous failures are sampled."
+      },
+      "vsYesterday": "vs same time yesterday",
+      "vsPreviousProgress": "vs same point of previous {{days}} days",
+      "vsPreviousEnd": "vs end of previous range"
     },
     "trend": {
       "title": "Sign-in trend",
       "succeeded": "Succeeded",
       "failed": "Failed",
-      "total": "successful sign-ins in the last {{days}} days",
+      "total": "successful sign-ins",
       "failedApprox": "Failed sign-ins are approximate: repeated anonymous failures are sampled.",
-      "ariaLabel": "Sign-ins per day"
+      "ariaLabel": "Sign-ins per period",
+      "viewLabel": "Group by",
+      "byDay": "Daily",
+      "byWeek": "Weekly"
     },
     "attention": {
       "title": "Needs attention",
@@ -40,14 +62,19 @@
       "disabledTenants": "Disabled tenants: {{count}}",
       "disabledTenantsHint": "Users of a disabled tenant can't sign in",
       "review": "Review",
-      "allClear": "Nothing needs attention right now."
+      "allClear": "Nothing needs attention right now.",
+      "handle": "Handle"
     },
     "recent": {
       "title": "Recent activity",
       "viewAll": "View all",
       "empty": "No activity yet",
       "anonymous": "Anonymous",
-      "rejected": "Rejected"
+      "rejected": "Rejected",
+      "succeeded": "Succeeded",
+      "impersonatedBy": "Done by {{name}} on their behalf",
+      "justNow": "Just now",
+      "yesterdayAt": "Yesterday {{time}}"
     },
     "quick": {
       "title": "Quick links"

@@ -1,4 +1,10 @@
-import { isoToZonedDate, zonedEndOfDayIso, zonedStartOfDayIso } from './zoned-time';
+import {
+  isoToZonedDate,
+  resolveDisplayTimeZone,
+  zonedEndOfDayIso,
+  zonedStartOfDayIso,
+  zonedToday,
+} from './zoned-time';
 
 /**
  * 展示时区与 UTC 的换算。时区一律显式传入，输入日期用浏览器本地 `Date` 构造（与日期选择器一致），
@@ -123,5 +129,20 @@ describe('zoned-time', () => {
     expect(zonedStartOfDayIso(picked)).toBe(zonedStartOfDayIso(picked, browserZone));
     expect(zonedEndOfDayIso(picked, '')).toBe(zonedEndOfDayIso(picked, browserZone));
     expect(calendarDay(isoToZonedDate(zonedEndOfDayIso(picked)))).toEqual([2026, 3, 8]);
+  });
+
+  it('uses a configured time zone the runtime can render and the browser one otherwise', () => {
+    const browser = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    expect(resolveDisplayTimeZone('Asia/Kolkata')).toBe('Asia/Kolkata');
+    expect(resolveDisplayTimeZone(null)).toBe(browser);
+    expect(resolveDisplayTimeZone('Mars/Olympus')).toBe(browser);
+  });
+
+  it('tells today by the calendar of the given time zone', () => {
+    const instant = new Date('2026-10-13T20:00:00Z');
+
+    expect(zonedToday('UTC', instant)).toBe('2026-10-13');
+    expect(zonedToday('Asia/Shanghai', instant)).toBe('2026-10-14');
   });
 });
