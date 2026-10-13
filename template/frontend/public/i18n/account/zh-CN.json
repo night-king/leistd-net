@@ -141,7 +141,8 @@
   "brand": {
     "title": "模板项目",
     "subtitle": "基于 Angular + .NET 的全栈开发模板",
-    "headline": "团队、权限与数据，在同一个控制台里管理",
+    "headlineLead": "团队、权限与数据，",
+    "headlineAccent": "在同一个控制台里管理",
     "highlights": {
       "security": {
         "title": "安全登录",

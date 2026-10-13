@@ -141,7 +141,8 @@
   "brand": {
     "title": "Template Project",
     "subtitle": "Full-stack development template based on Angular + .NET",
-    "headline": "Your team, permissions and data in one console",
+    "headlineLead": "Your team, permissions and data,",
+    "headlineAccent": "in one console",
     "highlights": {
       "security": {
         "title": "Secure sign-in",

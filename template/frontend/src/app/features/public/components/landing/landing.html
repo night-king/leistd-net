@@ -33,15 +33,32 @@
     </header>
 
     <main class="flex-1">
-      <!-- 首屏：网格与光晕只在营销页使用，应用内页面不加装饰性背景 -->
+      <!--
+        首屏：光晕与同心细环只在营销页使用，应用内页面不加装饰性背景。
+        与认证页品牌面板同一套语言：细环以标题为圆心向外扩散，径向遮罩让它在边缘淡出
+      -->
       <section class="relative overflow-hidden">
         <div
           aria-hidden="true"
-          class="pointer-events-none absolute inset-x-0 top-0 h-160 bg-[linear-gradient(var(--border)_1px,transparent_1px),linear-gradient(90deg,var(--border)_1px,transparent_1px)] bg-[size:56px_56px] [mask-image:radial-gradient(ellipse_60%_55%_at_50%_30%,#000_30%,transparent_75%)]"
-        ></div>
+          class="pointer-events-none absolute inset-x-0 top-0 h-160 [mask-image:radial-gradient(ellipse_60%_60%_at_50%_40%,#000_35%,transparent_80%)]"
+        >
+          <div
+            class="border-border absolute start-1/2 top-72 size-120 -translate-1/2 rounded-full border rtl:translate-x-1/2"
+          ></div>
+          <div
+            class="border-border absolute start-1/2 top-72 size-200 -translate-1/2 rounded-full border rtl:translate-x-1/2"
+          ></div>
+          <div
+            class="border-border absolute start-1/2 top-72 size-280 -translate-1/2 rounded-full border rtl:translate-x-1/2"
+          ></div>
+        </div>
         <div
           aria-hidden="true"
           class="bg-primary/15 pointer-events-none absolute start-1/2 top-24 size-130 -translate-x-1/2 rounded-full blur-3xl rtl:translate-x-1/2"
+        ></div>
+        <div
+          aria-hidden="true"
+          class="bg-chart-2/20 pointer-events-none absolute -end-24 -top-24 size-96 rounded-full blur-3xl"
         ></div>
 
         <div

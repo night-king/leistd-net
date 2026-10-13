@@ -50,6 +50,8 @@ body {
  * - input 是控件边界，比装饰分隔线 border 深一档，二者分开定值。
  * - info 是中性提示色（toast 的 info 图标），不借用 primary。
  * - chart-1…5 是图表序列色，色相彼此间隔 ≥ 60°，亮色在卡片上 ≥ 3:1；暗色整体提亮。
+ * - hero-* 是营销面板（认证页品牌面板）的固定深色表面，亮暗主题同值，不跟随主题切换；
+ *   强调色取品牌色相的浅色档，文字在 hero 上 ≥ 4.5:1。
  */
 :root {
   --radius: 0.625rem;
@@ -94,6 +96,12 @@ body {
   --sidebar-accent-foreground: oklch(0.18 0.01 255);
   --sidebar-border: oklch(0.925 0.005 250);
   --sidebar-ring: oklch(0.52 0.16 250);
+  --hero: oklch(0.23 0.015 250);
+  --hero-foreground: oklch(0.97 0.004 250);
+  --hero-muted: oklch(0.78 0.015 250);
+  --hero-accent: oklch(0.78 0.11 250);
+  --hero-border: oklch(1 0 0 / 12%);
+  --hero-surface: oklch(1 0 0 / 5%);
 
   color-scheme: light;
 }
@@ -141,7 +149,7 @@ body {
   color-scheme: dark;
 }
 
-/* 字体与语义色接入 Tailwind：body 用 font-sans；success 与 warning 暴露为语义工具类。 */
+/* 字体与语义色接入 Tailwind：body 用 font-sans；success、warning、info 与 hero-* 暴露为语义工具类。 */
 @theme {
   --font-sans: 'Geist', system-ui, sans-serif;
 }
@@ -152,6 +160,12 @@ body {
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-info: var(--info);
+  --color-hero: var(--hero);
+  --color-hero-foreground: var(--hero-foreground);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-accent: var(--hero-accent);
+  --color-hero-border: var(--hero-border);
+  --color-hero-surface: var(--hero-surface);
 }
 
 @layer base {

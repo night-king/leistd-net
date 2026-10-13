@@ -70,7 +70,8 @@ export class AuthShell {
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
   'account.brand.title': 'Template Project',
-  'account.brand.headline': 'Your team, permissions and data in one console',
+  'account.brand.headlineLead': 'Your team, permissions and data,',
+  'account.brand.headlineAccent': 'in one console',
   'account.brand.subtitle': 'Full-stack development template based on Angular + .NET',
   'account.brand.highlights.security.title': 'Secure sign-in',
   'account.brand.highlights.security.description':
