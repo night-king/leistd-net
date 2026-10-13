@@ -11,8 +11,9 @@ public interface IUserTimeZoneProvider
     /// <summary>解析当前用户的展示时区。</summary>
     /// <remarks>
     /// 三层（用户 → 租户 → 代码默认值）都没有值，或取到的值已失效（例如时区数据库更名），
-    /// 才回落到服务器时区——这是本消费端对「最终缺值」的降级选择，不是设置层的语义。
-    /// 展示时间不该因为一个偏好设置坏掉而整页报错。
+    /// 才回落到 UTC——这是本消费端对「最终缺值」的降级选择，不是设置层的语义；不用宿主所在的时区，
+    /// 同一份数据不随部署机器变。展示时间不该因为一个偏好设置坏掉而整页报错。
+    /// 浏览器在设置为空时用的是它自己的时区，服务端无从得知，需要与前端一致的场景由请求显式带上时区。
     /// </remarks>
     /// <param name="cancellationToken">取消令牌。</param>
     Task<TimeZoneInfo> GetAsync(CancellationToken cancellationToken = default);
@@ -23,11 +24,12 @@ public interface IUserTimeZoneProvider
     /// <returns>换算后的时刻，<c>Kind</c> 为 <see cref="DateTimeKind.Unspecified"/>——它已不是 UTC，也未必是本机本地时间。</returns>
     Task<DateTime> ToUserTimeAsync(DateTime utc, CancellationToken cancellationToken = default);
 
-    /// <summary>判断时区标识是否可用。</summary>
+    /// <summary>按 IANA 时区名解析时区；不可用时返回 <see langword="false"/>。</summary>
     /// <remarks>
-    /// 写入设置前用它挡掉无效值。与 <see cref="GetAsync"/> 共用同一套判定，
+    /// 写入设置前用它挡掉无效值，请求里显式带的时区也用它解析。与 <see cref="GetAsync"/> 共用同一套判定，
     /// 不会出现「写得进去却解析不出来」。
     /// </remarks>
     /// <param name="timeZoneId">IANA 时区名，如 <c>Asia/Shanghai</c>。</param>
-    bool IsValidId(string timeZoneId);
+    /// <param name="timeZone">解析出的时区；不可用时为 UTC。</param>
+    bool TryResolve(string? timeZoneId, out TimeZoneInfo timeZone);
 }

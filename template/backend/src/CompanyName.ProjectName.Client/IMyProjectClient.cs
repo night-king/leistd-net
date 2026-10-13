@@ -23,11 +23,15 @@ public interface IMyProjectClient
     Task<WhoAmIDto> WhoAmIAsync(CancellationToken cancellationToken = default);
 
     /// <summary>获取调用身份所在宿主或租户的平台统计（需要 <c>App.Dashboard</c>）。</summary>
-    /// <param name="days">统计区间的天数，只接受 7 或 30</param>
+    /// <param name="startDate">起始日（含）</param>
+    /// <param name="endDate">结束日（含），不得晚于 <paramref name="timeZone"/> 的今天；区间最多 366 天</param>
+    /// <param name="timeZone">解释日期与切分统计桶所用的时区（IANA 名，如 <c>Asia/Shanghai</c>）</param>
     /// <param name="cancellationToken">取消令牌</param>
     [Get("/api/v1/platform/statistics")]
     Task<PlatformStatisticsDto> GetPlatformStatisticsAsync(
-        [Query] int days = 7,
+        [Query(Format = "yyyy-MM-dd")] DateOnly startDate,
+        [Query(Format = "yyyy-MM-dd")] DateOnly endDate,
+        [Query] string timeZone,
         CancellationToken cancellationToken = default);
 
     /// <summary>批量启用用户（需要 <c>App.Users.Update</c>）；逐条执行，部分失败不回滚。</summary>

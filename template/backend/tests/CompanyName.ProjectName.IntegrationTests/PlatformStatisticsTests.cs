@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using CompanyName.ProjectName.Application.Permissions.Provider;
@@ -27,6 +28,7 @@ using Leistd.MultiTenancy.Stores;
 using Leistd.MultiTenancy.Context;
 #endif
 #if (LocalIdentity)
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 #endif
@@ -39,7 +41,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace CompanyName.ProjectName.IntegrationTests;
 
 #if (LocalIdentity)
-/// <summary>平台统计：权限、输入验证、按形态裁剪的字段、UTC 日区间与当前上下文的范围。</summary>
+/// <summary>平台统计：权限、区间校验、按形态裁剪的字段、按请求时区切分的区间与桶，以及当前上下文的范围。</summary>
 public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory)
     : AuthorizationTestBase(factory), IClassFixture<ProjectWebApplicationFactory>
 {
@@ -49,54 +51,94 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
     [Fact]
     public async Task Statistics_require_the_dashboard_permission_which_the_admin_role_is_seeded_with()
     {
+        var url = TodayUrl();
         using var anonymous = Factory.CreateProjectClient();
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(Url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(url)).StatusCode);
 
         using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
         var member = await CreateUserAsync(superAdmin.Client);
         using var memberSession = await Factory.LoginAsync(member.Username, TestPassword);
-        Assert.Equal(HttpStatusCode.Forbidden, (await memberSession.Client.GetAsync(Url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await memberSession.Client.GetAsync(url)).StatusCode);
 
         await GrantAsync(PermissionGrantProviderNames.User, member.Id, PermissionConstant.Dashboard.Default);
-        Assert.Equal(HttpStatusCode.OK, (await memberSession.Client.GetAsync(Url)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await memberSession.Client.GetAsync(url)).StatusCode);
 
         var administrator = await CreateUserAsync(superAdmin.Client, [await GetAdminRoleIdAsync(Factory.Services)]);
         using var adminSession = await Factory.LoginAsync(administrator.Username, TestPassword);
-        Assert.Equal(HttpStatusCode.OK, (await adminSession.Client.GetAsync(Url)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await adminSession.Client.GetAsync(url)).StatusCode);
     }
 
-    /// <summary>区间只收 7 或 30：其他值与无法解析的值都是字段 <c>days</c> 的 400。</summary>
+    /// <summary>
+    /// 区间参数缺失、日期写坏、时区不可用（含 .NET 认、浏览器不认的 Windows 时区 ID）、起止颠倒、跨度超过 366 天、
+    /// 结束日晚于该时区的今天，都是对应字段的 400，与模型校验同一种响应形状。
+    /// </summary>
     [Theory]
-    [InlineData("0")]
-    [InlineData("14")]
-    [InlineData("-7")]
-    [InlineData("abc")]
-    public async Task Days_other_than_7_or_30_are_a_field_error(string days)
+    [InlineData("", "startDate")]
+    [InlineData("startDate=2026-01-01&timeZone=UTC", "endDate")]
+    [InlineData("startDate=2026-01-01&endDate=2026-01-02", "timeZone")]
+    [InlineData("startDate=2026-13-01&endDate=2026-01-02&timeZone=UTC", "startDate")]
+    [InlineData("startDate=2026-01-01&endDate=2026-01-02&timeZone=Mars/Olympus", "timeZone")]
+    [InlineData("startDate=2026-01-01&endDate=2026-01-02&timeZone=China%20Standard%20Time", "timeZone")]
+    [InlineData("startDate=2026-01-02&endDate=2026-01-01&timeZone=UTC", "endDate")]
+    [InlineData("startDate=2025-01-01&endDate=2026-01-02&timeZone=UTC", "endDate")]
+    [InlineData("startDate=2026-01-01&endDate={future}&timeZone=UTC", "endDate")]
+    [InlineData("startDate=0001-01-01&endDate=0001-01-01&timeZone=UTC", "startDate")]
+    public async Task Invalid_ranges_are_field_errors(string query, string field)
     {
         using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var future = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-        using var response = await superAdmin.Client.GetAsync($"{Url}?days={days}");
+        using var response = await superAdmin.Client.GetAsync($"{Url}?{query.Replace("{future}", future)}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("urn:leistd:problem:validation-error", problem.RootElement.GetProperty("type").GetString());
         Assert.Contains(problem.RootElement.GetProperty("errors").EnumerateArray(),
-            error => error.GetProperty("field").GetString() == "days");
+            error => error.GetProperty("field").GetString() == field);
     }
 
-    /// <summary>字段按形态裁剪：不存在的指标不出现在响应里，而不是给 0。</summary>
-    [Theory]
-    [InlineData(7)]
-    [InlineData(30)]
-    public async Task Response_carries_the_fields_this_service_can_answer(int days)
+    /// <summary>最早的可用区间：上一区间从 0001-01-02 起，换算到 +14 时区的 UTC 仍可表示。</summary>
+    [Fact]
+    public async Task The_earliest_representable_range_is_accepted()
     {
         using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
 
-        using var body = JsonDocument.Parse(await superAdmin.Client.GetStringAsync($"{Url}?days={days}"));
+        using var response = await superAdmin.Client.GetAsync(
+            $"{Url}?startDate=0001-01-03&endDate=0001-01-03&timeZone=Pacific/Kiritimati");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>366 天恰好是上限，照常作答。</summary>
+    [Fact]
+    public async Task A_range_of_exactly_366_days_is_accepted()
+    {
+        using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        using var response = await superAdmin.Client.GetAsync(RangeUrl(today.AddDays(-365), today, "UTC"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>字段按形态裁剪：不存在的指标不出现在响应里，而不是给 0；各序列与桶等长，回显区间与时区。</summary>
+    [Fact]
+    public async Task Response_carries_the_fields_this_service_can_answer()
+    {
+        using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        using var body = JsonDocument.Parse(await superAdmin.Client.GetStringAsync(RangeUrl(today.AddDays(-6), today, "UTC")));
         var root = body.RootElement;
 
-        Assert.Equal(days, root.GetProperty("days").GetInt32());
+        var range = root.GetProperty("range");
+        Assert.Equal("UTC", range.GetProperty("timeZone").GetString());
+        Assert.Equal("day", range.GetProperty("granularity").GetString());
+        var buckets = root.GetProperty("buckets").GetArrayLength();
+        Assert.Equal(7, buckets);
         Assert.True(root.GetProperty("totalUsers").GetProperty("value").GetInt32() >= 1);
-        Assert.True(root.GetProperty("newUsers").TryGetProperty("previous", out _));
+        Assert.Equal(buckets, root.GetProperty("totalUsers").GetProperty("series").GetArrayLength());
+        Assert.Equal(buckets, root.GetProperty("newUsers").GetProperty("series").GetArrayLength());
         var attention = root.GetProperty("attention");
         Assert.True(attention.TryGetProperty("lockedUsers", out _));
         Assert.True(attention.TryGetProperty("adminsWithoutTwoFactor", out _));
@@ -109,149 +151,233 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
 #endif
 #if (IncludeOperationRecords)
         Assert.True(root.GetProperty("activeUsers").TryGetProperty("previous", out _));
-        Assert.True(root.TryGetProperty("failedLogins", out _));
-        Assert.Equal(days, root.GetProperty("loginTrend").GetArrayLength());
+        Assert.Equal(buckets, root.GetProperty("activeUsers").GetProperty("series").GetArrayLength());
+        Assert.Equal(buckets, root.GetProperty("succeededLogins").GetProperty("series").GetArrayLength());
+        Assert.Equal(buckets, root.GetProperty("failedLogins").GetProperty("series").GetArrayLength());
 #else
-        // 没有登录记录：活跃用户退回最近登录时间，只有当前值；登录趋势与失败数不存在
-        Assert.True(root.GetProperty("activeUsers").TryGetProperty("value", out _));
-        Assert.False(root.GetProperty("activeUsers").TryGetProperty("previous", out _));
+        // 没有登录记录：活跃用户退回最近登录时间，只有本期值；登录次数不存在
+        var activeUsers = root.GetProperty("activeUsers");
+        Assert.True(activeUsers.TryGetProperty("value", out _));
+        // 宿主的 JSON 设置省略 null：没有上期值与序列就是没有这两个字段
+        Assert.False(activeUsers.TryGetProperty("previous", out _));
+        Assert.False(activeUsers.TryGetProperty("series", out _));
+        Assert.False(root.TryGetProperty("succeededLogins", out _));
         Assert.False(root.TryGetProperty("failedLogins", out _));
-        Assert.False(root.TryGetProperty("loginTrend", out _));
 #endif
     }
 
     /// <summary>
-    /// 区间按 UTC 日划分：本区间是含今天在内往前 7 个整日，上一区间紧邻其前；两端恰好落在边界上的时刻归后一个区间。
-    /// 上一区间没有数据时上一区间值为 0。
+    /// 区间含今天时截到此刻，上一区间前移 7 天、比较相同的本地进度；边界上的记录只归后一个区间或桶。
+    /// 用户总数是期末存量，按桶序列由起点存量逐桶推出；注册数与登录次数按事件计。
     /// </summary>
     /// <remarks>独立宿主与库：断言的是精确计数，同类其他用例写入的用户与登录不能混进来。</remarks>
     [Fact]
-    public async Task Intervals_are_utc_days_and_the_previous_interval_is_the_one_right_before()
+    public async Task Counts_follow_the_calendar_range_and_compare_the_same_local_progress()
     {
-        var today = DateTime.UtcNow.Date;
-        var now = today.AddSeconds(30);
-        var currentStart = today.AddDays(-6);
-        var previousStart = today.AddDays(-13);
-        // 时钟只能往前拨：宿主在两个区间之前启动（内置管理员建在此刻），再依次拨到各个边界
-        var clock = new FakeTimeProvider(new DateTimeOffset(previousStart.AddMinutes(-1)));
+        var clock = new FakeTimeProvider(new DateTimeOffset(Utc(2026, 5, 1)));
         using var isolated = new ProjectWebApplicationFactory();
-        await using var host = isolated.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-        {
-            services.RemoveAll<TimeProvider>();
-            services.AddSingleton<TimeProvider>(clock);
-        }));
+        await using var host = WithClock(isolated, clock);
+        // 宿主在首次取 Services 时启动，内置管理员建在那一刻：先启动、再拨钟读基数，
+        // 否则它恰好落在零长度区间的终点上、不计入
+        _ = host.Services;
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 5, 1, 1)));
+        var existingUsers = (await GetStatisticsAsync(host.Services, D(2026, 5, 1), D(2026, 5, 1), "UTC")).TotalUsers.Value;
 
-        var existingUsers = (await GetStatisticsAsync(host.Services, 7)).TotalUsers.Value;
-
-        // 用户的创建时间取自时钟：拨到各个边界上建
-        foreach (var createdAt in new[] { previousStart.AddSeconds(-1), previousStart, currentStart.AddSeconds(-1), currentStart, now })
+        // 本区间 06-09 至 06-15，此刻 06-15 12:00；上一区间 [06-02 00:00, 06-08 12:00)
+        var previousEnd = Utc(2026, 6, 8, 12);
+        var createdAt = new[] { Utc(2026, 6, 2), previousEnd.AddMinutes(-1), previousEnd, Utc(2026, 6, 9), Utc(2026, 6, 15, 11) };
+        foreach (var time in createdAt)
         {
-            clock.SetUtcNow(new DateTimeOffset(createdAt));
+            clock.SetUtcNow(new DateTimeOffset(time));
 #if (IncludeOperationRecords)
             await InsertUsersAsync(host.Services, NewUser());
 #else
             // 没有登录记录时活跃用户看最近登录时间：只有落在本区间里的才算
             var user = NewUser();
-            user.RecordLoginSuccess(createdAt);
+            user.RecordLoginSuccess(time);
             await InsertUsersAsync(host.Services, user);
 #endif
         }
 
-        clock.SetUtcNow(new DateTimeOffset(now));
-
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 6, 15, 12)));
 #if (IncludeOperationRecords)
         string userA = Guid.NewGuid().ToString(), userB = Guid.NewGuid().ToString(), userC = Guid.NewGuid().ToString();
         await InsertLoginRecordsAsync(host.Services,
-            (OperationRecordActions.AuthLoginSucceeded, userC, previousStart.AddSeconds(-1)),
-            (OperationRecordActions.AuthLoginSucceeded, userB, previousStart),
-            (OperationRecordActions.AuthLoginSucceeded, userA, currentStart.AddSeconds(-1)),
-            (OperationRecordActions.AuthLoginSucceeded, userA, currentStart),
-            (OperationRecordActions.AuthLoginSucceeded, userC, today.AddDays(-3).AddHours(12)),
-            (OperationRecordActions.AuthLoginSucceeded, userB, today.AddSeconds(-1)),
-            (OperationRecordActions.AuthLoginSucceeded, userA, now),
-            (OperationRecordActions.AuthLoginFailed, "someone", previousStart.AddSeconds(-1)),
-            (OperationRecordActions.AuthLoginFailed, "someone", currentStart.AddSeconds(-1)),
-            (OperationRecordActions.AuthLoginFailed, "someone", today.AddDays(-2).AddHours(8)),
-            (OperationRecordActions.AuthLoginFailed, "someone", today.AddDays(-2).AddHours(9)));
+            (OperationRecordActions.AuthLoginSucceeded, userA, Utc(2026, 6, 2)),
+            (OperationRecordActions.AuthLoginSucceeded, userB, previousEnd.AddMinutes(-1)),
+            (OperationRecordActions.AuthLoginSucceeded, userC, previousEnd),
+            (OperationRecordActions.AuthLoginSucceeded, userA, Utc(2026, 6, 9)),
+            (OperationRecordActions.AuthLoginSucceeded, userA, Utc(2026, 6, 12, 8)),
+            (OperationRecordActions.AuthLoginSucceeded, userB, Utc(2026, 6, 15, 11, 59)),
+            (OperationRecordActions.AuthLoginSucceeded, userC, Utc(2026, 6, 15, 12)),
+            (OperationRecordActions.AuthLoginFailed, "someone", Utc(2026, 6, 8, 11)),
+            (OperationRecordActions.AuthLoginFailed, "someone", Utc(2026, 6, 10, 1)),
+            (OperationRecordActions.AuthLoginFailed, "someone", Utc(2026, 6, 10, 2)));
 #endif
 
-        var week = await GetStatisticsAsync(host.Services, 7);
-        Assert.Equal(new StatisticValueOutputDto { Value = existingUsers + 5, Previous = existingUsers + 3 }, week.TotalUsers);
-        Assert.Equal(2, week.NewUsers.Value);
-        Assert.Equal(2, week.NewUsers.Previous);
+        var week = await GetStatisticsAsync(host.Services, D(2026, 6, 9), D(2026, 6, 15), "UTC");
+
+        Assert.Equal(StatisticsGranularity.Day, week.Range.Granularity);
+        Assert.Equal(Utc(2026, 6, 9), week.Range.Start);
+        Assert.Equal(Utc(2026, 6, 15, 12), week.Range.End);
+        Assert.Equal(Utc(2026, 6, 2), week.Range.PreviousStart);
+        Assert.Equal(previousEnd, week.Range.PreviousEnd);
+        Assert.Equal(Enumerable.Range(0, 7).Select(day => Utc(2026, 6, 9).AddDays(day)), week.Buckets);
+
+        Assert.Equal(existingUsers + 5, week.TotalUsers.Value);
+        Assert.Equal(existingUsers + 2, week.TotalUsers.Previous);
+        Assert.Equal([.. Enumerable.Repeat(existingUsers + 4, 6), existingUsers + 5], week.TotalUsers.Series);
+        Assert.Equal(new StatisticValueOutputDto { Value = 2, Previous = 2, Series = week.NewUsers.Series }, week.NewUsers);
+        Assert.Equal([1, 0, 0, 0, 0, 0, 1], week.NewUsers.Series);
 #if (IncludeOperationRecords)
-        Assert.Equal(new StatisticValueOutputDto { Value = 3, Previous = 2 }, week.ActiveUsers);
-        Assert.Equal(new StatisticValueOutputDto { Value = 2, Previous = 1 }, week.FailedLogins);
-        Assert.Equal(
-            Enumerable.Range(0, 7).Select(offset => DateOnly.FromDateTime(currentStart.AddDays(offset))),
-            week.LoginTrend.Select(point => point.Date));
-        Assert.Equal(new[] { 1, 0, 0, 1, 0, 1, 1 }, week.LoginTrend.Select(point => point.Succeeded));
-        Assert.Equal(new[] { 0, 0, 0, 0, 2, 0, 0 }, week.LoginTrend.Select(point => point.Failed));
-
-        // 30 天：上述数据全落在本区间，上一区间没有任何数据
-        var month = await GetStatisticsAsync(host.Services, 30);
-        Assert.Equal(30, month.LoginTrend.Count);
-        Assert.Equal(new StatisticValueOutputDto { Value = 3, Previous = 0 }, month.ActiveUsers);
-        Assert.Equal(new StatisticValueOutputDto { Value = 4, Previous = 0 }, month.FailedLogins);
+        Assert.Equal((3, 2), (week.SucceededLogins.Value, week.SucceededLogins.Previous));
+        Assert.Equal([1, 0, 0, 1, 0, 0, 1], week.SucceededLogins.Series);
+        Assert.Equal((2, 2), (week.ActiveUsers.Value, week.ActiveUsers.Previous));
+        Assert.Equal([1, 0, 0, 1, 0, 0, 1], week.ActiveUsers.Series);
+        Assert.Equal((2, 1), (week.FailedLogins.Value, week.FailedLogins.Previous));
+        Assert.Equal([0, 2, 0, 0, 0, 0, 0], week.FailedLogins.Series);
 #else
-        Assert.Equal(new StatisticValueOutputDto { Value = 2 }, week.ActiveUsers);
+        Assert.Equal(2, week.ActiveUsers.Value);
+        Assert.Null(week.ActiveUsers.Previous);
+        Assert.Null(week.ActiveUsers.Series);
 
-        var month = await GetStatisticsAsync(host.Services, 30);
-        Assert.Equal(new StatisticValueOutputDto { Value = 5 }, month.ActiveUsers);
+        // 历史区间只看最近一次登录：06-02 登录过、之后又在 06-08 登录的人，在 06-01 至 06-03 里数不到
+        var history = await GetStatisticsAsync(host.Services, D(2026, 6, 1), D(2026, 6, 3), "UTC");
+        Assert.Equal(1, history.ActiveUsers.Value);
 #endif
-        // 内置管理员建在宿主启动时，也落在 30 天的本区间里
-        Assert.Equal(existingUsers + 5, month.NewUsers.Value);
-        Assert.Equal(0, month.NewUsers.Previous);
+
+        // 已经结束的历史区间：终点是结束日次日零点，上一区间紧邻其前、终点就是本区间起点
+        var past = await GetStatisticsAsync(host.Services, D(2026, 6, 1), D(2026, 6, 7), "UTC");
+        Assert.Equal(Utc(2026, 6, 8), past.Range.End);
+        Assert.Equal(Utc(2026, 5, 25), past.Range.PreviousStart);
+        Assert.Equal(past.Range.Start, past.Range.PreviousEnd);
+        Assert.Equal(new StatisticValueOutputDto { Value = 1, Previous = 0, Series = past.NewUsers.Series }, past.NewUsers);
     }
 
     /// <summary>
-    /// 用户被删除后，在它曾存在过的时刻仍计入：本区间开始前的 10 人里本区间删了 3 人，总数的上一区间值仍是 10；
-    /// 注册数按创建事件计，注册后又被删除的照样计入。
+    /// 桶按请求的时区切：纽约回拨日 25 个小时桶（两个本地 01 点各成一桶）、春令日 23 个；上一区间终点落在跳时缺口里时
+    /// 取缺口后的第一个时刻、落在重复钟点时取较早那次（Auckland 这类 UTC+13 时区同样成立）；Lord Howe 半小时夏令时当天末桶只有半小时；Kolkata 的日桶起点在 UTC 的 :30；
+    /// 本地零点上的记录归新的一天；零点请求今天是零长度区间，没有桶。
+    /// </summary>
+    [Fact]
+    public async Task Buckets_follow_local_days_and_hours_of_the_requested_time_zone()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(Utc(2025, 10, 1)));
+        using var isolated = new ProjectWebApplicationFactory();
+        await using var host = WithClock(isolated, clock);
+
+        clock.SetUtcNow(new DateTimeOffset(Utc(2025, 11, 3, 12)));
+        var fallBack = await GetStatisticsAsync(host.Services, D(2025, 11, 2), D(2025, 11, 2), "America/New_York");
+        Assert.Equal(StatisticsGranularity.Hour, fallBack.Range.Granularity);
+        Assert.Equal(25, fallBack.Buckets.Count);
+        Assert.Equal(Utc(2025, 11, 2, 4), fallBack.Range.Start);
+        Assert.Equal(Utc(2025, 11, 3, 5), fallBack.Range.End);
+        Assert.Contains(Utc(2025, 11, 2, 5), fallBack.Buckets);
+        Assert.Contains(Utc(2025, 11, 2, 6), fallBack.Buckets);
+
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 3, 9, 12)));
+        var springForward = await GetStatisticsAsync(host.Services, D(2026, 3, 8), D(2026, 3, 8), "America/New_York");
+        Assert.Equal(23, springForward.Buckets.Count);
+        Assert.Equal(Utc(2026, 3, 8, 5), springForward.Range.Start);
+        Assert.Equal(Utc(2026, 3, 9, 4), springForward.Range.End);
+
+        // 此刻是本地 03-15 02:30；前移 7 天的 03-08 02:30 不存在，取跳时后的 03:00（UTC 07:00）
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 3, 15, 6, 30)));
+        var acrossTheGap = await GetStatisticsAsync(host.Services, D(2026, 3, 9), D(2026, 3, 15), "America/New_York");
+        Assert.Equal(Utc(2026, 3, 15, 6, 30), acrossTheGap.Range.End);
+        Assert.Equal(Utc(2026, 3, 2, 5), acrossTheGap.Range.PreviousStart);
+        Assert.Equal(Utc(2026, 3, 8, 7), acrossTheGap.Range.PreviousEnd);
+
+        // Auckland 04-05 03:00 回拨到 02:00（+13 → +12）：此刻本地 04-06 02:30，前一天的 02:30 出现两次，取较早的 +13 那次
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 4, 5, 14, 30)));
+        var aucklandFallBack = await GetStatisticsAsync(host.Services, D(2026, 4, 6), D(2026, 4, 6), "Pacific/Auckland");
+        Assert.Equal(Utc(2026, 4, 4, 13, 30), aucklandFallBack.Range.PreviousEnd);
+
+        // Auckland 09-27 02:00 跳到 03:00（+12 → +13）：此刻本地 09-28 02:15，前一天的 02:15 不存在，取跳时后的 03:00
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 9, 27, 13, 15)));
+        var aucklandGap = await GetStatisticsAsync(host.Services, D(2026, 9, 28), D(2026, 9, 28), "Pacific/Auckland");
+        Assert.Equal(Utc(2026, 9, 27, 11), aucklandGap.Range.Start);
+        Assert.Equal(Utc(2026, 9, 26, 12), aucklandGap.Range.PreviousStart);
+        Assert.Equal(Utc(2026, 9, 26, 14), aucklandGap.Range.PreviousEnd);
+
+        // Lord Howe 10-04 02:00 起 +10:30 → +11:00，当天 23.5 小时：24 个桶，末桶半小时
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 10, 5)));
+        var halfHourShift = await GetStatisticsAsync(host.Services, D(2026, 10, 4), D(2026, 10, 4), "Australia/Lord_Howe");
+        Assert.Equal(24, halfHourShift.Buckets.Count);
+        Assert.Equal(Utc(2026, 10, 3, 13, 30), halfHourShift.Range.Start);
+        Assert.Equal(Utc(2026, 10, 4, 13), halfHourShift.Range.End);
+        Assert.Equal(Utc(2026, 10, 4, 12, 30), halfHourShift.Buckets[^1]);
+
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 10, 6)));
+#if (IncludeOperationRecords)
+        await InsertLoginRecordsAsync(host.Services,
+            (OperationRecordActions.AuthLoginSucceeded, Guid.NewGuid().ToString(), Utc(2026, 10, 4, 18, 30)));
+#endif
+        var kolkata = await GetStatisticsAsync(host.Services, D(2026, 10, 4), D(2026, 10, 5), "Asia/Kolkata");
+        Assert.Equal([Utc(2026, 10, 3, 18, 30), Utc(2026, 10, 4, 18, 30)], kolkata.Buckets);
+#if (IncludeOperationRecords)
+        // 本地 10-05 00:00 上的那次登录归 10-05
+        Assert.Equal([0, 1], kolkata.SucceededLogins.Series);
+#endif
+
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 10, 7)));
+        var midnight = await GetStatisticsAsync(host.Services, D(2026, 10, 7), D(2026, 10, 7), "UTC");
+        Assert.Empty(midnight.Buckets);
+        Assert.Equal(midnight.Range.Start, midnight.Range.End);
+        Assert.Empty(midnight.NewUsers.Series!);
+        Assert.Equal(0, midnight.NewUsers.Value);
+        Assert.True(midnight.TotalUsers.Value >= 1);
+    }
+
+    /// <summary>
+    /// 用户被删除后，在它曾存在过的时刻仍计入：上一区间终点前的 10 人里本区间删了 3 人，总数的上期值仍是 10；
+    /// 注册数按创建事件计，注册后又被删除的照样计入；之后的注册与删除不改变历史区间的期末存量。
     /// </summary>
     /// <remarks>独立宿主与库：断言的是精确计数。删除时间取自同一个可拨的时钟。</remarks>
     [Fact]
     public async Task Deleted_users_still_count_where_they_existed_and_as_registrations()
     {
-        var today = DateTime.UtcNow.Date;
-        var currentStart = today.AddDays(-6);
-        var previousStart = today.AddDays(-13);
-        var clock = new FakeTimeProvider(new DateTimeOffset(previousStart.AddDays(-1)));
+        var clock = new FakeTimeProvider(new DateTimeOffset(Utc(2026, 5, 1)));
         using var isolated = new ProjectWebApplicationFactory();
-        await using var host = isolated.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-        {
-            services.RemoveAll<TimeProvider>();
-            services.AddSingleton<TimeProvider>(clock);
-        }));
+        await using var host = WithClock(isolated, clock);
+        // 宿主在首次取 Services 时启动，内置管理员建在那一刻：先启动、再拨钟读基数，
+        // 否则它恰好落在零长度区间的终点上、不计入
+        _ = host.Services;
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 5, 1, 1)));
+        var existingUsers = (await GetStatisticsAsync(host.Services, D(2026, 5, 1), D(2026, 5, 1), "UTC")).TotalUsers.Value;
 
-        var existingUsers = (await GetStatisticsAsync(host.Services, 7)).TotalUsers.Value;
-
-        // 上一区间：注册 11 人，其中 1 人当场删掉——它不在本区间开始时的总数里，但算上一区间的注册
-        clock.SetUtcNow(new DateTimeOffset(previousStart.AddHours(1)));
+        // 上一区间（06-02 至 06-08）：注册 11 人，其中 1 人当场删掉
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 6, 2, 1)));
         var earlier = Enumerable.Range(0, 10).Select(_ => NewUser()).ToArray();
         var deletedEarlier = NewUser();
         await InsertUsersAsync(host.Services, [.. earlier, deletedEarlier]);
-        clock.SetUtcNow(new DateTimeOffset(previousStart.AddHours(2)));
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 6, 2, 2)));
         await DeleteUsersAsync(host.Services, deletedEarlier.Id);
 
-        // 本区间：删掉之前的 3 人；注册 2 人，其中 1 人随后删掉
-        clock.SetUtcNow(new DateTimeOffset(currentStart.AddHours(1)));
+        // 本区间（06-09 至 06-15）：删掉之前的 3 人；注册 2 人，其中 1 人随后删掉
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 6, 9, 1)));
         await DeleteUsersAsync(host.Services, earlier[0].Id, earlier[1].Id, earlier[2].Id);
         var registeredThenDeleted = NewUser();
         await InsertUsersAsync(host.Services, registeredThenDeleted, NewUser());
-        clock.SetUtcNow(new DateTimeOffset(currentStart.AddHours(2)));
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 6, 9, 2)));
         await DeleteUsersAsync(host.Services, registeredThenDeleted.Id);
 
-        clock.SetUtcNow(new DateTimeOffset(today.AddSeconds(30)));
-        var week = await GetStatisticsAsync(host.Services, 7);
+        // 历史区间之后：再注册 1 人、删 1 人，不该影响 06-09 至 06-15 的期末存量
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 6, 20)));
+        await InsertUsersAsync(host.Services, NewUser());
+        await DeleteUsersAsync(host.Services, earlier[3].Id);
 
-        Assert.Equal(new StatisticValueOutputDto { Value = existingUsers + 8, Previous = existingUsers + 10 }, week.TotalUsers);
-        Assert.Equal(new StatisticValueOutputDto { Value = 2, Previous = 11 }, week.NewUsers);
+        clock.SetUtcNow(new DateTimeOffset(Utc(2026, 6, 21)));
+        var week = await GetStatisticsAsync(host.Services, D(2026, 6, 9), D(2026, 6, 15), "UTC");
+
+        Assert.Equal(existingUsers + 8, week.TotalUsers.Value);
+        Assert.Equal(existingUsers + 10, week.TotalUsers.Previous);
+        Assert.Equal(Enumerable.Repeat(existingUsers + 8, 7), week.TotalUsers.Series);
+        Assert.Equal((2, 11), (week.NewUsers.Value, week.NewUsers.Previous));
     }
 #if (IncludeOperationRecords)
 
-    /// <summary>
-    /// 保留期把上一区间的登录记录搬进归档表之后，活跃用户与登录失败的上一区间值不变。
-    /// </summary>
+    /// <summary>保留期把上一区间的登录记录搬进归档表之后，登录次数、活跃用户与序列都不变。</summary>
     /// <remarks>
     /// 30 天区间配最短保留期（30 天）时，上一区间几乎整段都在归档表里；只数原表的话上一区间值会塌成 0。
     /// 独立宿主与库：归档按整库搬运，断言的是精确条数。
@@ -259,9 +385,10 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
     [Fact]
     public async Task The_previous_interval_still_counts_logins_moved_to_the_archive()
     {
-        var today = DateTime.UtcNow.Date;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var currentStart = today.AddDays(-29);
-        var previousStart = today.AddDays(-59);
+        var previousStart = currentStart.AddDays(-30).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var current = currentStart.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         using var host = new ProjectWebApplicationFactory();
 
         string userA = Guid.NewGuid().ToString(), userB = Guid.NewGuid().ToString();
@@ -272,14 +399,12 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
             (OperationRecordActions.AuthLoginFailed, "someone", previousStart.AddDays(2)),
             (OperationRecordActions.AuthLoginFailed, "someone", previousStart.AddDays(3)),
             (OperationRecordActions.AuthLoginFailed, "someone", previousStart.AddDays(4)),
-            (OperationRecordActions.AuthLoginSucceeded, userA, currentStart.AddDays(1)),
-            (OperationRecordActions.AuthLoginFailed, "someone", currentStart.AddDays(2)));
+            (OperationRecordActions.AuthLoginSucceeded, userA, current.AddDays(1)),
+            (OperationRecordActions.AuthLoginFailed, "someone", current.AddDays(2)));
 
-        var expectedActiveUsers = new StatisticValueOutputDto { Value = 1, Previous = 2 };
-        var expectedFailedLogins = new StatisticValueOutputDto { Value = 1, Previous = 3 };
-        var beforeArchiving = await GetStatisticsAsync(host.Services, 30);
-        Assert.Equal(expectedActiveUsers, beforeArchiving.ActiveUsers);
-        Assert.Equal(expectedFailedLogins, beforeArchiving.FailedLogins);
+        var beforeArchiving = await GetStatisticsAsync(host.Services, currentStart, today, "UTC");
+        Assert.Equal((1, 2), (beforeArchiving.ActiveUsers.Value, beforeArchiving.ActiveUsers.Previous));
+        Assert.Equal((1, 3), (beforeArchiving.FailedLogins.Value, beforeArchiving.FailedLogins.Previous));
 
         await using (var scope = host.Services.CreateAsyncScope())
         {
@@ -289,10 +414,12 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
             Assert.Equal(6, result.Archived);
         }
 
-        var afterArchiving = await GetStatisticsAsync(host.Services, 30);
-        Assert.Equal(expectedActiveUsers, afterArchiving.ActiveUsers);
-        Assert.Equal(expectedFailedLogins, afterArchiving.FailedLogins);
-        Assert.Equal(beforeArchiving.LoginTrend, afterArchiving.LoginTrend);
+        var afterArchiving = await GetStatisticsAsync(host.Services, currentStart, today, "UTC");
+        Assert.Equal(beforeArchiving.ActiveUsers.Previous, afterArchiving.ActiveUsers.Previous);
+        Assert.Equal(beforeArchiving.FailedLogins.Previous, afterArchiving.FailedLogins.Previous);
+        Assert.Equal(beforeArchiving.SucceededLogins.Previous, afterArchiving.SucceededLogins.Previous);
+        Assert.Equal(beforeArchiving.SucceededLogins.Series, afterArchiving.SucceededLogins.Series);
+        Assert.Equal(beforeArchiving.FailedLogins.Series, afterArchiving.FailedLogins.Series);
     }
 #endif
 
@@ -301,7 +428,8 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
     public async Task Attention_counts_current_lockouts_admins_without_two_factor_and_unconfirmed_emails()
     {
         var now = DateTime.UtcNow;
-        var before = (await GetStatisticsAsync(Factory.Services, 7)).Attention;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var before = (await GetStatisticsAsync(Factory.Services, today, today, "UTC")).Attention;
         var adminRoleId = await GetAdminRoleIdAsync(Factory.Services);
 
         var administratorLocked = NewUser();
@@ -318,7 +446,7 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
         await InsertUsersAsync(Factory.Services,
             administratorLocked, lockExpired, temporarilyLocked, adminWithoutTwoFactor, adminWithTwoFactor);
 
-        var after = (await GetStatisticsAsync(Factory.Services, 7)).Attention;
+        var after = (await GetStatisticsAsync(Factory.Services, today, today, "UTC")).Attention;
         Assert.Equal(before.LockedUsers + 2, after.LockedUsers);
         Assert.Equal(before.AdminsWithoutTwoFactor + 1, after.AdminsWithoutTwoFactor);
         Assert.Equal(before.UnconfirmedEmailUsers + 1, after.UnconfirmedEmailUsers);
@@ -382,18 +510,46 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
 
     private static async Task<JsonElement> ReadAsync(HttpClient client)
     {
-        using var response = await client.GetAsync(Url);
+        using var response = await client.GetAsync(TodayUrl());
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await response.Content.ReadFromJsonAsync<JsonElement>();
     }
 #endif
 
-    private static async Task<PlatformStatisticsOutputDto> GetStatisticsAsync(IServiceProvider services, int days)
+    // 今天（UTC）单日区间：只关心能不能读、读到什么形状的用例用它
+    private static string TodayUrl()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        return RangeUrl(today, today, "UTC");
+    }
+
+    private static string RangeUrl(DateOnly startDate, DateOnly endDate, string timeZone)
+        => string.Create(CultureInfo.InvariantCulture,
+            $"{Url}?startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}&timeZone={Uri.EscapeDataString(timeZone)}");
+
+    private static async Task<PlatformStatisticsOutputDto> GetStatisticsAsync(
+        IServiceProvider services,
+        DateOnly startDate,
+        DateOnly endDate,
+        string timeZone)
     {
         await using var scope = services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<IPlatformStatisticsAppService>()
-            .GetAsync(new GetPlatformStatisticsInputDto { Days = days });
+            .GetAsync(new GetPlatformStatisticsInputDto { StartDate = startDate, EndDate = endDate, TimeZone = timeZone });
     }
+
+    // 时钟只能往前拨：宿主在拨钟之前启动（内置管理员建在此刻）
+    private static WebApplicationFactory<Program> WithClock(ProjectWebApplicationFactory isolated, FakeTimeProvider clock)
+        => isolated.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        }));
+
+    private static DateOnly D(int year, int month, int day) => new(year, month, day);
+
+    private static DateTime Utc(int year, int month, int day, int hour = 0, int minute = 0)
+        => new(year, month, day, hour, minute, 0, DateTimeKind.Utc);
 
     private static async Task<Guid> GetAdminRoleIdAsync(IServiceProvider services)
     {
@@ -471,7 +627,7 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
         using var session = factory.CreateResourceSession(subjectId, tenantId);
         using (var me = await session.Client.GetAsync("/api/v1/auth/me"))
             Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await session.Client.GetAsync(Url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await session.Client.GetAsync($"{Url}?startDate=2026-01-01&endDate=2026-01-01&timeZone=UTC")).StatusCode);
 
         await using (var scope = factory.Services.CreateAsyncScope())
         using (scope.ServiceProvider.GetRequiredService<ICurrentTenant>().Change(tenantId))
@@ -480,15 +636,18 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
                 .GrantAsync(PermissionConstant.Dashboard.Default, PermissionGrantProviderNames.User, subjectId.ToString());
         }
 
-        using var body = JsonDocument.Parse(await session.Client.GetStringAsync(Url));
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        using var body = JsonDocument.Parse(
+            await session.Client.GetStringAsync($"{Url}?startDate={today}&endDate={today}&timeZone=UTC"));
         var root = body.RootElement;
         Assert.True(root.GetProperty("totalUsers").GetProperty("value").GetInt32() >= 1);
         Assert.True(root.TryGetProperty("newUsers", out _));
         Assert.False(root.TryGetProperty("activeUsers", out _));
-        Assert.False(root.TryGetProperty("loginTrend", out _));
+        Assert.False(root.TryGetProperty("succeededLogins", out _));
+        Assert.Equal(root.GetProperty("buckets").GetArrayLength(), root.GetProperty("totalUsers").GetProperty("series").GetArrayLength());
         Assert.Empty(root.GetProperty("attention").EnumerateObject());
 
-        using var invalid = await session.Client.GetAsync($"{Url}?days=14");
+        using var invalid = await session.Client.GetAsync(Url);
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
     }
 }

@@ -51,11 +51,11 @@ public class UserTimeZoneProviderTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("Mars/Olympus")]
-    public async Task A_missing_or_broken_setting_falls_back_to_the_server_time_zone(string? configured)
+    public async Task A_missing_or_broken_setting_falls_back_to_UTC_not_the_server_time_zone(string? configured)
     {
         var timeZone = await ProviderWith(configured).GetAsync();
 
-        Assert.Equal(TimeZoneInfo.Local.Id, timeZone.Id);
+        Assert.Equal(TimeZoneInfo.Utc.Id, timeZone.Id);
     }
 
     // 写入端与读取端必须共用同一套判定，否则会写进一个之后解析不出来的值。
@@ -73,16 +73,17 @@ public class UserTimeZoneProviderTests
     [InlineData("", false)]
     public void Only_IANA_identifiers_are_accepted(string id, bool expected)
     {
-        Assert.Equal(expected, ProviderWith(null).IsValidId(id));
+        Assert.Equal(expected, ProviderWith(null).TryResolve(id, out var timeZone));
+        Assert.Equal(expected ? id : TimeZoneInfo.Utc.Id, timeZone.Id);
     }
 
     // 库里存着 Windows ID 时（旧数据、脚本写入）读取端也不能用它：两端认的集合必须一致。
     [Fact]
-    public async Task A_windows_identifier_in_storage_falls_back_to_the_server_time_zone()
+    public async Task A_windows_identifier_in_storage_falls_back_to_UTC()
     {
         var timeZone = await ProviderWith("China Standard Time").GetAsync();
 
-        Assert.Equal(TimeZoneInfo.Local.Id, timeZone.Id);
+        Assert.Equal(TimeZoneInfo.Utc.Id, timeZone.Id);
     }
 
     private sealed class FixedSettingProvider(string? timeZoneId) : ISettingProvider

@@ -83,7 +83,7 @@ HTTP/1.1 200 OK
 
 ### 2.5 验证错误响应
 
-`[ApiController]` 自动模型校验和内部调用抛出的 `System.ComponentModel.DataAnnotations.ValidationException` 都返回 HTTP **400**，使用 `urn:leistd:problem:validation-error` 与 Leistd `errors` 对象数组。跨字段或用例规则失败抛 `BusinessException`，状态见 §4。
+`[ApiController]` 自动模型校验和内部调用抛出的 `System.ComponentModel.DataAnnotations.ValidationException` 都返回 HTTP **400**，使用 `urn:leistd:problem:validation-error` 与 Leistd `errors` 对象数组。跨字段或用例规则失败抛 `BusinessException`，状态见 §4；请求本身的结构合法性（如日期区间颠倒、超过跨度、时区不可用，见 §6.2）仍按字段错误返回，不算业务规则。
 
 ```json
 {
@@ -233,6 +233,15 @@ if (user is null)
 - 权限与单个操作相同；逐条复用单个操作的领域规则与动作码，每条在独立事务里提交并各自留下操作记录，部分失败不回滚已成功的条目。
 - 返回 200 与逐条结果 `items: [{ id, succeeded, errorCode, message }]`：`errorCode`、`message` 与单个操作被拒时的 `code`、`detail` 相同，成功时省略。只接住业务拒绝；技术故障按 §4 整体失败，此前已提交的条目保持提交。
 - 不提供批量删除：删除逐个确认。
+
+### 6.2 按日历区间统计
+
+统计类接口按日历区间取数时，查询串传 `startDate`、`endDate`（`yyyy-MM-dd`，两端都含）与 `timeZone`（调用方实际用来展示时间的 IANA 时区）。日期不是时刻；时刻仍以 UTC 传输。示例见平台统计 `GET /api/v1/platform/statistics`。
+
+- 服务端只读一次时钟，按该时区把日期换算成 UTC 半开区间（终点是结束日次日的第一个时刻，含今天时截到此刻），并用同一时区切统计桶：单日按小时（按 UTC 每小时步进，回拨日 25 个、半小时时区的起点落在 `:30`），其余按日。本地零点不存在时取跳时后的第一个时刻，重复时取较早的那个。
+- 上一区间按日历前移同样的天数，比较相同的本地进度，不减 `N×24` 小时。
+- 响应回显 `range`（日期、时区、粒度、换算出的 UTC 起止与上一区间）和各桶起点 `buckets`，按桶序列与之等长，只含已经发生的时段；前端按回显的时区格式化坐标轴与提示。
+- 参数缺失、日期写坏、时区不可用、起止颠倒、超过跨度上限、结束日晚于该时区的今天，都是对应字段的 400（§2.5）。
 
 ## 7. API 文档
 

@@ -18,7 +18,7 @@ public class UserTimeZoneProvider(ISettingProvider settingProvider) : IUserTimeZ
     {
         var id = await settingProvider.GetOrNullAsync(SettingConstant.Display.TimeZone, cancellationToken);
 
-        return TryResolve(id, out var timeZone) ? timeZone : TimeZoneInfo.Local;
+        return TryResolve(id, out var timeZone) ? timeZone : TimeZoneInfo.Utc;
     }
 
     /// <inheritdoc />
@@ -32,14 +32,12 @@ public class UserTimeZoneProvider(ISettingProvider settingProvider) : IUserTimeZ
     }
 
     /// <inheritdoc />
-    public bool IsValidId(string timeZoneId) => TryResolve(timeZoneId, out _);
-
-    // 读取与写入共用这一处判定：写入端放行的值，读取端必须解析得出来，前端也必须认。
-    private static bool TryResolve(string? id, out TimeZoneInfo timeZone)
+    /// <remarks>读取与写入共用这一处判定：写入端放行的值，读取端必须解析得出来，前端也必须认。</remarks>
+    public bool TryResolve(string? timeZoneId, out TimeZoneInfo timeZone)
     {
-        timeZone = TimeZoneInfo.Local;
+        timeZone = TimeZoneInfo.Utc;
 
-        if (string.IsNullOrWhiteSpace(id) || !TimeZoneInfo.TryFindSystemTimeZoneById(id, out var found))
+        if (string.IsNullOrWhiteSpace(timeZoneId) || !TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out var found))
         {
             return false;
         }

@@ -11,7 +11,7 @@ internal sealed class TimeZoneSettingValidator(IUserTimeZoneProvider userTimeZon
 {
     public Task ValidateAsync(SettingValueValidationContext context, CancellationToken cancellationToken = default)
     {
-        if (context.Definition.Name == SettingConstant.Display.TimeZone && !userTimeZoneProvider.IsValidId(context.Value))
+        if (context.Definition.Name == SettingConstant.Display.TimeZone && !userTimeZoneProvider.TryResolve(context.Value, out _))
         {
             throw new BusinessException(AppSettingErrorCodes.TimeZoneInvalid, $"'{context.Value}' is not a valid IANA time zone id.")
                 .WithData("Value", context.Value);
