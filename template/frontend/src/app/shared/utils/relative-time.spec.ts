@@ -1,6 +1,6 @@
 import { formatRelativeTime } from './relative-time';
 
-/** 最近操作的时间写法：按展示时区判今天与昨天，午夜前后与时钟稍快都不出错。 */
+/** 相对时间：按展示时区判今天与昨天，午夜前后与时钟稍快都不出错。 */
 describe('formatRelativeTime', () => {
   const at = (iso: string) => Date.parse(iso);
 

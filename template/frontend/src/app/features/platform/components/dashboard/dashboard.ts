@@ -71,8 +71,6 @@ import {
   sumByGroups,
   weekLabel,
   //#endif
-  calendarDateIn,
-  formatMonthDay,
   fromCalendarDate,
   parseRange,
   presetOf,
@@ -81,7 +79,6 @@ import {
   toCalendarDate,
 } from './dashboard-calendar';
 //#if (IncludeOperationRecords)
-import { RelativeTime, formatRelativeTime } from './relative-time';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
@@ -90,12 +87,17 @@ import { SettingContextService } from '../../../../core/settings/setting-context
 import { StatPanel } from '../../../../shared/components/stat-panel/stat-panel';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 //#if (IncludeOperationRecords)
-import { AppDate } from '../../../../shared/pipes/app-date-pipe';
+import { AppDate, formatAppDate } from '../../../../shared/pipes/app-date-pipe';
+//#else
+import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
 //#endif
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
-import { resolveDisplayTimeZone, zonedToday } from '../../../../shared/utils/zoned-time';
+//#if (IncludeOperationRecords)
+import { RelativeTime, formatRelativeTime } from '../../../../shared/utils/relative-time';
+//#endif
+import { resolveDisplayTimeZone, zonedCalendarDate } from '../../../../shared/utils/zoned-time';
 //#if (IncludeOperationRecords)
 import { OperationRecordOutputDto } from '../../dtos/operation-record.dto';
 //#endif
@@ -246,7 +248,7 @@ export class Dashboard {
 
   /** 分钟级时钟：「今天」的判定与相对时间随它更新。 */
   readonly now = signal(Date.now());
-  readonly today = computed(() => zonedToday(this.timeZone(), new Date(this.now())));
+  readonly today = computed(() => zonedCalendarDate(this.now(), this.timeZone()));
 
   private readonly queryParams = toSignal(this.route.queryParamMap, {
     initialValue: this.route.snapshot.queryParamMap,
@@ -274,7 +276,7 @@ export class Dashboard {
     return (dates: [Date | null, Date | null]) =>
       dates
         .filter((date): date is Date => date !== null)
-        .map((date) => formatMonthDay(toCalendarDate(date), locale))
+        .map((date) => formatAppDate(date, 'monthDay', undefined, locale))
         .join(' – ');
   });
 
@@ -331,7 +333,7 @@ export class Dashboard {
    */
   readonly includesToday = computed(() => {
     const range = this.statistics()?.range;
-    return !!range && calendarDateIn(range.end, range.timeZone) === range.endDate;
+    return !!range && zonedCalendarDate(range.end, range.timeZone) === range.endDate;
   });
 
   readonly kpis = computed<KpiView[]>(() => {

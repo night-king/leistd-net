@@ -25,14 +25,25 @@ function resolveZone(timeZone?: string): string {
   return resolveDisplayTimeZone(timeZone);
 }
 
-/** 该时区此刻的日历日期，`YYYY-MM-DD`。 */
-export function zonedToday(timeZone: string, now: Date = new Date()): string {
+/** 某个时刻在该时区的日历日，`YYYY-MM-DD`；传入此刻即该时区的今天。 */
+export function zonedCalendarDate(instant: string | number | Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(now);
+  }).format(instant instanceof Date ? instant : new Date(instant));
+}
+
+/**
+ * `YYYY-MM-DD` 日历日加减天数；纯日历运算，与时区无关。用 `setUTCFullYear` 而不是 `Date.UTC`：
+ * 后者会把 0–99 年读成 1900 年代。
+ */
+export function addCalendarDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const result = new Date(0);
+  result.setUTCFullYear(year, month - 1, day + days);
+  return result.toISOString().slice(0, 10);
 }
 
 /**

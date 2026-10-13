@@ -12,6 +12,7 @@ const SLOTS = {
   date: { date: 'full', time: false, seconds: false },
   time: { date: 'none', time: true, seconds: false },
   monthDayTime: { date: 'monthDay', time: true, seconds: false },
+  monthDay: { date: 'monthDay', time: false, seconds: false },
 } as const;
 
 export type AppDateFormat = keyof typeof SLOTS;

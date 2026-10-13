@@ -85,6 +85,16 @@ describe('AppDate', () => {
       expect(pipe.transform(utc, 'monthDayTime', 'Asia/Shanghai', 'zh-CN')).toBe('09-04 18:16');
     });
 
+    // 图表坐标轴、区间按钮这类只写月日的位置
+    it('monthDay shows only the month and day', () => {
+      expect(pipe.transform(utc, 'monthDay', 'Asia/Shanghai', 'zh-CN')).toBe('09-04');
+      for (const locale of ['en-US', 'en-GB', 'ja-JP']) {
+        const text = pipe.transform(utc, 'monthDay', 'UTC', locale);
+        expect(text).not.toContain('2026');
+        expect(text).not.toContain(':');
+      }
+    });
+
     it('precision depends only on the slot and is the same across locales', () => {
       for (const locale of ['zh-CN', 'en-US', 'en-GB', 'ja-JP']) {
         // 秒只出现在 full 上

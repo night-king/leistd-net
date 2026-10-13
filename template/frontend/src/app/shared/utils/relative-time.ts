@@ -1,9 +1,9 @@
-import { addDays, calendarDateIn } from './dashboard-calendar';
-import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
+import { addCalendarDays, zonedCalendarDate } from './zoned-time';
+import { formatAppDate } from '../pipes/app-date-pipe';
 
 /**
- * 最近操作的时间写法。需要界面语言词条的两种（「刚刚」「昨天 HH:mm」）只给出种类，由模板翻译，
- * 词条加载与语言切换时随之更新；其余直接给出文字。
+ * 相对时间的写法（如列表里"多久以前"）。需要界面语言词条的两种（「刚刚」「昨天 HH:mm」）只给出种类，
+ * 由调用方的模板翻译，词条加载与语言切换时随之更新；其余直接给出文字。
  */
 export type RelativeTime =
   { kind: 'justNow' } | { kind: 'yesterday'; time: string } | { kind: 'text'; text: string };
@@ -19,8 +19,8 @@ export function formatRelativeTime(
   locale: string | undefined,
 ): RelativeTime {
   const time = Date.parse(instant);
-  const today = calendarDateIn(now, timeZone);
-  const day = calendarDateIn(time, timeZone);
+  const today = zonedCalendarDate(now, timeZone);
+  const day = zonedCalendarDate(time, timeZone);
 
   if (day >= today) {
     const minutes = Math.floor((now - time) / 60_000);
@@ -37,7 +37,7 @@ export function formatRelativeTime(
     };
   }
 
-  if (day === addDays(today, -1)) {
+  if (day === addCalendarDays(today, -1)) {
     return { kind: 'yesterday', time: formatAppDate(instant, 'time', timeZone, locale) };
   }
   return { kind: 'text', text: formatAppDate(instant, 'monthDayTime', timeZone, locale) };

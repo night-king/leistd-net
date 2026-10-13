@@ -11,7 +11,10 @@ import {
   weekLabel,
 } from './dashboard-calendar';
 
-/** 仪表盘的日历计算：区间、URL 还原、按周归组与按真实时刻写的坐标轴。 */
+/**
+ * 仪表盘的日历计算：区间、URL 还原、按周归组与按真实时刻写的坐标轴。日期与钟点的写法来自
+ * `formatAppDate`，断言用写法固定的中文（短横线日期、24 小时制），不逐个 locale 抄 ICU 输出。
+ */
 describe('dashboard calendar', () => {
   const today = '2026-10-13';
 
@@ -63,7 +66,7 @@ describe('dashboard calendar', () => {
       ['2026-10-01', '2026-10-03'],
       ['2026-10-04', '2026-10-10'],
     ]);
-    expect(weekLabel(sundayFirst[1], 'en-US')).toBe('10/4–10/10');
+    expect(weekLabel(sundayFirst[1], 'zh-CN')).toBe('10-04–10-10');
   });
 
   it('assigns a bucket to the week of its local day, not its UTC day', () => {
@@ -79,7 +82,7 @@ describe('dashboard calendar', () => {
   it('marks the repeated local hour of a fall-back day with its UTC offset', () => {
     const buckets = ['2025-11-02T04:00:00Z', '2025-11-02T05:00:00Z', '2025-11-02T06:00:00Z'];
 
-    const labels = bucketLabels(buckets, 'hour', 'America/New_York', 'en-US');
+    const labels = bucketLabels(buckets, 'hour', 'America/New_York', 'zh-CN');
 
     expect(labels[0]).toBe('00:00');
     expect(labels[1]).toMatch(/^01:00 GMT-4$/);
@@ -93,9 +96,9 @@ describe('dashboard calendar', () => {
         '2026-11-01T06:00:00Z',
         'hour',
         'America/New_York',
-        'en-US',
+        'zh-CN',
       ),
-    ).toBe('11/1 01:00 GMT-4–01:00 GMT-5');
+    ).toBe('11-01 01:00 GMT-4–01:00 GMT-5');
     // Lord Howe 04-05 02:00 回拨半小时（+11 → +10:30）：跨切换的那一小时本地读作 01:00–01:30
     expect(
       bucketTitle(
@@ -103,18 +106,18 @@ describe('dashboard calendar', () => {
         '2026-04-04T15:00:00Z',
         'hour',
         'Australia/Lord_Howe',
-        'en-US',
+        'zh-CN',
       ),
-    ).toBe('4/5 01:00 GMT+11–01:30 GMT+10:30');
+    ).toBe('04-05 01:00 GMT+11–01:30 GMT+10:30');
     expect(
       bucketTitle(
         '2026-11-01T07:00:00Z',
         '2026-11-01T08:00:00Z',
         'hour',
         'America/New_York',
-        'en-US',
+        'zh-CN',
       ),
-    ).toBe('11/1 02:00–03:00');
+    ).toBe('11-01 02:00–03:00');
   });
 
   it('keeps the real minutes of buckets after a half-hour shift', () => {
@@ -123,7 +126,7 @@ describe('dashboard calendar', () => {
       ['2026-10-03T14:30:00Z', '2026-10-03T15:30:00Z'],
       'hour',
       'Australia/Lord_Howe',
-      'en-US',
+      'zh-CN',
     );
 
     expect(labels).toEqual(['01:00', '02:30']);
@@ -133,9 +136,9 @@ describe('dashboard calendar', () => {
         '2026-10-04T13:00:00Z',
         'hour',
         'Australia/Lord_Howe',
-        'en-US',
+        'zh-CN',
       ),
-    ).toBe('10/4 23:30–00:00');
+    ).toBe('10-04 23:30–00:00');
   });
 
   it('falls back to Monday when the runtime cannot tell the first day of the week', () => {

@@ -1,8 +1,11 @@
 /**
  * 仪表盘的日历计算：区间与预设、URL 参数还原、按周聚合与坐标轴、提示的时段文字。日期一律用
  * `YYYY-MM-DD` 字符串表示日历日，不经 `Date#toISOString()`（那是 UTC，会把展示时区的日期折偏一天）；
- * 时刻按响应回显的时区格式化，与服务端切桶用的是同一个时区。
+ * 时刻按响应回显的时区格式化，与服务端切桶用的是同一个时区。日期与钟点的写法交给 `formatAppDate`，
+ * 与全站其他页面同一种写法。
  */
+import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
+import { addCalendarDays, zonedCalendarDate } from '../../../../shared/utils/zoned-time';
 import { StatisticsGranularity } from '../../dtos/platform-statistics.dto';
 
 /** 区间最多包含的日数，与后端一致。 */
@@ -21,12 +24,6 @@ export interface CalendarRange {
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** 日历日加减天数。 */
-export function addDays(date: string, days: number): string {
-  const [year, month, day] = date.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
-}
-
 /** 两端都含的天数。 */
 export function rangeDays(range: CalendarRange): number {
   return (
@@ -38,7 +35,7 @@ export function rangeDays(range: CalendarRange): number {
 
 export function presetRange(preset: RangePreset, today: string): CalendarRange {
   const days = preset === 'today' ? 1 : preset === '7d' ? 7 : 30;
-  return { startDate: addDays(today, 1 - days), endDate: today };
+  return { startDate: addCalendarDays(today, 1 - days), endDate: today };
 }
 
 /** 区间恰好是某个预设时返回它，自定义区间返回 null。 */
@@ -102,16 +99,6 @@ export function firstDayOfWeek(locale: string | undefined): number {
   }
 }
 
-/** 某时刻在该时区的日历日。 */
-export function calendarDateIn(instant: string | number, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(instant));
-}
-
 /** 一周：包含的桶下标与实际覆盖的首尾日历日（首尾不完整的周按实际日期）。 */
 export interface WeekGroup {
   indexes: number[];
@@ -129,10 +116,10 @@ export function groupByWeek(
   let current: WeekGroup | null = null;
   let currentWeekStart = '';
   buckets.forEach((bucket, index) => {
-    const date = calendarDateIn(bucket, timeZone);
+    const date = zonedCalendarDate(bucket, timeZone);
     // getUTCDay：0 = 周日；换成 1 = 周一 … 7 = 周日 再算与周起始日的距离
     const isoDay = new Date(`${date}T00:00:00Z`).getUTCDay() || 7;
-    const weekStart = addDays(date, -((isoDay - firstDay + 7) % 7));
+    const weekStart = addCalendarDays(date, -((isoDay - firstDay + 7) % 7));
     if (!current || weekStart !== currentWeekStart) {
       current = { indexes: [], firstDate: date, lastDate: date };
       currentWeekStart = weekStart;
@@ -149,26 +136,9 @@ export function sumByGroups(series: readonly number[], groups: readonly WeekGrou
   return groups.map((group) => group.indexes.reduce((sum, index) => sum + (series[index] ?? 0), 0));
 }
 
-/** 月 / 日，按界面语言的写法。 */
-export function formatMonthDay(date: string, locale: string | undefined): string {
-  return new Intl.DateTimeFormat(locale, {
-    month: 'numeric',
-    day: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(`${date}T00:00:00Z`));
-}
-
-function formatClock(
-  instant: string | number,
-  timeZone: string,
-  locale: string | undefined,
-): string {
-  return new Intl.DateTimeFormat(locale, {
-    timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(new Date(instant));
+/** 日历日（不是时刻）的月日：日历日没有时区，按 UTC 零点交给 `formatAppDate`。 */
+function monthDayOf(date: string, locale: string | undefined): string {
+  return formatAppDate(`${date}T00:00:00Z`, 'monthDay', 'UTC', locale);
 }
 
 function offsetName(
@@ -183,7 +153,7 @@ function offsetName(
 }
 
 /**
- * 坐标轴标签。小时桶按桶起点的真实本地钟点写 `HH:mm`（半小时时区与半小时夏令时会出现 `:30`）；
+ * 坐标轴标签。小时桶按桶起点的真实本地钟点写时刻（半小时时区与半小时夏令时会出现 `:30`）；
  * 夏令时回拨日同一个钟点出现两次时附上 UTC 偏移区分。日桶写月 / 日。
  */
 export function bucketLabels(
@@ -193,9 +163,9 @@ export function bucketLabels(
   locale: string | undefined,
 ): string[] {
   if (granularity === 'day') {
-    return buckets.map((bucket) => formatMonthDay(calendarDateIn(bucket, timeZone), locale));
+    return buckets.map((bucket) => formatAppDate(bucket, 'monthDay', timeZone, locale));
   }
-  const clocks = buckets.map((bucket) => formatClock(bucket, timeZone, locale));
+  const clocks = buckets.map((bucket) => formatAppDate(bucket, 'time', timeZone, locale));
   return clocks.map((clock, index) =>
     clocks.indexOf(clock) !== clocks.lastIndexOf(clock)
       ? `${clock} ${offsetName(buckets[index], timeZone, locale)}`
@@ -205,10 +175,10 @@ export function bucketLabels(
 
 /** 周组的坐标轴标签：首尾日期，同一天时只写一个。 */
 export function weekLabel(group: WeekGroup, locale: string | undefined): string {
-  const first = formatMonthDay(group.firstDate, locale);
+  const first = monthDayOf(group.firstDate, locale);
   return group.firstDate === group.lastDate
     ? first
-    : `${first}–${formatMonthDay(group.lastDate, locale)}`;
+    : `${first}–${monthDayOf(group.lastDate, locale)}`;
 }
 
 /**
@@ -222,14 +192,14 @@ export function bucketTitle(
   timeZone: string,
   locale: string | undefined,
 ): string {
-  const date = formatMonthDay(calendarDateIn(start, timeZone), locale);
+  const date = formatAppDate(start, 'monthDay', timeZone, locale);
   if (granularity === 'day') {
     return date;
   }
   const startOffset = offsetName(start, timeZone, locale);
   const endOffset = offsetName(end, timeZone, locale);
-  const startClock = formatClock(start, timeZone, locale);
-  const endClock = formatClock(end, timeZone, locale);
+  const startClock = formatAppDate(start, 'time', timeZone, locale);
+  const endClock = formatAppDate(end, 'time', timeZone, locale);
   return startOffset === endOffset
     ? `${date} ${startClock}–${endClock}`
     : `${date} ${startClock} ${startOffset}–${endClock} ${endOffset}`;

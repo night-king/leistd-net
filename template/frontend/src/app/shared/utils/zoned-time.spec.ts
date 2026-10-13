@@ -1,9 +1,10 @@
 import {
+  addCalendarDays,
   isoToZonedDate,
   resolveDisplayTimeZone,
+  zonedCalendarDate,
   zonedEndOfDayIso,
   zonedStartOfDayIso,
-  zonedToday,
 } from './zoned-time';
 
 /**
@@ -139,10 +140,18 @@ describe('zoned-time', () => {
     expect(resolveDisplayTimeZone('Mars/Olympus')).toBe(browser);
   });
 
-  it('tells today by the calendar of the given time zone', () => {
+  it('tells the calendar day of an instant in the given time zone', () => {
     const instant = new Date('2026-10-13T20:00:00Z');
 
-    expect(zonedToday('UTC', instant)).toBe('2026-10-13');
-    expect(zonedToday('Asia/Shanghai', instant)).toBe('2026-10-14');
+    expect(zonedCalendarDate(instant, 'UTC')).toBe('2026-10-13');
+    expect(zonedCalendarDate(instant, 'Asia/Shanghai')).toBe('2026-10-14');
+    expect(zonedCalendarDate('2026-10-13T20:00:00Z', 'America/New_York')).toBe('2026-10-13');
+  });
+
+  it('adds calendar days across month, year and leap-day boundaries', () => {
+    expect(addCalendarDays('2026-10-13', -13)).toBe('2026-09-30');
+    expect(addCalendarDays('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addCalendarDays('2024-02-28', 1)).toBe('2024-02-29');
+    expect(addCalendarDays('0099-12-31', 1)).toBe('0100-01-01');
   });
 });
