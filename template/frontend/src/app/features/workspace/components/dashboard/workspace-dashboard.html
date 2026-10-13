@@ -23,30 +23,35 @@
           }
         }
       </h2>
-      <!-- 命令框：打开与 ⌘K 同一个命令面板 -->
-      <button
-        type="button"
-        hlmBtn
-        variant="outline"
-        size="lg"
-        class="text-muted-foreground w-full justify-start font-normal"
-        data-testid="workbench-search"
-        (click)="commandPalette.open()"
-      >
-        <ng-icon name="lucideSearch" />
-        {{ t('workspace.dashboard.search') }}
-        <kbd hlmKbd class="ms-auto">⌘K</kbd>
-      </button>
-      @if (quickActions().length) {
-        <div class="flex flex-wrap justify-center gap-2">
-          @for (action of quickActions(); track action.label) {
-            <a hlmBtn variant="outline" size="sm" [routerLink]="action.route">
-              <ng-icon [name]="action.icon" data-icon="inline-start" />
-              {{ t(action.label) }}
-            </a>
+      <!-- 命令框与快捷操作同在一张卡里：都是"从这里出发"的入口，分开放会像两块无关内容 -->
+      <div hlmCard class="w-full text-start" data-testid="workbench-launcher">
+        <div hlmCardContent class="flex flex-col gap-3">
+          <!-- 命令框：打开与 ⌘K 同一个命令面板 -->
+          <button
+            type="button"
+            hlmBtn
+            variant="outline"
+            size="lg"
+            class="text-muted-foreground w-full justify-start font-normal"
+            data-testid="workbench-search"
+            (click)="commandPalette.open()"
+          >
+            <ng-icon name="lucideSearch" />
+            {{ t('workspace.dashboard.search') }}
+            <kbd hlmKbd class="ms-auto">⌘K</kbd>
+          </button>
+          @if (quickActions().length) {
+            <div class="flex flex-wrap gap-2">
+              @for (action of quickActions(); track action.label) {
+                <a hlmBtn variant="outline" size="sm" [routerLink]="action.route">
+                  <ng-icon [name]="action.icon" data-icon="inline-start" />
+                  {{ t(action.label) }}
+                </a>
+              }
+            </div>
           }
         </div>
-      }
+      </div>
     </div>
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -62,7 +67,7 @@
               t('workspace.dashboard.continue.note')
             }}</span>
           </div>
-          <!-- 示例卡：不读数据，下游项目换成自己最近处理的业务对象 -->
+          <!-- 示例卡：不读数据，下游项目换成自己最近处理的业务对象；手机上图标与文字横排，三张卡不占满一屏 -->
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <a
               hlmCard
@@ -70,13 +75,13 @@
               routerLink="/workspace/placeholder"
               class="hover:ring-foreground/20 transition-shadow"
             >
-              <div hlmCardContent class="flex flex-col gap-3">
+              <div hlmCardContent class="flex items-center gap-3 sm:flex-col sm:items-start">
                 <span
                   class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
                 >
                   <ng-icon name="lucideLayers" />
                 </span>
-                <div class="flex flex-col gap-0.5">
+                <div class="flex min-w-0 flex-col gap-0.5">
                   <span class="flex items-center gap-2 font-medium">
                     {{ t('workspace.dashboard.continue.item1') }}
                     <span hlmBadge variant="outline">{{
@@ -95,13 +100,13 @@
               routerLink="/workspace/placeholder"
               class="hover:ring-foreground/20 transition-shadow"
             >
-              <div hlmCardContent class="flex flex-col gap-3">
+              <div hlmCardContent class="flex items-center gap-3 sm:flex-col sm:items-start">
                 <span
                   class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
                 >
                   <ng-icon name="lucideFileText" />
                 </span>
-                <div class="flex flex-col gap-0.5">
+                <div class="flex min-w-0 flex-col gap-0.5">
                   <span class="flex items-center gap-2 font-medium">
                     {{ t('workspace.dashboard.continue.item2') }}
                     <span hlmBadge variant="outline">{{
@@ -120,13 +125,13 @@
               routerLink="/workspace/placeholder"
               class="hover:ring-foreground/20 transition-shadow"
             >
-              <div hlmCardContent class="flex flex-col gap-3">
+              <div hlmCardContent class="flex items-center gap-3 sm:flex-col sm:items-start">
                 <span
                   class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
                 >
                   <ng-icon name="lucideActivity" />
                 </span>
-                <div class="flex flex-col gap-0.5">
+                <div class="flex min-w-0 flex-col gap-0.5">
                   <span class="flex items-center gap-2 font-medium">
                     {{ t('workspace.dashboard.continue.item3') }}
                     <span hlmBadge variant="outline">{{
@@ -200,32 +205,61 @@
             @if (recentNotifications().length) {
               <ul class="flex flex-col divide-y">
                 @for (notification of recentNotifications(); track notification.id) {
+                  @let expanded = expandedNotificationId() === notification.id;
                   <li class="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
                     <span
                       class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
                     >
                       <ng-icon [name]="notificationService.getIcon(notification.type)" />
                     </span>
-                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span class="flex items-center gap-2 text-sm font-medium">
-                        <span class="truncate">{{ notification.title }}</span>
+                    <!-- 收起时标题最多两行、正文一行摘要；展开看全文（触屏与键盘都可用，不靠悬停提示） -->
+                    <div
+                      class="flex min-w-0 flex-1 flex-col gap-0.5"
+                      [id]="'workbench-notification-' + notification.id"
+                    >
+                      <span class="flex items-start gap-2 text-sm font-medium">
+                        <span class="wrap-anywhere" [class.line-clamp-2]="!expanded">{{
+                          notification.title
+                        }}</span>
                         @if (!notification.isRead) {
-                          <span class="bg-primary size-1.5 shrink-0 rounded-full"></span>
+                          <span class="bg-primary mt-1.5 size-1.5 shrink-0 rounded-full"></span>
                         }
                       </span>
                       @if (notification.content) {
-                        <span class="text-muted-foreground truncate text-xs">{{
-                          notification.content
-                        }}</span>
+                        <span
+                          class="text-muted-foreground text-xs wrap-anywhere"
+                          [class.truncate]="!expanded"
+                          [class.whitespace-pre-line]="expanded"
+                          >{{ notification.content }}</span
+                        >
                       }
                     </div>
-                    <app-relative-time-label
-                      class="text-muted-foreground text-xs"
-                      [instant]="notification.creationTime"
-                      [now]="now()"
-                      [timeZone]="timeZone()"
-                      [locale]="displayLocale()"
-                    />
+                    <div class="flex shrink-0 items-center gap-1">
+                      <app-relative-time-label
+                        class="text-muted-foreground text-xs"
+                        [instant]="notification.creationTime"
+                        [now]="now()"
+                        [timeZone]="timeZone()"
+                        [locale]="displayLocale()"
+                      />
+                      <button
+                        hlmBtn
+                        variant="ghost"
+                        size="icon-sm"
+                        class="-my-1.5 -me-2"
+                        data-testid="workbench-notification-toggle"
+                        [attr.aria-label]="t('common.details')"
+                        [attr.aria-expanded]="expanded"
+                        [attr.aria-controls]="'workbench-notification-' + notification.id"
+                        (click)="toggleNotification(notification.id)"
+                      >
+                        <ng-icon
+                          name="lucideChevronRight"
+                          class="transition-transform duration-200"
+                          [class.rotate-90]="expanded"
+                        />
+                      </button>
+                    </div>
                   </li>
                 }
               </ul>
@@ -265,7 +299,7 @@
             @if (twoFactor()) {
               <div hlmCardAction>
                 @if (securityPassed()) {
-                  <span hlmBadge appStatusDot variant="success">{{
+                  <span hlmBadge appStatusDot appearance="plain" variant="success">{{
                     t('workspace.dashboard.security.passed')
                   }}</span>
                 } @else {
@@ -397,7 +431,7 @@
                       />
                     </div>
                     @if (row.isCurrent) {
-                      <span hlmBadge appStatusDot variant="success">{{
+                      <span hlmBadge appStatusDot appearance="plain" variant="success">{{
                         t('workspace.dashboard.devices.current')
                       }}</span>
                     }

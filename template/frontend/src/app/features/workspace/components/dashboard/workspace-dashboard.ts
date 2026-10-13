@@ -238,6 +238,13 @@ export class WorkspaceDashboard {
   //#endif
   //#if (IncludeNotifications)
 
+  /** 展开了全文的那条通知；同时只展开一条。 */
+  readonly expandedNotificationId = signal<string | null>(null);
+
+  toggleNotification(id: string): void {
+    this.expandedNotificationId.update((current) => (current === id ? null : id));
+  }
+
   /** 最近通知：与顶栏铃铛同一份共享状态，这里只取前四条。 */
   readonly recentNotifications = computed(() =>
     this.notificationService.notifications().slice(0, 4),
@@ -391,7 +398,7 @@ const ENGLISH: Record<string, string> = {
   'workspace.dashboard.greeting.morning': 'Good morning, {{name}}',
   'workspace.dashboard.greeting.afternoon': 'Good afternoon, {{name}}',
   'workspace.dashboard.greeting.evening': 'Good evening, {{name}}',
-  'workspace.dashboard.search': 'Search pages and settings…',
+  'workspace.dashboard.search': 'Search pages…',
   'workspace.dashboard.continue.title': 'Continue where you left off',
   'workspace.dashboard.continue.note': 'Examples. Replace them with your own business modules.',
   'workspace.dashboard.continue.example': 'Example',
@@ -406,6 +413,7 @@ const ENGLISH: Record<string, string> = {
   'workspace.dashboard.notifications.title': 'Recent notifications',
   'workspace.dashboard.notifications.markAllRead': 'Mark all as read',
   'workspace.dashboard.notifications.empty': 'No notifications',
+  'common.details': 'View details',
   //#endif
   //#if (LocalIdentity)
   'workspace.dashboard.security.title': 'Account security',

@@ -91,7 +91,7 @@
                           @case ('outcome') {
                             <div class="flex items-center gap-1.5 whitespace-nowrap">
                               @if (isSucceeded(row.original)) {
-                                <span hlmBadge appStatusDot variant="success">{{
+                                <span hlmBadge appStatusDot appearance="plain" variant="success">{{
                                   t('operationRecords.outcome.succeeded')
                                 }}</span>
                               } @else {

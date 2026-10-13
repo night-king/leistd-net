@@ -101,11 +101,11 @@
                           }
                           @case ('status') {
                             @if (row.original.isActive) {
-                              <span hlmBadge appStatusDot variant="success">{{
+                              <span hlmBadge appStatusDot appearance="plain" variant="success">{{
                                 t('tenants.active')
                               }}</span>
                             } @else {
-                              <span hlmBadge appStatusDot variant="secondary">{{
+                              <span hlmBadge appStatusDot appearance="plain" variant="secondary">{{
                                 t('tenants.inactive')
                               }}</span>
                             }

@@ -147,7 +147,8 @@
                                   />
                                 </button>
                               }
-                              <hlm-avatar>
+                              <!-- 头像是装饰：最窄一档让出宽度给姓名 -->
+                              <hlm-avatar class="in-data-[table-fit=mobile]:hidden">
                                 @if (row.original.avatar) {
                                   <img
                                     hlmAvatarImage
@@ -224,17 +225,23 @@
                           @case ('status') {
                             <div class="flex items-center gap-1.5 whitespace-nowrap">
                               @if (row.original.isActive) {
-                                <span hlmBadge appStatusDot variant="success">{{
+                                <span hlmBadge appStatusDot appearance="plain" variant="success">{{
                                   row.original.isActive
                                     ? t('users.status.active')
                                     : t('users.status.inactive')
                                 }}</span>
                               } @else {
-                                <span hlmBadge appStatusDot variant="secondary">{{
-                                  row.original.isActive
-                                    ? t('users.status.active')
-                                    : t('users.status.inactive')
-                                }}</span>
+                                <span
+                                  hlmBadge
+                                  appStatusDot
+                                  appearance="plain"
+                                  variant="secondary"
+                                  >{{
+                                    row.original.isActive
+                                      ? t('users.status.active')
+                                      : t('users.status.inactive')
+                                  }}</span
+                                >
                               }
                               <!--#if (LocalIdentity)-->
                               @if (row.original.isLockedOut) {
@@ -549,6 +556,21 @@
                         <dl
                           class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
                         >
+                          <!-- 最窄一档主列会截断姓名与用户名，展开时给出全文；更宽时主列完整，不重复 -->
+                          <dt class="text-muted-foreground hidden in-data-[table-fit=mobile]:block">
+                            {{ t('users.table.colUser') }}
+                          </dt>
+                          <dd
+                            class="hidden min-w-0 in-data-[table-fit=mobile]:block"
+                            data-testid="user-detail-identity"
+                          >
+                            <span class="block font-medium wrap-anywhere">{{
+                              row.original.displayName || row.original.username
+                            }}</span>
+                            <span class="text-muted-foreground block text-xs wrap-anywhere">{{
+                              row.original.username
+                            }}</span>
+                          </dd>
                           @if (isColumnHidden('email')) {
                             <dt class="text-muted-foreground">{{ t('users.table.colEmail') }}</dt>
                             <dd class="min-w-0 truncate">{{ row.original.email }}</dd>

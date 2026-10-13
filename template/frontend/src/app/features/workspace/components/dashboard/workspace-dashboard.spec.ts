@@ -18,6 +18,7 @@ import { AuthorizationService } from '../../../../core/services/authorization-se
 import { CommandPaletteService } from '../../../../core/services/command-palette-service';
 //#if (IncludeNotifications)
 import { NotificationService } from '../../../../core/services/notification-service';
+import { SignalRService } from '../../../../core/services/signalr-service';
 //#endif
 import { StartupService } from '../../../../core/services/startup-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
@@ -104,6 +105,43 @@ describe('WorkspaceDashboard', () => {
     expect(markAll).toHaveBeenCalledOnce();
     expect(error).toHaveBeenCalledOnce();
     expect(dashboard.markingAllRead()).toBe(false);
+  });
+
+  // 收起时是摘要，展开看全文；同时只展开一条，触屏与键盘都用这个按钮
+  it('expands one notification at a time to show its full text', async () => {
+    await setup();
+    const notification = (id: string) => ({
+      id,
+      title: `A long notification title ${id}`,
+      content: `The full body of notification ${id}, longer than one line on a phone.`,
+      type: 'System',
+      isRead: false,
+      creationTime: new Date().toISOString(),
+    });
+    TestBed.inject(SignalRService).notifications.set([notification('a'), notification('b')]);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const toggles = () => [
+      ...host.querySelectorAll<HTMLButtonElement>('[data-testid="workbench-notification-toggle"]'),
+    ];
+    const body = (id: string) =>
+      host.querySelector(`#workbench-notification-${id} .text-xs`) as HTMLElement;
+    expect(body('a').classList).toContain('truncate');
+
+    toggles()[0].click();
+    fixture.detectChanges();
+    expect(toggles().map((toggle) => toggle.getAttribute('aria-expanded'))).toEqual([
+      'true',
+      'false',
+    ]);
+    expect(body('a').classList).not.toContain('truncate');
+
+    toggles()[1].click();
+    fixture.detectChanges();
+    expect(toggles().map((toggle) => toggle.getAttribute('aria-expanded'))).toEqual([
+      'false',
+      'true',
+    ]);
   });
   //#endif
 

@@ -54,9 +54,14 @@
               <div hlmItemTitle>
                 {{ row.device || t('account.sessions.unknownDevice') }}
                 @if (row.isCurrent) {
-                  <span hlmBadge appStatusDot variant="secondary" data-testid="current-session">{{
-                    t('account.sessions.current')
-                  }}</span>
+                  <span
+                    hlmBadge
+                    appStatusDot
+                    appearance="plain"
+                    variant="success"
+                    data-testid="current-session"
+                    >{{ t('account.sessions.current') }}</span
+                  >
                 }
               </div>
               <p hlmItemDescription class="break-words">

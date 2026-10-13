@@ -254,12 +254,21 @@ body {
 }
 
 /*
- * 分段控件的选中项：Vega 只给 muted 底色，与页面底色差不到 1.3:1，看不出哪一档选中；
- * 再加一圈中性描边（≥ 3:1）。用 outline 而不是 box-shadow，不挤掉聚焦环。
+ * 分段控件（ToggleGroup 默认变体）：灰色轨道里选中项浮起为底色 + 轻阴影，未选中的文字减弱——与 Spartan Tabs
+ * 列表同一写法，暗色同样取 input/30 底与 input 描边。选中靠底色、阴影与文字色三者区分，不用深色描边。
+ * sm 档项高收一档，整条轨道与旁边 h-8 的按钮等高。描边（outline）变体保持官方样式。
  */
-[data-slot='toggle-group-item'][data-state='on'] {
-  outline: 1px solid var(--muted-foreground);
-  outline-offset: -1px;
+[data-slot='toggle-group'][data-variant='default'] {
+  @apply bg-muted rounded-lg p-0.5;
+}
+[data-slot='toggle-group-item'][data-variant='default'] {
+  @apply text-muted-foreground hover:bg-transparent hover:text-foreground;
+}
+[data-slot='toggle-group-item'][data-variant='default'][data-size='sm'] {
+  @apply h-7;
+}
+[data-slot='toggle-group-item'][data-variant='default'][data-state='on'] {
+  @apply bg-background text-foreground shadow-sm dark:border dark:border-input dark:bg-input/30;
 }
 
 /* Vega 的对话框与抽屉标题不设字号，会继承正文的 14px；恢复到卡片标题同档的 16px，与说明文字拉开层级。 */

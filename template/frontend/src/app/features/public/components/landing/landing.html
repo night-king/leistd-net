@@ -79,8 +79,12 @@
               {{ t('landing.hero.titleAccent') }}
             </span>
           </h1>
+          <!--
+            导语：宽屏按句均衡分行（break-keep 只在标点与空格处断）；手机宽度一句放不满一行，
+            只在标点处断会留下很短的首行，改按常规中文断行，text-pretty 避免末行孤字
+          -->
           <p
-            class="text-muted-foreground max-w-2xl text-base text-balance break-keep wrap-anywhere sm:text-lg"
+            class="text-muted-foreground max-w-2xl text-base text-pretty break-normal wrap-anywhere sm:text-lg sm:text-balance sm:break-keep"
           >
             {{ t('landing.hero.subtitle') }}
           </p>

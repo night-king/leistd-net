@@ -110,17 +110,22 @@
                                   />
                                 </button>
                               }
-                              <span class="text-foreground text-sm font-medium truncate">
-                                {{ row.original.displayName || row.original.clientId }}
-                              </span>
-                              @if (row.original.displayName) {
-                                <span
-                                  class="text-xs text-muted-foreground font-mono truncate"
-                                  [hlmTooltip]="row.original.clientId"
-                                >
-                                  {{ row.original.clientId }}
+                              <!-- 最窄一档名称与 Client ID 上下两行，各自多留一些宽度 -->
+                              <div
+                                class="flex min-w-0 items-center gap-2 in-data-[table-fit=mobile]:flex-col in-data-[table-fit=mobile]:items-start in-data-[table-fit=mobile]:gap-0"
+                              >
+                                <span class="text-foreground text-sm font-medium truncate">
+                                  {{ row.original.displayName || row.original.clientId }}
                                 </span>
-                              }
+                                @if (row.original.displayName) {
+                                  <span
+                                    class="text-xs text-muted-foreground font-mono truncate"
+                                    [hlmTooltip]="row.original.clientId"
+                                  >
+                                    {{ row.original.clientId }}
+                                  </span>
+                                }
+                              </div>
                             </div>
                           }
                           @case ('type') {
@@ -370,6 +375,24 @@
                         <dl
                           class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
                         >
+                          <!-- 最窄一档主列会截断名称与 Client ID，展开时给出全文；更宽时主列完整，不重复 -->
+                          <dt class="text-muted-foreground hidden in-data-[table-fit=mobile]:block">
+                            {{ t('openApp.table.colApp') }}
+                          </dt>
+                          <dd
+                            class="hidden min-w-0 in-data-[table-fit=mobile]:block"
+                            data-testid="open-app-detail-identity"
+                          >
+                            <span class="block font-medium wrap-anywhere">{{
+                              row.original.displayName || row.original.clientId
+                            }}</span>
+                            @if (row.original.displayName) {
+                              <span
+                                class="text-muted-foreground block font-mono text-xs break-all"
+                                >{{ row.original.clientId }}</span
+                              >
+                            }
+                          </dd>
                           @if (isColumnHidden('permissions')) {
                             <dt class="text-muted-foreground">
                               {{ t('openApp.table.colPermissions') }}
