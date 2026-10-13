@@ -92,7 +92,7 @@ public sealed class OperationRecordQueryTests
 
         var page = await service.GetPagedListAsync(new GetOperationRecordPagedInputDto());
 
-        Assert.Same(OperationRecordVisibilityScope.Host, store.LastQuery!.Value.Filter.Scope);
+        Assert.Same(OperationRecordVisibilityScope.Host, store.LastQuery!.Value.Criteria.Scope);
         var row = Assert.Single(page.Items);
         Assert.Equal(("db timeout", "trace-1", TenantId), (row.FailureDetail, row.CorrelationId, row.ActorTenantId));
     }
@@ -107,7 +107,7 @@ public sealed class OperationRecordQueryTests
 
         var page = await service.GetPagedListAsync(new GetOperationRecordPagedInputDto());
 
-        var scope = store.LastQuery!.Value.Filter.Scope;
+        var scope = store.LastQuery!.Value.Criteria.Scope;
         Assert.Equal(
             (true, false, "client:reporting", TenantId),
             (scope.IsRestricted, scope.IncludesHostRecords, scope.ActorId, scope.ActorTenantId));
@@ -127,7 +127,7 @@ public sealed class OperationRecordQueryTests
             Actions = ["user.created", "tenant.created", "auth.login.succeeded"]
         });
 
-        Assert.Equal(["user.created"], store.LastQuery!.Value.Filter.Actions);
+        Assert.Equal(["user.created"], store.LastQuery!.Value.Criteria.Actions);
     }
 
     /// <summary>筛了但展开为空时返回空页，不下传。</summary>

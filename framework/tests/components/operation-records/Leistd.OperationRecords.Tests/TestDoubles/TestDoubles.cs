@@ -64,8 +64,8 @@ internal sealed class RecordingOperationRecordStore : IOperationRecordWriter, IO
 {
     public List<OperationRecordInfo> Written { get; } = [];
 
-    /// <summary>最近一次查询收到的筛选条件与分页。</summary>
-    public (OperationRecordFilter Filter, PageRequest Page)? LastQuery { get; private set; }
+    /// <summary>最近一次查询收到的查询条件与分页。</summary>
+    public (OperationRecordCriteria Criteria, PageRequest Page)? LastQuery { get; private set; }
 
     public Task InsertAsync(OperationRecordInfo record, CancellationToken cancellationToken = default)
     {
@@ -75,21 +75,19 @@ internal sealed class RecordingOperationRecordStore : IOperationRecordWriter, IO
 
     // 不做筛选：查询用例的断言关心"交给存储的条件"与"拿回来之后怎么裁剪"，筛选语义由存储自己的用例钉住
     public Task<PagedResult<OperationRecordInfo>> GetPagedListAsync(
-        OperationRecordFilter filter,
+        OperationRecordCriteria criteria,
         PageRequest page,
         CancellationToken cancellationToken = default)
     {
-        LastQuery = (filter, page);
+        LastQuery = (criteria, page);
         return Task.FromResult(new PagedResult<OperationRecordInfo>(Written.Count, Written.Skip(page.Offset).Take(page.Limit)));
     }
 
-    public Task<IReadOnlyDictionary<DateOnly, int>> CountByDayAsync(
-        OperationRecordCountFilter filter,
-        CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
-
-    public Task<int> CountDistinctTargetsAsync(
-        OperationRecordCountFilter filter,
+    public Task<IReadOnlyList<int>> CountByBucketsAsync(
+        OperationRecordVisibilityScope scope,
+        IReadOnlyList<DateTime> edges,
+        IReadOnlyCollection<string>? actions = null,
+        bool distinctTargets = false,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 }

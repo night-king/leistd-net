@@ -1,5 +1,6 @@
 using Leistd.Data.Filters;
 using Leistd.Data.Paging;
+using Leistd.Data.Querying;
 using Leistd.MultiTenancy.Context;
 using Leistd.MultiTenancy.Tenancy;
 using Leistd.OperationRecords.Models;
@@ -71,27 +72,27 @@ public class EfCoreOperationRecordStore<TDbContext>(
 
     /// <inheritdoc />
     public async Task<PagedResult<OperationRecordInfo>> GetPagedListAsync(
-        OperationRecordFilter filter,
+        OperationRecordCriteria criteria,
         PageRequest page,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(filter);
-        ArgumentNullException.ThrowIfNull(filter.Scope);
+        ArgumentNullException.ThrowIfNull(criteria);
+        ArgumentNullException.ThrowIfNull(criteria.Scope);
         ArgumentNullException.ThrowIfNull(page);
 
-        var scope = filter.Scope;
+        var scope = criteria.Scope;
 
         var dbContext = await dbContextProvider.GetDbContextAsync(cancellationToken);
         var query = dbContext.Set<OperationRecord>().AsNoTracking();
 
         // 先物化成数组，EF 才翻译为 IN (...)；IReadOnlyCollection 在部分 Provider 上会退化为客户端求值
-        if (filter.Actions is { Count: > 0 } actions)
+        if (criteria.Actions is { Count: > 0 } actions)
         {
             var actionCodes = actions.ToArray();
             query = query.Where(x => actionCodes.Contains(x.Action));
         }
 
-        if (filter.Outcome is { } requiredOutcome)
+        if (criteria.Outcome is { } requiredOutcome)
         {
             query = query.Where(x => x.Outcome == requiredOutcome);
         }
@@ -112,9 +113,9 @@ public class EfCoreOperationRecordStore<TDbContext>(
                     && (includesHostRecords || (actorId != null && x.ActorId == actorId && x.ActorTenantId == actorTenantId))));
         }
 
-        if (!string.IsNullOrWhiteSpace(filter.Keyword))
+        if (!string.IsNullOrWhiteSpace(criteria.Keyword))
         {
-            var trimmed = filter.Keyword.Trim();
+            var trimmed = criteria.Keyword.Trim();
             query = query.Where(x =>
                 x.Action.Contains(trimmed)
                 || x.TargetId.Contains(trimmed)
@@ -123,12 +124,12 @@ public class EfCoreOperationRecordStore<TDbContext>(
         }
 
         // 两端闭区间：按天选择时调用方把上界取到当天 23:59:59.999
-        if (filter.StartTime is { } startTime)
+        if (criteria.StartTime is { } startTime)
         {
             query = query.Where(x => x.CreationTime >= startTime);
         }
 
-        if (filter.EndTime is { } endTime)
+        if (criteria.EndTime is { } endTime)
         {
             query = query.Where(x => x.CreationTime <= endTime);
         }
@@ -147,45 +148,53 @@ public class EfCoreOperationRecordStore<TDbContext>(
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyDictionary<DateOnly, int>> CountByDayAsync(
-        OperationRecordCountFilter filter,
+    public async Task<IReadOnlyList<int>> CountByBucketsAsync(
+        OperationRecordVisibilityScope scope,
+        IReadOnlyList<DateTime> edges,
+        IReadOnlyCollection<string>? actions = null,
+        bool distinctTargets = false,
         CancellationToken cancellationToken = default)
     {
-        var records = await CountedRecordsAsync(filter, cancellationToken);
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(edges);
+        if (edges.Count < 2)
+        {
+            throw new ArgumentException("At least two bucket edges are required.", nameof(edges));
+        }
 
-        // 按 UTC 日分组在数据库里完成，只取回每天一行
-        var days = await records
-            .GroupBy(x => x.CreationTime.Date)
-            .Select(group => new { Day = group.Key, Count = group.Count() })
-            .ToListAsync(cancellationToken);
+        // 区间筛选与分组由 GroupByTimeBucket 按首尾边界完成，这里只放可见范围与动作
+        var records = await CountedRecordsAsync(scope, actions, cancellationToken);
+        if (distinctTargets)
+        {
+            records = records.Where(x => x.TargetId != OperationTarget.NoTargetId);
+        }
 
-        return days.ToDictionary(day => DateOnly.FromDateTime(day.Day), day => day.Count);
-    }
+        // 分组与计数在数据库里完成，每个有记录的桶只取回一行
+        var buckets = records.GroupByTimeBucket(x => x.CreationTime, edges);
+        var rows = distinctTargets
+            ? await buckets
+                .Select(group => new { Bucket = group.Key, Count = group.Select(x => x.TargetId).Distinct().Count() })
+                .ToListAsync(cancellationToken)
+            : await buckets
+                .Select(group => new { Bucket = group.Key, Count = group.Count() })
+                .ToListAsync(cancellationToken);
 
-    /// <inheritdoc />
-    public async Task<int> CountDistinctTargetsAsync(
-        OperationRecordCountFilter filter,
-        CancellationToken cancellationToken = default)
-    {
-        var records = await CountedRecordsAsync(filter, cancellationToken);
+        var counts = new int[edges.Count - 1];
+        foreach (var row in rows)
+        {
+            counts[row.Bucket] = row.Count;
+        }
 
-        return await records
-            .Where(x => x.TargetId != OperationTarget.NoTargetId)
-            .Select(x => x.TargetId)
-            .Distinct()
-            .CountAsync(cancellationToken);
+        return counts;
     }
 
     // 原表与归档表投影成同一形状后 UNION ALL，筛选与聚合在一条语句里完成：
     // 归档作业同时在搬运时，两次分开的查询会把同一条记录数两遍或漏掉
     private async Task<IQueryable<CountedRecord>> CountedRecordsAsync(
-        OperationRecordCountFilter filter,
+        OperationRecordVisibilityScope scope,
+        IReadOnlyCollection<string>? actions,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(filter);
-        ArgumentNullException.ThrowIfNull(filter.Scope);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(filter.StartTime, filter.EndTime);
-
         var dbContext = await dbContextProvider.GetDbContextAsync(cancellationToken);
 
         var archived = dbContext.Set<OperationRecordArchive>().AsNoTracking();
@@ -218,18 +227,13 @@ public class EfCoreOperationRecordStore<TDbContext>(
                 ActorTenantId = x.ActorTenantId
             }));
 
-        var startTime = filter.StartTime;
-        var endTime = filter.EndTime;
-        query = query.Where(x => x.CreationTime >= startTime && x.CreationTime < endTime);
-
-        if (filter.Actions is { Count: > 0 } actions)
+        if (actions is { Count: > 0 })
         {
             var actionCodes = actions.ToArray();
             query = query.Where(x => actionCodes.Contains(x.Action));
         }
 
         // 与分页同一套可见性判定，见 GetPagedListAsync
-        var scope = filter.Scope;
         if (scope.IsRestricted)
         {
             var actorId = scope.ActorId;

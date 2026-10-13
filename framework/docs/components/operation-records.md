@@ -11,7 +11,7 @@
 | 权限不足在**授权阶段**就被拒（请求到不了应用服务） | 端点打 `[OperationRecordAction]`，在授权结果处理器里调一行扩展方法 |
 | 授权通过后，控制器或组件端点被业务规则拒绝 | 同一个注解，紧接授权启用 `UseOperationFailureRecording()` |
 | 管理界面要列表、筛选、导出操作记录 | 路由组上调 `MapOperationRecords(...)`；自定义路由或 DTO 时直接用 `IOperationRecordQueryService` |
-| 仪表盘要按区间统计记录数或涉及的人数（含已归档的记录） | `IOperationRecordReader.CountByDayAsync` / `CountDistinctTargetsAsync` |
+| 仪表盘要按区间或按日/按小时统计记录数、涉及的人数（含已归档的记录） | `IOperationRecordReader.CountByBucketsAsync`，桶边界按业务时区由调用方算好 |
 | 记录要有保留期（到期搬入归档表） | `AddOperationRecordRetention<TDbContext>()`，默认关闭 |
 | 不要产品内的历史查询，记录交给日志采集链路（SIEM 等） | `AddOperationRecordsLogging()` 代替数据库存储；记录器与调用点完全不变 |
 | 想知道某次请求的完整细节（入参、堆栈、耗时） | **不要往这里加字段**，按 `CorrelationId` 去请求日志里查 |
@@ -365,10 +365,9 @@ app.UseOperationFailureRecording();
 | `IOperationActionDefinitionManager` | 动作定义的只读索引；`GetOrNull` 返回 `null` 即未登记。写入时记录器据此抛错；读取历史记录时调用方据此降级（原样显示裸码） |
 | `OperationRecordOptions` | `ImpersonatorIdClaimType` / `ImpersonatorNameClaimType` 默认值取自 `CustomClaimTypes`；操作人标识按 `ClaimTypeOptions.UserIds` 读取（`ICurrentUser.SubjectId`），不在这里另配 |
 | `IOperationRecordWriter.InsertAsync(record, ct)` | 写入；成功记录只在它描述的变更生效之后可见（有环境工作单元时跟随它），失败记录立即、独立于调用方事务写出。一个宿主只有一个写入方 |
-| `IOperationRecordReader.GetPagedListAsync(filter, page, ct)` | 只由可回读的存储实现； 按创建时间倒序分页，只读未归档的记录，返回 `PagedResult<OperationRecordInfo>`；`OperationRecordFilter` 的 `Scope` 必填，关键字匹配动作码、目标标识、目标名与操作人名，时间两端都是**闭区间**且按 UTC 比较；`PageRequest.Sorting` 不生效 |
-| `IOperationRecordReader.CountByDayAsync(filter, ct)` | 按发生时间的 UTC 日计数，返回 `IReadOnlyDictionary<DateOnly, int>`，没有记录的日子不出现；**覆盖已归档的记录** |
-| `IOperationRecordReader.CountDistinctTargetsAsync(filter, ct)` | 区间内不同目标标识的个数（如登录成功的不同用户数），覆盖已归档的记录，没有目标（`-`）的记录不计入 |
-| `OperationRecordCountFilter` | 计数的筛选条件：`Scope` 必填；`StartTime`（含）与 `EndTime`（不含）必填，是 UTC 的**半开区间**，相邻区间的边界记录只归后一个，起点晚于终点抛 `ArgumentOutOfRangeException`；`Actions` 为空不过滤 |
+| `IOperationRecordReader.GetPagedListAsync(criteria, page, ct)` | 只由可回读的存储实现；按创建时间倒序分页，只读未归档的记录，返回 `PagedResult<OperationRecordInfo>`；`OperationRecordCriteria` 的 `Scope` 必填，关键字匹配动作码、目标标识、目标名与操作人名，时间两端都是**闭区间**且按 UTC 比较；`PageRequest.Sorting` 不生效 |
+| `IOperationRecordReader.CountByBucketsAsync(scope, edges, actions?, distinctTargets?, ct)` | 按调用方给定的 UTC 桶边界计数，**覆盖已归档的记录**：第 i 项是 [`edges[i]`, `edges[i+1]`) 内的记录数，结果长度为边界数减一，没有记录的桶为 0；边界上的记录只归后一个桶。边界至少两个且严格递增，否则抛 `ArgumentException`；桶可不等长（夏令时当天的日桶为 23 或 25 小时），组件不接收时区、不生成日历。`distinctTargets` 为 `true` 时每桶数不同目标标识（如登录成功的不同用户数），没有目标（`-`）的记录不计入，各桶分别去重；只传首尾两个边界即整段区间的总数。主表与归档表在一条语句里合并后按 `Leistd.Data` 的 `GroupByTimeBucket` 分组 |
+| `OperationRecordCriteria` | 分页查询条件：`Scope` 必填；`Keyword`、`StartTime`、`EndTime`、`Actions`、`Outcome` 可选，时间两端为闭区间、按 UTC 比较 |
 | `IOperationRecordQueryService` | 查询、筛选项与导出用例：无租户上下文即宿主读者；租户读者看不到 `Host` 层、`Actor` 层只看本人（`ActorId` 与 `ActorTenantId` 都与读者相同）；仅宿主字段（`FailureDetail`、`CorrelationId`、`ActorTenantId`）只下发给宿主读者；类别与动作维度间取交集，展开为空返回空页；`FailureMessage` 为按请求语言渲染的失败原因（导出另成 `FailureMessage` 列）。**不做权限判定**，由端点策略把守 |
 | `MapOperationRecords(configure)` | AspNetCore 包：`GET /`、`GET /filter-options`、`GET /export`；`ReadPolicy`、`ExportPolicy`、`ExportAction` 必填；未注册查询用例（日志输出模式）时映射即抛错；返回路由组，端点名前缀见 `OperationRecordEndpoints.NamePrefix`。查询串 `outcome` 只收 camelCase 名称 `succeeded`、`failed`，其他大小写、数字与未定义值是字段 `outcome` 的 400 |
 | `AddOperationRecordRetention<TDbContext>(configure?, configSectionPath?)` | EF 包：绑定 `configSectionPath`（默认 `Leistd:OperationRecords:Retention`）并启动期校验，校验消息按实际路径报键，重复调用换用另一配置节时抛出；登记集群周期任务 `operation-records.archive`（每日 `DailyRunHourUtc` 执行） |
