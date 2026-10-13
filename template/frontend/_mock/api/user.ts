@@ -1,4 +1,4 @@
-import { requirePermission } from './authorization';
+import { ensureRolesCanBeManaged, requirePermission } from './authorization';
 import { PagedResultDto } from '../../src/app/shared/dtos/paged-result.dto';
 import { MockException, MockRequest } from '../core/models';
 import { MockSortFields, sortMockRows } from '../core/sorting';
@@ -277,19 +277,27 @@ export function deleteUser(id: string) {
       message: 'You cannot delete your own account.',
     });
   }
-  DELETED_USERS.push(...USERS.splice(index, 1));
+  const [deleted] = USERS.splice(index, 1);
+  DELETED_USERS.push({ ...deleted, deletionTime: new Date().toISOString() });
 }
 
 //#endif
-/** 与后端批量入参校验同形：400 字段错误；ids 1–100 个，重复的只处理一次。 */
-function batchIds(body: Record<string, unknown>): string[] {
-  const ids = Array.isArray(body['ids']) ? [...new Set(body['ids'].map(String))] : [];
-  if (ids.length < 1 || ids.length > 100) {
+/**
+ * 与后端批量入参校验同形：400 字段错误。数量按提交的原数组校验（后端在去重之前验证），
+ * 通过后重复的只处理一次。
+ */
+function distinctItems(body: Record<string, unknown>, field: string, max: number): string[] {
+  const items = Array.isArray(body[field]) ? body[field].map(String) : [];
+  if (items.length < 1 || items.length > max) {
     throw new MockException(400, {
-      errors: [{ field: 'ids', detail: 'ids must contain between 1 and 100 items.' }],
+      errors: [{ field, detail: `${field} must contain between 1 and ${max} items.` }],
     });
   }
-  return ids;
+  return [...new Set(items)];
+}
+
+function batchIds(body: Record<string, unknown>): string[] {
+  return distinctItems(body, 'ids', 100);
 }
 
 /** 逐条执行，复用单条操作的规则；失败的条目带单条接口同样的错误码与说明，不回滚已成功的。 */
@@ -328,12 +336,7 @@ export function batchUnlockUsers(body: Record<string, unknown>) {
 export function batchAssignUserRoles(body: Record<string, unknown>) {
   requirePermission('App.Users.ManageRoles');
   const ids = batchIds(body);
-  const roleIds = Array.isArray(body['roleIds']) ? [...new Set(body['roleIds'].map(String))] : [];
-  if (roleIds.length < 1 || roleIds.length > 20) {
-    throw new MockException(400, {
-      errors: [{ field: 'roleIds', detail: 'roleIds must contain between 1 and 20 items.' }],
-    });
-  }
+  const roleIds = distinctItems(body, 'roleIds', 20);
   const roles = ROLES.filter((role) => roleIds.includes(role.id));
   if (roles.length !== roleIds.length) {
     throw new MockException(400, {
@@ -347,6 +350,7 @@ export function batchAssignUserRoles(body: Record<string, unknown>) {
     if (!user) {
       throw new MockException(404, { code: 'User:NotFound', message: 'User does not exist' });
     }
+    ensureRolesCanBeManaged(user);
     user.roles = [...new Set([...user.roles, ...roles.map((role) => role.name)])];
   });
 }

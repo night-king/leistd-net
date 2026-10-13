@@ -1,5 +1,11 @@
 import { getPlatformStatistics } from './platform-statistics';
+//#if (LocalIdentity)
+import { deleteUser } from './user';
+//#endif
 import { MockException } from '../core/models';
+//#if (LocalIdentity)
+import { DELETED_USERS, USERS } from '../data/user';
+//#endif
 import { setMockSessionUserId } from '../utils/current-user';
 
 describe('platform statistics mock', () => {
@@ -24,6 +30,33 @@ describe('platform statistics mock', () => {
     setMockSessionUserId('user_admin');
 
     expect(statusOf(() => getPlatformStatistics({ days: '14' }))).toBe(400);
+  });
+  //#if (LocalIdentity)
+
+  it('keeps deleted users in the earlier total and in sign-ups', () => {
+    setMockSessionUserId('user_admin');
+    const snapshot = [...USERS];
+    onTestFinished(() => {
+      USERS.splice(0, USERS.length, ...snapshot);
+      DELETED_USERS.length = 0;
+    });
+    const before = getPlatformStatistics({ days: '7' });
+
+    deleteUser('user_demo');
+    const after = getPlatformStatistics({ days: '7' });
+
+    expect(after.totalUsers).toEqual({
+      value: before.totalUsers.value - 1,
+      previous: before.totalUsers.previous,
+    });
+    expect(after.newUsers).toEqual(before.newUsers);
+  });
+  //#endif
+
+  it('defaults to 7 days when the range is omitted', () => {
+    setMockSessionUserId('user_admin');
+
+    expect(getPlatformStatistics({}).days).toBe(7);
   });
   //#if (IncludeOperationRecords && LocalIdentity)
 

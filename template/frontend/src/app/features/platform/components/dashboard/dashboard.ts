@@ -170,6 +170,7 @@ export class Dashboard {
   readonly loading = signal(false);
   readonly loadFailed = signal(false);
   private readonly statisticsRequests = new Subject<StatisticsDays>();
+  private readonly destroyRef = inject(DestroyRef);
 
   /** 显示名优先，没有时用用户名。 */
   readonly userName = computed(() => {
@@ -359,11 +360,13 @@ export class Dashboard {
   //#endif
   //#if (IncludeOperationRecords)
 
-  readonly canViewRecentRecords = computed(() =>
-    this.authorization.has(PERMISSIONS.operationRecords.default),
+  /** 最近操作也是仪表盘统计的一部分：没有仪表盘权限时不请求、不显示。 */
+  readonly canViewRecentRecords = computed(
+    () => this.canViewStatistics() && this.authorization.has(PERMISSIONS.operationRecords.default),
   );
   readonly recentRecords = signal<OperationRecordOutputDto[] | null>(null);
   readonly recentRecordsFailed = signal(false);
+  private readonly recentRecordRequests = new Subject<void>();
 
   /** 最近操作的句子，按记录 Id 取；句子模板在 operationRecords scope，随语言切换重算。 */
   protected readonly recentSentences = computed(
@@ -461,7 +464,7 @@ export class Dashboard {
         switchMap((days) =>
           this.statisticsService.getStatistics(days).pipe(catchError(() => of(null))),
         ),
-        takeUntilDestroyed(inject(DestroyRef)),
+        takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((statistics) => {
         this.loading.set(false);
@@ -479,19 +482,34 @@ export class Dashboard {
       }
     });
     //#if (IncludeOperationRecords)
+
+    // 首次加载与重试走同一个入口，只保留最后一次请求
+    this.recentRecordRequests
+      .pipe(
+        switchMap(() =>
+          this.operationRecordService
+            .getOperationRecords({ offset: 0, limit: 5 })
+            .pipe(catchError(() => of(null))),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((page) => {
+        if (page) {
+          this.recentRecords.set(page.items);
+        } else {
+          this.recentRecordsFailed.set(true);
+        }
+      });
+    // 只在可见性变为真时取一次；权限重载但结论不变时不重取
     effect(() => {
-      if (
-        this.canViewRecentRecords() &&
-        this.recentRecords() === null &&
-        !this.recentRecordsFailed()
-      ) {
+      if (this.canViewRecentRecords()) {
         this.loadRecentRecords();
       }
     });
     //#endif
   }
 
-  /** 分段控件的取值：单选时是一个值；再次点击当前项会给出空值，这里保持一档始终选中。 */
+  /** 分段控件不可取消选中（`nullable` 为假），单选时只会给出另一档的值。 */
   setDays(value: StatisticsDays | readonly StatisticsDays[] | null | undefined): void {
     const days = Array.isArray(value) ? value[0] : value;
     if (days == null || days === this.days()) {
@@ -510,10 +528,7 @@ export class Dashboard {
 
   loadRecentRecords(): void {
     this.recentRecordsFailed.set(false);
-    this.operationRecordService.getOperationRecords({ offset: 0, limit: 5 }).subscribe({
-      next: (page) => this.recentRecords.set(page.items),
-      error: () => this.recentRecordsFailed.set(true),
-    });
+    this.recentRecordRequests.next();
   }
   //#endif
 }

@@ -139,12 +139,13 @@ describe('DefaultSidebar menu groups', () => {
     expect(routesOf(build({ platform: true, permissions: PLATFORM_ENTRY_PERMISSIONS }))).toEqual(
       allRoutes,
     );
+    // 仪表盘随平台常驻，它的权限只决定统计是否可见；其余入口权限各自带出一个菜单项
     for (const permission of PLATFORM_ENTRY_PERMISSIONS) {
       TestBed.resetTestingModule();
       expect(
         routesOf(build({ platform: true, permissions: [permission] })).length,
         permission,
-      ).toBeGreaterThan(1);
+      ).toBeGreaterThan(permission === PERMISSIONS.dashboard.default ? 0 : 1);
     }
   });
 

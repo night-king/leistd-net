@@ -238,6 +238,8 @@ export class UserTable {
     manualPagination: true,
     manualSorting: true,
     rowCount: this.totalCount(),
+    // 加载中表格里还是上一页的行，此时勾选的会是看不见的旧数据
+    enableRowSelection: !this.loading(),
     onPaginationChange: (updater) =>
       this.paginationChange.emit(resolveTableUpdater(updater, this.pagination())),
     onSortingChange: (updater) =>

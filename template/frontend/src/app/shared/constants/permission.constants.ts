@@ -65,6 +65,8 @@ export const PERMISSIONS = {
  * （`authorization-service.spec.ts` 与后端契约测试核对同源与覆盖）。
  */
 export const PLATFORM_ENTRY_PERMISSIONS = [
+  // 只持有仪表盘权限也能进平台看统计：仪表盘本身就是平台首页
+  PERMISSIONS.dashboard.default,
   PERMISSIONS.users.default,
   PERMISSIONS.roles.default,
   //#if (LocalIdentity && IncludeMultiTenancy)

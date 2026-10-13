@@ -93,7 +93,7 @@
               hlmBtn
               variant="ghost"
               size="sm"
-              [disabled]="batchBusy()"
+              [disabled]="batchBusy() || loading()"
               (click)="batchSetActive(true)"
             >
               <ng-icon name="lucideCircleCheck" data-icon="inline-start" />
@@ -104,7 +104,7 @@
               hlmBtn
               variant="ghost"
               size="sm"
-              [disabled]="batchBusy()"
+              [disabled]="batchBusy() || loading()"
               (click)="batchUnlock()"
             >
               <ng-icon name="lucideLockOpen" data-icon="inline-start" />
@@ -117,7 +117,7 @@
               hlmBtn
               variant="ghost"
               size="sm"
-              [disabled]="batchBusy()"
+              [disabled]="batchBusy() || loading()"
               (click)="batchRolesVisible.set(true)"
             >
               <ng-icon name="lucideShieldCheck" data-icon="inline-start" />
@@ -130,7 +130,7 @@
               variant="ghost"
               size="sm"
               class="text-destructive"
-              [disabled]="batchBusy()"
+              [disabled]="batchBusy() || loading()"
               (click)="batchSetActive(false)"
             >
               <ng-icon name="lucideBan" data-icon="inline-start" />

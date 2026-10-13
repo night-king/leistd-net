@@ -270,11 +270,13 @@ export class Users {
   );
   /** 当前页勾选的用户（按 Id）。只在当前页内有效：翻页、筛选、排序或批量操作完成后清空。 */
   readonly rowSelection = signal<RowSelectionState>({});
-  readonly selectedIds = computed(() =>
-    Object.entries(this.rowSelection())
-      .filter(([, selected]) => selected)
-      .map(([id]) => id),
-  );
+  /** 批量操作的目标：只取当前显示的行里勾选的，不信任选择状态里残留的其他 Id。 */
+  readonly selectedIds = computed(() => {
+    const selection = this.rowSelection();
+    return this.users()
+      .map((user) => user.id)
+      .filter((id) => selection[id]);
+  });
   /** 有任一批量操作可用时才显示多选列。 */
   readonly canBatch = computed(() => this.canUpdateUser() || this.canManageUserRoles());
   readonly batchRolesVisible = signal(false);
@@ -343,6 +345,12 @@ export class Users {
       .subscribe((data) => {
         this.loadError.set(null);
         this.users.set(data.items);
+        // 刷新后已不在本页的行不再算作选中
+        this.rowSelection.update((selection) =>
+          Object.fromEntries(
+            data.items.filter((user) => selection[user.id]).map((user) => [user.id, true]),
+          ),
+        );
         this.totalRecords.set(data.totalCount);
       });
     //#if (IncludeLocalization)

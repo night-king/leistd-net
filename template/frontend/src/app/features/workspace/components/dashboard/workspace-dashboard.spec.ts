@@ -3,6 +3,9 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+//#if (IncludeNotifications)
+import { toast } from '@spartan-ng/brain/sonner';
+//#endif
 //#if (LocalIdentity)
 import { Observable, of, throwError } from 'rxjs';
 //#endif
@@ -13,6 +16,9 @@ import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing
 //#endif
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { CommandPaletteService } from '../../../../core/services/command-palette-service';
+//#if (IncludeNotifications)
+import { NotificationService } from '../../../../core/services/notification-service';
+//#endif
 import { StartupService } from '../../../../core/services/startup-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
@@ -84,6 +90,22 @@ describe('WorkspaceDashboard', () => {
     expect(TestBed.inject(CommandPaletteService).isOpen()).toBe(true);
     TestBed.inject(CommandPaletteService).close();
   });
+  //#if (IncludeNotifications)
+
+  it('reports a failed mark-all-as-read and lets the user try again', async () => {
+    const dashboard = await setup();
+    const markAll = vi
+      .spyOn(TestBed.inject(NotificationService), 'markAllAsRead')
+      .mockRejectedValue(new Error('offline'));
+    const error = vi.spyOn(toast, 'error');
+
+    await dashboard.markAllNotificationsRead();
+
+    expect(markAll).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledOnce();
+    expect(dashboard.markingAllRead()).toBe(false);
+  });
+  //#endif
 
   it('adds the admin platform shortcut only with platform access', async () => {
     const withoutAccess = await setup();
@@ -106,6 +128,19 @@ describe('WorkspaceDashboard', () => {
     const enabled = await setup();
     expect(enabled.quickActions().map((action) => action.icon)).not.toContain('lucideLock');
   });
+  //#if (!Email)
+
+  // 不含邮件时没有邮箱验证能力：安全检查不把它算作未完成，也不给去不了的修复入口
+  it('evaluates only two-factor when the project has no email', async () => {
+    twoFactor = () => of({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: false });
+    const dashboard = await setup();
+
+    expect(dashboard.securityPassed()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelectorAll('[data-testid="workbench-security"] li'),
+    ).toHaveLength(1);
+  });
+  //#endif
 
   it('does not report two-factor as off before its status arrives', async () => {
     twoFactor = () => throwError(() => new Error('offline'));

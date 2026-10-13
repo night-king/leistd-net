@@ -28,6 +28,9 @@ describe('Dashboard', () => {
   let getStatistics: ReturnType<
     typeof vi.fn<(days: StatisticsDays) => Observable<PlatformStatisticsOutputDto>>
   >;
+  //#if (IncludeOperationRecords)
+  let getOperationRecords: ReturnType<typeof vi.fn>;
+  //#endif
 
   function statistics(days: StatisticsDays, newUsers = 3): PlatformStatisticsOutputDto {
     return {
@@ -61,7 +64,7 @@ describe('Dashboard', () => {
         //#if (IncludeOperationRecords)
         {
           provide: OperationRecordService,
-          useValue: { getOperationRecords: () => of({ items: [], totalCount: 0 }) },
+          useValue: { getOperationRecords },
         },
         //#endif
         { provide: StartupService, useValue: { status: signal('success' as const) } },
@@ -86,6 +89,9 @@ describe('Dashboard', () => {
 
   beforeEach(() => {
     getStatistics = vi.fn((days: StatisticsDays) => of(statistics(days)));
+    //#if (IncludeOperationRecords)
+    getOperationRecords = vi.fn(() => of({ items: [], totalCount: 0 }));
+    //#endif
   });
 
   afterEach(() => fixture?.destroy());
@@ -97,6 +103,45 @@ describe('Dashboard', () => {
     expect(query('dashboard-range')).toBeNull();
     expect(query('kpi-totalUsers')).toBeNull();
   });
+
+  it('keeps the current range selected when it is clicked again', async () => {
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+    const current = fixture.nativeElement.querySelector(
+      '[data-testid="dashboard-range"] [data-state="on"]',
+    ) as HTMLButtonElement;
+
+    current.click();
+    fixture.detectChanges();
+
+    expect(current.getAttribute('data-state')).toBe('on');
+    expect(dashboard.days()).toBe(7);
+    expect(getStatistics).toHaveBeenCalledOnce();
+  });
+  //#if (IncludeOperationRecords)
+
+  it('does not request recent operations without the dashboard permission', async () => {
+    await setup([PERMISSIONS.operationRecords.default]);
+
+    expect(getOperationRecords).not.toHaveBeenCalled();
+    expect(query('dashboard-recent')).toBeNull();
+  });
+
+  it('sends a single request when retrying recent operations', async () => {
+    getOperationRecords.mockReturnValueOnce(throwError(() => new Error('offline')));
+    const dashboard = await setup([
+      PERMISSIONS.dashboard.default,
+      PERMISSIONS.operationRecords.default,
+    ]);
+    expect(dashboard.recentRecordsFailed()).toBe(true);
+
+    dashboard.loadRecentRecords();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(getOperationRecords).toHaveBeenCalledTimes(2);
+    expect(dashboard.recentRecords()).toEqual([]);
+  });
+  //#endif
 
   it('loads the last 7 days and compares with the previous period', async () => {
     const dashboard = await setup([PERMISSIONS.dashboard.default]);

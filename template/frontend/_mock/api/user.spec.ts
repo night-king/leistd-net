@@ -70,6 +70,29 @@ describe('user mock', () => {
       expect(rejectionOf(() => batchDisableUsers({ ids: [] })).status).toBe(400);
       const tooMany = Array.from({ length: 101 }, (_, i) => `u${i}`);
       expect(rejectionOf(() => batchDisableUsers({ ids: tooMany })).status).toBe(400);
+      // 数量按提交的原数组算：同一个 Id 重复 101 次也超限，一条都不执行
+      const repeated = Array.from({ length: 101 }, () => 'user_demo');
+      expect(rejectionOf(() => batchDisableUsers({ ids: repeated })).status).toBe(400);
+      expect(USERS.find((user) => user.id === 'user_demo')?.isActive).toBe(true);
+      const roles = Array.from({ length: 21 }, () => 'role_admin');
+      expect(
+        rejectionOf(() => batchAssignUserRoles({ ids: ['user_demo'], roleIds: roles })).status,
+      ).toBe(400);
+    });
+
+    it("refuses to add roles to another administrator's built-in super administrator", () => {
+      // 快照是浅拷贝，换新数组而不是原地追加，用例结束后才能还原
+      const demo = USERS.find((user) => user.id === 'user_demo')!;
+      demo.roles = [...demo.roles, 'Admin'];
+      setMockSessionUserId('user_demo');
+
+      const result = batchAssignUserRoles({ ids: ['user_admin'], roleIds: ['role_admin'] });
+
+      expect(result.items[0]).toMatchObject({
+        id: 'user_admin',
+        succeeded: false,
+        errorCode: 'User:SuperAdminUpdateForbidden',
+      });
     });
 
     it('adds roles without removing existing ones and rejects unknown roles as a whole', () => {

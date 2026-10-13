@@ -171,7 +171,9 @@
                   hlmBtn
                   variant="ghost"
                   size="sm"
-                  (click)="notificationService.markAllAsRead()"
+                  data-testid="workbench-mark-all-read"
+                  [disabled]="markingAllRead()"
+                  (click)="markAllNotificationsRead()"
                 >
                   {{ t('workspace.dashboard.notifications.markAllRead') }}
                 </button>
@@ -258,6 +260,7 @@
           <div hlmCardContent>
             @if (twoFactor()) {
               <ul class="flex flex-col gap-3 text-sm">
+<!--#if (Email)-->
                 <li class="flex items-center gap-2">
                   @if (securityChecks().emailVerified) {
                     <ng-icon name="lucideCheck" class="text-success" />
@@ -272,6 +275,7 @@
                     </a>
                   }
                 </li>
+<!--#endif-->
                 <li class="flex items-center gap-2">
                   @if (securityChecks().twoFactorEnabled) {
                     <ng-icon name="lucideCheck" class="text-success" />

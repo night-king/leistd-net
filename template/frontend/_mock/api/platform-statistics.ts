@@ -7,7 +7,11 @@ import { loginActivity } from '../data/platform-statistics';
 //#if (LocalIdentity && IncludeMultiTenancy)
 import { TENANTS } from '../data/tenant';
 //#endif
+//#if (LocalIdentity)
+import { DELETED_USERS, USERS } from '../data/user';
+//#else
 import { USERS } from '../data/user';
+//#endif
 //#if (LocalIdentity && IncludeMultiTenancy)
 import { getMockSessionTenantKey } from '../utils/current-user';
 //#endif
@@ -27,8 +31,8 @@ function startOfUtcDay(daysAgo: number): number {
 export function getPlatformStatistics(params: Record<string, unknown>) {
   requirePermission(PERMISSIONS.dashboard.default);
 
-  // 与后端入参校验同形：400 字段错误、不带业务码
-  const days = Number(params['days']);
+  // 与后端入参校验同形：省略时为 7；其他值是 400 字段错误、不带业务码
+  const days = params['days'] === undefined ? 7 : Number(params['days']);
   if (days !== 7 && days !== 30) {
     throw new MockException(400, { errors: [{ field: 'days', detail: 'days must be 7 or 30.' }] });
   }
@@ -36,6 +40,21 @@ export function getPlatformStatistics(params: Record<string, unknown>) {
   const start = startOfUtcDay(days - 1);
   const previousStart = start - days * DAY;
   const createdAt = (user: (typeof USERS)[number]) => Date.parse(user.creationTime);
+  // 与后端口径一致：新注册按创建事件计（之后删了也算）；历史总数是那一刻存在的用户，
+  // 即在其前创建、且当时尚未删除的
+  //#if (LocalIdentity)
+  const everCreated = [...USERS, ...DELETED_USERS];
+  //#else
+  // 资源服务形态没有删除入口，用户行只增不减
+  const everCreated = USERS;
+  //#endif
+  const existedAt = (time: number) =>
+    everCreated.filter(
+      (user) =>
+        createdAt(user) < time && (!user.deletionTime || Date.parse(user.deletionTime) >= time),
+    ).length;
+  const createdBetween = (from: number, to: number) =>
+    everCreated.filter((user) => createdAt(user) >= from && createdAt(user) < to).length;
   //#if (IncludeOperationRecords && LocalIdentity)
   const sum = (from: number, to: number, pick: (day: ReturnType<typeof loginActivity>) => number) =>
     Array.from({ length: to - from }, (_, i) => pick(loginActivity(from + i))).reduce(
@@ -46,14 +65,10 @@ export function getPlatformStatistics(params: Record<string, unknown>) {
 
   return {
     days,
-    totalUsers: {
-      value: USERS.length,
-      previous: USERS.filter((user) => createdAt(user) < start).length,
-    },
+    totalUsers: { value: USERS.length, previous: existedAt(start) },
     newUsers: {
-      value: USERS.filter((user) => createdAt(user) >= start).length,
-      previous: USERS.filter((user) => createdAt(user) >= previousStart && createdAt(user) < start)
-        .length,
+      value: createdBetween(start, Number.POSITIVE_INFINITY),
+      previous: createdBetween(previousStart, start),
     },
     //#if (IncludeOperationRecords && LocalIdentity)
     // 活跃用户是去重人数：样本按启用中的演示账号都登录过计，不超过用户总数

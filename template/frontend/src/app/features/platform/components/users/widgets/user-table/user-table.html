@@ -28,6 +28,7 @@
                             [indeterminate]="
                               table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()
                             "
+                            [disabled]="loading()"
                             [aria-label]="t('users.batch.selectAll')"
                             (checkedChange)="table.toggleAllPageRowsSelected($event)"
                           />
@@ -118,6 +119,7 @@
                           @case ('select') {
                             <hlm-checkbox
                               [checked]="row.getIsSelected()"
+                              [disabled]="!row.getCanSelect()"
                               [aria-label]="
                                 t('users.batch.selectRow', {
                                   name: row.original.displayName || row.original.username,

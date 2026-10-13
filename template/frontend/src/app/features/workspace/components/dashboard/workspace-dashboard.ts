@@ -5,13 +5,20 @@ import {
   computed,
   effect,
   inject,
-  //#if (LocalIdentity)
+  //#if (LocalIdentity || IncludeNotifications)
   signal,
   //#endif
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 //#if (IncludeLocalization)
-import { TranslocoDirective, translateSignal } from '@jsverse/transloco';
+// prettier-ignore
+import {
+  TranslocoDirective,
+  //#if (IncludeNotifications)
+  TranslocoService,
+  //#endif
+  translateSignal,
+} from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 // prettier-ignore
@@ -34,6 +41,9 @@ import {
   lucideTriangleAlert,
   lucideUser,
 } from '@ng-icons/lucide';
+//#if (IncludeNotifications)
+import { toast } from '@spartan-ng/brain/sonner';
+//#endif
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmCardImports } from '@spartan-ng/helm/card';
@@ -42,6 +52,9 @@ import { HlmKbdImports } from '@spartan-ng/helm/kbd';
 import { HlmSkeleton } from '@spartan-ng/helm/skeleton';
 //#endif
 
+//#if (IncludeNotifications)
+import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+//#endif
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { CommandPaletteService } from '../../../../core/services/command-palette-service';
@@ -126,6 +139,11 @@ export class WorkspaceDashboard {
   protected readonly displayLocale = this.settingContext.displayLocale;
   //#if (IncludeNotifications)
   protected readonly notificationService = inject(NotificationService);
+  //#if (IncludeLocalization)
+  private readonly transloco = inject(TranslocoService);
+  //#endif
+  /** 「全部标记已读」请求在途：禁用按钮，避免重复提交。 */
+  readonly markingAllRead = signal(false);
   //#endif
   //#if (LocalIdentity)
   private readonly workbenchService = inject(WorkbenchService);
@@ -158,18 +176,27 @@ export class WorkspaceDashboard {
   readonly sessions = signal<UserSessionOutputDto[] | null>(null);
   readonly sessionsFailed = signal(false);
 
-  /** 账户安全的两项检查；两步验证状态未取回时不计入，避免把「不知道」显示成「未开启」。 */
+  /**
+   * 账户安全检查，只评价本项目具备的能力（不含邮件时没有邮箱验证）；两步验证状态未取回时不计入，
+   * 避免把「不知道」显示成「未开启」。
+   */
   readonly securityChecks = computed(() => {
     const status = this.twoFactor();
     return {
+      //#if (Email)
       emailVerified: this.authService.currentUser()?.isEmailVerified === true,
+      //#endif
       twoFactorEnabled: status?.enabled ?? null,
     };
   });
 
   readonly securityPassed = computed(() => {
     const checks = this.securityChecks();
+    //#if (Email)
     return checks.emailVerified && checks.twoFactorEnabled === true;
+    //#else
+    return checks.twoFactorEnabled === true;
+    //#endif
   });
 
   /** 最近的三个登录设备，当前设备在前。 */
@@ -321,6 +348,26 @@ export class WorkspaceDashboard {
     this.loadSessions();
     //#endif
   }
+  //#if (IncludeNotifications)
+
+  /** 与铃铛共用通知状态；失败时提示原因，已读状态保持原样。 */
+  async markAllNotificationsRead(): Promise<void> {
+    this.markingAllRead.set(true);
+    try {
+      await this.notificationService.markAllAsRead();
+    } catch (error: unknown) {
+      //#if (IncludeLocalization)
+      toast.error(this.transloco.translate('common.requestError'), {
+        description: applicationErrorMessage(error),
+      });
+      //#else
+      toast.error('Request failed', { description: applicationErrorMessage(error) });
+      //#endif
+    } finally {
+      this.markingAllRead.set(false);
+    }
+  }
+  //#endif
   //#if (LocalIdentity)
 
   loadTwoFactor(): void {
@@ -367,8 +414,10 @@ const ENGLISH: Record<string, string> = {
   'workspace.dashboard.security.title': 'Account security',
   'workspace.dashboard.security.passed': 'All set',
   'workspace.dashboard.security.suggested': 'Could be stronger',
+  //#if (Email)
   'workspace.dashboard.security.emailVerified': 'Email verified',
   'workspace.dashboard.security.emailUnverified': 'Email not verified',
+  //#endif
   'workspace.dashboard.security.twoFactorOn': 'Two-factor authentication on',
   'workspace.dashboard.security.twoFactorOff': 'Two-factor authentication off',
   'workspace.dashboard.security.fix': 'Set up',

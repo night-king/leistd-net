@@ -283,8 +283,17 @@ describe('Users page query round trip', () => {
       expect(table().selectable()).toBe(true);
     });
 
+    const secondRow = { ...loadedRow, id: 'row-2', username: 'bob', displayName: 'Bob' };
+
+    async function loadRows(...rows: (typeof loadedRow)[]): Promise<void> {
+      service.getUsers.mockReturnValue(of({ items: rows, totalCount: rows.length }) as never);
+      component.reloadList();
+      await fixture.whenStable();
+    }
+
     it('clears the selection when the page, filter or sorting changes', async () => {
       grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
       table().rowSelectionChange.emit({ 'row-1': true });
       expect(component.selectedIds()).toEqual(['row-1']);
 
@@ -296,9 +305,7 @@ describe('Users page query round trip', () => {
 
     it('reports partial failures, clears the selection and reloads the page', async () => {
       grant(PERMISSIONS.users.update);
-      service.getUsers.mockReturnValue(of({ items: [loadedRow], totalCount: 1 }) as never);
-      component.reloadList();
-      await fixture.whenStable();
+      await loadRows(loadedRow, secondRow);
       service.batchDisableUsers.mockReturnValue(
         of({
           items: [
@@ -322,6 +329,36 @@ describe('Users page query round trip', () => {
       expect(warning).toHaveBeenCalledOnce();
       expect(component.selectedIds()).toEqual([]);
       expect(service.getUsers.mock.calls.length).toBe(requests + 1);
+    });
+
+    it('does not let rows of the previous page be selected while the next page loads', async () => {
+      grant(PERMISSIONS.users.update);
+      await loadRows(loadedRow);
+      const nextPage = new Subject<{ items: (typeof loadedRow)[]; totalCount: number }>();
+      service.getUsers.mockReturnValue(nextPage as never);
+
+      table().paginationChange.emit({ pageIndex: 1, pageSize: 20 } as PaginationState);
+      await fixture.whenStable();
+      // 表格包在 @defer 里，测试里要显式渲染
+      const [tableBlock] = await fixture.getDeferBlocks();
+      await tableBlock.render(DeferBlockState.Complete);
+      const selectAll = fixture.nativeElement.querySelector(
+        'thead [role="checkbox"]',
+      ) as HTMLButtonElement;
+      selectAll.click();
+      fixture.detectChanges();
+
+      expect(selectAll.disabled).toBe(true);
+      expect(component.selectedIds()).toEqual([]);
+
+      // 即使选择状态里残留了旧行，新页到达后也不会把它们当作批量目标
+      table().rowSelectionChange.emit({ 'row-1': true });
+      nextPage.next({ items: [secondRow], totalCount: 21 });
+      nextPage.complete();
+      await fixture.whenStable();
+
+      expect(component.selectedIds()).toEqual([]);
+      expect(component.rowSelection()).toEqual({});
     });
   });
 });

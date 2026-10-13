@@ -14,6 +14,8 @@ export interface MockUser {
   isSuperAdmin: boolean;
   isEmailVerified: boolean;
   creationTime: string;
+  /** 软删除时刻；只有 DELETED_USERS 里的用户有值。统计按它回推历史总数。 */
+  deletionTime?: string;
   lastLoginTime?: string;
   /** 登录锁定：有值即锁定中；null 表示无期限（管理员锁定）。 */
   lockoutEnd?: string | null;
