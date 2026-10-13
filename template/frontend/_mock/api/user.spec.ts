@@ -39,7 +39,10 @@ describe('user mock', () => {
   it('orders multiple user keys and validates sorting before returning an empty result', () => {
     USERS.forEach((user) => (user.email = 'same@example.test'));
     const result = getUsers({ sorting: 'EMAIL ascending, username descending' });
-    expect(result.items.map((user) => user.username)).toEqual(['demo', 'admin']);
+    // 邮箱全部相同时第二个键生效：用户名降序
+    expect(result.items.map((user) => user.username)).toEqual(
+      USERS.map((user) => user.username).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0)),
+    );
 
     const error = rejectionOf(() => getUsers({ keyword: 'missing', sorting: 'unknownProperty' }));
     expect(error.status).toBe(400);
@@ -119,8 +122,14 @@ describe('user mock', () => {
   it('sorts the nested last-login API path and places absent timestamps last in ascending order', () => {
     USERS[0].lastLoginTime = undefined;
     const result = getUsers({ sorting: 'lastLogin.Time asc' });
+    const withLogin = USERS.filter((user) => user.lastLoginTime)
+      .sort((a, b) => Date.parse(a.lastLoginTime!) - Date.parse(b.lastLoginTime!))
+      .map((user) => user.username);
 
-    expect(result.items.map((user) => user.username)).toEqual(['demo', 'admin']);
+    // 有时间的按升序在前，没有登录过的（含刚清空的 admin）排在最后
+    const usernames = result.items.map((user) => user.username);
+    expect(usernames.slice(0, withLogin.length)).toEqual(withLogin);
+    expect(usernames.slice(withLogin.length)).toContain('admin');
   });
   //#endif
 
@@ -160,7 +169,9 @@ describe('user mock', () => {
       const changed = rejectionOf(() => updateUser('user_admin', { email: demo.email }));
       expect(changed.status).toBe(409);
       expect(changed.error.code).toBe('User:EmailTaken');
-      expect(USERS.map((user) => user.id)).toEqual(['user_admin']);
+      expect(USERS.map((user) => user.id)).toEqual(
+        snapshot.map((user) => user.id).filter((id) => id !== 'user_demo'),
+      );
       expect(USERS[0].email).toBe(snapshot[0].email);
     });
 
