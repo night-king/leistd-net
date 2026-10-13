@@ -72,9 +72,7 @@
       "anonymous": "匿名",
       "rejected": "被拒绝",
       "succeeded": "成功",
-      "impersonatedBy": "由 {{name}} 代为操作",
-      "justNow": "刚刚",
-      "yesterdayAt": "昨天 {{time}}"
+      "impersonatedBy": "由 {{name}} 代为操作"
     },
     "quick": {
       "title": "快捷入口"

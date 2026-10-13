@@ -9,9 +9,7 @@
     "search": "Search pages and settings…",
     "actions": {
       "enableTwoFactor": "Turn on two-factor",
-      "devices": "Signed-in devices",
-      "preferences": "Language & time zone",
-      "notifications": "Notification preferences"
+      "devices": "Signed-in devices"
     },
     "continue": {
       "title": "Continue where you left off",
@@ -30,7 +28,6 @@
       "security": "Account & security",
       "preferences": "Preferences",
       "notifications": "Notifications",
-      "exampleModule": "Example module",
       "platform": "Admin platform"
     },
     "notifications": {
@@ -42,6 +39,7 @@
       "title": "Account security",
       "passed": "All set",
       "suggested": "Could be stronger",
+      "progress": "{{done}} of {{total}} checks passed",
       "emailVerified": "Email verified",
       "emailUnverified": "Email not verified",
       "twoFactorOn": "Two-factor authentication on",

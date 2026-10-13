@@ -151,6 +151,57 @@ describe('WorkspaceDashboard', () => {
     expect(dashboard.quickActions().map((action) => action.icon)).not.toContain('lucideLock');
   });
 
+  it('shows how many security checks pass', async () => {
+    twoFactor = () => of({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: false });
+    const dashboard = await setup();
+
+    // 测试用户的邮箱未验证：有邮件能力时两项里通过一项，没有时只评价两步验证
+    //#if (Email)
+    expect(dashboard.securityProgress()).toEqual({ done: 1, total: 2 });
+    //#else
+    expect(dashboard.securityProgress()).toEqual({ done: 1, total: 1 });
+    //#endif
+  });
+
+  it('moves the relative time of devices forward with a minute clock and stops it when destroyed', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    try {
+      vi.setSystemTime(Date.parse('2026-10-13T12:00:00Z'));
+      sessions = () =>
+        of([
+          {
+            id: 's1',
+            creationTime: '2026-10-01T00:00:00Z',
+            lastSeenTime: '2026-10-13T11:59:30Z',
+            userAgent: null,
+            isCurrent: true,
+          },
+        ]);
+      const dashboard = await setup();
+      const time = () =>
+        (fixture.nativeElement as HTMLElement)
+          .querySelector('[data-testid="workbench-devices"] app-relative-time-label time')
+          ?.textContent?.trim();
+      //#if (IncludeLocalization)
+      // 单测词条为空，"刚刚"回落成键名
+      expect(time()).toBe('common.time.justNow');
+      //#else
+      expect(time()).toBe('Just now');
+      //#endif
+
+      vi.advanceTimersByTime(60_000);
+      fixture.detectChanges();
+      expect(time()).toBe('1 minute ago');
+
+      const before = dashboard.now();
+      fixture.destroy();
+      vi.advanceTimersByTime(120_000);
+      expect(dashboard.now()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('retries loading devices after a failure', async () => {
     sessions = () => throwError(() => new Error('offline'));
     const dashboard = await setup();

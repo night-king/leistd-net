@@ -9,9 +9,7 @@
     "search": "搜索页面与设置…",
     "actions": {
       "enableTwoFactor": "开启两步验证",
-      "devices": "登录设备",
-      "preferences": "语言与时区",
-      "notifications": "通知偏好"
+      "devices": "登录设备"
     },
     "continue": {
       "title": "继续工作",
@@ -30,7 +28,6 @@
       "security": "账户与安全",
       "preferences": "偏好设置",
       "notifications": "通知",
-      "exampleModule": "示例模块",
       "platform": "管理平台"
     },
     "notifications": {
@@ -42,6 +39,7 @@
       "title": "账户安全",
       "passed": "已达标",
       "suggested": "建议加强",
+      "progress": "完成 {{total}} 项检查中的 {{done}} 项",
       "emailVerified": "邮箱已验证",
       "emailUnverified": "邮箱未验证",
       "twoFactorOn": "已开启两步验证",

@@ -2,13 +2,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
-  //#if (LocalIdentity || IncludeNotifications)
   signal,
-  //#endif
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 //#if (IncludeLocalization)
 // prettier-ignore
@@ -51,6 +51,7 @@ import { HlmKbdImports } from '@spartan-ng/helm/kbd';
 //#if (LocalIdentity || IncludeNotifications)
 import { HlmSkeleton } from '@spartan-ng/helm/skeleton';
 //#endif
+import { interval } from 'rxjs';
 
 //#if (IncludeNotifications)
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
@@ -63,14 +64,18 @@ import { LayoutService } from '../../../../core/services/layout-service';
 import { NotificationService } from '../../../../core/services/notification-service';
 //#endif
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
+//#if (LocalIdentity || IncludeNotifications)
+import { RelativeTimeLabel } from '../../../../shared/components/relative-time-label/relative-time-label';
+//#endif
 //#if (LocalIdentity)
+import { StatusDot } from '../../../../shared/directives/status-dot';
 import {
   TwoFactorStatusOutputDto,
   UserSessionOutputDto,
 } from '../../../../shared/dtos/account-security.dto';
 //#endif
-//#if (LocalIdentity || IncludeNotifications)
-import { AppDate } from '../../../../shared/pipes/app-date-pipe';
+//#if (IncludeNotifications)
+import { AppNumber } from '../../../../shared/pipes/app-number-pipe';
 //#endif
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
@@ -78,6 +83,7 @@ import { englishText } from '../../../../shared/utils/english-text';
 //#if (LocalIdentity)
 import { DeviceKind, describeUserAgent } from '../../../../shared/utils/user-agent';
 //#endif
+import { resolveDisplayTimeZone } from '../../../../shared/utils/zoned-time';
 //#if (LocalIdentity)
 import { WorkbenchService } from '../../services/workbench-service';
 //#endif
@@ -114,7 +120,13 @@ const DEVICE_ICONS: Record<DeviceKind, string> = {
     ...HlmKbdImports,
     //#if (LocalIdentity || IncludeNotifications)
     HlmSkeleton,
-    AppDate,
+    RelativeTimeLabel,
+    //#endif
+    //#if (LocalIdentity)
+    StatusDot,
+    //#endif
+    //#if (IncludeNotifications)
+    AppNumber,
     //#endif
     //#if (IncludeLocalization)
     TranslocoDirective,
@@ -135,8 +147,13 @@ export class WorkspaceDashboard {
   private readonly authorization = inject(AuthorizationService);
   private readonly settingContext = inject(SettingContextService);
   protected readonly commandPalette = inject(CommandPaletteService);
-  protected readonly displayTimeZone = this.settingContext.timeZone;
   protected readonly displayLocale = this.settingContext.displayLocale;
+  /** 实际生效的展示时区：设置里的时区当前运行时用不了时回落到浏览器时区。 */
+  protected readonly timeZone = computed(() =>
+    resolveDisplayTimeZone(this.settingContext.timeZone()),
+  );
+  /** 分钟级时钟：问候语与"多久以前"随它更新，组件销毁时停止。 */
+  readonly now = signal(Date.now());
   //#if (IncludeNotifications)
   protected readonly notificationService = inject(NotificationService);
   //#if (IncludeLocalization)
@@ -157,14 +174,14 @@ export class WorkspaceDashboard {
     return user?.displayName || user?.username || '';
   });
 
-  /** 按会话时区取当前小时，决定早上好 / 下午好 / 晚上好。 */
+  /** 按展示时区取当前小时，决定早上好 / 下午好 / 晚上好。 */
   readonly greetingPart = computed<'morning' | 'afternoon' | 'evening'>(() => {
     const hour = Number(
       new Intl.DateTimeFormat('en-US', {
         hour: 'numeric',
         hourCycle: 'h23',
-        timeZone: this.settingContext.timeZone() || undefined,
-      }).format(new Date()),
+        timeZone: this.timeZone(),
+      }).format(new Date(this.now())),
     );
     return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
   });
@@ -199,6 +216,12 @@ export class WorkspaceDashboard {
     //#endif
   });
 
+  /** 完成度圆环：通过的检查项 / 总项（有邮件能力时两项，否则一项）。两步验证未取回时由模板显示加载态。 */
+  readonly securityProgress = computed(() => {
+    const checks = Object.values(this.securityChecks());
+    return { done: checks.filter((passed) => passed === true).length, total: checks.length };
+  });
+
   /** 最近的三个登录设备，当前设备在前。 */
   readonly deviceRows = computed(() =>
     (this.sessions() ?? []).slice(0, 3).map((session) => {
@@ -221,7 +244,7 @@ export class WorkspaceDashboard {
   );
   //#endif
 
-  /** 命令框下方的常用动作，按形态与当前状态出现。 */
+  /** 命令框下方的常用动作，按形态与当前状态出现；去向页面的入口在下方快捷入口里，不重复列。 */
   readonly quickActions = computed<WorkbenchLink[]>(() => {
     const actions: WorkbenchLink[] = [];
     //#if (LocalIdentity)
@@ -246,30 +269,10 @@ export class WorkspaceDashboard {
       route: '/workspace/settings/security',
     });
     //#endif
-    actions.push({
-      //#if (IncludeLocalization)
-      label: 'workspace.dashboard.actions.preferences',
-      //#else
-      label: 'Language & time zone',
-      //#endif
-      icon: 'lucideSlidersHorizontal',
-      route: '/workspace/settings/preferences',
-    });
-    //#if (IncludeNotifications)
-    actions.push({
-      //#if (IncludeLocalization)
-      label: 'workspace.dashboard.actions.notifications',
-      //#else
-      label: 'Notification preferences',
-      //#endif
-      icon: 'lucideBell',
-      route: '/workspace/settings/notifications',
-    });
-    //#endif
     return actions;
   });
 
-  /** 快捷入口：个人设置的各面板、示例模块，有平台权限时加上管理平台。 */
+  /** 快捷入口：个人设置的各面板，有平台权限时加上管理平台（示例模块已在"继续工作"里）。 */
   readonly shortcuts = computed<WorkbenchLink[]>(() => {
     const links: WorkbenchLink[] = [
       //#if (LocalIdentity)
@@ -312,15 +315,6 @@ export class WorkspaceDashboard {
         route: '/workspace/settings/notifications',
       },
       //#endif
-      {
-        //#if (IncludeLocalization)
-        label: 'workspace.dashboard.shortcuts.exampleModule',
-        //#else
-        label: 'Example module',
-        //#endif
-        icon: 'lucideLayers',
-        route: '/workspace/placeholder',
-      },
     ];
     if (this.authorization.canAccessPlatform()) {
       links.push({
@@ -337,6 +331,9 @@ export class WorkspaceDashboard {
   });
 
   constructor() {
+    interval(60_000)
+      .pipe(takeUntilDestroyed(inject(DestroyRef)))
+      .subscribe(() => this.now.set(Date.now()));
     //#if (IncludeLocalization)
     const title = translateSignal('workspace.dashboard.title', {}, { scope: 'workspace' });
     effect(() => this.layoutService.title.set(title()));
@@ -414,6 +411,7 @@ const ENGLISH: Record<string, string> = {
   'workspace.dashboard.security.title': 'Account security',
   'workspace.dashboard.security.passed': 'All set',
   'workspace.dashboard.security.suggested': 'Could be stronger',
+  'workspace.dashboard.security.progress': '{{done}} of {{total}} checks passed',
   //#if (Email)
   'workspace.dashboard.security.emailVerified': 'Email verified',
   'workspace.dashboard.security.emailUnverified': 'Email not verified',

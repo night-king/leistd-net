@@ -3,7 +3,12 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="flex flex-col gap-8 p-4 sm:p-6">
+  <div class="relative isolate flex flex-col gap-8 p-4 sm:p-6">
+    <!-- 欢迎区背后的淡光晕：只在顶部这一块，数据区不用装饰（规范见 frontend-ui.md） -->
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-75 bg-[radial-gradient(600px_220px_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_70%)]"
+    ></div>
     <div class="mx-auto flex w-full max-w-2xl flex-col items-center gap-4 pt-4 text-center">
       <h2 class="text-2xl font-semibold tracking-tight">
         @switch (greetingPart()) {
@@ -32,14 +37,16 @@
         {{ t('workspace.dashboard.search') }}
         <kbd hlmKbd class="ms-auto">⌘K</kbd>
       </button>
-      <div class="flex flex-wrap justify-center gap-2">
-        @for (action of quickActions(); track action.label) {
-          <a hlmBtn variant="outline" size="sm" [routerLink]="action.route">
-            <ng-icon [name]="action.icon" data-icon="inline-start" />
-            {{ t(action.label) }}
-          </a>
-        }
-      </div>
+      @if (quickActions().length) {
+        <div class="flex flex-wrap justify-center gap-2">
+          @for (action of quickActions(); track action.label) {
+            <a hlmBtn variant="outline" size="sm" [routerLink]="action.route">
+              <ng-icon [name]="action.icon" data-icon="inline-start" />
+              {{ t(action.label) }}
+            </a>
+          }
+        </div>
+      }
     </div>
 
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -135,10 +142,11 @@
           </div>
         </section>
 
-        <section class="flex flex-col gap-3" data-testid="workbench-shortcuts">
+        <!-- 按这一栏的实际宽度排：够宽时一行最多 6 个，入口少于 6 个时不补空卡 -->
+        <section class="@container flex flex-col gap-3" data-testid="workbench-shortcuts">
           <h3 class="text-sm font-semibold">{{ t('workspace.dashboard.shortcuts.title') }}</h3>
           <nav
-            class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6"
+            class="grid grid-cols-2 gap-3 @sm:grid-cols-3 @2xl:grid-cols-6"
             [attr.aria-label]="t('workspace.dashboard.shortcuts.title')"
           >
             @for (link of shortcuts(); track link.route + link.label) {
@@ -164,13 +172,21 @@
 
         <section hlmCard data-testid="workbench-notifications">
           <div hlmCardHeader>
-            <h3 hlmCardTitle>{{ t('workspace.dashboard.notifications.title') }}</h3>
+            <h3 hlmCardTitle class="flex items-center gap-2">
+              {{ t('workspace.dashboard.notifications.title') }}
+              @if (notificationService.unreadCount(); as unread) {
+                <span hlmBadge variant="secondary" data-testid="workbench-unread-count">{{
+                  unread | appNumber: 'integer' : displayLocale()
+                }}</span>
+              }
+            </h3>
             @if (notificationService.unreadCount()) {
               <div hlmCardAction>
                 <button
                   hlmBtn
                   variant="ghost"
                   size="sm"
+                  class="text-muted-foreground -my-1 text-xs"
                   data-testid="workbench-mark-all-read"
                   [disabled]="markingAllRead()"
                   (click)="markAllNotificationsRead()"
@@ -203,10 +219,13 @@
                         }}</span>
                       }
                     </div>
-                    <span class="text-muted-foreground shrink-0 text-xs tabular-nums">{{
-                      notification.creationTime
-                        | appDate: 'monthDayTime' : displayTimeZone() : displayLocale()
-                    }}</span>
+                    <app-relative-time-label
+                      class="text-muted-foreground text-xs"
+                      [instant]="notification.creationTime"
+                      [now]="now()"
+                      [timeZone]="timeZone()"
+                      [locale]="displayLocale()"
+                    />
                   </li>
                 }
               </ul>
@@ -246,19 +265,54 @@
             @if (twoFactor()) {
               <div hlmCardAction>
                 @if (securityPassed()) {
-                  <span hlmBadge variant="success">{{
+                  <span hlmBadge appStatusDot variant="success">{{
                     t('workspace.dashboard.security.passed')
                   }}</span>
                 } @else {
-                  <span hlmBadge variant="outline">{{
+                  <span hlmBadge appStatusDot variant="warning">{{
                     t('workspace.dashboard.security.suggested')
                   }}</span>
                 }
               </div>
             }
           </div>
-          <div hlmCardContent>
+          <div hlmCardContent class="flex flex-col gap-4">
             @if (twoFactor()) {
+              <!-- 完成度圆环：通过项 / 总项；圆周长取 2πr，r = 15.9155 时周长为 100，便于按百分比画 -->
+              @let progress = securityProgress();
+              <div class="flex items-center gap-4" data-testid="workbench-security-progress">
+                <svg viewBox="0 0 36 36" class="size-16 shrink-0 -rotate-90" aria-hidden="true">
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9155"
+                    fill="none"
+                    class="stroke-muted"
+                    stroke-width="3.5"
+                  />
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9155"
+                    fill="none"
+                    stroke-width="3.5"
+                    stroke-linecap="round"
+                    [class]="securityPassed() ? 'stroke-success' : 'stroke-warning'"
+                    [attr.stroke-dasharray]="(progress.done / progress.total) * 100 + ' 100'"
+                  />
+                </svg>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-xl font-semibold tabular-nums"
+                    >{{ progress.done }} / {{ progress.total }}</span
+                  >
+                  <span class="text-muted-foreground text-xs">{{
+                    t('workspace.dashboard.security.progress', {
+                      done: progress.done,
+                      total: progress.total,
+                    })
+                  }}</span>
+                </div>
+              </div>
               <ul class="flex flex-col gap-3 text-sm">
 <!--#if (Email)-->
                 <li class="flex items-center gap-2">
@@ -309,7 +363,13 @@
           <div hlmCardHeader>
             <h3 hlmCardTitle>{{ t('workspace.dashboard.devices.title') }}</h3>
             <div hlmCardAction>
-              <a hlmBtn variant="ghost" size="sm" routerLink="/workspace/settings/security">
+              <a
+                hlmBtn
+                variant="ghost"
+                size="sm"
+                class="text-muted-foreground -my-1 text-xs"
+                routerLink="/workspace/settings/security"
+              >
                 {{ t('workspace.dashboard.devices.manage') }}
               </a>
             </div>
@@ -328,12 +388,16 @@
                       <span class="truncate text-sm font-medium">{{
                         row.device || t('workspace.dashboard.devices.unknown')
                       }}</span>
-                      <span class="text-muted-foreground text-xs tabular-nums">{{
-                        row.lastSeenTime | appDate: 'short' : displayTimeZone() : displayLocale()
-                      }}</span>
+                      <app-relative-time-label
+                        class="text-muted-foreground text-xs"
+                        [instant]="row.lastSeenTime"
+                        [now]="now()"
+                        [timeZone]="timeZone()"
+                        [locale]="displayLocale()"
+                      />
                     </div>
                     @if (row.isCurrent) {
-                      <span hlmBadge variant="success">{{
+                      <span hlmBadge appStatusDot variant="success">{{
                         t('workspace.dashboard.devices.current')
                       }}</span>
                     }

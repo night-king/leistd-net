@@ -330,8 +330,14 @@ describe('Dashboard', () => {
       [undefined, '?'],
       ['Ada Lovelace', 'AL'],
     ]);
-    expect(dashboard.recentTimes().get('r1')).toEqual({ kind: 'text', text: '5 minutes ago' });
-    expect(dashboard.recentTimes().get('r2')?.kind).toBe('yesterday');
+    const times = [...query('dashboard-recent')!.querySelectorAll('app-relative-time-label time')];
+    expect(times[0]?.textContent?.trim()).toBe('5 minutes ago');
+    //#if (IncludeLocalization)
+    // 单测词条为空，文案回落成键名
+    expect(times[1]?.textContent?.trim()).toBe('common.time.yesterdayAt');
+    //#else
+    expect(times[1]?.textContent?.trim()).toMatch(/^Yesterday /);
+    //#endif
     //#if (IncludeLocalization)
     // 单测词条为空，文案回落成键名
     expect(query('dashboard-recent')?.textContent).toContain('platform.dashboard.recent.anonymous');
@@ -345,11 +351,29 @@ describe('Dashboard', () => {
   });
   //#endif
 
+  it('writes large values compactly and keeps the full number for the tooltip', async () => {
+    getStatistics.mockImplementationOnce((statisticsQuery) =>
+      of({
+        ...statistics(statisticsQuery),
+        totalUsers: { value: 48_200, previous: 40_000, series: [40_000, 48_200] },
+      }),
+    );
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+
+    expect(dashboard.kpis().find((kpi) => kpi.id === 'totalUsers')).toMatchObject({
+      valueText: '48.2K',
+      valueFull: '48,200',
+      change: 0.21,
+    });
+  });
+
   it('compares with the previous range and draws a sparkline only from a series', async () => {
     const dashboard = await setup([PERMISSIONS.dashboard.default]);
 
     const totalUsers = dashboard.kpis().find((kpi) => kpi.id === 'totalUsers');
-    expect(totalUsers).toMatchObject({ value: 10, change: 25 });
+    // 上期 8、本期 10：变化率是比例 0.25，界面写 +25%
+    expect(totalUsers).toMatchObject({ value: 10, valueText: '10', valueFull: null, change: 0.25 });
+    expect(query('kpi-totalUsers')?.textContent).toContain('+25%');
     expect(totalUsers?.sparkline).not.toBeNull();
     // 上一区间为 0 时没有可比口径，不给百分比
     expect(dashboard.kpis().find((kpi) => kpi.id === 'newUsers')?.change).toBeNull();

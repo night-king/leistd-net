@@ -78,24 +78,22 @@ import {
   rangeDays,
   toCalendarDate,
 } from './dashboard-calendar';
-//#if (IncludeOperationRecords)
-//#endif
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { LayoutService } from '../../../../core/services/layout-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
+//#if (IncludeOperationRecords)
+import { RelativeTimeLabel } from '../../../../shared/components/relative-time-label/relative-time-label';
+//#endif
 import { StatPanel } from '../../../../shared/components/stat-panel/stat-panel';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 //#if (IncludeOperationRecords)
-import { AppDate, formatAppDate } from '../../../../shared/pipes/app-date-pipe';
-//#else
-import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
+import { StatusDot } from '../../../../shared/directives/status-dot';
 //#endif
+import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
+import { AppNumber, formatAppNumber } from '../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
-//#endif
-//#if (IncludeOperationRecords)
-import { RelativeTime, formatRelativeTime } from '../../../../shared/utils/relative-time';
 //#endif
 import { resolveDisplayTimeZone, zonedCalendarDate } from '../../../../shared/utils/zoned-time';
 //#if (IncludeOperationRecords)
@@ -118,11 +116,18 @@ import { injectOperationActionSentence } from '../operation-records/widgets/oper
 
 type KpiId = 'totalUsers' | 'newUsers' | 'activeUsers' | 'failedLogins';
 
+/** 指标卡数值从这里起用紧凑写法（1.2万、48.2K），完整整数放进提示。 */
+const COMPACT_FROM = 10_000;
+
 /** 一张指标卡：值、与上一区间的变化与按桶序列。`change` 为 null 时没有可比口径（上一区间为 0 或无数据）。 */
 interface KpiView {
   id: KpiId;
   value: number;
-  /** 相对上一区间的变化百分比，保留整数。 */
+  /** 显示的数值：一万以上用紧凑写法。 */
+  valueText: string;
+  /** 紧凑写法时的完整整数，放进提示；否则为 null。 */
+  valueFull: string | null;
+  /** 相对上一区间的变化率（比例，按整数百分比取整，徽章配色与显示一致）。 */
   change: number | null;
   /** 数值上升是不是坏事（登录失败）：决定变化徽章的配色。 */
   higherIsWorse: boolean;
@@ -202,10 +207,12 @@ const AVATAR_CLASSES = [
     ...HlmTooltipImports,
     ...HlmChartImports,
     StatPanel,
+    AppNumber,
     //#if (IncludeOperationRecords)
     ...HlmAvatarImports,
-    AppDate,
     OperationRecordDetail,
+    RelativeTimeLabel,
+    StatusDot,
     //#endif
     //#if (IncludeLocalization)
     TranslocoDirective,
@@ -232,7 +239,6 @@ export class Dashboard {
   //#if (IncludeOperationRecords)
   private readonly operationRecordService = inject(OperationRecordService);
   private readonly actionSentence = injectOperationActionSentence();
-  protected readonly displayTimeZone = this.settingContext.timeZone;
   //#endif
   protected readonly displayLocale = this.settingContext.displayLocale;
   //#if (!IncludeLocalization)
@@ -342,6 +348,7 @@ export class Dashboard {
       return [];
     }
 
+    const locale = this.displayLocale();
     const view = (
       id: KpiId,
       metric: StatisticValueDto | undefined,
@@ -352,6 +359,15 @@ export class Dashboard {
             {
               id,
               value: metric.value,
+              valueText: formatAppNumber(
+                metric.value,
+                metric.value >= COMPACT_FROM ? 'compact' : 'integer',
+                locale,
+              ),
+              valueFull:
+                metric.value >= COMPACT_FROM
+                  ? formatAppNumber(metric.value, 'integer', locale)
+                  : null,
               change: changeOf(metric),
               higherIsWorse,
               sparkline: sparklineOf(
@@ -521,8 +537,6 @@ export class Dashboard {
       series: 'failed',
       count: failedCounts[index] ?? 0,
     }));
-    const compact = new Intl.NumberFormat(locale, { notation: 'compact' });
-    const plain = new Intl.NumberFormat(locale);
     const succeededText = this.succeededLabel();
     const failedText = this.failedLabel();
 
@@ -570,7 +584,9 @@ export class Dashboard {
             scale: scaleLinear,
             nice: true,
             grid: true,
-            axis: { ticks: { format: (value: number) => compact.format(value) } },
+            axis: {
+              ticks: { format: (value: number) => formatAppNumber(value, 'compact', locale) },
+            },
           },
         },
         theme: HLM_CHART_THEME,
@@ -584,12 +600,12 @@ export class Dashboard {
               rows: [
                 {
                   label: succeededText,
-                  value: plain.format(countOf('succeeded')),
+                  value: formatAppNumber(countOf('succeeded'), 'integer', locale),
                   color: 'var(--chart-1)',
                 },
                 {
                   label: failedText,
-                  value: plain.format(countOf('failed')),
+                  value: formatAppNumber(countOf('failed'), 'integer', locale),
                   color: 'var(--chart-3)',
                 },
               ],
@@ -649,19 +665,6 @@ export class Dashboard {
       };
     }),
   );
-
-  /** 相对时间：今天写多久以前，昨天写「昨天 HH:mm」，更早写月日与时刻；随分钟级时钟刷新。 */
-  readonly recentTimes = computed(() => {
-    const now = this.now();
-    const timeZone = this.timeZone();
-    const locale = this.displayLocale();
-    return new Map<string, RelativeTime>(
-      (this.recentRecords() ?? []).map((record) => [
-        record.id,
-        formatRelativeTime(record.creationTime, now, timeZone, locale),
-      ]),
-    );
-  });
   //#endif
 
   /**
@@ -685,7 +688,7 @@ export class Dashboard {
             fromCalendarDate(range.endDate),
           ]),
       //#if (IncludeOperationRecords && LocalIdentity)
-      signIns: statistics.succeededLogins.value,
+      signIns: formatAppNumber(statistics.succeededLogins.value, 'integer', this.displayLocale()),
       //#endif
       attention: this.attention().length,
     };
@@ -896,12 +899,15 @@ export class Dashboard {
   }
 }
 
-/** 与上一区间相比的变化百分比；上一区间没有值或为 0 时不比较。 */
+/**
+ * 与上一区间相比的变化率（比例，0.29 表示 +29%），按整数百分比取整：显示与徽章配色用同一个值，
+ * 不会出现"0%"却标成上升。上一区间没有值或为 0 时不比较。
+ */
 function changeOf(metric: StatisticValueDto): number | null {
   if (metric.previous == null || metric.previous === 0) {
     return null;
   }
-  return Math.round(((metric.value - metric.previous) / metric.previous) * 100);
+  return Math.round(((metric.value - metric.previous) / metric.previous) * 100) / 100;
 }
 
 /** 指标卡里的迷你趋势：去掉坐标轴与网格，只留面积与线；不到两个点画不出趋势。 */
@@ -910,21 +916,25 @@ function sparklineOf(series: number[] | null | undefined, color: string) {
     return null;
   }
   const rows = series.map((value, index) => ({ index, value }));
-  // 纵轴取序列自身的最小、最大值，不从 0 起：存量这类大数的小起伏才看得出；不变的序列画成贴底的一条线。
-  // 面积的底边随之取最小值，否则默认从 0 填到绘图区外
-  const low = Math.min(...series);
-  const high = Math.max(...series);
+  // 纵轴取序列自身的最小、最大值，不从 0 起：存量这类大数的小起伏才看得出。不变的序列上下各留一格，
+  // 画在中线上——贴底的线会被读成"降到了 0"。有起伏时面积的底边取纵轴下限，否则默认从 0 填到绘图区外
+  const flat = Math.min(...series) === Math.max(...series);
+  const low = Math.min(...series) - (flat ? 1 : 0);
+  const high = Math.max(...series) + (flat ? 1 : 0);
   return {
     definition: defineChart({
       guides: false,
       margin: 2,
+      // 不变的序列只画线：面积会在中线下铺出一条色带，像是一块数值
       marks: [
-        areaY(rows, { x: 'index', y: 'value', y1: low, fill: color, fillOpacity: 0.12 }),
+        ...(flat
+          ? []
+          : [areaY(rows, { x: 'index', y: 'value', y1: low, fill: color, fillOpacity: 0.12 })]),
         lineY(rows, { x: 'index', y: 'value', stroke: color, strokeWidth: 1.75 }),
       ],
       scales: {
         x: { scale: scaleLinear },
-        y: { scale: scaleLinear().domain([low, high === low ? low + 1 : high]) },
+        y: { scale: scaleLinear().domain([low, high]) },
       },
       theme: HLM_CHART_THEME,
     }),
@@ -1026,8 +1036,6 @@ const ENGLISH: Record<string, string> = {
   'platform.dashboard.recent.succeeded': 'Succeeded',
   'platform.dashboard.recent.rejected': 'Rejected',
   'platform.dashboard.recent.impersonatedBy': 'Done by {{name}} on their behalf',
-  'platform.dashboard.recent.justNow': 'Just now',
-  'platform.dashboard.recent.yesterdayAt': 'Yesterday {{time}}',
   'platform.dashboard.quick.title': 'Quick links',
   'common.details': 'View details',
   'common.loadFailed': "Couldn't load the list",

@@ -72,9 +72,7 @@
       "anonymous": "Anonymous",
       "rejected": "Rejected",
       "succeeded": "Succeeded",
-      "impersonatedBy": "Done by {{name}} on their behalf",
-      "justNow": "Just now",
-      "yesterdayAt": "Yesterday {{time}}"
+      "impersonatedBy": "Done by {{name}} on their behalf"
     },
     "quick": {
       "title": "Quick links"

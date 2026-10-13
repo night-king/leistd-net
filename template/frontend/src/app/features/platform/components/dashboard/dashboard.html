@@ -3,7 +3,7 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="flex flex-col gap-6 p-4 sm:p-6">
+  <div class="@container flex flex-col gap-6 p-4 sm:p-6">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div class="flex min-w-0 flex-col gap-1">
         <h2 class="text-2xl font-semibold tracking-tight">
@@ -98,7 +98,8 @@
           </div>
         }
 
-        <div class="grid grid-cols-2 gap-4 xl:grid-cols-4" [attr.aria-busy]="loading()">
+        <!-- 一行四张从内容区约 54rem 起：再窄时四位数与迷你趋势挤不下，两两一行 -->
+        <div class="grid grid-cols-2 gap-4 @[54rem]:grid-cols-4" [attr.aria-busy]="loading()">
           @for (kpi of kpis(); track kpi.id) {
             <app-stat-panel
               [panelTitle]="t(kpiTitleKeys[kpi.id])"
@@ -121,11 +122,22 @@
               </button>
               <div class="flex flex-col gap-2 p-4">
                 <div class="flex items-end justify-between gap-3">
-                  <span class="text-3xl font-semibold tabular-nums">{{ kpi.value }}</span>
+                  @if (kpi.valueFull; as full) {
+                    <span
+                      tabindex="0"
+                      class="focus-visible:ring-ring/50 shrink-0 rounded-sm text-3xl font-semibold tabular-nums outline-none focus-visible:ring-[3px]"
+                      [hlmTooltip]="full"
+                      >{{ kpi.valueText }}</span
+                    >
+                  } @else {
+                    <span class="shrink-0 text-3xl font-semibold tabular-nums">{{
+                      kpi.valueText
+                    }}</span>
+                  }
                   @if (kpi.sparkline; as sparkline) {
                     <tanstack-chart
                       hlmChart
-                      class="w-22 shrink-0"
+                      class="w-22 min-w-14 shrink"
                       aria-hidden="true"
                       [options]="sparkline"
                     />
@@ -149,7 +161,7 @@
                           data-icon="inline-start"
                         />
                       }
-                      {{ kpi.change > 0 ? '+' : '' }}{{ kpi.change }}%
+                      {{ kpi.change | appNumber: 'change' : displayLocale() }}
                     </span>
                     <span class="text-muted-foreground">
                       @if (kpi.id === 'totalUsers') {
@@ -177,11 +189,11 @@
         <!--#if (LocalIdentity)-->
 
         <!-- 登录趋势与需要关注都是本地身份的数据，资源服务形态下整行不出现 -->
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div class="grid grid-cols-1 gap-4 @3xl:grid-cols-3">
           <!--#if (IncludeOperationRecords)-->
           @if (trendChart(); as chart) {
             <app-stat-panel
-              class="lg:col-span-2"
+              class="@3xl:col-span-2"
               [panelTitle]="t('platform.dashboard.trend.title')"
               data-testid="dashboard-trend"
             >
@@ -198,7 +210,7 @@
               <div class="flex flex-col gap-3 p-4">
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
                   <span class="text-2xl font-semibold tabular-nums">{{
-                    stats.succeededLogins.value
+                    stats.succeededLogins.value | appNumber: 'integer' : displayLocale()
                   }}</span>
                   <span class="text-muted-foreground text-sm">{{
                     t('platform.dashboard.trend.total')
@@ -209,10 +221,12 @@
                         [name]="change > 0 ? 'lucideArrowUpRight' : 'lucideArrowDownRight'"
                         data-icon="inline-start"
                       />
-                      {{ change > 0 ? '+' : '' }}{{ change }}%
+                      {{ change | appNumber: 'change' : displayLocale() }}
                     </span>
                   } @else if (trendChange() === 0) {
-                    <span hlmBadge variant="secondary">0%</span>
+                    <span hlmBadge variant="secondary">{{
+                      0 | appNumber: 'change' : displayLocale()
+                    }}</span>
                   }
                   @if (canChooseTrendView()) {
                     <hlm-toggle-group
@@ -245,7 +259,7 @@
 
           <!--#endif-->
           <app-stat-panel
-            [class]="hasTrend() ? '' : 'lg:col-span-3'"
+            [class]="hasTrend() ? '' : '@3xl:col-span-3'"
             [panelTitle]="t('platform.dashboard.attention.title')"
             data-testid="dashboard-attention"
           >
@@ -347,23 +361,23 @@
         </div>
       } @else {
         <!-- 首次加载：骨架与成稿同布局，数据到达时不跳动 -->
-        <div class="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-busy="true">
+        <div class="grid grid-cols-2 gap-4 @[54rem]:grid-cols-4" aria-busy="true">
           @for (placeholder of [1, 2, 3, 4]; track placeholder) {
             <hlm-skeleton class="h-32 rounded-xl" />
           }
         </div>
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <hlm-skeleton class="h-80 rounded-xl lg:col-span-2" />
+        <div class="grid grid-cols-1 gap-4 @3xl:grid-cols-3">
+          <hlm-skeleton class="h-80 rounded-xl @3xl:col-span-2" />
           <hlm-skeleton class="h-80 rounded-xl" />
         </div>
       }
     }
 
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+    <div class="grid grid-cols-1 gap-4 @3xl:grid-cols-3">
       <!--#if (IncludeOperationRecords)-->
       @if (canViewRecentRecords()) {
         <app-stat-panel
-          class="lg:col-span-2"
+          class="@3xl:col-span-2"
           [panelTitle]="t('platform.dashboard.recent.title')"
           data-testid="dashboard-recent"
         >
@@ -378,7 +392,8 @@
             <ng-icon name="lucideChevronRight" data-icon="inline-end" />
           </a>
           @if (recentRecords()) {
-            <ul class="flex flex-col divide-y">
+            <!-- 宽度够时操作人、结果、时间定宽，各行的列上下对齐；窄时操作人与动作句上下排 -->
+            <ul class="@container flex flex-col divide-y">
               @for (row of recentRows(); track row.record.id) {
                 @let expanded = expandedRecentId() === row.record.id;
                 <li class="text-sm">
@@ -394,9 +409,9 @@
                       </span>
                     </hlm-avatar>
                     <div
-                      class="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2"
+                      class="flex min-w-0 flex-1 flex-col gap-0.5 @lg:flex-row @lg:items-center @lg:gap-3"
                     >
-                      <span class="shrink-0 font-medium">
+                      <span class="shrink-0 truncate font-medium @lg:w-28">
                         {{ row.actor ?? t('platform.dashboard.recent.anonymous') }}
                       </span>
                       @if (recentSentences().get(row.record.id); as sentence) {
@@ -406,7 +421,7 @@
                         <!-- 登记过的句子已含目标（或目标就是操作人自己）；未登记的动作码裸显示时补上目标，窄屏折叠进详情 -->
                         @if (!sentence.key && sentence.text === row.record.action) {
                           <span
-                            class="text-muted-foreground hidden max-w-40 truncate text-xs md:block"
+                            class="text-muted-foreground hidden max-w-40 truncate text-xs @lg:block"
                             [attr.title]="row.target"
                             >{{ row.target }}</span
                           >
@@ -420,43 +435,26 @@
                         }}</span>
                       }
                     </div>
-                    <span
-                      hlmBadge
-                      [variant]="row.record.outcome === 'succeeded' ? 'success' : 'destructive'"
-                    >
-                      <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
-                      @if (row.record.outcome === 'succeeded') {
-                        {{ t('platform.dashboard.recent.succeeded') }}
-                      } @else {
-                        {{ t('platform.dashboard.recent.rejected') }}
-                      }
+                    <span class="flex shrink-0 @lg:w-20">
+                      <span
+                        hlmBadge
+                        appStatusDot
+                        [variant]="row.record.outcome === 'succeeded' ? 'success' : 'destructive'"
+                      >
+                        @if (row.record.outcome === 'succeeded') {
+                          {{ t('platform.dashboard.recent.succeeded') }}
+                        } @else {
+                          {{ t('platform.dashboard.recent.rejected') }}
+                        }
+                      </span>
                     </span>
-                    <time
-                      tabindex="0"
-                      class="text-muted-foreground focus-visible:ring-ring/50 shrink-0 rounded-sm text-xs tabular-nums outline-none focus-visible:ring-[3px]"
-                      [attr.datetime]="row.record.creationTime"
-                      [hlmTooltip]="
-                        row.record.creationTime
-                          | appDate: 'full' : displayTimeZone() : displayLocale()
-                      "
-                    >
-                      @let time = recentTimes().get(row.record.id);
-                      @switch (time?.kind) {
-                        @case ('justNow') {
-                          {{ t('platform.dashboard.recent.justNow') }}
-                        }
-                        @case ('yesterday') {
-                          {{
-                            t('platform.dashboard.recent.yesterdayAt', {
-                              time: time?.kind === 'yesterday' ? time.time : '',
-                            })
-                          }}
-                        }
-                        @default {
-                          {{ time?.kind === 'text' ? time.text : '' }}
-                        }
-                      }
-                    </time>
+                    <app-relative-time-label
+                      class="text-muted-foreground text-xs @lg:w-24 @lg:text-end"
+                      [instant]="row.record.creationTime"
+                      [now]="now()"
+                      [timeZone]="timeZone()"
+                      [locale]="displayLocale()"
+                    />
                     <button
                       hlmBtn
                       variant="ghost"
