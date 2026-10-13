@@ -12,13 +12,13 @@
       @defer {
         <div hlmTableContainer class="w-full overflow-x-auto">
           <table hlmTable class="w-full">
-            <thead hlmTHead class="bg-card sticky top-0 z-10">
+            <thead hlmTHead class="bg-muted sticky top-0 z-10">
               @for (headerGroup of table.getHeaderGroups(); track headerGroup.id) {
                 <tr hlmTr class="text-sm font-medium">
                   @for (header of headerGroup.headers; track header.id) {
                     <th
                       hlmTh
-                      [class]="header.column.columnDef.meta?.headClass ?? 'px-4 sm:px-6'"
+                      [class]="header.column.columnDef.meta?.headClass ?? 'first:ps-4'"
                       [attr.aria-sort]="sortAria(header.column.id)"
                     >
                       @switch (header.column.id) {
@@ -111,10 +111,7 @@
                     [attr.data-state]="row.getIsSelected() ? 'selected' : null"
                   >
                     @for (cell of row.getVisibleCells(); track cell.id) {
-                      <td
-                        hlmTd
-                        [class]="cell.column.columnDef.meta?.cellClass ?? 'px-4 py-2 sm:px-6'"
-                      >
+                      <td hlmTd [class]="cell.column.columnDef.meta?.cellClass ?? 'first:ps-4'">
                         @switch (cell.column.id) {
                           @case ('select') {
                             <hlm-checkbox
@@ -227,13 +224,13 @@
                           @case ('status') {
                             <div class="flex items-center gap-1.5 whitespace-nowrap">
                               @if (row.original.isActive) {
-                                <span hlmBadge variant="success">{{
+                                <span hlmBadge appStatusDot variant="success">{{
                                   row.original.isActive
                                     ? t('users.status.active')
                                     : t('users.status.inactive')
                                 }}</span>
                               } @else {
-                                <span hlmBadge variant="secondary">{{
+                                <span hlmBadge appStatusDot variant="secondary">{{
                                   row.original.isActive
                                     ? t('users.status.active')
                                     : t('users.status.inactive')
@@ -243,6 +240,7 @@
                               @if (row.original.isLockedOut) {
                                 <span
                                   hlmBadge
+                                  appStatusDot
                                   variant="destructive"
                                   data-testid="user-locked"
                                   [hlmTooltip]="
@@ -260,41 +258,59 @@
                                   >{{ t('users.status.locked') }}</span
                                 >
                               }
-                              <span
-                                hlmBadge
-                                [variant]="row.original.isEmailVerified ? 'secondary' : 'outline'"
-                                class="hidden @min-[1400px]:inline-flex"
-                                >{{
-                                  row.original.isEmailVerified
-                                    ? t('users.status.emailVerified')
-                                    : t('users.status.emailUnverified')
-                                }}</span
-                              >
+                              <!-- 邮箱只标例外：已验证是常态不占列宽，未验证才提醒；窄容器里状态列只留主状态 -->
+                              @if (!row.original.isEmailVerified) {
+                                <span
+                                  hlmBadge
+                                  appStatusDot
+                                  variant="warning"
+                                  class="hidden @2xl:inline-flex"
+                                  >{{ t('users.status.emailUnverified') }}</span
+                                >
+                              }
                               <!--#endif-->
                             </div>
                           }
                           <!--#if (LocalIdentity)-->
                           @case ('lastLoginTime') {
-                            <span class="text-xs text-muted-foreground whitespace-nowrap">
-                              {{
-                                row.original.lastLoginTime
-                                  ? (row.original.lastLoginTime
-                                    | appDate: 'full' : displayTimeZone() : displayLocale())
-                                  : '-'
-                              }}
-                            </span>
+                            @if (row.original.lastLoginTime; as lastLoginTime) {
+                              <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
+                              <span
+                                tabindex="0"
+                                class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                                [hlmTooltip]="
+                                  lastLoginTime
+                                    | appDate: 'full' : displayTimeZone() : displayLocale()
+                                "
+                                >{{
+                                  lastLoginTime
+                                    | appDate: 'short' : displayTimeZone() : displayLocale()
+                                }}</span
+                              >
+                            } @else {
+                              <span class="text-xs text-muted-foreground">-</span>
+                            }
                           }
                           <!--#endif-->
                           @case ('creationTime') {
-                            <span class="text-xs text-muted-foreground whitespace-nowrap">{{
-                              row.original.creationTime
-                                | appDate: 'full' : displayTimeZone() : displayLocale()
-                            }}</span>
+                            <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
+                            <span
+                              tabindex="0"
+                              class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                              [hlmTooltip]="
+                                row.original.creationTime
+                                  | appDate: 'full' : displayTimeZone() : displayLocale()
+                              "
+                              >{{
+                                row.original.creationTime
+                                  | appDate: 'short' : displayTimeZone() : displayLocale()
+                              }}</span
+                            >
                           }
                           @case ('actions') {
                             <!-- 操作列（7 项 > 3）：桌面端显示 2 个高频操作 + … 溢出菜单；<sm 全部收进菜单省列宽。
                                规则见 docs/standards/frontend-ui.md §1.1。 -->
-                            <div class="flex items-center justify-end gap-1">
+                            <div class="flex items-center justify-end gap-0.5">
                               <!-- 内置超管行（他人查看）：行内按钮置灰。禁用按钮收不到悬停与焦点，
                                  原因提示挂在外层（Spartan 官方做法），外层此时可聚焦供键盘查看；读屏经 aria-describedby 读到。 -->
                               @if (isOtherSuperAdmin(row.original)) {
@@ -316,7 +332,7 @@
                                   <button
                                     hlmBtn
                                     variant="ghost"
-                                    size="icon"
+                                    size="icon-sm"
                                     [disabled]="isOtherSuperAdmin(row.original)"
                                     [hlmTooltip]="t('common.edit')"
                                     [attr.aria-label]="t('common.edit')"
@@ -343,7 +359,7 @@
                                   <button
                                     hlmBtn
                                     variant="ghost"
-                                    size="icon"
+                                    size="icon-sm"
                                     [disabled]="isOtherSuperAdmin(row.original)"
                                     [hlmTooltip]="t('users.actions.manageRoles')"
                                     [attr.aria-label]="t('users.actions.manageRoles')"
@@ -363,7 +379,7 @@
                                 <button
                                   hlmBtn
                                   variant="ghost"
-                                  size="icon"
+                                  size="icon-sm"
                                   align="end"
                                   class="sm:data-inline-only:hidden"
                                   [attr.data-inline-only]="hasMenuOnlyActions() ? null : ''"
@@ -528,7 +544,7 @@
                       <td
                         hlmTd
                         [attr.colspan]="table.getVisibleLeafColumns().length"
-                        class="px-4 pb-3 pt-2 sm:px-6"
+                        class="px-4 pb-3 pt-2"
                       >
                         <dl
                           class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
@@ -550,6 +566,17 @@
                             </dd>
                           }
                           <!--#if (LocalIdentity)-->
+                          <!-- 窄容器里状态列不放"邮箱未验证"徽章，在这里补上；宽容器主行已有，不重复 -->
+                          @if (!row.original.isEmailVerified) {
+                            <dt class="text-muted-foreground @2xl:hidden">
+                              {{ t('users.filter.emailLabel') }}
+                            </dt>
+                            <dd class="@2xl:hidden" data-testid="user-detail-email-status">
+                              <span hlmBadge appStatusDot variant="warning">{{
+                                t('users.status.emailUnverified')
+                              }}</span>
+                            </dd>
+                          }
                           @if (isColumnHidden('lastLoginTime')) {
                             <dt class="text-muted-foreground">
                               {{ t('users.table.colLastLogin') }}
@@ -640,9 +667,14 @@
     @if (totalCount() > 0) {
       <app-table-paginator
         [labels]="{
-          currentPageReport: t('users.table.currentPageReport', { total: totalCount() }),
+          currentPageReport: t('users.table.currentPageReport', {
+            total: (totalCount() | appNumber: 'integer' : displayLocale()),
+          }),
           rowsPerPage: t('common.rowsPerPage'),
-          page: t('common.pageOf', { page: currentPage(), total: totalPages() }),
+          page: t('common.pageOf', {
+            page: (currentPage() | appNumber: 'integer' : displayLocale()),
+            total: (totalPages() | appNumber: 'integer' : displayLocale()),
+          }),
           first: t('common.pagination.first'),
           previous: t('common.pagination.previous'),
           next: t('common.pagination.next'),

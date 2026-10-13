@@ -8,7 +8,7 @@ export const ACTIONS_COLUMN_META: AppColumnMeta = {
   priority: 'primary',
   locked: true,
   headClass:
-    'w-px px-2 text-right whitespace-nowrap sticky right-0 z-20 bg-card border-l border-border',
+    'w-px px-2 text-right whitespace-nowrap sticky right-0 z-20 bg-muted border-l border-border',
   cellClass:
     'w-px px-2 py-2 whitespace-nowrap sticky right-0 z-10 bg-card group-hover:bg-muted/50 border-l border-border',
 };
@@ -21,7 +21,7 @@ export const ACTIONS_COLUMN_META: AppColumnMeta = {
 export const TITLE_COLUMN_META: AppColumnMeta = {
   priority: 'primary',
   locked: true,
-  cellClass: 'px-4 py-2 sm:px-6 in-data-[table-fit=mobile]:w-full',
+  cellClass: 'first:ps-4 in-data-[table-fit=mobile]:w-full',
 };
 
 /**

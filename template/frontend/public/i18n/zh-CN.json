@@ -52,7 +52,11 @@
       "last": "末页"
     },
     "showPassword": "显示密码",
-    "hidePassword": "隐藏密码"
+    "hidePassword": "隐藏密码",
+    "time": {
+      "justNow": "刚刚",
+      "yesterdayAt": "昨天 {{time}}"
+    }
   },
   "validation": {
     "required": "此字段为必填项",

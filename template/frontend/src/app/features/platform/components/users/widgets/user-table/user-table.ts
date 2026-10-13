@@ -51,8 +51,10 @@ import { AuthService } from '../../../../../../core/services/auth-service';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
 import { PopoverAria } from '../../../../../../shared/directives/popover-aria';
+import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
+import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
@@ -81,8 +83,10 @@ type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
 @Component({
   selector: 'app-user-table',
   imports: [
+    StatusDot,
     TableFit,
     AppDate,
+    AppNumber,
     NgIcon,
     HlmBadge,
     HlmButton,
@@ -327,8 +331,8 @@ const ENGLISH: Record<string, string> = {
   'users.status.lockedUntil': 'Locked until {{time}}',
   'users.status.lockedIndefinitely': 'Locked until an administrator unlocks it',
   'users.status.locked': 'Locked',
-  'users.status.emailVerified': 'Email verified',
   'users.status.emailUnverified': 'Email not verified',
+  'users.filter.emailLabel': 'Email status',
   'common.edit': 'Edit',
   'users.actions.manageRoles': 'Assign roles',
   'users.tooltip.resetPassword': 'Reset password',

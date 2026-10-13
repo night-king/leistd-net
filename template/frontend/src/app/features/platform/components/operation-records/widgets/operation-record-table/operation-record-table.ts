@@ -19,7 +19,9 @@ import { ColumnDef, PaginationState } from '@tanstack/angular-table';
 import { injectOperationActionSentence } from './operation-action-sentence';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
+import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
+import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
@@ -37,7 +39,9 @@ import { operationRecordActor } from '../operation-record-detail/operation-recor
 @Component({
   selector: 'app-operation-record-table',
   imports: [
+    StatusDot,
     AppDate,
+    AppNumber,
     NgIcon,
     HlmBadge,
     HlmButton,

@@ -52,7 +52,11 @@
       "last": "Last page"
     },
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "time": {
+      "justNow": "Just now",
+      "yesterdayAt": "Yesterday {{time}}"
+    }
   },
   "validation": {
     "required": "This field is required.",

@@ -39,6 +39,7 @@ import { TablePaginator } from '../../../../../../shared/components/table-pagina
 import { PopoverAria } from '../../../../../../shared/directives/popover-aria';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
+import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
@@ -77,6 +78,7 @@ type BadgeVariant = 'secondary' | 'outline';
   imports: [
     TableFit,
     AppDate,
+    AppNumber,
     NgIcon,
     HlmBadge,
     HlmButton,

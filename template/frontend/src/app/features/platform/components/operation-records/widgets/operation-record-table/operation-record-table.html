@@ -8,11 +8,11 @@
       @defer {
         <div hlmTableContainer class="w-full overflow-x-auto">
           <table hlmTable class="w-full">
-            <thead hlmTHead class="bg-card sticky top-0 z-10">
+            <thead hlmTHead class="bg-muted sticky top-0 z-10">
               @for (headerGroup of table.getHeaderGroups(); track headerGroup.id) {
                 <tr hlmTr class="text-sm font-medium">
                   @for (header of headerGroup.headers; track header.id) {
-                    <th hlmTh [class]="header.column.columnDef.meta?.headClass ?? 'px-4 sm:px-6'">
+                    <th hlmTh [class]="header.column.columnDef.meta?.headClass ?? 'first:ps-4'">
                       @switch (header.column.id) {
                         @case ('action') {
                           <span class="whitespace-nowrap">{{
@@ -57,10 +57,7 @@
                 @for (row of table.getRowModel().rows; track row.original.id) {
                   <tr hlmTr class="group text-sm hover:bg-muted/50 transition-colors">
                     @for (cell of row.getVisibleCells(); track cell.id) {
-                      <td
-                        hlmTd
-                        [class]="cell.column.columnDef.meta?.cellClass ?? 'px-4 py-2 sm:px-6'"
-                      >
+                      <td hlmTd [class]="cell.column.columnDef.meta?.cellClass ?? 'first:ps-4'">
                         @switch (cell.column.id) {
                           @case ('action') {
                             <!-- 手机宽度下句子折行（长邮箱等无空格的串也断开）：本表没有吸附列，三列必显，单行的长句会把整表撑出横向滚动。 -->
@@ -94,12 +91,12 @@
                           @case ('outcome') {
                             <div class="flex items-center gap-1.5 whitespace-nowrap">
                               @if (isSucceeded(row.original)) {
-                                <span hlmBadge variant="success">{{
+                                <span hlmBadge appStatusDot variant="success">{{
                                   t('operationRecords.outcome.succeeded')
                                 }}</span>
                               } @else {
                                 <!-- 被拒绝的操作用 destructive 变体突出；与其他列表的状态徽章一样只用文字与配色。 -->
-                                <span hlmBadge variant="destructive">{{
+                                <span hlmBadge appStatusDot variant="destructive">{{
                                   t('operationRecords.outcome.failed')
                                 }}</span>
                               }
@@ -143,7 +140,7 @@
                       <td
                         hlmTd
                         [attr.colspan]="table.getVisibleLeafColumns().length"
-                        class="px-4 pb-3 pt-2 sm:px-6"
+                        class="px-4 pb-3 pt-2"
                       >
                         <app-operation-record-detail
                           [record]="row.original"
@@ -214,9 +211,14 @@
     @if (totalCount() > 0) {
       <app-table-paginator
         [labels]="{
-          currentPageReport: t('operationRecords.table.currentPageReport', { total: totalCount() }),
+          currentPageReport: t('operationRecords.table.currentPageReport', {
+            total: (totalCount() | appNumber: 'integer' : displayLocale()),
+          }),
           rowsPerPage: t('common.rowsPerPage'),
-          page: t('common.pageOf', { page: currentPage(), total: totalPages() }),
+          page: t('common.pageOf', {
+            page: (currentPage() | appNumber: 'integer' : displayLocale()),
+            total: (totalPages() | appNumber: 'integer' : displayLocale()),
+          }),
           first: t('common.pagination.first'),
           previous: t('common.pagination.previous'),
           next: t('common.pagination.next'),

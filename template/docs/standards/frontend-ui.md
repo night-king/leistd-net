@@ -13,6 +13,7 @@
 
 - 表格用 TanStack Table（`@tanstack/angular-table`，服务端 `manualPagination`/`manualSorting`/`rowCount`）；分页与筛选复用 `frontend/src/app/shared/components/table-paginator`、`faceted-filter`。
 - 列按优先级（`primary`/`secondary`/`tertiary`）裁剪：视口档位（`tableViewportSignal()`）给上限，带吸附操作列的表格外框挂 `[appTableFit]="tableViewport()" [appTableFitContent]="rows()"`，放不下再降一档（更新数据须换新数组）。被裁的列由 TanStack 行展开补偿（按 `getRowId` 的实体 id 记），不另建展开状态。主列用 `TITLE_COLUMN_META` 与 `TITLE_CONTENT_CLASS`：最窄档截断长名称。
+- 表头统一灰底（`thead` 与吸附操作列的表头格都用 `bg-muted`），正文与吸附操作列的正文格跟随行表面与悬停态。单元格密度用 Spartan 表格默认（表头 `px-2`、单元格 `p-2`），只给首列加 `first:ps-4` 留出与外框的间距，不在页面上另写横向内边距。时间列用 `appDate` 的 `short` 槽位，完整时刻在展开详情里给出；审计类表格（操作记录）按秒对时，用 `full`。
 - 操作列按"常用优先、破坏性置后"排序：≤3 项桌面端平铺（icon 按钮 + tooltip），>3 项显示 2 个高频操作 + `…` 溢出菜单；`<sm` 一律收进 `…`，破坏性操作用 `variant="destructive"` 并以分隔线隔开。
 
 ## 2. 组件与样式
@@ -38,8 +39,9 @@
 
 - 状态/分类标签**只用项目约定的有限几个语义色**，不随意扩色。
 - **分类标签用中性色，不用告警色表达"非告警"的分类**（不要用 warn 橙表达一个普通分类）。
+- **状态徽章前带圆点，分类标签不带**：启用 / 停用、已锁定、邮箱未验证、成功 / 被拒绝、当前设备这类状态在 `hlmBadge` 上加 `appStatusDot`（`shared/directives/status-dot`），圆点取徽章文字色；角色名、客户端类型、"内置"这类分类不加。
 
-> `例`：用 Spartan badge 的有限变体 `default` / `secondary` / `destructive` / `success` / `outline`（`hlmBadge`）；分类标签一律用中性变体（`secondary`）；`success` 只用于启用、已验证、成功这类正向状态。
+> `例`：用 Spartan badge 的有限变体 `default` / `secondary` / `destructive` / `success` / `warning` / `outline`（`hlmBadge`）；分类标签一律用中性变体（`secondary`）；`success` 只用于启用、已验证、成功这类正向状态。
 
 ### 2.4 组件设计
 
@@ -89,7 +91,7 @@
 | 12px | 辅助说明、时间戳、徽章 | `text-xs`                               |
 | 30px | 仅仪表盘大数字         | `text-3xl` + `tabular-nums`             |
 
-- 营销页（着陆页、认证页品牌面板）可以用更大的展示字号（`text-4xl` 到 `text-6xl` 的 Tailwind 档位，仍不写任意值）、光晕、同心细环与渐变字；这些装饰只限营销页，应用内页面不用。
+- 营销页（着陆页、认证页品牌面板）可以用更大的展示字号（`text-4xl` 到 `text-6xl` 的 Tailwind 档位，仍不写任意值）、光晕、同心细环与渐变字；这些装饰只限营销页，应用内页面不用。唯一例外是用户工作台的欢迎区：问候与搜索背后一层顶部居中的主色淡光晕（约 12%），数据区仍按普通表面规则。
 - 页面不必都有可见标题：列表页可直接从工具栏开始（面包屑与标签页已说明位置）；有页面标题时用 24px 一档，一页一个。
 - 字重只用 400 / 500 / 600，不用 `font-bold` / `font-extrabold`。
 - 16px 一档即 card、dialog、sheet、alert-dialog 标题组件的默认样式，不再手加 `font-semibold`。
@@ -107,7 +109,7 @@
 嵌套的块用 `md` 不用 `xl`：内外同圆角就分不出层次。组件内部的小元素（菜单项、清除按钮）跟随所在组件的写法。
 
 - **托盘卡**（`frontend/src/app/shared/components/stat-panel`）：灰底外框放标题与右侧操作，内层白卡放内容，用于仪表盘这类同屏多块数据；内卡圆角按嵌套规则取 `rounded-lg`（外框 `rounded-xl` 减去 4px 间距）。普通页面区块仍用 Spartan Card，不套托盘。
-- **图表**用 Spartan `chart`（TanStack Charts），序列颜色只取 `--chart-1…5` 令牌、主题用 `HLM_CHART_THEME`，不写色值；`chart` 只在用到它的懒加载页面里引入。主序列用 `--chart-1`，需要警惕的序列（失败、错误）用琥珀色 `--chart-3`；按时段的离散数据画直线、不做平滑，主序列加自上而下淡出的渐变面积；图例是 2px 圆角方块；提示框写该时段的真实起止，逐行列出各序列的值并带色块；坐标轴与提示里的日期、钟点用 `formatAppDate` 的槽位，与其他页面同一写法（见[编码规范 §9](./coding-frontend.md#9-日期与时区)）。当前版本的网格没有虚线配置，保持实线。
+- **图表**用 Spartan `chart`（TanStack Charts），序列颜色只取 `--chart-1…5` 令牌、主题用 `HLM_CHART_THEME`，不写色值；`chart` 只在用到它的懒加载页面里引入。主序列用 `--chart-1`，需要警惕的序列（失败、错误）用琥珀色 `--chart-3`；按时段的离散数据画直线、不做平滑，主序列加自上而下淡出的渐变面积；图例是 2px 圆角方块；提示框写该时段的真实起止，逐行列出各序列的值并带色块；坐标轴与提示里的日期、钟点用 `formatAppDate`、数字用 `formatAppNumber` 的槽位，与其他页面同一写法（见[编码规范 §9](./coding-frontend.md#9-日期时区与数字)）。当前版本的网格没有虚线配置，保持实线。
 - **相对时间**（「刚刚」「N 分钟前」「昨天 HH:mm」）只用在扫一眼即可的近期列表，按展示时区判今天、昨天，更早的写月日与时刻；完整时刻放进 Tooltip，元素可键盘聚焦。审计、详情等需要对时的位置写绝对时间。
 - **指标卡**放在托盘卡里：外框标题右侧是口径说明（键盘可达的按钮 + Tooltip，写清这项怎么算），内卡是数值、迷你趋势（同一 `chart`，`guides: false` 去掉坐标轴与网格）和环比徽章；没有按桶序列的指标不画迷你趋势。
 
