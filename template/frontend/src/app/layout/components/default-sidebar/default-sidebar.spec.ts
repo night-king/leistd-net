@@ -1,8 +1,13 @@
-import { signal } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 //#if (IncludeLocalization)
 import { Translation } from '@jsverse/transloco';
+//#endif
+import { HlmSidebarImports, HlmSidebarService } from '@spartan-ng/helm/sidebar';
+//#if (IncludeLocalization)
 import { Subject } from 'rxjs';
 //#endif
 
@@ -16,6 +21,7 @@ import {
   PERMISSIONS,
   PLATFORM_ENTRY_PERMISSIONS,
 } from '../../../shared/constants/permission.constants';
+import { expectTouchTarget, setCoarsePointer } from '../../../shared/utils/coarse-pointer.testing';
 
 //#if (IncludeLocalization)
 // 空词条下 translate() 回落成键名，所以这里按**键**断言：分组骨架与文案无关，
@@ -191,3 +197,52 @@ describe('DefaultSidebar menu labels', () => {
   });
 });
 //#endif
+
+/** 与默认布局同样的包法：侧栏放在 hlmSidebarWrapper 里，宽度变量与折叠状态都从这里来。 */
+@Component({
+  selector: 'app-test-sidebar-host',
+  imports: [DefaultSidebar, ...HlmSidebarImports],
+  template: `<div hlmSidebarWrapper class="h-svh"><app-default-sidebar /></div>`,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class SidebarHost {}
+
+/** 折叠成图标轨时按钮原本只有 32px 见方；触屏下侧栏加宽，按钮宽高都到 44px 且整块可点。 */
+describe('DefaultSidebar touch targets', () => {
+  afterEach(() => setCoarsePointer(false));
+
+  it('keeps every collapsed menu button a full 44px target on touch screens', async () => {
+    await setCoarsePointer(true);
+    TestBed.configureTestingModule({
+      // prettier-ignore
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        //#if (IncludeLocalization)
+        ...provideTranslocoTesting(),
+        //#endif
+      ],
+    });
+    const fixture = TestBed.createComponent(SidebarHost);
+    TestBed.inject(HlmSidebarService).setOpen(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    // 折叠是宽度过渡，量尺寸要等过渡结束
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-collapsible="icon"]')).not.toBeNull();
+    const buttons = host.querySelectorAll('[data-slot="sidebar-menu-button"]');
+    expect(buttons.length).toBeGreaterThan(0);
+    buttons.forEach(expectTouchTarget);
+    // 只露图标：按钮放大后，没收起的文字会从图标旁边露出来
+    const labels = Array.from(host.querySelectorAll('[data-slot="sidebar-menu-button"] > span'));
+    expect(labels.filter((label) => label.getBoundingClientRect().width > 0)).toEqual([]);
+    // 搜索文字折叠后整个隐藏，按钮的名称由 aria-label 提供（提示框只是描述，图标对读屏隐藏）
+    const search = host.querySelector('[data-testid="sidebar-search"]')!;
+    const searchLabel = search.querySelector('span')!.textContent!.trim();
+    expect(searchLabel).not.toBe('');
+    expect(search.getAttribute('aria-label')).toBe(searchLabel);
+  });
+});
