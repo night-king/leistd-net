@@ -4,78 +4,77 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <!-- 版本只在本文件声明：项目里写 Version 报 NU1008、引用未登记的包报 NU1010，VersionOverride 也禁掉（NU1013） -->
+    <CentralPackageVersionOverrideEnabled>false</CentralPackageVersionOverrideEnabled>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Microsoft.Extensions.* （统一到 10.0.10，Refit 15 要求 Microsoft.Extensions.Http >= 10.0.10） -->
-    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.11" />
-    <PackageVersion Include="OpenIddict.Server" Version="7.7.1" />
-    <PackageVersion Include="OpenIddict.Core" Version="7.7.1" />
-    <PackageVersion Include="OpenIddict.Validation" Version="7.7.1" />
-    <PackageVersion Include="OpenIddict.Validation.SystemNetHttp" Version="7.7.1" />
-    <PackageVersion Include="OpenIddict.Validation.AspNetCore" Version="7.7.1" />
-    <PackageVersion Include="OpenIddict.Client" Version="7.7.1" />
-    <PackageVersion Include="OpenIddict.Client.SystemNetHttp" Version="7.7.1" />
-    <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.9.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Localization.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.11" />
+    <!-- Microsoft.Extensions.* 统一到同一服务版本，随 .NET 每月补丁一起升（Refit.HttpClientFactory 对 Microsoft.Extensions.Http 有最低版本要求，升 Refit 时一并核对） -->
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.13" />
+    <PackageVersion Include="OpenIddict.Server" Version="7.7.2" />
+    <PackageVersion Include="OpenIddict.Core" Version="7.7.2" />
+    <PackageVersion Include="OpenIddict.Validation" Version="7.7.2" />
+    <PackageVersion Include="OpenIddict.Validation.SystemNetHttp" Version="7.7.2" />
+    <PackageVersion Include="OpenIddict.Validation.AspNetCore" Version="7.7.2" />
+    <PackageVersion Include="OpenIddict.Client" Version="7.7.2" />
+    <PackageVersion Include="OpenIddict.Client.SystemNetHttp" Version="7.7.2" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.11.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Localization.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
 
     <!-- 租户连接串与机密设置的加密存储：只引用抽象，密钥环由宿主的 AddDataProtection 提供 -->
-    <PackageVersion Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="10.0.13" />
 
     <!-- Entity Framework Core -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
 
     <!-- 第三方 -->
     <PackageVersion Include="Castle.Core" Version="5.2.1" />
     <PackageVersion Include="Castle.Core.AsyncInterceptor" Version="2.1.0" />
-    <PackageVersion Include="MailKit" Version="4.17.0" />
-    <PackageVersion Include="Mapster" Version="10.0.12" />
-    <PackageVersion Include="Refit" Version="15.2.0" />
-    <PackageVersion Include="Refit.HttpClientFactory" Version="15.2.0" />
-    <PackageVersion Include="Refit.Reflection" Version="15.2.0" />
-    <PackageVersion Include="StackExchange.Redis" Version="3.1.31" />
+    <PackageVersion Include="MailKit" Version="4.18.1" />
+    <!-- 传递钉扎：MimeKit 只要求 System.Security.Cryptography.Pkcs >= 10.0.0，而 10.0.0–10.0.12 含高危与中危公告
+         （GHSA-846f-f764-76mx、GHSA-2fmv-rv2c-59x7）。钉到已修复版本后，它随打包成为 Leistd.Email.Smtp 的依赖，消费方一并拿到修复版本。 -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageVersion Include="Mapster" Version="10.0.13" />
+    <PackageVersion Include="Refit" Version="16.3.0" />
+    <PackageVersion Include="Refit.HttpClientFactory" Version="16.3.0" />
+    <PackageVersion Include="Refit.Reflection" Version="16.3.0" />
+    <PackageVersion Include="StackExchange.Redis" Version="3.4.5" />
 
     <!-- 构建期（源码调试） -->
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.400" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.402" />
 
     <!-- 测试（仅 framework/tests 下的项目使用） -->
-    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.13" />
     <!-- 真实 SignalR 客户端：Hub 授权要走握手与调用两个阶段才看得出是否同一策略 -->
-    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
     <!-- 真实 Host 生命周期：验证托管服务的启动检查（StartingAsync 先于 StartAsync、ConfigureContainer 走 CreateBuilder） -->
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <!-- 只要断言库：共享基座不是测试项目，引 xunit 元包会经 xunit.core.props 把它标成
          IsTestProject=true，于是 dotnet test 把它当测试程序集启动并失败 -->
     <PackageVersion Include="xunit.assert" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
     <!-- 条件跳过：xunit 2.x 没有动态 Skip API。仅 Lock 测试项目使用——
          真实 Redis 契约用例在没有 Redis 的机器上跳过，而不是让仓库的提交前自检整体失败 -->
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.13" />
     <!-- 事务相关分支测试用（EF InMemory 不支持事务，见测试选型说明）；覆盖率收集 -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
-    <!-- 传递钉扎：EF Core Sqlite 10.0.8 带入的 SQLitePCLRaw.lib.e_sqlite3 2.1.11 含高危原生库公告
-         （GHSA-2m69-gcr7-jv3q）。仅测试工程使用（IsPackable=false，不进 NuGet 与模板），
-         但没有理由让 CI 长期带着 NU1903 跑；钉到已修复版本即可，EF Core 的下限约束仍满足。 -->
-    <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     <!-- 官方时间替身：FakeTimeProvider 覆盖 Advance / 时区 / 夏令时，取代各测试项目手写的 ManualTimeProvider -->
-    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
-    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
     <!-- 官方日志替身：FakeLogger 让"日志被写出"成为可断言行为（静默降级路径需要它） -->
-    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.9.0" />
-    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.11.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
   </ItemGroup>
 
 </Project>
