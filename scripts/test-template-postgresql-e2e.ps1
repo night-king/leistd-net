@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "docker-image.ps1")
 $runId = "{0}-{1}" -f $PID, (Get-Date -Format "yyyyMMddHHmmssfff")
 $runRoot = Join-Path $repoRoot ".tmp/postgresql-e2e/$runId"
 # 开发环境以外（迁移作业默认即是）Data Protection 要求显式的持久密钥位置；API 与各 DbMigrator 也必须共用
@@ -159,10 +160,12 @@ try {
     }
 
     $script:postgresPort = Get-FreeTcpPort
+    $postgresImage = "postgres:18-alpine"
+    Initialize-DockerImage $postgresImage
     Invoke-External "docker" @(
         "run", "--detach", "--name", $containerName,
         "-e", "POSTGRES_PASSWORD=$postgresPassword",
-        "-p", "${script:postgresPort}:5432", "postgres:15-alpine")
+        "-p", "${script:postgresPort}:5432", $postgresImage)
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
     do {

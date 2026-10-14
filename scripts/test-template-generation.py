@@ -426,7 +426,7 @@ def check_gitlab_ci(text):
     try:
         import yaml
     except ImportError as error:
-        raise SystemExit('需要 PyYAML 解析生成的 .gitlab-ci.yml（python -m pip install PyYAML==6.0.2）') from error
+        raise SystemExit('需要 PyYAML 解析生成的 .gitlab-ci.yml（python -m pip install PyYAML==6.0.3）') from error
     document = yaml.safe_load(text)
     assert isinstance(document, dict) and list(document) == ['stages', 'verify'], f'GitLab CI top-level keys: {document and list(document)}'
     assert document['stages'] == ['verify'], f'GitLab CI stages: {document["stages"]}'

@@ -2,8 +2,8 @@
 # -----------------------------------
 # Stage 1: Build Frontend (Angular)
 # -----------------------------------
-# Angular CLI 要求 Node >= 22.22.3。
-FROM node:22-alpine AS frontend-build
+# 取当前 Node LTS；Angular CLI 要求 Node ^22.22.3、^24.15.0 或 >=26。
+FROM node:24-alpine AS frontend-build
 WORKDIR /app
 
 # 锁定文件是前端构建的唯一依赖基线。

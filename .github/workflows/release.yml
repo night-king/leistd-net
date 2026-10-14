@@ -28,7 +28,7 @@ jobs:
       release_base_sha: ${{ steps.plan.outputs.release_base_sha }}
       channel: ${{ steps.commit.outputs.channel }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.sha }}
           fetch-depth: 0
@@ -84,7 +84,7 @@ jobs:
       id-token: write      # nuget.org Trusted Publishing（stable/beta）
       packages: write      # GitHub Packages（nightly）
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # nightly 固定构建 develop；其余构建**触发的那个提交**，不是分支当下的 tip。
           #
@@ -114,7 +114,7 @@ jobs:
           Write-Host "发布通道: $channel"
 
       - name: 安装 .NET 10 SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -474,7 +474,7 @@ jobs:
 
       - name: 上传最终发布产物
         id: artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-packages-${{ steps.ver.outputs.version }}
           path: ${{ runner.temp }}/release-artifact/
@@ -521,7 +521,7 @@ jobs:
       - name: 创建 GitHub Release（stable / beta）
         id: gh-release
         if: steps.ch.outputs.channel != 'nightly'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ch.outputs.channel == 'stable' && 'Release' || 'Prerelease' }} ${{ steps.ver.outputs.tag }}

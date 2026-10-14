@@ -4,7 +4,7 @@
 # Api 与 DbMigrator 的 appsettings.Development.json 已指向这里；连其他库时用 user-secrets 覆盖（见 README「本地运行」）。
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -12,7 +12,8 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - dev-pgdata:/var/lib/postgresql/data
+      # PG18 的数据目录在 /var/lib/postgresql/18/docker，卷挂父目录
+      - dev-pgdata-18:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -20,7 +21,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     ports:
       - "127.0.0.1:6379:6379"
 #if (Email)
@@ -34,4 +35,4 @@ services:
 #endif
 
 volumes:
-  dev-pgdata:
+  dev-pgdata-18:

@@ -56,7 +56,7 @@ $allocatedPorts = [Collections.Generic.HashSet[int]]::new()
 $context = $null
 $container = "leistd-oidc-$runId"
 $volume = "$container-data"
-$image = "postgres:15-alpine"
+$image = "postgres:18-alpine"
 $hadImage = $true
 $createdContainer = $false
 $createdVolume = $false
@@ -688,7 +688,7 @@ function Initialize-Environment {
     }
     $script:context = Select-DockerContext
     $script:hadImage = (Invoke-Docker @("image", "inspect", $image) -AllowFailure).ExitCode -eq 0
-    if (-not $hadImage) { Invoke-Docker @("pull", $image) | Out-Null }
+    if (-not $hadImage) { Invoke-DockerPullWithRetry $image -Pull { param($Name) (Invoke-Docker @("pull", $Name) -AllowFailure).ExitCode } }
     $feed = if ($SkipPack) {
         if ($LocalFeedPath) { [IO.Path]::GetFullPath($LocalFeedPath, $repoRoot) } else { Join-Path $repoRoot ".tmp/local-feed" }
     } else {
@@ -799,7 +799,7 @@ function Initialize-Environment {
     Invoke-Docker @("volume", "create", $volume) | Out-Null
     $script:createdContainer = $true
     Invoke-Docker @("run", "-d", "--name", $container, "-e", "POSTGRES_PASSWORD", "-p", "127.0.0.1:$($ports.postgres):5432",
-        "-v", "${volume}:/var/lib/postgresql/data", $image) -Variables @{ POSTGRES_PASSWORD = $postgresPassword } | Out-Null
+        "-v", "${volume}:/var/lib/postgresql", $image) -Variables @{ POSTGRES_PASSWORD = $postgresPassword } | Out-Null
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
     do {
         $ready = Invoke-Docker @("exec", $container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres") -AllowFailure
@@ -1225,6 +1225,7 @@ function Invoke-Scenario([string]$Name, [scriptblock]$Action) {
 
 # 共用矩阵事实；浏览器辅助文件只被本入口加载，不另建场景生成清单。
 . (Join-Path $PSScriptRoot "template-matrix-scenarios.ps1")
+. (Join-Path $PSScriptRoot "docker-image.ps1")
 if ($IncludeBrowserScenarios) { . (Join-Path $PSScriptRoot "test-template-oidc-browser.ps1") }
 if ($IncludeMultiTenantScenarios) { . (Join-Path $PSScriptRoot "test-template-oidc-multitenant.ps1") }
 $postgresPassword = New-RandomValue "Pg!1"

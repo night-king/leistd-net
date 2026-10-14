@@ -63,6 +63,7 @@ $pythonEncodingEnv = @{ PYTHONWARNDEFAULTENCODING = "1"; PYTHONWARNINGS = "error
 # 入口 ps1 的文件头（development-guide §9）：首行 shebang；有注释帮助块时与 shebang 之间空一行，
 # 帮助块紧贴 shebang 时 Get-Help 认不出它。只被点源加载的库脚本不能直接执行，不要求 shebang。
 $dotSourcedLibraries = @(
+    'scripts/docker-image.ps1',
     'scripts/generated-project-checks.ps1',
     "scripts/quality-validation-plan.ps1",
     "scripts/template-matrix-scenarios.ps1",
@@ -157,6 +158,7 @@ $gates = @(
     # 先证明运行环境：编码警告设置没生效时，后面每道 Python 闸门的"通过"都少验了一项
     @{ Name = "Python 编码警告设置生效";   Run = { Test-PythonEncodingWarnings } }
     @{ Name = "入口脚本文件头规则自检";    Run = { Test-EntryScriptHeaderRules } }
+    @{ Name = "镜像拉取重试自检";          Run = { . (Join-Path $repoRoot "scripts/docker-image.ps1"); Test-DockerPullRetry } }
     @{ Name = "入口脚本文件头";            Run = { Test-EntryScriptHeaders } }
     @{ Name = "组件文档与索引一致";        Cmd = "pwsh"; Args = @("framework/build/check-docs-sync.ps1") }
     @{ Name = "文档 API 自检与引用不漂移";       Cmd = "pwsh"; Args = @("framework/build/check-docs-api-drift.ps1") }

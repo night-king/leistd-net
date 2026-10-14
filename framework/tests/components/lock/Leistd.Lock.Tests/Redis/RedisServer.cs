@@ -23,7 +23,7 @@ internal static class RedisServer
 
     public static string SkipReason =>
         $"没有可用的 Redis（{ConnectionString}）。启一个即可跑这一批：" +
-        $"docker run -d -p 6379:6379 redis:7-alpine，或设 {ConnectionEnvironmentVariable}。";
+        $"docker run -d -p 6379:6379 redis:8-alpine，或设 {ConnectionEnvironmentVariable}。";
 
     private static readonly Lazy<IConnectionMultiplexer?> Shared = new(() =>
     {
