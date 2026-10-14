@@ -40,8 +40,9 @@ export const OPERATION_ACTION_DEFINITIONS: MockOperationActionDefinition[] = [
   { code: 'operation-records.exported', category: 'data', severity: 'notice' },
 ];
 
-// 固定基准时刻：样本数据不随运行时间漂移，截图与断言才稳定。
-const BASE_TIME = Date.parse('2026-09-17T09:00:00.000Z');
+// 以加载时刻（取整到分钟）为基准往前排：列表与仪表盘的"多久以前"按真实远近显示（与通知样本同一做法）；
+// 断言只比较样本之间的先后，不依赖具体日期。
+const BASE_TIME = Math.floor(Date.now() / 60_000) * 60_000;
 
 function minutesBefore(minutes: number): string {
   return new Date(BASE_TIME - minutes * 60_000).toISOString();

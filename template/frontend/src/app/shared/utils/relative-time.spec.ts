@@ -1,4 +1,5 @@
 import { formatRelativeTime } from './relative-time';
+import { formatAppDate } from '../pipes/app-date-pipe';
 
 /** 相对时间：按展示时区判今天与昨天，午夜前后与时钟稍快都不出错。 */
 describe('formatRelativeTime', () => {
@@ -38,14 +39,31 @@ describe('formatRelativeTime', () => {
     expect(result.kind === 'yesterday' && result.time).toContain('23:50');
   });
 
-  it('writes the date for anything older than yesterday', () => {
-    const result = formatRelativeTime(
-      '2026-10-10T08:00:00Z',
-      at('2026-10-13T12:00:00Z'),
-      'UTC',
-      'en',
-    );
+  it('counts days within the past week by calendar day', () => {
+    // 东八区此刻 10-14 00:10：10-11 是三天前，即使相隔不足 72 小时
+    const now = at('2026-10-13T16:10:00Z');
 
-    expect(result.kind).toBe('text');
+    expect(formatRelativeTime('2026-10-11T08:00:00Z', now, 'Asia/Shanghai', 'en')).toEqual({
+      kind: 'text',
+      text: '3 days ago',
+    });
+    expect(formatRelativeTime('2026-10-07T20:00:00Z', now, 'Asia/Shanghai', 'zh-CN')).toEqual({
+      kind: 'text',
+      text: '6天前',
+    });
+  });
+
+  it('writes only the date beyond a week, with the year only for another year', () => {
+    const now = at('2026-10-13T12:00:00Z');
+
+    const thisYear = formatRelativeTime('2026-09-17T08:57:00Z', now, 'UTC', 'zh-CN');
+    expect(thisYear).toEqual({
+      kind: 'text',
+      text: formatAppDate('2026-09-17T08:57:00Z', 'monthDay', 'UTC', 'zh-CN'),
+    });
+
+    const lastYear = formatRelativeTime('2025-12-30T08:00:00Z', now, 'UTC', 'zh-CN');
+    expect(lastYear.kind === 'text' && lastYear.text).toContain('2025');
+    expect(lastYear.kind === 'text' && lastYear.text).not.toMatch(/\d{1,2}:\d{2}/);
   });
 });

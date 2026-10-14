@@ -225,23 +225,17 @@
                           @case ('status') {
                             <div class="flex items-center gap-1.5 whitespace-nowrap">
                               @if (row.original.isActive) {
-                                <span hlmBadge appStatusDot appearance="plain" variant="success">{{
+                                <span hlmBadge appStatusDot variant="success">{{
                                   row.original.isActive
                                     ? t('users.status.active')
                                     : t('users.status.inactive')
                                 }}</span>
                               } @else {
-                                <span
-                                  hlmBadge
-                                  appStatusDot
-                                  appearance="plain"
-                                  variant="secondary"
-                                  >{{
-                                    row.original.isActive
-                                      ? t('users.status.active')
-                                      : t('users.status.inactive')
-                                  }}</span
-                                >
+                                <span hlmBadge appStatusDot variant="secondary">{{
+                                  row.original.isActive
+                                    ? t('users.status.active')
+                                    : t('users.status.inactive')
+                                }}</span>
                               }
                               <!--#if (LocalIdentity)-->
                               @if (row.original.isLockedOut) {

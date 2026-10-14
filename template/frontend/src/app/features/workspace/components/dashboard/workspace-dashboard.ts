@@ -75,6 +75,7 @@ import {
 } from '../../../../shared/dtos/account-security.dto';
 //#endif
 //#if (IncludeNotifications)
+import { NotificationOutputDto } from '../../../../shared/dtos/notification.dto';
 import { AppNumber } from '../../../../shared/pipes/app-number-pipe';
 //#endif
 //#if (!IncludeLocalization)
@@ -241,8 +242,18 @@ export class WorkspaceDashboard {
   /** 展开了全文的那条通知；同时只展开一条。 */
   readonly expandedNotificationId = signal<string | null>(null);
 
-  toggleNotification(id: string): void {
-    this.expandedNotificationId.update((current) => (current === id ? null : id));
+  /** 点一行展开 / 收起全文，未读的同时标为已读（与铃铛面板点一条的效果一致）。 */
+  async openNotification(notification: NotificationOutputDto): Promise<void> {
+    this.expandedNotificationId.update((current) =>
+      current === notification.id ? null : notification.id,
+    );
+    if (notification.isRead) return;
+    try {
+      await this.notificationService.markAsRead(notification.id);
+    } catch (error: unknown) {
+      // 标记已读是附带动作：失败只提示，展开照常
+      this.showRequestError(error);
+    }
   }
 
   /** 最近通知：与顶栏铃铛同一份共享状态，这里只取前四条。 */
@@ -250,6 +261,30 @@ export class WorkspaceDashboard {
     this.notificationService.notifications().slice(0, 4),
   );
   //#endif
+
+  /**
+   * "继续工作"的示例卡：封面色取图表序列色（类名写全，Tailwind 才扫得到）。下游项目换成自己最近处理的业务对象。
+   */
+  protected readonly continueExamples = [
+    {
+      title: 'workspace.dashboard.continue.item1',
+      hint: 'workspace.dashboard.continue.item1Hint',
+      icon: 'lucideLayers',
+      tone: 'from-chart-1/20 text-chart-1',
+    },
+    {
+      title: 'workspace.dashboard.continue.item2',
+      hint: 'workspace.dashboard.continue.item2Hint',
+      icon: 'lucideFileText',
+      tone: 'from-chart-2/20 text-chart-2',
+    },
+    {
+      title: 'workspace.dashboard.continue.item3',
+      hint: 'workspace.dashboard.continue.item3Hint',
+      icon: 'lucideActivity',
+      tone: 'from-chart-4/20 text-chart-4',
+    },
+  ] as const;
 
   /** 命令框下方的常用动作，按形态与当前状态出现；去向页面的入口在下方快捷入口里，不重复列。 */
   readonly quickActions = computed<WorkbenchLink[]>(() => {
@@ -338,9 +373,13 @@ export class WorkspaceDashboard {
   });
 
   constructor() {
+    const destroyRef = inject(DestroyRef);
     interval(60_000)
-      .pipe(takeUntilDestroyed(inject(DestroyRef)))
+      .pipe(takeUntilDestroyed(destroyRef))
       .subscribe(() => this.now.set(Date.now()));
+    // 欢迎区自带搜索框，顶栏的同一个入口在这一页收起，避免两个搜索入口上下并列
+    this.layoutService.pageHasSearch.set(true);
+    destroyRef.onDestroy(() => this.layoutService.pageHasSearch.set(false));
     //#if (IncludeLocalization)
     const title = translateSignal('workspace.dashboard.title', {}, { scope: 'workspace' });
     effect(() => this.layoutService.title.set(title()));
@@ -360,16 +399,20 @@ export class WorkspaceDashboard {
     try {
       await this.notificationService.markAllAsRead();
     } catch (error: unknown) {
-      //#if (IncludeLocalization)
-      toast.error(this.transloco.translate('common.requestError'), {
-        description: applicationErrorMessage(error),
-      });
-      //#else
-      toast.error('Request failed', { description: applicationErrorMessage(error) });
-      //#endif
+      this.showRequestError(error);
     } finally {
       this.markingAllRead.set(false);
     }
+  }
+
+  private showRequestError(error: unknown): void {
+    //#if (IncludeLocalization)
+    toast.error(this.transloco.translate('common.requestError'), {
+      description: applicationErrorMessage(error),
+    });
+    //#else
+    toast.error('Request failed', { description: applicationErrorMessage(error) });
+    //#endif
   }
   //#endif
   //#if (LocalIdentity)
@@ -413,7 +456,6 @@ const ENGLISH: Record<string, string> = {
   'workspace.dashboard.notifications.title': 'Recent notifications',
   'workspace.dashboard.notifications.markAllRead': 'Mark all as read',
   'workspace.dashboard.notifications.empty': 'No notifications',
-  'common.details': 'View details',
   //#endif
   //#if (LocalIdentity)
   'workspace.dashboard.security.title': 'Account security',

@@ -56,30 +56,32 @@
 
       <div class="flex items-center gap-2 md:gap-4">
         @if (layout() === 'topbar') {
-          <!-- 搜索入口：打开命令面板（⌘K / Ctrl+K）。窄屏收成图标按钮。 -->
-          <button
-            type="button"
-            hlmBtn
-            variant="outline"
-            class="text-muted-foreground hidden w-56 justify-start font-normal md:inline-flex"
-            data-testid="topbar-search"
-            (click)="commandPalette.open()"
-          >
-            <ng-icon name="lucideSearch" />
-            {{ t('layout.commandPalette.search') }}
-            <kbd hlmKbd class="ms-auto">⌘K</kbd>
-          </button>
-          <button
-            type="button"
-            hlmBtn
-            variant="ghost"
-            size="icon"
-            class="md:hidden"
-            [attr.aria-label]="t('layout.commandPalette.search')"
-            (click)="commandPalette.open()"
-          >
-            <ng-icon name="lucideSearch" />
-          </button>
+          <!-- 搜索入口：打开命令面板（⌘K / Ctrl+K）。窄屏收成图标按钮；页面自带搜索入口时不重复显示。 -->
+          @if (!layoutService.pageHasSearch()) {
+            <button
+              type="button"
+              hlmBtn
+              variant="outline"
+              class="text-muted-foreground hidden w-56 justify-start font-normal md:inline-flex"
+              data-testid="topbar-search"
+              (click)="commandPalette.open()"
+            >
+              <ng-icon name="lucideSearch" />
+              {{ t('layout.commandPalette.search') }}
+              <kbd hlmKbd class="ms-auto">⌘K</kbd>
+            </button>
+            <button
+              type="button"
+              hlmBtn
+              variant="ghost"
+              size="icon"
+              class="md:hidden"
+              [attr.aria-label]="t('layout.commandPalette.search')"
+              (click)="commandPalette.open()"
+            >
+              <ng-icon name="lucideSearch" />
+            </button>
+          }
           <app-workspace-nav placement="end" />
         }
         <!--#if (Impersonation)-->

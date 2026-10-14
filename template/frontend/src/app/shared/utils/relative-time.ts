@@ -9,8 +9,9 @@ export type RelativeTime =
   { kind: 'justNow' } | { kind: 'yesterday'; time: string } | { kind: 'text'; text: string };
 
 /**
- * 按展示时区判今天、昨天：今天之内写相对时长（1 分钟内与时钟稍快导致的未来时刻都写「刚刚」），
- * 昨天写「昨天 HH:mm」，更早写月日与时刻。完整时刻由调用方放进提示。
+ * 按展示时区的日历日分档，扫一眼就知道远近（与 GitHub、Linear 等同一思路）：今天之内写相对时长
+ * （1 分钟内与时钟稍快导致的未来时刻都写「刚刚」），昨天写「昨天 HH:mm」，一周内写「N 天前」，
+ * 更早只写日期（今年省略年份）。完整时刻由调用方放进提示。
  */
 export function formatRelativeTime(
   instant: string,
@@ -40,5 +41,16 @@ export function formatRelativeTime(
   if (day === addCalendarDays(today, -1)) {
     return { kind: 'yesterday', time: formatAppDate(instant, 'time', timeZone, locale) };
   }
-  return { kind: 'text', text: formatAppDate(instant, 'monthDayTime', timeZone, locale) };
+  if (day >= addCalendarDays(today, -6)) {
+    const days = (Date.parse(today) - Date.parse(day)) / 86_400_000;
+    return {
+      kind: 'text',
+      text: new Intl.RelativeTimeFormat(locale, { numeric: 'always' }).format(-days, 'day'),
+    };
+  }
+  const sameYear = day.slice(0, 4) === today.slice(0, 4);
+  return {
+    kind: 'text',
+    text: formatAppDate(instant, sameYear ? 'monthDay' : 'date', timeZone, locale),
+  };
 }

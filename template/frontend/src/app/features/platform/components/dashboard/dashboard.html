@@ -438,7 +438,6 @@
                         hlmBadge
                         appStatusDot
                         [variant]="row.record.outcome === 'succeeded' ? 'success' : 'destructive'"
-                        [appearance]="row.record.outcome === 'succeeded' ? 'plain' : 'tinted'"
                       >
                         @if (row.record.outcome === 'succeeded') {
                           {{ t('platform.dashboard.recent.succeeded') }}
