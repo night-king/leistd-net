@@ -16,6 +16,7 @@ import { UserTable } from './user-table';
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
 import { AuthService } from '../../../../../../core/services/auth-service';
+import { expectAriaSortOnSortedHeaderOnly } from '../../../../../../shared/utils/table-sorting.testing';
 import { UserManagementOutputDto } from '../../../../dtos/user-management.dto';
 
 /** 用户表格的交互状态：分页与排序是 manual 模式，验证回传给父级的意图，而不是表格里剩几行。 */
@@ -147,7 +148,7 @@ describe('UserTable', () => {
 
   it('updates the sort icon and aria state with the current sorting', () => {
     expect(component.sortIcon('username')).toBe('lucideArrowUpDown');
-    expect(component.sortAria('username')).toBe('none');
+    expect(component.sortAria('username')).toBeNull();
 
     fixture.componentRef.setInput('sorting', [{ id: 'username', desc: false }] as SortingState);
     fixture.detectChanges();
@@ -158,6 +159,35 @@ describe('UserTable', () => {
     fixture.detectChanges();
     expect(component.sortIcon('username')).toBe('lucideSortDesc');
     expect(component.sortAria('username')).toBe('descending');
+  });
+
+  it('puts aria-sort only on the header of the sorted column', async () => {
+    // 表格包在 @defer 里，测试环境不会自己渲染它
+    const [table] = await fixture.getDeferBlocks();
+    await table.render(DeferBlockState.Complete);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    // 表头格属于哪一列，以点它的排序按钮发出的排序意图为准
+    const sortedColumns: string[] = [];
+    fixture.componentInstance.sortingChange.subscribe((value) => sortedColumns.push(value[0].id));
+    const columnOf = (header: HTMLTableCellElement | null) => {
+      header!.querySelector<HTMLButtonElement>(':scope > button')!.click();
+      return sortedColumns.at(-1);
+    };
+    expectAriaSortOnSortedHeaderOnly(host, null);
+
+    fixture.componentRef.setInput('sorting', [{ id: 'username', desc: false }] as SortingState);
+    fixture.detectChanges();
+    const first = expectAriaSortOnSortedHeaderOnly(host, 'ascending');
+    expect(columnOf(first)).toBe('username');
+
+    // 换列后旧表头的属性随之消失
+    fixture.componentRef.setInput('sorting', [{ id: 'email', desc: true }] as SortingState);
+    fixture.detectChanges();
+    const second = expectAriaSortOnSortedHeaderOnly(host, 'descending');
+    expect(second).not.toBe(first);
+    expect(columnOf(second)).toBe('email');
   });
 
   it('hides the overflow menu when no row action is available', () => {

@@ -13,6 +13,7 @@ import { RoleTable } from './role-table';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
+import { expectAriaSortOnSortedHeaderOnly } from '../../../../../../shared/utils/table-sorting.testing';
 import { RoleOutputDto } from '../../../../dtos/role.dto';
 
 /** 角色表格与用户表格共用受控分页与排序约定，但各自实现，因此各自用例钉住。 */
@@ -105,6 +106,35 @@ describe('RoleTable', () => {
 
     component.toggleSort('displayName');
     expect(emitted[1]).toEqual([{ id: 'displayName', desc: true }]);
+  });
+
+  it('puts aria-sort only on the header of the sorted column', async () => {
+    // 表格包在 @defer 里，测试环境不会自己渲染它
+    const [table] = await fixture.getDeferBlocks();
+    await table.render(DeferBlockState.Complete);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    // 表头格属于哪一列，以点它的排序按钮发出的排序意图为准
+    const sortedColumns: string[] = [];
+    fixture.componentInstance.sortingChange.subscribe((value) => sortedColumns.push(value[0].id));
+    const columnOf = (header: HTMLTableCellElement | null) => {
+      header!.querySelector<HTMLButtonElement>(':scope > button')!.click();
+      return sortedColumns.at(-1);
+    };
+    expectAriaSortOnSortedHeaderOnly(host, null);
+
+    fixture.componentRef.setInput('sorting', [{ id: 'displayName', desc: false }] as SortingState);
+    fixture.detectChanges();
+    const first = expectAriaSortOnSortedHeaderOnly(host, 'ascending');
+    expect(columnOf(first)).toBe('displayName');
+
+    // 换列后旧表头的属性随之消失
+    fixture.componentRef.setInput('sorting', [{ id: 'sort', desc: true }] as SortingState);
+    fixture.detectChanges();
+    const second = expectAriaSortOnSortedHeaderOnly(host, 'descending');
+    expect(second).not.toBe(first);
+    expect(columnOf(second)).toBe('sort');
   });
 
   it('does not render the overflow menu when no action is available', () => {
