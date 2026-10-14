@@ -33,7 +33,7 @@ $scenarioMap = [ordered]@{
         ForbiddenTokens = @("external-auth", "ExternalLoginUrlOutputDto", "ExternalLoginCallbackInputDto")
     }
     "resource" = @{
-        Slices = @{ full = "resource-and-standalone-roles" }
+        Slices = @{ full = "resource-role" }
         Arguments = @("--service-role","Resource"); Frontend = $true; Lint = $true
         Present = @(
             "backend/src/{name}.Infrastructure/Persistence/Migrations/Resource",
@@ -63,7 +63,7 @@ $scenarioMap = [ordered]@{
         ForbiddenTokens = @("App.Tenants", "useHash", "withHashLocation", "LoginInputDto", "usernameOrEmail")
     }
     "standalone" = @{
-        Slices = @{ full = "resource-and-standalone-roles" }
+        Slices = @{ full = "standalone-role" }
         # Cookie 会话形态：有本地用户与租户控制面，但不签发 OIDC 令牌。
         # 目的是不让内部系统带着用不到的授权服务器上线——未使用的 /connect/* 端点
         # 与 OpenIddict 存储不是"多余代码"，是需要防护、打补丁、审计的攻击面
@@ -105,7 +105,7 @@ $scenarioMap = [ordered]@{
         }
     }
     "resource-notifications" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "resource-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role","Resource","--include-notifications"); Frontend = $true; Lint = $true
         Present = @(
             "backend/src/{name}.Application/Notifications/Constants/AppNotificationTypes.cs",
@@ -129,7 +129,7 @@ $scenarioMap = [ordered]@{
         ReadmeExcludes = @()
     }
     "standalone-external-login" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "standalone-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Standalone", "--include-external-login"); Frontend = $true; Lint = $true
         Present = @("backend/src/{name}.Api/Controllers/ExternalAuthController.cs", "frontend/src/app/features/account/components/external-auth-callback")
         Absent = @("backend/src/{name}.Api/Controllers/ConnectController.cs", "backend/src/{name}.Api/Options/OAuthServerOptions.cs", "backend/src/{name}.Application/Auth/Options/OAuthResourceOptions.cs", "backend/src/{name}.Api/Auth/Sessions/DistributedTicketStore.cs")
@@ -167,7 +167,7 @@ $scenarioMap = [ordered]@{
         ReadmeExcludes = @()
     }
     "resource-localization" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "identity-notifications-and-resource-localization" }
+        Slices = @{ full = "resource-role"; pr = "identity-notifications-and-resource-localization" }
         Arguments = @("--service-role","Resource","--include-localization"); Frontend = $true; Lint = $true
         Present = @("backend/src/{name}.Api/Resources/en.json", "frontend/public/i18n/en.json", "frontend/src/app/core/services/language-service.ts")
         Absent = @("backend/src/{name}.Api/Controllers/AuthController.cs", "frontend/src/app/features/account")
@@ -185,7 +185,7 @@ $scenarioMap = [ordered]@{
         ReadmeContains = @(); ReadmeExcludes = @()
     }
     "standalone-capabilities-02" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "standalone-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Standalone", "--include-frontend", "true", "--include-multi-tenancy", "false", "--include-real-time", "false", "--include-email", "false", "--include-operation-records", "false", "--include-notifications", "false", "--include-external-login", "false", "--include-localization", "false")
         Frontend = $true; Lint = $true
         Present = @("backend/src/{name}.Api/Controllers/AuthController.cs")
@@ -193,7 +193,7 @@ $scenarioMap = [ordered]@{
         ReadmeContains = @(); ReadmeExcludes = @()
     }
     "resource-capabilities-03" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "resource-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Resource", "--include-frontend", "false", "--include-multi-tenancy", "false", "--include-real-time", "false", "--include-email", "false", "--include-operation-records", "false", "--include-notifications", "false", "--include-external-login", "false", "--include-localization", "false")
         Frontend = $false; Lint = $true
         Present = @("backend/src/{name}.DbMigrator/Runners/ResourceAdminBootstrapRunner.cs")
@@ -201,7 +201,7 @@ $scenarioMap = [ordered]@{
         ReadmeContains = @(); ReadmeExcludes = @()
     }
     "resource-capabilities-04" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "resource-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Resource", "--include-frontend", "false", "--include-multi-tenancy", "true", "--include-real-time", "true", "--include-email", "false", "--include-operation-records", "true", "--include-notifications", "true", "--include-external-login", "false", "--include-localization", "true")
         Frontend = $false; Lint = $true
         Present = @("backend/src/{name}.DbMigrator/Runners/ResourceAdminBootstrapRunner.cs")
@@ -226,7 +226,7 @@ $scenarioMap = [ordered]@{
         ForbiddenTokens = @("ImpersonationService", "App.Tenants.Impersonation", "canImpersonate", "onImpersonate")
     }
     "standalone-capabilities-06" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "standalone-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Standalone", "--include-frontend", "true", "--include-multi-tenancy", "true", "--include-real-time", "true", "--include-email", "true", "--include-operation-records", "false", "--include-notifications", "false", "--include-external-login", "true", "--include-localization", "false")
         Frontend = $true; Lint = $true
         Present = @("backend/src/{name}.Api/Controllers/AuthController.cs")
@@ -234,7 +234,7 @@ $scenarioMap = [ordered]@{
         ReadmeContains = @(); ReadmeExcludes = @()
     }
     "standalone-capabilities-07" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "standalone-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Standalone", "--include-frontend", "true", "--include-multi-tenancy", "false", "--include-real-time", "true", "--include-email", "false", "--include-operation-records", "false", "--include-notifications", "true", "--include-external-login", "true", "--include-localization", "true")
         Frontend = $true; Lint = $true
         Present = @("backend/src/{name}.Api/Controllers/AuthController.cs")
@@ -250,7 +250,7 @@ $scenarioMap = [ordered]@{
         ReadmeContains = @(); ReadmeExcludes = @()
     }
     "resource-capabilities-09" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "resource-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Resource", "--include-frontend", "true", "--include-multi-tenancy", "false", "--include-real-time", "false", "--include-email", "false", "--include-operation-records", "false", "--include-notifications", "false", "--include-external-login", "false", "--include-localization", "false")
         Frontend = $true; Lint = $true
         Present = @("backend/src/{name}.DbMigrator/Runners/ResourceAdminBootstrapRunner.cs")
@@ -258,7 +258,7 @@ $scenarioMap = [ordered]@{
         ReadmeContains = @(); ReadmeExcludes = @()
     }
     "resource-host-api-realtime" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "resource-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Resource", "--include-frontend", "false", "--include-multi-tenancy", "false", "--include-real-time", "true", "--include-operation-records", "false", "--ci", "none")
         Frontend = $false; Lint = $true; Verify = $true
         Present = @("backend/tests/{name}.IntegrationTests/ResourceHostPrincipalTests.cs", "backend/tests/{name}.IntegrationTests/RealTimeSubscriptionTests.cs")
@@ -266,7 +266,7 @@ $scenarioMap = [ordered]@{
         ReadmeContains = @(); ReadmeExcludes = @()
     }
     "resource-host-browser-notifications" = @{
-        Slices = @{ full = "resource-and-standalone-roles"; pr = "resource-notifications-and-standalone" }
+        Slices = @{ full = "resource-role"; pr = "resource-notifications-and-standalone" }
         Arguments = @("--service-role", "Resource", "--include-multi-tenancy", "false", "--include-notifications", "true", "--include-operation-records", "false", "--include-localization", "true")
         Frontend = $true; Lint = $true
         Present = @("backend/tests/{name}.IntegrationTests/ResourceHostPrincipalTests.cs", "backend/tests/{name}.IntegrationTests/ResourceBrowserSessionTests.cs", "frontend/src/app/core/services/notification-service.ts")
@@ -300,7 +300,7 @@ if ($listedOnly.Count -gt 0) {
 
 $MatrixTiers = @("pr", "full")
 
-# 每档的人工逻辑分组；组数量同时给出 CI 默认分片上限（PR三片、full两片）。
+# 每档的人工逻辑分组；组数量同时给出 CI 默认分片上限（PR 三片、full 三片）。
 $MatrixSlices = [ordered]@{
     pr = [ordered]@{
         "identity-default-and-all-features" = "Identity 默认产物与可选特性全开"
@@ -308,8 +308,9 @@ $MatrixSlices = [ordered]@{
         "identity-notifications-and-resource-localization"    = "Identity 通知与 Resource 本地化"
     }
     full = [ordered]@{
-        "identity-role"                 = "Identity 形态全部组合"
-        "resource-and-standalone-roles" = "Resource 与 Standalone 形态全部组合（含容器）"
+        "identity-role"   = "Identity 形态全部组合"
+        "resource-role"   = "Resource 形态全部组合（含容器）"
+        "standalone-role" = "Standalone 形态全部组合（含容器）"
     }
 }
 
