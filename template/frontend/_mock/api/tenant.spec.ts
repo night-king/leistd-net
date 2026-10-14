@@ -13,9 +13,9 @@ import { MockException } from '../core/models';
 import { MockTenant, TENANTS } from '../data/tenant';
 //#if (Impersonation)
 import {
-  MOCK_SESSION_USER_ID,
   getMockImpersonator,
   getMockSessionTenantKey,
+  getMockSessionUserId,
   setMockSessionTenantKey,
   setMockSessionUserId,
 } from '../utils/current-user';
@@ -295,7 +295,7 @@ describe('tenant impersonation mock', () => {
 
     expect(errorOf(() => impersonate({ params: { id: 'tenant_acme' } })).status).toBe(403);
 
-    expect(MOCK_SESSION_USER_ID).toBe('user_demo');
+    expect(getMockSessionUserId()).toBe('user_demo');
     expect(getMockSessionTenantKey()).toBe('host');
     expect(getMockImpersonator()).toBeNull();
   });
@@ -320,7 +320,7 @@ describe('tenant impersonation mock', () => {
 
     impersonate({ params: { id: 'tenant_acme' } });
 
-    expect(MOCK_SESSION_USER_ID).toBe('user_admin');
+    expect(getMockSessionUserId()).toBe('user_admin');
     expect(getMockSessionTenantKey()).toBe('tenant_acme');
     expect(getMockImpersonator()).toEqual({
       userId: 'user_admin',

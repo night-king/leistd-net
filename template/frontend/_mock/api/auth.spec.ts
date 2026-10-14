@@ -5,11 +5,11 @@ import { AUTH_API } from './auth';
 import { MockException } from '../core/models';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
 import {
-  MOCK_SESSION_USER_ID,
   //#if (Impersonation)
   getMockImpersonator,
   //#endif
   getMockSessionTenantKey,
+  getMockSessionUserId,
   //#if (Impersonation)
   setMockImpersonator,
   setMockSessionTenantKey,
@@ -46,6 +46,17 @@ describe('mock auth subject', () => {
     expect401(() => profile({ body: { username: 'hacked', email: 'hacked@test.dev' } }));
 
     expect(USERS.map((u) => ({ ...u }))).toEqual(before);
+  });
+
+  it('keeps the session in tab storage and reads it on every request', () => {
+    // 会话存在本标签页的 sessionStorage：刷新后仍在，新开标签页没有
+    setMockSessionUserId(USERS[0].id);
+    expect(sessionStorage.getItem('mock_session_user_id')).toBe(USERS[0].id);
+
+    // 存储是唯一来源：存储里没有会话，模块不能凭记下的旧标识继续放行
+    sessionStorage.removeItem('mock_session_user_id');
+
+    expect401(() => profile({ body: { username: 'hacked', email: 'hacked@test.dev' } }));
   });
 
   it('returns 401 for an anonymous password change and keeps the old password valid', () => {
@@ -208,7 +219,7 @@ describe('mock two-factor sign-in', () => {
       body: { usernameOrEmail: 'demo', password: demo.password },
     }) as { requiresTwoFactor?: boolean; twoFactorToken?: string };
     expect(result.requiresTwoFactor).toBe(true);
-    expect(MOCK_SESSION_USER_ID).toBeNull();
+    expect(getMockSessionUserId()).toBeNull();
     return result.twoFactorToken!;
   }
 
@@ -225,7 +236,7 @@ describe('mock two-factor sign-in', () => {
       'token',
       'code',
     ]);
-    expect(MOCK_SESSION_USER_ID).toBeNull();
+    expect(getMockSessionUserId()).toBeNull();
   });
 
   it('rejects an unknown challenge with 401', () => {
@@ -255,7 +266,7 @@ describe('mock two-factor sign-in', () => {
     expect(
       rejectionOf(() => completeTwoFactor({ headers, body: { token, code: '123456' } })).status,
     ).toBe(401);
-    expect(MOCK_SESSION_USER_ID).toBeNull();
+    expect(getMockSessionUserId()).toBeNull();
   });
 
   it('signs in with the code and accepts each challenge only once', () => {
@@ -263,7 +274,7 @@ describe('mock two-factor sign-in', () => {
 
     completeTwoFactor({ headers, body: { token, code: '123 456' } });
 
-    expect(MOCK_SESSION_USER_ID).toBe(demo.id);
+    expect(getMockSessionUserId()).toBe(demo.id);
     expect(getMockSessionTenantKey()).toBe('host');
     expect(
       rejectionOf(() => completeTwoFactor({ headers, body: { token, code: '123456' } })).status,
@@ -273,7 +284,7 @@ describe('mock two-factor sign-in', () => {
   it('consumes a recovery code so it cannot be used twice', () => {
     completeTwoFactor({ headers, body: { token: firstStep(), recoveryCode: 'mock-recovery-1' } });
 
-    expect(MOCK_SESSION_USER_ID).toBe(demo.id);
+    expect(getMockSessionUserId()).toBe(demo.id);
     expect(demo.recoveryCodes).toEqual([]);
 
     setMockSessionUserId(null);
@@ -281,7 +292,7 @@ describe('mock two-factor sign-in', () => {
       completeTwoFactor({ headers, body: { token: firstStep(), recoveryCode: 'mock-recovery-1' } }),
     );
     expect(error.status).toBe(400);
-    expect(MOCK_SESSION_USER_ID).toBeNull();
+    expect(getMockSessionUserId()).toBeNull();
   });
 });
 //#if (ExternalLogin)
@@ -365,7 +376,7 @@ describe('mock impersonation session', () => {
 
     end();
 
-    expect(MOCK_SESSION_USER_ID).toBe('user_admin');
+    expect(getMockSessionUserId()).toBe('user_admin');
     expect(getMockSessionTenantKey()).toBe('host');
     expect(getMockImpersonator()).toBeNull();
     expect(status()).toEqual({ isImpersonating: false });

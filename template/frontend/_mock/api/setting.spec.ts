@@ -242,6 +242,17 @@ describe('settings mock', () => {
   });
   //#endif
   //#endif
+  it('writes personal settings for the account the stored session names', () => {
+    signIn('user_admin');
+    // 会话只在存储里换成了 demo：设置按存储里的会话记，不按模块记下的旧主体
+    sessionStorage.setItem('mock_session_user_id', 'user_demo');
+
+    api[putUser](request({ name: 'Display.TimeZone', value: 'UTC' }));
+
+    expect(USER_SETTING_VALUES.get('host:user_demo:Display.TimeZone')).toBe('UTC');
+    expect(USER_SETTING_VALUES.has('host:user_admin:Display.TimeZone')).toBe(false);
+  });
+
   it('rejects the values and names the backend rejects', () => {
     signIn('user_admin');
 

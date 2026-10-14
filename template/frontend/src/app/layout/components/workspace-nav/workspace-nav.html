@@ -65,16 +65,20 @@
   }
 
   @if (placement() === 'start') {
+    <!-- 链接不换行：放不下的从末尾收进「更多」菜单（规则见 docs/standards/frontend-ui.md「导航与菜单分组」）。
+         导航区占满品牌右侧的剩余宽度，可用宽度因此不随平铺项数变化。 -->
     <nav
+      #nav
       hlmNavigationMenu
-      class="hidden md:flex"
+      class="hidden min-w-0 max-w-none flex-1 justify-start md:flex"
       [attr.aria-label]="t('layout.sidebar.navigation')"
     >
-      <ul hlmNavigationMenuList class="gap-1">
-        @for (item of items(); track item.route) {
+      <ul hlmNavigationMenuList class="flex-none gap-1">
+        @for (item of inlineItems(); track item.route) {
           <li hlmNavigationMenuItem>
             <a
               hlmNavigationMenuLink
+              class="whitespace-nowrap"
               [routerLink]="item.route"
               [active]="isItemActive(item)"
               [attr.aria-current]="isItemActive(item) ? 'page' : null"
@@ -84,7 +88,53 @@
             </a>
           </li>
         }
+        @if (overflowItems().length) {
+          <!-- 菜单项指令要求子元素是导航链接或导航触发器，「更多」是下拉菜单按钮，用普通列表项。
+               按键不冒泡给导航：导航的方向键管理只认平铺链接，会把焦点从刚打开的下拉里抢回去 -->
+          <li>
+            <button
+              type="button"
+              class="hover:bg-muted focus-visible:ring-ring/50 data-[active=true]:bg-muted/50 data-[state=open]:bg-muted flex items-center gap-1.5 rounded-sm p-2 text-sm whitespace-nowrap transition-all outline-none focus-visible:ring-3 focus-visible:outline-1"
+              data-testid="workspace-nav-more"
+              align="start"
+              [attr.data-active]="overflowActive()"
+              [hlmDropdownMenuTrigger]="moreMenu"
+              (keydown)="$event.stopPropagation()"
+            >
+              {{ t('layout.topbar.more') }}
+              <ng-icon name="lucideChevronDown" class="text-muted-foreground size-3" />
+            </button>
+            <ng-template #moreMenu>
+              <hlm-dropdown-menu class="min-w-44">
+                @for (item of overflowItems(); track item.route) {
+                  <a
+                    hlmDropdownMenuItem
+                    class="aria-[current=page]:bg-muted"
+                    [routerLink]="item.route"
+                    [attr.aria-current]="isItemActive(item) ? 'page' : null"
+                    [attr.data-testid]="'workspace-nav-' + item.route"
+                  >
+                    <ng-icon [name]="item.icon" />
+                    {{ item.label }}
+                  </a>
+                }
+              </hlm-dropdown-menu>
+            </ng-template>
+          </li>
+        }
       </ul>
+      <!-- 量尺：与上面同样式的全部标签加「更多」按钮，不可见、不占位、不可聚焦，只用来量宽度 -->
+      <div class="invisible absolute inset-0 overflow-hidden" aria-hidden="true">
+        <div #ruler class="flex w-max gap-1">
+          @for (item of items(); track item.route) {
+            <span class="p-2 text-sm whitespace-nowrap">{{ item.label }}</span>
+          }
+          <span class="flex items-center gap-1.5 p-2 text-sm whitespace-nowrap">
+            {{ t('layout.topbar.more') }}
+            <ng-icon name="lucideChevronDown" class="size-3" />
+          </span>
+        </div>
+      </div>
     </nav>
   } @else if (items().length) {
     <!-- 与主题、通知、语言同一排，用同尺寸的 ghost 图标按钮，名称放进提示与可访问名。没有

@@ -16,6 +16,7 @@ import {
   getMockSessionSubjectId,
   getMockSessionTenantKey,
 } from '../utils/current-user';
+import { StoredMap } from '../utils/stored-map';
 
 //#if (IncludeLocalization)
 const SUPPORTED_LANGUAGES = ['en', 'zh-CN'];
@@ -98,7 +99,7 @@ function readBody(req: MockRequest): { name: string; value: string | null } {
   return { name, value: value ?? null };
 }
 
-function write(map: Map<string, string>, key: string, value: string | null): null {
+function write(map: StoredMap, key: string, value: string | null): null {
   // null 是唯一的清除语义：删除该层级的行，读取回落到下一层。
   if (value === null) {
     map.delete(key);

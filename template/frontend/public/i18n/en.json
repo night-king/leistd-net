@@ -138,7 +138,8 @@
     },
     "topbar": {
       "openNavigation": "Open navigation",
-      "navigationDescription": "Choose a page to open"
+      "navigationDescription": "Choose a page to open",
+      "more": "More"
     },
     "notifications": {
       "title": "Notifications",

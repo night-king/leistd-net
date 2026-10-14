@@ -383,6 +383,23 @@ describe('Dashboard', () => {
     //#endif
     expect(query('kpi-totalUsers')?.querySelector('button[aria-label]')).not.toBeNull();
   });
+
+  it('keeps the comparison on one line however long the wording is', async () => {
+    await setup([PERMISSIONS.dashboard.default]);
+    fixture.detectChanges();
+
+    // 完整口径放在提示里，卡片上的说法再长也只截断、不把这一行撑高
+    const captions = Array.from(
+      fixture.nativeElement.querySelectorAll('[data-testid="kpi-comparison"]'),
+    ) as HTMLElement[];
+    expect(captions.length).toBeGreaterThan(0);
+    for (const caption of captions) {
+      const badge = caption.parentElement!.querySelector('[hlmBadge]')!;
+      expect(caption.parentElement!.getBoundingClientRect().height).toBeLessThanOrEqual(
+        badge.getBoundingClientRect().height + 1,
+      );
+    }
+  });
   //#if (IncludeOperationRecords && LocalIdentity)
 
   it('offers daily or weekly only for ranges of two weeks or more, weekly by default past 31 days', async () => {
@@ -417,6 +434,18 @@ describe('Dashboard', () => {
     TestBed.resetTestingModule();
     const withUsers = await setup([PERMISSIONS.dashboard.default, PERMISSIONS.users.default]);
     expect(withUsers.attention()[0].route).toBe('/platform/users');
+  });
+
+  it('keeps the count of an attention item visible apart from its name', async () => {
+    await setup([PERMISSIONS.dashboard.default]);
+    fixture.detectChanges();
+
+    // 名称在窄栏里会截断，数量独立成徽章，截断不会把它带走
+    const rows = Array.from(query('dashboard-attention')!.querySelectorAll('li'));
+    expect(rows.map((row) => row.querySelector('[hlmBadge]')?.textContent?.trim())).toEqual([
+      '1',
+      '2',
+    ]);
   });
   //#endif
 

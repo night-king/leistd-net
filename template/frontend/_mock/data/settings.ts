@@ -1,3 +1,5 @@
+import { StoredMap } from '../utils/stored-map';
+
 /** 设置的 Mock 数据。覆盖值按主体键控，键形状对齐真实 Store 的 `ScopeKey`，用户级也带租户。 */
 export interface MockSettingDefinition {
   name: string;
@@ -367,8 +369,9 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
 /**
  * 用户级覆盖：`${tenantKey}:${subjectId}:${settingName}` → 值，宿主用 `host`。键用主体标识
  * （Resource 形态下是令牌的 `sub`），不是 Mock persona，否则同租户的两个真实用户会串数据。
+ * 与租户级覆盖一样存在 sessionStorage：后端把设置存进数据库，刷新后账户语言、时区不能丢。
  */
-export const USER_SETTING_VALUES = new Map<string, string>();
+export const USER_SETTING_VALUES = new StoredMap('mock_user_settings');
 
 /** 租户级覆盖：`${tenantKey}:${settingName}` → 值；宿主用 `host`。 */
-export const TENANT_SETTING_VALUES = new Map<string, string>();
+export const TENANT_SETTING_VALUES = new StoredMap('mock_tenant_settings');

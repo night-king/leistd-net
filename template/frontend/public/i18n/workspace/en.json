@@ -42,8 +42,8 @@
       "progress": "{{done}} of {{total}} checks passed",
       "emailVerified": "Email verified",
       "emailUnverified": "Email not verified",
-      "twoFactorOn": "Two-factor authentication on",
-      "twoFactorOff": "Two-factor authentication off",
+      "twoFactorOn": "Two-factor on",
+      "twoFactorOff": "Two-factor off",
       "fix": "Set up"
     },
     "devices": {
