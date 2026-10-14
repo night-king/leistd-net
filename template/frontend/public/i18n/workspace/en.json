@@ -6,7 +6,7 @@
       "afternoon": "Good afternoon, {{name}}",
       "evening": "Good evening, {{name}}"
     },
-    "search": "Search pages and settings…",
+    "search": "Search pages…",
     "actions": {
       "enableTwoFactor": "Turn on two-factor",
       "devices": "Signed-in devices"

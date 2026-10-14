@@ -124,7 +124,7 @@ frontend/
   ```
 
 - 槽位（`full`、`short`、`date`、`time`、`monthDayTime`、`monthDay`）由调用点按用途定；locale 取当前界面语言，不由时区推导。精度与格式串不做成设置项，语种写法差异加在管道的 `WRITING_OVERRIDES`。图表坐标轴、区间按钮等非模板调用方用同一个 `formatAppDate`，不另写日期格式。
-- 时刻落在展示时区的哪一天用 `zonedCalendarDate`，日历日加减用 `addCalendarDays`；"刚刚 / N 分钟前 / 昨天"这类相对时间用 `shared/utils/relative-time` 的 `formatRelativeTime`（需要词条的种类交给模板翻译）。
+- 时刻落在展示时区的哪一天用 `zonedCalendarDate`，日历日加减用 `addCalendarDays`；"刚刚 / N 分钟前 / 昨天 / N 天前"这类相对时间用 `shared/utils/relative-time` 的 `formatRelativeTime`（需要词条的种类交给模板翻译）。
 - 业务数字用 `appNumber` 管道（非模板调用方用同一个 `formatAppNumber`）：`integer` 带千分位，`compact` 写大数（完整整数放进提示），`change` 写变化率，输入是比例（0.29 → `+29%`），乘 100 只在格式化处发生。locale 同样取界面语言；不在组件里直接 new `Intl.NumberFormat`。词条里的数字先格式化再作为参数传入。
 - 时区候选项按"能否真的渲染"判定，不用 `Intl.supportedValuesOf('timeZone')` 过滤（它只列规范名，`UTC`、`Asia/Kolkata` 等可用值不在其中）。
 <!--#if (IncludeRealTime)-->

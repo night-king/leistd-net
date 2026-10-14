@@ -56,6 +56,10 @@
     "time": {
       "justNow": "刚刚",
       "yesterdayAt": "昨天 {{time}}"
+    },
+    "calendar": {
+      "previousMonth": "上个月",
+      "nextMonth": "下个月"
     }
   },
   "validation": {

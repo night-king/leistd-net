@@ -36,6 +36,7 @@ import {
 } from './core/services/language-service';
 //#endif
 import { StartupService } from './core/services/startup-service';
+import { provideAppCalendarLocale } from './core/settings/calendar-locale';
 import { provideMock } from '../../_mock/core/providers';
 
 const routerFeatures: RouterFeatures[] = [
@@ -77,6 +78,8 @@ export const appConfig: ApplicationConfig = {
     provideAppA11yLabels(),
     //#endif
     provideHttpClient(withInterceptors(appInterceptors)),
+    // 日期选择器的星期、月份与翻月读屏名跟随界面写法（理由见 provideAppCalendarLocale）
+    provideAppCalendarLocale(),
     //#if (IncludeLocalization)
     // 首帧前加载活动语言词条，首次渲染不出裸键（理由见 provideLanguageInitializer）。
     provideLanguageInitializer(),

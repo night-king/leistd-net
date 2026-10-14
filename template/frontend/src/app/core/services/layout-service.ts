@@ -18,6 +18,9 @@ export class LayoutService {
   // 空标题时 default-header 整个末级（含分隔符）不渲染，因此不会留下断裂的面包屑。
   title = signal<string>('');
 
+  /** 当前页面自带搜索入口（打开同一个命令面板）时为 true，顶栏不再重复显示；由页面进入时设置、离开时复位。 */
+  readonly pageHasSearch = signal(false);
+
   /** 当前路由（跟随导航结束刷新）。Header/Sidebar/UserMenu 共享，避免各自重复接线。 */
   readonly currentUrl = toSignal(
     this.router.events.pipe(

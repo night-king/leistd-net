@@ -66,7 +66,6 @@ import {
   WEEKLY_MIN_DAYS,
   bucketLabels,
   bucketTitle,
-  firstDayOfWeek,
   groupByWeek,
   sumByGroups,
   weekLabel,
@@ -94,6 +93,9 @@ import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
 import { AppNumber, formatAppNumber } from '../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
+//#endif
+//#if (IncludeOperationRecords && LocalIdentity)
+import { firstDayOfWeek } from '../../../../shared/utils/locale-week';
 //#endif
 import { resolveDisplayTimeZone, zonedCalendarDate } from '../../../../shared/utils/zoned-time';
 //#if (IncludeOperationRecords)

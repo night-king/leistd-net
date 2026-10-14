@@ -9,7 +9,8 @@
     [srOnlySheetTitle]="t('layout.sidebar.navigation')"
     [srOnlySheetDescription]="t('layout.sidebar.navigationDescription')"
   >
-    <div hlmSidebarHeader>
+    <!-- 品牌头与搜索是两块：间距与搜索到第一个分组一致（16px），不贴在一起 -->
+    <div hlmSidebarHeader class="gap-4">
       <ul hlmSidebarMenu>
         <li hlmSidebarMenuItem>
           <!-- 品牌头用 menu-button 基元（size=lg），折叠为 icon 时收成方形图标。同时是区域切换器：
@@ -77,7 +78,9 @@
             </a>
           }
         </li>
-        <!-- 搜索入口：打开命令面板。折叠为图标轨时只留放大镜。 -->
+      </ul>
+      <!-- 搜索入口：打开命令面板。折叠为图标轨时只留放大镜。 -->
+      <ul hlmSidebarMenu>
         <li hlmSidebarMenuItem>
           <button
             hlmSidebarMenuButton

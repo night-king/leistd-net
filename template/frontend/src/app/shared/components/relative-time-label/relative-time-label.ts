@@ -11,7 +11,8 @@ import { englishText } from '../../utils/english-text';
 import { formatRelativeTime } from '../../utils/relative-time';
 
 /**
- * 近期列表里的"多久以前"：刚刚 / N 分钟前 / 昨天 HH:mm / 月日时刻，完整时刻放进可键盘聚焦的提示。
+ * 近期列表里的"多久以前"：刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / N 天前 / 更早只写日期（今年省略年份），
+ * 完整时刻放进可键盘聚焦的提示。
  * `now` 由调用方的分钟级时钟给出，时钟走动时文字随之更新；字号与颜色由调用方在宿主上设。
  *
  * ```html

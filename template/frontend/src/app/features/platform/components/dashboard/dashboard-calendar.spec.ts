@@ -1,7 +1,6 @@
 import {
   bucketLabels,
   bucketTitle,
-  firstDayOfWeek,
   groupByWeek,
   parseRange,
   presetOf,
@@ -139,10 +138,5 @@ describe('dashboard calendar', () => {
         'zh-CN',
       ),
     ).toBe('10-04 23:30–00:00');
-  });
-
-  it('falls back to Monday when the runtime cannot tell the first day of the week', () => {
-    expect([1, 7]).toContain(firstDayOfWeek('en-US'));
-    expect(firstDayOfWeek('not a locale')).toBe(1);
   });
 });

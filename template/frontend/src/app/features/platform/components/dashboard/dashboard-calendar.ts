@@ -86,19 +86,6 @@ export function fromCalendarDate(date: string): Date {
   return new Date(year, month - 1, day);
 }
 
-/** 界面语言的一周从哪天开始（1 = 周一 … 7 = 周日）；运行时不支持 `getWeekInfo` 时取周一。 */
-export function firstDayOfWeek(locale: string | undefined): number {
-  try {
-    const intlLocale = new Intl.Locale(locale ?? 'en') as Intl.Locale & {
-      getWeekInfo?: () => { firstDay: number };
-      weekInfo?: { firstDay: number };
-    };
-    return intlLocale.getWeekInfo?.().firstDay ?? intlLocale.weekInfo?.firstDay ?? 1;
-  } catch {
-    return 1;
-  }
-}
-
 /** 一周：包含的桶下标与实际覆盖的首尾日历日（首尾不完整的周按实际日期）。 */
 export interface WeekGroup {
   indexes: number[];

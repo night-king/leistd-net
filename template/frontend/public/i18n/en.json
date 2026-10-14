@@ -56,6 +56,10 @@
     "time": {
       "justNow": "Just now",
       "yesterdayAt": "Yesterday {{time}}"
+    },
+    "calendar": {
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month"
     }
   },
   "validation": {

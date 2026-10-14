@@ -439,6 +439,42 @@ describe('UserTable', () => {
     );
   });
 
+  // 最窄一档主列截断了姓名，展开详情给出全文；更宽的档位主列完整，详情不重复
+  it('shows the full name in the expanded row only at the narrowest level', async () => {
+    await page.viewport(390, 844);
+    onTestFinished(() => page.viewport(1280, 800));
+    const longName = 'System Administrator of the Whole Organization';
+    host().style.display = 'block';
+    host().style.width = '356px';
+    viewport.next(desktop(false));
+    fixture.componentRef.setInput('users', [{ ...user('1', 'admin'), displayName: longName }]);
+    const [table] = await fixture.getDeferBlocks();
+    await table.render(DeferBlockState.Complete);
+    fixture.autoDetectChanges();
+    await expect
+      .poll(() => host().querySelector('[data-table-fit]')?.getAttribute('data-table-fit'))
+      .toBe('mobile');
+
+    expandButtons()[0].click();
+    await fixture.whenStable();
+
+    const identity = host().querySelector<HTMLElement>('[data-testid="user-detail-identity"]')!;
+    expect(getComputedStyle(identity).display).not.toBe('none');
+    expect(identity.textContent).toContain(longName);
+    expect(identity.textContent).toContain('admin');
+
+    // 视口档位是表格档位的上限，加宽容器之外还要把视口放到桌面
+    await page.viewport(1800, 900);
+    viewport.next(desktop(true));
+    host().style.width = '1600px';
+    await expect
+      .poll(() => host().querySelector('[data-table-fit]')?.getAttribute('data-table-fit'))
+      .not.toBe('mobile');
+    // 没有收起的列时展开行整个不渲染；渲染时这一项也不显示
+    const wide = host().querySelector<HTMLElement>('[data-testid="user-detail-identity"]');
+    expect(wide === null || getComputedStyle(wide).display === 'none').toBe(true);
+  });
+
   function host(): HTMLElement {
     return fixture.nativeElement as HTMLElement;
   }

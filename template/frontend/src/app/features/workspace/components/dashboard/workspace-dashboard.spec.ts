@@ -16,8 +16,10 @@ import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing
 //#endif
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { CommandPaletteService } from '../../../../core/services/command-palette-service';
+import { LayoutService } from '../../../../core/services/layout-service';
 //#if (IncludeNotifications)
 import { NotificationService } from '../../../../core/services/notification-service';
+import { SignalRService } from '../../../../core/services/signalr-service';
 //#endif
 import { StartupService } from '../../../../core/services/startup-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
@@ -105,7 +107,82 @@ describe('WorkspaceDashboard', () => {
     expect(error).toHaveBeenCalledOnce();
     expect(dashboard.markingAllRead()).toBe(false);
   });
+
+  // 标为已读是附带动作：失败时提示原因，全文照常展开，通知仍是未读
+  it('still expands a notification when marking it as read fails', async () => {
+    const dashboard = await setup();
+    vi.spyOn(TestBed.inject(NotificationService), 'markAsRead').mockRejectedValue(
+      new Error('offline'),
+    );
+    const error = vi.spyOn(toast, 'error');
+    const notification = {
+      id: 'a',
+      title: 'A notification',
+      content: 'Its full body.',
+      type: 'System',
+      isRead: false,
+      creationTime: new Date().toISOString(),
+    };
+    TestBed.inject(SignalRService).notifications.set([notification]);
+
+    await dashboard.openNotification(notification);
+
+    expect(dashboard.expandedNotificationId()).toBe('a');
+    expect(error).toHaveBeenCalledOnce();
+    expect(TestBed.inject(NotificationService).unreadCount()).toBe(1);
+  });
+
+  // 收起时是摘要，点一行展开全文并标为已读（与铃铛面板一致）；同时只展开一条
+  it('expands one notification at a time and marks it as read', async () => {
+    await setup();
+    const markAsRead = vi
+      .spyOn(TestBed.inject(NotificationService), 'markAsRead')
+      .mockResolvedValue(undefined);
+    const notification = (id: string) => ({
+      id,
+      title: `A long notification title ${id}`,
+      content: `The full body of notification ${id}, longer than one line on a phone.`,
+      type: 'System',
+      isRead: false,
+      creationTime: new Date().toISOString(),
+    });
+    TestBed.inject(SignalRService).notifications.set([notification('a'), notification('b')]);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const toggles = () => [
+      ...host.querySelectorAll<HTMLButtonElement>('[data-testid="workbench-notification-toggle"]'),
+    ];
+    const body = (id: string) =>
+      host.querySelector(`#workbench-notification-${id} .text-xs`) as HTMLElement;
+    expect(body('a').classList).toContain('truncate');
+
+    toggles()[0].click();
+    fixture.detectChanges();
+    expect(toggles().map((toggle) => toggle.getAttribute('aria-expanded'))).toEqual([
+      'true',
+      'false',
+    ]);
+    expect(body('a').classList).not.toContain('truncate');
+    expect(markAsRead).toHaveBeenCalledWith('a');
+
+    toggles()[1].click();
+    fixture.detectChanges();
+    expect(toggles().map((toggle) => toggle.getAttribute('aria-expanded'))).toEqual([
+      'false',
+      'true',
+    ]);
+  });
   //#endif
+
+  // 欢迎区有搜索入口时顶栏收起同一个入口；离开这一页要复位，否则别的页面顶栏也没有搜索
+  it('hides the header search only while the workbench is shown', async () => {
+    await setup();
+    const layout = TestBed.inject(LayoutService);
+    expect(layout.pageHasSearch()).toBe(true);
+
+    fixture.destroy();
+    expect(layout.pageHasSearch()).toBe(false);
+  });
 
   it('adds the admin platform shortcut only with platform access', async () => {
     const withoutAccess = await setup();
