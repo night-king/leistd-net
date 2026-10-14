@@ -5,6 +5,8 @@ import { TestBed } from '@angular/core/testing';
 import {
   ActivatedRouteSnapshot,
   NavigationCancel,
+  NavigationEnd,
+  NavigationStart,
   provideRouter,
   RedirectCommand,
   Router,
@@ -12,7 +14,7 @@ import {
 } from '@angular/router';
 import { firstValueFrom, isObservable, of } from 'rxjs';
 
-import { permissionGuard } from './permission-guard';
+import { forbiddenGuard, permissionGuard } from './permission-guard';
 import { PERMISSIONS } from '../../shared/constants/permission.constants';
 import { User } from '../../shared/models/user.model';
 import { ApplicationHttpError } from '../errors/application-http-error';
@@ -57,8 +59,8 @@ describe('permissionGuard', () => {
     await TestBed.inject(StartupService).load();
   }
 
-  beforeEach(async () => {
-    initializeAuth.mockResolvedValue();
+  /** 装配真实 Router 与启动流；刷新用例在同一个浏览器历史上重新装配一次，模拟页面重新加载。 */
+  function configure(granted: string[]): void {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([
@@ -68,7 +70,13 @@ describe('permissionGuard', () => {
             data: { permission: PERMISSIONS.roles.default },
             children: [],
           },
-          { path: 'forbidden', children: [] },
+          // 与 app.routes 的声明一致（app.routes.spec 核对两者）
+          {
+            path: 'forbidden',
+            canActivate: [forbiddenGuard],
+            runGuardsAndResolvers: 'paramsOrQueryParamsChange',
+            children: [],
+          },
           { path: 'workspace', children: [] },
         ]),
         {
@@ -90,11 +98,55 @@ describe('permissionGuard', () => {
     authorization = TestBed.inject(AuthorizationService);
     router = TestBed.inject(Router);
 
-    authorization.setPermissions({
-      permissions: [PERMISSIONS.users.default],
-      isSuperAdmin: false,
-      versionToken: 'r1',
+    authorization.setPermissions({ permissions: granted, isSuperAdmin: false, versionToken: 'r1' });
+  }
+
+  /**
+   * 模拟刷新：换一套应用实例，把上一个实例当前的地址与历史状态原样交给新实例，由调用方让新 Router
+   * 按它们做首次导航。用例不读写历史状态里的内容，只是转交。
+   */
+  async function reload(granted: string[]): Promise<void> {
+    const previous = TestBed.inject(Location);
+    const [url, state] = [previous.path(true), previous.getState()];
+    TestBed.resetTestingModule();
+    configure(granted);
+    TestBed.inject(Location).replaceState(url, '', state);
+    await TestBed.inject(StartupService).load();
+  }
+
+  /** 被拒后 Router 实际所在的内部地址：无权限页带上被拒的目标。 */
+  function forbiddenFor(target: string): string {
+    return router.serializeUrl(router.createUrlTree(['/forbidden'], { queryParams: { target } }));
+  }
+
+  /** 让 Router 从 `url` 开始首次导航：它从这时起才监听前进/后退。 */
+  async function startAt(url: string): Promise<void> {
+    TestBed.inject(Location).replaceState(url);
+    router.initialNavigation();
+    await vi.waitFor(() => expect(router.url).toBe(url));
+  }
+
+  /** 记录之后的导航起点与完成次数，用来确认送回目标与再次拒绝都只发生一次。 */
+  function recordNavigations() {
+    const starts: string[] = [];
+    let ends = 0;
+    router.events.subscribe((event) => {
+      if (event instanceof NavigationStart) {
+        starts.push(event.url);
+      } else if (event instanceof NavigationEnd) {
+        ends++;
+      }
     });
+    return { starts, ends: () => ends };
+  }
+
+  function grant(...permissions: string[]): void {
+    authorization.setPermissions({ permissions, isSuperAdmin: false, versionToken: 'r2' });
+  }
+
+  beforeEach(() => {
+    initializeAuth.mockResolvedValue();
+    configure([PERMISSIONS.users.default]);
   });
 
   it('requires only authentication for routes without declared permissions', async () => {
@@ -132,18 +184,18 @@ describe('permissionGuard', () => {
 
     expect(result instanceof RedirectCommand).toBe(true);
     const command = result as RedirectCommand;
-    expect(router.serializeUrl(command.redirectTo)).toBe('/forbidden');
+    expect(router.serializeUrl(command.redirectTo)).toBe(forbiddenFor('/platform/roles'));
     expect(command.navigationBehaviorOptions?.browserUrl).toBe('/platform/roles');
   });
 
-  // 真实导航：深链打开无权限页时显示 403 页，地址栏仍是用户打开的地址，刷新即重新判定
+  // 真实导航：深链打开无权限页时显示 403 页，地址栏仍是用户打开的地址
   it('shows the forbidden page in place of a deep link', async () => {
     await startUp();
     const location = TestBed.inject(Location);
     location.replaceState('/platform/roles?offset=20');
 
     router.initialNavigation();
-    await vi.waitFor(() => expect(router.url).toBe('/forbidden'));
+    await vi.waitFor(() => expect(router.url).toBe(forbiddenFor('/platform/roles?offset=20')));
 
     expect(location.path()).toBe('/platform/roles?offset=20');
   });
@@ -156,8 +208,115 @@ describe('permissionGuard', () => {
 
     await router.navigateByUrl('/platform/roles?offset=20#list');
 
-    expect(router.url).toBe('/forbidden');
+    expect(router.url).toBe(forbiddenFor('/platform/roles?offset=20#list'));
     expect(location.path(true)).toBe('/platform/roles?offset=20#list');
+  });
+
+  // 被拒之后获得了权限：刷新要按新权限进入目标，而不是还原出上次的 403 页
+  it('lets the target through on reload once the permission has been granted', async () => {
+    await startUp();
+    await router.navigateByUrl('/platform/roles?offset=20');
+    expect(router.url).toBe(forbiddenFor('/platform/roles?offset=20'));
+
+    await reload([PERMISSIONS.roles.default]);
+    const location = TestBed.inject(Location);
+    const push = vi.spyOn(location, 'go');
+    router.initialNavigation();
+
+    await vi.waitFor(() => expect(router.url).toBe('/platform/roles?offset=20'));
+    expect(location.path()).toBe('/platform/roles?offset=20');
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  // 刷新时仍然没有权限：回到 403 页，地址栏不变，历史不增加，也不在两者之间来回跳
+  it('shows the forbidden page again on reload while the permission is still missing', async () => {
+    await startUp();
+    await router.navigateByUrl('/platform/roles?offset=20');
+
+    await reload([PERMISSIONS.users.default]);
+    const location = TestBed.inject(Location);
+    const push = vi.spyOn(location, 'go');
+    const navigations = recordNavigations();
+    router.initialNavigation();
+
+    await vi.waitFor(() => expect(navigations.ends()).toBe(1));
+    // 还原出 403 → 送回目标 → 目标再被拒，到此为止
+    const denied = forbiddenFor('/platform/roles?offset=20');
+    expect(navigations.starts).toEqual([denied, '/platform/roles?offset=20', denied]);
+    expect(router.url).toBe(denied);
+    expect(location.path()).toBe('/platform/roles?offset=20');
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  // 前进/后退回到被拒的那一条，同样按当前权限重新判定，并替换该条而不是新增
+  it('re-evaluates the target when going back to a denied entry', async () => {
+    await startUp();
+    const location = TestBed.inject(Location);
+    await startAt('/workspace');
+    await router.navigateByUrl('/platform/roles?offset=20');
+    await router.navigateByUrl('/workspace');
+    const push = vi.spyOn(location, 'go');
+
+    grant(PERMISSIONS.roles.default);
+    location.back();
+
+    await vi.waitFor(() => expect(router.url).toBe('/platform/roles?offset=20'));
+    expect(location.path()).toBe('/platform/roles?offset=20');
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  // 两条相邻的无权限历史之间前进/后退：内部都是无权限页，仍要按各自的目标重新判定
+  it('re-evaluates each target when moving between adjacent denied entries', async () => {
+    await startUp();
+    const location = TestBed.inject(Location);
+    await startAt('/workspace');
+    await router.navigateByUrl('/platform/roles?offset=20');
+    await router.navigateByUrl('/platform/roles?offset=40');
+    const push = vi.spyOn(location, 'go');
+
+    grant(PERMISSIONS.roles.default);
+    location.back();
+    await vi.waitFor(() => expect(router.url).toBe('/platform/roles?offset=20'));
+    expect(location.path()).toBe('/platform/roles?offset=20');
+
+    location.forward();
+    await vi.waitFor(() => expect(router.url).toBe('/platform/roles?offset=40'));
+    expect(location.path()).toBe('/platform/roles?offset=40');
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('keeps each adjacent denied entry forbidden while the permission is still missing', async () => {
+    await startUp();
+    const location = TestBed.inject(Location);
+    await startAt('/workspace');
+    await router.navigateByUrl('/platform/roles?offset=20');
+    await router.navigateByUrl('/platform/roles?offset=40');
+    const push = vi.spyOn(location, 'go');
+    const navigations = recordNavigations();
+
+    location.back();
+    await vi.waitFor(() => expect(navigations.ends()).toBe(1));
+    const first = forbiddenFor('/platform/roles?offset=20');
+    expect(navigations.starts).toEqual([first, '/platform/roles?offset=20', first]);
+    expect(router.url).toBe(first);
+    expect(location.path()).toBe('/platform/roles?offset=20');
+
+    location.forward();
+    await vi.waitFor(() => expect(navigations.ends()).toBe(2));
+    const second = forbiddenFor('/platform/roles?offset=40');
+    expect(navigations.starts.slice(3)).toEqual([second, '/platform/roles?offset=40', second]);
+    expect(router.url).toBe(second);
+    expect(location.path()).toBe('/platform/roles?offset=40');
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('opens the forbidden page when it is visited directly', async () => {
+    await startUp();
+
+    await router.navigateByUrl('/forbidden');
+
+    expect(router.url).toBe('/forbidden');
+    expect(TestBed.inject(Location).path()).toBe('/forbidden');
   });
 
   it('does not inherit the looser declaration of the parent route', async () => {
