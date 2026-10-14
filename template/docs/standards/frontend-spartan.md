@@ -6,7 +6,7 @@
 - **摇树**：`frontend/libs/package.json` 声明 `"sideEffects": false`，未用到的 helm 模块不进产物。因此 libs 下的模块不能靠被导入本身产生必须保留的全局效果（裸导入样式或 polyfill、顶层注册、改全局对象）；顶层纯初始化、导出函数里的 DOM 操作与 Angular 声明不受影响。加组件或升级同步 Spartan 文件时逐个核对。
 - **加组件**：`ng g @spartan-ng/cli:ui --name=<comp>`，把对应 helm 组件生成到 `frontend/libs/ui/`。
 - **风格**：`components.json` 的 `style` 为 `vega`。新增或重新生成组件都按它输出，页面上的尺寸与圆角跟随组件，不另写一套。
-- **先用样式表，再改组件**：能用语义 token 或 `frontend/src/styles.css` 里按 `data-slot`、状态属性写的规则实现的调整，不改 helm。目前由样式表承担的有三项：系统开启"减少动效"时关闭浮层的进出场动画与侧栏、抽屉、导航菜单的位移过渡；对话框与抽屉页头为右上角关闭按钮让出宽度；对话框与抽屉标题恢复到 16px。只有样式表区分不了（按尺寸档位改高度）、要新增变体或改组件模板时才改 helm，并在下表登记。
+- **先用样式表，再改组件**：能用语义 token 或 `frontend/src/styles.css` 里按 `data-slot`、状态属性写的规则实现的调整，不改 helm。由样式表承担的调整以 `styles.css` 为准，例如：系统开启"减少动效"时关闭浮层的进出场动画与侧栏、抽屉、导航菜单的位移过渡；对话框与抽屉页头为右上角关闭按钮让出宽度；触屏下菜单项、选项、导航链接、侧栏菜单按钮与分段控件项补足 44px，折叠的图标侧栏随之加宽。只有样式表区分不了（按尺寸档位改高度）、要新增变体或改组件模板时才改 helm，并在下表登记。
 - **已定制的 helm 组件**（升级时逐个对照上游手动合入）：
 
 | 组件 | 改动 | 原因 |
@@ -14,6 +14,7 @@
 | `button` | `default` / `sm` / `lg` 加 `pointer-coarse:h-11`，`icon` / `icon-sm` / `icon-lg` 加 `pointer-coarse:size-11`；`destructive` 暗色底 `dark:bg-destructive/20` 改 `/10`、悬停 `dark:hover:bg-destructive/30` 改 `/20` | 触屏设备的点按目标不小于 44px，页面不再逐处补；`xs` / `icon-xs` 用于组合框标签移除等嵌在控件内的位置，不改。尺寸档位只体现在 class 上，样式表选不出来。淡色底与同源文字色越接近对比越低，暗色底收到与亮色相同的 alpha（上限见 `styles.css` 色板注释）；只调 `--destructive` 无法同时满足常态与悬停两档 |
 | `input`、`input-group` | 加 `pointer-coarse:h-11`；`input-group-button` 的 `xs` 加 `pointer-coarse:h-11`，`icon-xs` / `icon-sm` 加 `pointer-coarse:size-11` | 与按钮同高，表单里并排时对齐；组内按钮（显示口令、清除）触屏点按目标不小于 44px，与组同高 |
 | `select`（trigger） | `data-[size=default]`、`data-[size=sm]` 下加 `pointer-coarse:h-11` | 同上 |
+| `sidebar`（`hlm-sidebar-menu-button`） | 折叠为图标时加 `pointer-coarse:group-data-[collapsible=icon]:size-11!`、`pointer-coarse:group-data-[collapsible=icon]:p-3.5!`；`lg` 档加 `pointer-coarse:group-data-[collapsible=icon]:p-1.5!` | 上游把折叠按钮写成带 `!` 的 32px 见方，样式表里不分层的 `!important` 盖不过层内的重要声明；为保持上游的级联关系与图标居中，在组件里加触屏档，内边距按 16px 图标与 `lg` 档 32px 头像重新居中。侧栏的加宽与其余项的最小高度在 `styles.css` |
 | `badge` | `destructive` 暗色底 `dark:bg-destructive/20` 改 `/10`；新增 `success`、`warning` 变体（`bg-success/10`、`bg-warning/10` 底 + 同源文字色、无描边，与 `destructive` 同构） | 暗色对比理由同 `button`；正向状态（启用、已验证、成功）与待处理状态（需要关注的计数）各收成一个变体，页面不各写一串工具类，对比度只在一处调整 |
 | `dialog`（`hlm-dialog-content`）、`sheet`（`hlm-sheet-content`）、`sidebar`（`hlm-sidebar-trigger`）、`utils`（新增 `hlm-a11y-labels.token.ts` 并从 `utils` 入口导出） | 关闭按钮与侧栏开关的读屏名改读 `injectHlmA11yLabels()`；`hlm-dialog-content` 的 `closeLabel`、`hlm-sidebar-trigger` 的 `srOnlyText` 未传时取令牌 | 这些文案渲染在组件模板里，页面无处传入；令牌默认英文，多语言项目在应用配置里用 `provideHlmA11yLabels` 接上随语言切换的译文。上游升级曾把读取改回写死英文，合入时逐个保留 |
 

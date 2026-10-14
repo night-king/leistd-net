@@ -13,6 +13,10 @@ import { AuthorizationService } from '../../../../core/services/authorization-se
 import { StartupService } from '../../../../core/services/startup-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
+import {
+  expectTouchTarget,
+  setCoarsePointer,
+} from '../../../../shared/utils/coarse-pointer.testing';
 import { PlatformStatisticsOutputDto, StatisticsQuery } from '../../dtos/platform-statistics.dto';
 //#if (IncludeOperationRecords)
 import { OperationRecordService } from '../../services/operation-record-service';
@@ -135,9 +139,10 @@ describe('Dashboard', () => {
     //#endif
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     fixture?.destroy();
     vi.useRealTimers();
+    await setCoarsePointer(false);
   });
 
   it('shows no statistics and sends no request without the dashboard permission', async () => {
@@ -180,6 +185,18 @@ describe('Dashboard', () => {
     expect(current.getAttribute('data-state')).toBe('on');
     expect(dashboard.preset()).toBe('7d');
     expect(getStatistics).toHaveBeenCalledOnce();
+  });
+
+  // 分段控件的项比按钮矮一档，触屏下同样补足 44px，短标签也不例外
+  it('gives every range preset a 44px target on touch screens', async () => {
+    await setCoarsePointer(true);
+    await setup([PERMISSIONS.dashboard.default]);
+    const presets = fixture.nativeElement.querySelectorAll(
+      '[data-testid="dashboard-range"] [hlmToggleGroupItem]',
+    ) as NodeListOf<HTMLElement>;
+
+    expect(presets.length).toBeGreaterThan(0);
+    presets.forEach(expectTouchTarget);
   });
 
   it('writes a preset to the URL and asks for that range', async () => {

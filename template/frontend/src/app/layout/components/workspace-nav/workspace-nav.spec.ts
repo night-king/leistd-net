@@ -6,6 +6,7 @@ import { fitCount, WorkspaceNav } from './workspace-nav';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
 //#endif
+import { expectTouchTarget, setCoarsePointer } from '../../../shared/utils/coarse-pointer.testing';
 import { MenuGroup, MenuItem, NavigationService } from '../../services/navigation-service';
 
 describe('fitCount', () => {
@@ -139,5 +140,43 @@ describe('WorkspaceNav overflow', () => {
     expect(document.activeElement?.textContent?.trim()).toBe(
       LONG_LABELS[inlineLinks(fixture.nativeElement).length],
     );
+  });
+
+  describe('touch targets', () => {
+    afterEach(() => setCoarsePointer(false));
+
+    async function openMore(fixture: Awaited<ReturnType<typeof render>>) {
+      const more = fixture.nativeElement.querySelector(
+        '[data-testid="workspace-nav-more"]',
+      ) as HTMLElement;
+      more.click();
+      await settle(fixture);
+      // 浮层带缩放进场动画，量到的尺寸要等动画结束
+      await Promise.all(document.getAnimations().map((animation) => animation.finished));
+      return { more, menuItems: Array.from(document.querySelectorAll('[hlmDropdownMenuItem]')) };
+    }
+
+    it('gives the inline links, the more button and its menu items 44px targets on touch screens', async () => {
+      await setCoarsePointer(true);
+      const fixture = await render(560);
+      const links = inlineLinks(fixture.nativeElement);
+      expect(links.length).toBeGreaterThan(0);
+      links.forEach(expectTouchTarget);
+
+      const { more, menuItems } = await openMore(fixture);
+
+      expectTouchTarget(more);
+      expect(menuItems.length).toBeGreaterThan(0);
+      menuItems.forEach(expectTouchTarget);
+    });
+
+    it('keeps the compact sizes for a mouse', async () => {
+      const fixture = await render(560);
+
+      const { more, menuItems } = await openMore(fixture);
+
+      expect(more.getBoundingClientRect().height).toBeLessThan(44);
+      expect(menuItems[0].getBoundingClientRect().height).toBeLessThan(44);
+    });
   });
 });

@@ -246,6 +246,41 @@ body {
 }
 
 /*
+ * 触屏点按目标不小于 44px（frontend-ui.md「可访问性」）。按钮、输入框等在 helm 里按尺寸档位加了 pointer-coarse；
+ * 菜单项、选项、导航链接、侧栏菜单按钮与分段控件项的最小目标尺寸不随档位变化，在这里统一补足，内容多行时照常撑高。
+ * 折叠为图标的侧栏加宽到能放下 44px 的按钮（按钮本身的尺寸见 helm sidebar-menu-button）。
+ */
+@media (pointer: coarse) {
+  :is(
+    [data-slot='dropdown-menu-item'],
+    [data-slot='dropdown-menu-checkbox-item'],
+    [data-slot='dropdown-menu-radio-item'],
+    [data-slot='dropdown-menu-sub-trigger'],
+    [data-slot='select-item'],
+    [data-slot='combobox-item'],
+    [data-slot='command-item'],
+    [data-slot='navigation-menu-link'],
+    [data-slot='sidebar-menu-button']
+  ) {
+    min-height: calc(var(--spacing) * 11);
+  }
+
+  [data-slot='toggle-group-item'] {
+    min-width: calc(var(--spacing) * 11);
+    min-height: calc(var(--spacing) * 11);
+  }
+
+  [data-slot='sidebar'] {
+    --sidebar-width-icon: calc(var(--spacing) * 15);
+  }
+
+  /* 折叠时分组标题透明并上移一行盖住上一组的底部，按钮加高后会挡住末项的下沿，不让它接收点按 */
+  [data-collapsible='icon'] [data-slot='sidebar-group-label'] {
+    pointer-events: none;
+  }
+}
+
+/*
  * 侧栏当前项：Vega 已给 sidebar-accent 底色与 500 字重；再加一圈细描边，亮色下白底当前项才能与
  * 同为浅色的悬停态区分开。
  */
@@ -256,7 +291,7 @@ body {
 /*
  * 分段控件（ToggleGroup 默认变体）：灰色轨道里选中项浮起为底色 + 轻阴影，未选中的文字减弱——与 Spartan Tabs
  * 列表同一写法，暗色同样取 input/30 底与 input 描边。选中靠底色、阴影与文字色三者区分，不用深色描边。
- * sm 档项高收一档，整条轨道与旁边 h-8 的按钮等高。描边（outline）变体保持官方样式。
+ * sm 档项高收一档，整条轨道与旁边 h-8 的按钮等高（触屏下项与按钮都放大到 44px，轨道比按钮高出内边距）。描边（outline）变体保持官方样式。
  */
 [data-slot='toggle-group'][data-variant='default'] {
   @apply bg-muted rounded-lg p-0.5;

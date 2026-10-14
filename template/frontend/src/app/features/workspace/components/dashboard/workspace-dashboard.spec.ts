@@ -30,6 +30,12 @@ import {
   UserSessionOutputDto,
 } from '../../../../shared/dtos/account-security.dto';
 //#endif
+//#if (IncludeNotifications)
+import {
+  expectTouchTarget,
+  setCoarsePointer,
+} from '../../../../shared/utils/coarse-pointer.testing';
+//#endif
 //#if (LocalIdentity)
 import { WorkbenchService } from '../../services/workbench-service';
 //#endif
@@ -83,6 +89,9 @@ describe('WorkspaceDashboard', () => {
 
   //#endif
   afterEach(() => fixture?.destroy());
+  //#if (IncludeNotifications)
+  afterEach(() => setCoarsePointer(false));
+  //#endif
 
   it('opens the command palette from the search box', async () => {
     await setup();
@@ -171,6 +180,26 @@ describe('WorkspaceDashboard', () => {
       'false',
       'true',
     ]);
+  });
+
+  // 短标题、无正文时按钮高度只由图标决定，触屏下仍要补足 44px
+  it('gives a one-line notification a 44px target on touch screens', async () => {
+    await setCoarsePointer(true);
+    await setup();
+    TestBed.inject(SignalRService).notifications.set([
+      {
+        id: 'short',
+        title: 'Hi',
+        type: 'System',
+        isRead: false,
+        creationTime: new Date().toISOString(),
+      },
+    ]);
+    fixture.detectChanges();
+
+    expectTouchTarget(
+      fixture.nativeElement.querySelector('[data-testid="workbench-notification-toggle"]'),
+    );
   });
   //#endif
 

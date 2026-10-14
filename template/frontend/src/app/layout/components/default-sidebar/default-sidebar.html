@@ -87,11 +87,14 @@
             variant="outline"
             class="text-muted-foreground"
             [tooltip]="t('layout.commandPalette.search')"
+            [attr.aria-label]="t('layout.commandPalette.search')"
             data-testid="sidebar-search"
             (click)="commandPalette.open()"
           >
             <ng-icon name="lucideSearch" />
-            <span>{{ t('layout.commandPalette.search') }}</span>
+            <span class="group-data-[collapsible=icon]:hidden">{{
+              t('layout.commandPalette.search')
+            }}</span>
             <kbd hlmKbd class="ms-auto group-data-[collapsible=icon]:hidden">⌘K</kbd>
           </button>
         </li>
