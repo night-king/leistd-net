@@ -33,6 +33,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 . (Join-Path $PSScriptRoot "generated-project-checks.ps1")
+. (Join-Path $PSScriptRoot "docker-image.ps1")
 $tempRoot = Join-Path $repoRoot ".tmp"
 $tempPrefix = [IO.Path]::GetFullPath($tempRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 
@@ -434,14 +435,16 @@ function Get-FreeTcpPort {
 # 运行时冒烟走克隆后的真实路径：迁移入口建库，再启动 API。本次运行共用一个 PostgreSQL 容器、每个场景一个库；
 # 容器按 run id 命名，结束时只删本次创建的这一个。口令随机生成，只在本机回环地址上监听。
 $runtimeDatabaseContainer = "leistd-matrix-db-$runId"
+$runtimeDatabaseImage = "postgres:18-alpine"
 $runtimeDatabasePassword = [Guid]::NewGuid().ToString("N")
 $runtimeDatabasePort = $null
 $runtimeDatabaseStarted = $false
 
 function Start-RuntimeDatabase {
-    Write-Host "> docker run postgres:15-alpine as $runtimeDatabaseContainer" -ForegroundColor DarkGray
+    Initialize-DockerImage $runtimeDatabaseImage
+    Write-Host "> docker run $runtimeDatabaseImage as $runtimeDatabaseContainer" -ForegroundColor DarkGray
     & docker run -d --name $runtimeDatabaseContainer -e "POSTGRES_PASSWORD=$runtimeDatabasePassword" -p "127.0.0.1::5432" `
-        postgres:15-alpine -c fsync=off -c synchronous_commit=off | Out-Null
+        $runtimeDatabaseImage -c fsync=off -c synchronous_commit=off | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to start the runtime smoke database container." }
     # 容器已存在就必须由收尾删除，即使下面取端口或等待就绪失败
     $script:runtimeDatabaseStarted = $true

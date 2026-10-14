@@ -181,7 +181,7 @@ services:
       - companyname-projectname-network
 
   db:
-    image: postgres:15-alpine
+    image: postgres:18-alpine
     container_name: companyname-projectname-db
     environment:
       TZ: ${TZ:-UTC}
@@ -192,8 +192,10 @@ services:
       APP_DB_USER: ${APP_DB_USER:?APP_DB_USER is required}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
 
+    # PG18 起数据目录在 /var/lib/postgresql/18/docker，卷挂父目录；卷名带主版本号，
+    # 升级大版本时换新卷并导出导入（见 docs/deploy/README.md「PostgreSQL 与 Redis 大版本升级」）
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata-18:/var/lib/postgresql
       - ./postgres/01-create-app-role.sh:/docker-entrypoint-initdb.d/01-create-app-role.sh:ro
 
     healthcheck:
@@ -209,7 +211,7 @@ services:
       - companyname-projectname-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: companyname-projectname-redis
     environment:
       TZ: ${TZ:-UTC}
@@ -231,7 +233,7 @@ services:
       - companyname-projectname-network
 
 volumes:
-  pgdata:
+  pgdata-18:
     driver: local
   redis-data:
     driver: local

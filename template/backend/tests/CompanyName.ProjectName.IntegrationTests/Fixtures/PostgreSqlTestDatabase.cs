@@ -39,7 +39,7 @@ internal static class PostgreSqlTestDatabase
 
     private static async Task<string> StartAsync()
     {
-        var container = new PostgreSqlBuilder("postgres:15-alpine")
+        var container = new PostgreSqlBuilder("postgres:18-alpine")
             .WithCommand("-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "max_connections=500")
             .Build();
         await container.StartAsync();
