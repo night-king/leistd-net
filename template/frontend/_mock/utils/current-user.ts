@@ -3,8 +3,9 @@ import { MockException } from '../core/models';
 //#endif
 import { MockUser, USERS } from '../data/user';
 
-// Mock 会话状态存在 sessionStorage：每个标签页是一套独立的 Mock 后端（业务数据本就在各页内存里），
-// 刷新保持登录，新开标签页从初始数据与未登录开始。每次都读存储、不在模块里缓存，存储是唯一来源。
+// Mock 会话状态存在当前页面的 sessionStorage，刷新保持登录；业务数据在页面内存里，重新加载即回到初始数据。
+// 新页面的初始存储取决于浏览器：独立新开的页面为空（未登录），保留 opener 打开的页面会复制来源页的存储，
+// 此后各页的会话互不影响（见 docs/standards/coding-frontend.md「Mock」）。每次都读存储、不在模块里缓存，存储是唯一来源。
 const MOCK_SESSION_STORAGE_KEY = 'mock_session_user_id';
 const MOCK_SESSION_TENANT_STORAGE_KEY = 'mock_session_tenant_key';
 const MOCK_SESSION_SUBJECT_STORAGE_KEY = 'mock_session_subject_id';
@@ -50,7 +51,7 @@ export function setMockImpersonator(impersonator: MockImpersonator | null): void
 
 /**
  * 主体标识：按用户隔离数据时用它，而不是 Mock persona 的 id（Resource 形态下两者不同）。没有显式主体
- * 的会话（本地密码、外部登录、模拟登录）以会话用户为主体，同样读存储：别的标签页换了账号，这里跟着换。
+ * 的会话（本地密码、外部登录、模拟登录）以会话用户为主体，同样每次读存储：本页登录、退出或切换账号后立即生效。
  */
 export function getMockSessionSubjectId(): string | null {
   return sessionStorage.getItem(MOCK_SESSION_SUBJECT_STORAGE_KEY) ?? getMockSessionUserId();
@@ -97,7 +98,7 @@ export function getMockSessionUserId(): string | null {
 
 /** 返回当前会话用户；未登录时返回 null（不抛异常，供权限接口自行决定 401/403）。 */
 export function getCurrentUser(): MockUser | null {
-  // 以存储为准：别的标签页登录、退出或切换账号后，这里读到的就是新会话
+  // 以存储为准：本页登录、退出或切换账号后，这里读到的就是新会话
   const userId = getMockSessionUserId();
   if (userId) getMockSessionTenantKey();
   return userId ? (USERS.find((item) => item.id === userId) ?? null) : null;

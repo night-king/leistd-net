@@ -48,8 +48,8 @@ describe('mock auth subject', () => {
     expect(USERS.map((u) => ({ ...u }))).toEqual(before);
   });
 
-  it('keeps the session in tab storage and reads it on every request', () => {
-    // 会话存在本标签页的 sessionStorage：刷新后仍在，新开标签页没有
+  it('keeps the session in sessionStorage and reads it on every request', () => {
+    // 会话写进当前页面的 sessionStorage
     setMockSessionUserId(USERS[0].id);
     expect(sessionStorage.getItem('mock_session_user_id')).toBe(USERS[0].id);
 
