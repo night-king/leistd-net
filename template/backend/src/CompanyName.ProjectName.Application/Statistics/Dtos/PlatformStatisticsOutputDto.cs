@@ -42,9 +42,13 @@ public record PlatformStatisticsOutputDto
     /// <summary>区间内的登录成功次数；序列可按周相加。</summary>
     public required StatisticValueOutputDto SucceededLogins { get; init; }
 
-    /// <summary>区间内的登录失败次数；序列可按周相加。</summary>
-    /// <remarks>匿名的登录失败按被尝试的标识节流后才落记录，所以是近似值，宜看趋势、不宜当精确计数。</remarks>
-    public required StatisticValueOutputDto FailedLogins { get; init; }
+    /// <summary>区间内的失败登录告警条数；序列可按周相加。</summary>
+    /// <remarks>
+    /// 数的是登录失败的操作记录，不是失败次数：匿名的登录失败按被尝试的登录名（租户内、按输入计）节流，
+    /// 连续失败只在累计到 1、5、25、100 次及之后每 100 次时各记一条，5 分钟内没有新的失败就重新计数。
+    /// 它用来发现爆破，不能换算成失败次数。
+    /// </remarks>
+    public required StatisticValueOutputDto FailedLoginAlerts { get; init; }
 #endif
 
     /// <summary>需要管理员关注的当前状态，不分区间。</summary>

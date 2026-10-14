@@ -25,7 +25,7 @@
       "totalUsers": "Total users",
       "newUsers": "New sign-ups",
       "activeUsers": "Active users",
-      "failedLogins": "Failed sign-ins",
+      "failedLoginAlerts": "Failed sign-in alerts",
       "vsPrevious": "vs previous {{days}} days",
       "noComparison": "No earlier data to compare",
       "infoLabel": "About {{metric}}",
@@ -34,7 +34,7 @@
         "newUsers": "Accounts created in the range, including ones deleted afterwards.",
         "activeUsers": "Different users who signed in during the range.",
         "activeUsersLastLogin": "Users whose latest sign-in falls in the range. Earlier sign-ins are overwritten by later ones, so past ranges are approximate.",
-        "failedLogins": "Approximate: repeated anonymous failures are sampled."
+        "failedLoginAlerts": "Recorded only when consecutive failures for one sign-in name (username or email as typed) reach 1, 5, 25 and 100, then every 100; the count restarts after 5 minutes without a failure. Use it to spot password guessing; it is not the number of failed sign-ins."
       },
       "vsYesterday": "vs same time yesterday",
       "vsPreviousProgress": "vs same point of previous {{days}} days",
@@ -43,10 +43,10 @@
     "trend": {
       "title": "Sign-in trend",
       "succeeded": "Succeeded",
-      "failed": "Failed",
+      "failed": "Failure alerts",
       "total": "successful sign-ins",
-      "failedApprox": "Failed sign-ins are approximate: repeated anonymous failures are sampled.",
-      "ariaLabel": "Sign-ins per period",
+      "failedAlertsHint": "Failure alerts are not failed sign-ins: consecutive failures for one sign-in name are recorded only at 1, 5, 25, 100 and every 100 after.",
+      "ariaLabel": "Successful sign-ins and failed sign-in alerts per period",
       "viewLabel": "Group by",
       "byDay": "Daily",
       "byWeek": "Weekly"

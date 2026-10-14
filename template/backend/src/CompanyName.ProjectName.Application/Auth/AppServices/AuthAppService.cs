@@ -277,6 +277,7 @@ internal sealed class AuthAppService(
     /// <para><b>代价</b>：窗口内非阈值的那些失败不各自成行，精确时刻会丢。
     /// 它能回答"某标识在某窗口内失败了 N 次"，不能回答"第 7 次发生在几点"。
     /// 对"谁在爆破"够用，对逐次取证不够——需要后者时按 CorrelationId 去请求日志里查。</para>
+    /// <para>平台统计的"失败登录告警"数的就是这些记录，仪表盘的指标说明写出了这组阈值；改阈值时一并改。</para>
     /// </remarks>
     private static readonly int[] FailedLoginRecordThresholds = [1, 5, 25, 100];
 

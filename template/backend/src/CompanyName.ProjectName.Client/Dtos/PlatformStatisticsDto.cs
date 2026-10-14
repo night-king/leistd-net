@@ -25,8 +25,8 @@ public sealed record PlatformStatisticsDto
     /// <summary>区间内的登录成功次数。</summary>
     public required StatisticValueDto SucceededLogins { get; init; }
 
-    /// <summary>区间内的登录失败次数（近似值）。</summary>
-    public required StatisticValueDto FailedLogins { get; init; }
+    /// <summary>区间内的失败登录告警条数：同一标识的连续失败按阈值节流记录，不是失败次数。</summary>
+    public required StatisticValueDto FailedLoginAlerts { get; init; }
 #endif
 
     /// <summary>需要管理员关注的当前状态。</summary>

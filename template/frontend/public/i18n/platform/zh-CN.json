@@ -25,7 +25,7 @@
       "totalUsers": "用户总数",
       "newUsers": "新注册",
       "activeUsers": "活跃用户",
-      "failedLogins": "登录失败",
+      "failedLoginAlerts": "失败登录告警",
       "vsPrevious": "较前 {{days}} 天",
       "noComparison": "暂无可对比的数据",
       "infoLabel": "关于{{metric}}",
@@ -34,7 +34,7 @@
         "newUsers": "区间内注册的用户数，之后被删除的也计入。",
         "activeUsers": "区间内登录成功过的不同用户数。",
         "activeUsersLastLogin": "最近一次登录落在区间内的用户数。更早的登录会被后来的登录覆盖，看过去的区间时只是近似。",
-        "failedLogins": "近似值：匿名的连续失败会被采样合并。"
+        "failedLoginAlerts": "同一登录名（按输入的用户名或邮箱计）连续失败时，只在累计到 1、5、25、100 次及之后每 100 次时各记一条；5 分钟内没有新的失败就重新计数。用来发现爆破，不等于失败次数。"
       },
       "vsYesterday": "较昨天同一时段",
       "vsPreviousProgress": "较前 {{days}} 天同一进度",
@@ -43,10 +43,10 @@
     "trend": {
       "title": "登录趋势",
       "succeeded": "成功",
-      "failed": "失败",
+      "failed": "失败告警",
       "total": "次成功登录",
-      "failedApprox": "登录失败为近似值：匿名的连续失败会被采样合并。",
-      "ariaLabel": "各时段的登录次数",
+      "failedAlertsHint": "失败告警不等于失败次数：同一登录名的连续失败只在累计到 1、5、25、100 次及之后每 100 次时各记一条。",
+      "ariaLabel": "各时段的成功登录次数与失败登录告警条数",
       "viewLabel": "聚合方式",
       "byDay": "按日",
       "byWeek": "按周"
