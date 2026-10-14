@@ -330,6 +330,26 @@ export class Dashboard {
     failedLoginAlerts: 'platform.dashboard.kpi.info.failedLoginAlerts',
   };
 
+  /** 需要关注各项的名称与说明词条，同样逐个写出；数量单独显示，不进名称。 */
+  protected readonly attentionKeys: Record<AttentionView['id'], { title: string; hint: string }> = {
+    lockedUsers: {
+      title: 'platform.dashboard.attention.lockedUsers',
+      hint: 'platform.dashboard.attention.lockedUsersHint',
+    },
+    adminsWithoutTwoFactor: {
+      title: 'platform.dashboard.attention.adminsWithoutTwoFactor',
+      hint: 'platform.dashboard.attention.adminsWithoutTwoFactorHint',
+    },
+    unconfirmedEmailUsers: {
+      title: 'platform.dashboard.attention.unconfirmedEmailUsers',
+      hint: 'platform.dashboard.attention.unconfirmedEmailUsersHint',
+    },
+    disabledTenants: {
+      title: 'platform.dashboard.attention.disabledTenants',
+      hint: 'platform.dashboard.attention.disabledTenantsHint',
+    },
+  };
+
   /** 统计结果对应的区间天数；刷新失败时页面仍按旧数据自己的区间标注。 */
   readonly statisticsDays = computed(() => {
     const range = this.statistics()?.range;
@@ -1001,10 +1021,11 @@ const ENGLISH: Record<string, string> = {
   'platform.dashboard.kpi.info.failedLoginAlerts':
     'Recorded only when consecutive failures for one sign-in name (username or email as typed) reach 1, 5, 25 and 100, then every 100; the count restarts after 5 minutes without a failure. Use it to spot password guessing; it is not the number of failed sign-ins.',
   'platform.dashboard.kpi.vsYesterday': 'vs same time yesterday',
+  'platform.dashboard.kpi.vsYesterdayShort': 'vs yesterday',
   'platform.dashboard.kpi.vsPreviousProgress': 'vs same point of previous {{days}} days',
   'platform.dashboard.kpi.vsPrevious': 'vs previous {{days}} days',
   'platform.dashboard.kpi.vsPreviousEnd': 'vs end of previous range',
-  'platform.dashboard.kpi.noComparison': 'No earlier data to compare',
+  'platform.dashboard.kpi.noComparison': 'No earlier data',
   //#if (IncludeOperationRecords && LocalIdentity)
   'platform.dashboard.trend.title': 'Sign-in trend',
   'platform.dashboard.trend.succeeded': 'Succeeded',
@@ -1017,17 +1038,16 @@ const ENGLISH: Record<string, string> = {
     'Failure alerts are not failed sign-ins: consecutive failures for one sign-in name are recorded only at 1, 5, 25, 100 and every 100 after.',
   //#endif
   'platform.dashboard.attention.title': 'Needs attention',
-  'platform.dashboard.attention.lockedUsers': 'Locked accounts: {{count}}',
+  'platform.dashboard.attention.lockedUsers': 'Locked accounts',
   'platform.dashboard.attention.lockedUsersHint':
     'Locked after repeated failed sign-ins or by an administrator',
-  'platform.dashboard.attention.adminsWithoutTwoFactor':
-    'Administrators without two-factor: {{count}}',
+  'platform.dashboard.attention.adminsWithoutTwoFactor': 'Admins without two-factor',
   'platform.dashboard.attention.adminsWithoutTwoFactorHint':
     'Turn it on for accounts with elevated access',
-  'platform.dashboard.attention.unconfirmedEmailUsers': 'Users with unverified email: {{count}}',
+  'platform.dashboard.attention.unconfirmedEmailUsers': 'Unverified emails',
   'platform.dashboard.attention.unconfirmedEmailUsersHint':
     "They can't receive password reset emails",
-  'platform.dashboard.attention.disabledTenants': 'Disabled tenants: {{count}}',
+  'platform.dashboard.attention.disabledTenants': 'Disabled tenants',
   'platform.dashboard.attention.disabledTenantsHint': "Users of a disabled tenant can't sign in",
   'platform.dashboard.attention.handle': 'Handle',
   'platform.dashboard.attention.review': 'Review',

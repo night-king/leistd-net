@@ -37,6 +37,7 @@
         "failedLoginAlerts": "同一登录名（按输入的用户名或邮箱计）连续失败时，只在累计到 1、5、25、100 次及之后每 100 次时各记一条；5 分钟内没有新的失败就重新计数。用来发现爆破，不等于失败次数。"
       },
       "vsYesterday": "较昨天同一时段",
+      "vsYesterdayShort": "较昨天",
       "vsPreviousProgress": "较前 {{days}} 天同一进度",
       "vsPreviousEnd": "较上期末"
     },
@@ -53,13 +54,13 @@
     },
     "attention": {
       "title": "需要关注",
-      "lockedUsers": "{{count}} 个账户已锁定",
+      "lockedUsers": "已锁定的账户",
       "lockedUsersHint": "连续登录失败或被管理员锁定",
-      "adminsWithoutTwoFactor": "{{count}} 位管理员未开启两步验证",
+      "adminsWithoutTwoFactor": "未开启两步验证的管理员",
       "adminsWithoutTwoFactorHint": "建议为高权限账户开启",
-      "unconfirmedEmailUsers": "{{count}} 位用户邮箱未验证",
+      "unconfirmedEmailUsers": "邮箱未验证的用户",
       "unconfirmedEmailUsersHint": "无法接收找回密码邮件",
-      "disabledTenants": "{{count}} 个租户已停用",
+      "disabledTenants": "已停用的租户",
       "disabledTenantsHint": "已停用租户的用户无法登录",
       "review": "查看",
       "allClear": "目前没有需要处理的事项。",

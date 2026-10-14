@@ -41,12 +41,10 @@ import { TENANTS } from '../data/tenant';
 //#endif
 import { MockUser, USERS, isEmailTaken, isUsernameTaken, toUserOutput } from '../data/user';
 import {
-  MOCK_SESSION_USER_ID,
+  getCurrentUser as getSessionMockUser,
   //#if (Impersonation)
   getMockImpersonator,
-  //#endif
   getMockSessionTenantKey,
-  //#if (Impersonation)
   setMockImpersonator,
   //#endif
   setMockSessionTenantKey,
@@ -136,11 +134,10 @@ function sessionLogin(
  * 否则匿名的资料修改与改密码会"成功"，与真后端不一致。persona 回落只用于 Resource 形态的权限演示。
  */
 function requireCurrentMockUser(): MockUser {
-  const user = MOCK_SESSION_USER_ID ? USERS.find((u) => u.id === MOCK_SESSION_USER_ID) : undefined;
+  const user = getSessionMockUser();
   if (!user) {
     throw new MockException(401, { message: 'Not authenticated' });
   }
-  getMockSessionTenantKey();
   return user;
 }
 

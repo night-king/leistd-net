@@ -27,7 +27,7 @@
       "activeUsers": "Active users",
       "failedLoginAlerts": "Failed sign-in alerts",
       "vsPrevious": "vs previous {{days}} days",
-      "noComparison": "No earlier data to compare",
+      "noComparison": "No earlier data",
       "infoLabel": "About {{metric}}",
       "info": {
         "totalUsers": "Users that existed at the end of the range, not counting deleted ones.",
@@ -37,6 +37,7 @@
         "failedLoginAlerts": "Recorded only when consecutive failures for one sign-in name (username or email as typed) reach 1, 5, 25 and 100, then every 100; the count restarts after 5 minutes without a failure. Use it to spot password guessing; it is not the number of failed sign-ins."
       },
       "vsYesterday": "vs same time yesterday",
+      "vsYesterdayShort": "vs yesterday",
       "vsPreviousProgress": "vs same point of previous {{days}} days",
       "vsPreviousEnd": "vs end of previous range"
     },
@@ -53,13 +54,13 @@
     },
     "attention": {
       "title": "Needs attention",
-      "lockedUsers": "Locked accounts: {{count}}",
+      "lockedUsers": "Locked accounts",
       "lockedUsersHint": "Locked after repeated failed sign-ins or by an administrator",
-      "adminsWithoutTwoFactor": "Administrators without two-factor: {{count}}",
+      "adminsWithoutTwoFactor": "Admins without two-factor",
       "adminsWithoutTwoFactorHint": "Turn it on for accounts with elevated access",
-      "unconfirmedEmailUsers": "Users with unverified email: {{count}}",
+      "unconfirmedEmailUsers": "Unverified emails",
       "unconfirmedEmailUsersHint": "They can't receive password reset emails",
-      "disabledTenants": "Disabled tenants: {{count}}",
+      "disabledTenants": "Disabled tenants",
       "disabledTenantsHint": "Users of a disabled tenant can't sign in",
       "review": "Review",
       "allClear": "Nothing needs attention right now.",

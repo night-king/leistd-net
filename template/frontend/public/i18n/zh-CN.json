@@ -138,7 +138,8 @@
     },
     "topbar": {
       "openNavigation": "打开导航",
-      "navigationDescription": "选择要前往的页面"
+      "navigationDescription": "选择要前往的页面",
+      "more": "更多"
     },
     "notifications": {
       "title": "通知",

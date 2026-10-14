@@ -466,8 +466,8 @@ const ENGLISH: Record<string, string> = {
   'workspace.dashboard.security.emailVerified': 'Email verified',
   'workspace.dashboard.security.emailUnverified': 'Email not verified',
   //#endif
-  'workspace.dashboard.security.twoFactorOn': 'Two-factor authentication on',
-  'workspace.dashboard.security.twoFactorOff': 'Two-factor authentication off',
+  'workspace.dashboard.security.twoFactorOn': 'Two-factor on',
+  'workspace.dashboard.security.twoFactorOff': 'Two-factor off',
   'workspace.dashboard.security.fix': 'Set up',
   'workspace.dashboard.devices.title': 'Signed-in devices',
   'workspace.dashboard.devices.manage': 'Manage',

@@ -142,10 +142,12 @@
                     />
                   }
                 </div>
-                <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                <!-- 环比一行写完：卡片上是短说法，完整口径（同一进度、昨天同一时段）放进提示，英文不折成两行 -->
+                <div class="flex items-center gap-2 text-xs">
                   @if (kpi.change !== null) {
                     <span
                       hlmBadge
+                      class="shrink-0"
                       [variant]="
                         kpi.change === 0
                           ? 'secondary'
@@ -162,21 +164,29 @@
                       }
                       {{ kpi.change | appNumber: 'change' : displayLocale() }}
                     </span>
-                    <span class="text-muted-foreground">
-                      @if (kpi.id === 'totalUsers') {
-                        {{ t('platform.dashboard.kpi.vsPreviousEnd') }}
-                      } @else if (!includesToday()) {
-                        {{ t('platform.dashboard.kpi.vsPrevious', { days: statisticsDays() }) }}
-                      } @else if (statisticsDays() === 1) {
-                        {{ t('platform.dashboard.kpi.vsYesterday') }}
-                      } @else {
-                        {{
-                          t('platform.dashboard.kpi.vsPreviousProgress', { days: statisticsDays() })
-                        }}
-                      }
-                    </span>
+                    @let days = statisticsDays();
+                    @let previous = t('platform.dashboard.kpi.vsPrevious', { days });
+                    @let caption =
+                      kpi.id === 'totalUsers'
+                        ? t('platform.dashboard.kpi.vsPreviousEnd')
+                        : includesToday() && days === 1
+                          ? t('platform.dashboard.kpi.vsYesterdayShort')
+                          : previous;
+                    @let basis =
+                      kpi.id === 'totalUsers' || !includesToday()
+                        ? caption
+                        : days === 1
+                          ? t('platform.dashboard.kpi.vsYesterday')
+                          : t('platform.dashboard.kpi.vsPreviousProgress', { days });
+                    <span
+                      tabindex="0"
+                      class="text-muted-foreground focus-visible:ring-ring/50 min-w-0 truncate rounded-sm outline-none focus-visible:ring-[3px]"
+                      data-testid="kpi-comparison"
+                      [hlmTooltip]="basis"
+                      >{{ caption }}</span
+                    >
                   } @else {
-                    <span class="text-muted-foreground">{{
+                    <span class="text-muted-foreground truncate">{{
                       t('platform.dashboard.kpi.noComparison')
                     }}</span>
                   }
@@ -277,46 +287,21 @@
                     <ng-icon [name]="item.icon" />
                   </span>
                   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                    @switch (item.id) {
-                      @case ('lockedUsers') {
-                        <span class="text-sm font-medium">{{
-                          t('platform.dashboard.attention.lockedUsers', { count: item.count })
-                        }}</span>
-                        <span class="text-muted-foreground text-xs">{{
-                          t('platform.dashboard.attention.lockedUsersHint')
-                        }}</span>
-                      }
-                      @case ('adminsWithoutTwoFactor') {
-                        <span class="text-sm font-medium">{{
-                          t('platform.dashboard.attention.adminsWithoutTwoFactor', {
-                            count: item.count,
-                          })
-                        }}</span>
-                        <span class="text-muted-foreground text-xs">{{
-                          t('platform.dashboard.attention.adminsWithoutTwoFactorHint')
-                        }}</span>
-                      }
-                      @case ('unconfirmedEmailUsers') {
-                        <span class="text-sm font-medium">{{
-                          t('platform.dashboard.attention.unconfirmedEmailUsers', {
-                            count: item.count,
-                          })
-                        }}</span>
-                        <span class="text-muted-foreground text-xs">{{
-                          t('platform.dashboard.attention.unconfirmedEmailUsersHint')
-                        }}</span>
-                      }
-                      <!--#if (IncludeMultiTenancy)-->
-                      @case ('disabledTenants') {
-                        <span class="text-sm font-medium">{{
-                          t('platform.dashboard.attention.disabledTenants', { count: item.count })
-                        }}</span>
-                        <span class="text-muted-foreground text-xs">{{
-                          t('platform.dashboard.attention.disabledTenantsHint')
-                        }}</span>
-                      }
-                      <!--#endif-->
-                    }
+                    <!-- 数量单独常显；事项名称放不下时截断，全文在可聚焦的提示里。说明是辅助文字，允许折行 -->
+                    <div class="flex min-w-0 items-center gap-2">
+                      <span
+                        tabindex="0"
+                        class="focus-visible:ring-ring/50 min-w-0 truncate rounded-sm text-sm font-medium outline-none focus-visible:ring-[3px]"
+                        [hlmTooltip]="t(attentionKeys[item.id].title)"
+                        >{{ t(attentionKeys[item.id].title) }}</span
+                      >
+                      <span hlmBadge variant="secondary" class="shrink-0 tabular-nums">{{
+                        item.count | appNumber: 'integer' : displayLocale()
+                      }}</span>
+                    </div>
+                    <span class="text-muted-foreground text-xs">{{
+                      t(attentionKeys[item.id].hint)
+                    }}</span>
                   </div>
                   @if (item.route) {
                     <a

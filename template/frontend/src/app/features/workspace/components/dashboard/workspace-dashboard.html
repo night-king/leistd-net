@@ -96,11 +96,12 @@
           </div>
         </section>
 
-        <!-- 按这一栏的实际宽度排：够宽时一行最多 6 个，入口少于 6 个时不补空卡 -->
-        <section class="@container flex flex-col gap-3" data-testid="workbench-shortcuts">
+        <!-- 横排卡片、标签单行：列数按卡片最小宽度（13rem）自动排，下限按图标、间距与最长的英文标签
+             （Account & security）核算，宽屏 3 + 2、手机单列（规则见 docs/standards/frontend-ui.md「导航与菜单分组」） -->
+        <section class="flex flex-col gap-3" data-testid="workbench-shortcuts">
           <h3 class="text-sm font-semibold">{{ t('workspace.dashboard.shortcuts.title') }}</h3>
           <nav
-            class="grid grid-cols-2 gap-3 @sm:grid-cols-3 @2xl:grid-cols-6"
+            class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3"
             [attr.aria-label]="t('workspace.dashboard.shortcuts.title')"
           >
             @for (link of shortcuts(); track link.route + link.label) {
@@ -110,13 +111,13 @@
                 class="hover:ring-foreground/20 transition-shadow"
                 [routerLink]="link.route"
               >
-                <div hlmCardContent class="flex flex-col items-center gap-2 text-center">
+                <div hlmCardContent class="flex min-w-0 items-center gap-3">
                   <span
-                    class="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md"
+                    class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
                   >
                     <ng-icon [name]="link.icon" />
                   </span>
-                  <span class="text-xs font-medium">{{ t(link.label) }}</span>
+                  <span class="truncate text-sm font-medium">{{ t(link.label) }}</span>
                 </div>
               </a>
             }
@@ -301,7 +302,7 @@
                     {{ t('workspace.dashboard.security.emailVerified') }}
                   } @else {
                     <ng-icon name="lucideTriangleAlert" class="text-warning" />
-                    <span class="flex-1">{{
+                    <span class="min-w-0 flex-1 truncate">{{
                       t('workspace.dashboard.security.emailUnverified')
                     }}</span>
                     <a hlmBtn variant="outline" size="sm" routerLink="/workspace/settings/profile">
@@ -316,7 +317,9 @@
                     {{ t('workspace.dashboard.security.twoFactorOn') }}
                   } @else {
                     <ng-icon name="lucideTriangleAlert" class="text-warning" />
-                    <span class="flex-1">{{ t('workspace.dashboard.security.twoFactorOff') }}</span>
+                    <span class="min-w-0 flex-1 truncate">{{
+                      t('workspace.dashboard.security.twoFactorOff')
+                    }}</span>
                     <a hlmBtn size="sm" routerLink="/workspace/settings/security">
                       {{ t('workspace.dashboard.security.fix') }}
                     </a>
