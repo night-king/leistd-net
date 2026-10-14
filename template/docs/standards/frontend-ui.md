@@ -13,6 +13,7 @@
 
 - 表格用 TanStack Table（`@tanstack/angular-table`，服务端 `manualPagination`/`manualSorting`/`rowCount`）；分页与筛选复用 `frontend/src/app/shared/components/table-paginator`、`faceted-filter`。
 - 列按优先级（`primary`/`secondary`/`tertiary`）裁剪：视口档位（`tableViewportSignal()`）给上限，带吸附操作列的表格外框挂 `[appTableFit]="tableViewport()" [appTableFitContent]="rows()"`，放不下再降一档（更新数据须换新数组）。被裁的列由 TanStack 行展开补偿（按 `getRowId` 的实体 id 记），不另建展开状态。主列用 `TITLE_COLUMN_META` 与 `TITLE_CONTENT_CLASS`：最窄档截断长名称。
+- 排序表头：能排序的列（`column.getCanSort()`）在表头格里直接放排序按钮，能否排序由按钮表达。`[attr.aria-sort]` 取 `tableSortAria` 的值：只有当前排序的列带 `ascending` 或 `descending`，未排序与不可排序的列不带这个属性（WAI-ARIA 建议一张表同一时刻只给一个表头）。表格 spec 调用 `expectAriaSortOnSortedHeaderOnly`，覆盖无排序、排序与换列三种状态。
 - 表头统一灰底（`thead` 与吸附操作列的表头格都用 `bg-muted`），正文与吸附操作列的正文格跟随行表面与悬停态。单元格密度用 Spartan 表格默认（表头 `px-2`、单元格 `p-2`），只给首列加 `first:ps-4` 留出与外框的间距，不在页面上另写横向内边距。时间列用 `appDate` 的 `short` 槽位，完整时刻在展开详情里给出；审计类表格（操作记录）按秒对时，用 `full`。
 - 操作列按"常用优先、破坏性置后"排序：≤3 项桌面端平铺（icon 按钮 + tooltip），>3 项显示 2 个高频操作 + `…` 溢出菜单；`<sm` 一律收进 `…`，破坏性操作用 `variant="destructive"` 并以分隔线隔开。
 

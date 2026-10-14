@@ -5,6 +5,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 
 import { routes } from './app.routes';
 import { authGuard } from './core/guards/auth-guard';
+import { forbiddenGuard } from './core/guards/permission-guard';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from './core/i18n/transloco.testing';
 //#endif
@@ -40,6 +41,15 @@ describe('top-level routes', () => {
       concreteAfter,
       `These concrete paths come after the empty-path public area and would be swallowed by it: ${concreteAfter.join(', ')}`,
     ).toEqual([]);
+  });
+
+  // 刷新与前进/后退还原出的 403 页靠它送回目标重新判定；两条相邻的 403 历史只差查询参数，
+  // 要按查询参数变化重新执行守卫（行为见 permission-guard.spec，那里的路由声明与此一致）
+  it('re-runs forbiddenGuard on the forbidden page whenever its target changes', () => {
+    const forbidden = (routes as Routes).find((r) => r.path === 'forbidden');
+
+    expect(forbidden?.canActivate).toContain(forbiddenGuard);
+    expect(forbidden?.runGuardsAndResolvers).toBe('paramsOrQueryParamsChange');
   });
 
   it('maps PROTECTED_ROUTE_PREFIXES one-to-one to top-level authGuard routes', () => {

@@ -71,6 +71,7 @@ import {
 import { resolveTableUpdater } from '../../../../../../shared/utils/table-query-state';
 import {
   tableSortAria,
+  type TableSortAria,
   tableSortIcon,
   toggleTableSort,
 } from '../../../../../../shared/utils/table-sorting';
@@ -269,7 +270,7 @@ export class UserTable {
     return tableSortIcon(this.table, columnId);
   }
 
-  sortAria(columnId: string): 'ascending' | 'descending' | 'none' {
+  sortAria(columnId: string): TableSortAria {
     return tableSortAria(this.table, columnId);
   }
 

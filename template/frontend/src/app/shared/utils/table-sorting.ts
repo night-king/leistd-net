@@ -24,11 +24,18 @@ export function tableSortIcon<TData extends RowData>(
       : 'lucideArrowUpDown';
 }
 
-/** 表头的 `aria-sort` 取值，与图标同源，免得视觉与读屏说出不同方向。 */
+/** 表头 `aria-sort` 的取值；`null` 表示不渲染该属性。 */
+export type TableSortAria = 'ascending' | 'descending' | null;
+
+/**
+ * 表头的 `aria-sort` 取值，与图标同源，免得视觉与读屏说出不同方向。只有当前排序的列带这个属性
+ * （WAI-ARIA 建议一张表同一时刻只给一个表头）；未排序与不可排序的列返回 `null`，`[attr.aria-sort]` 据此不渲染。
+ * 能否排序由排序按钮表达，不靠 `aria-sort="none"`。
+ */
 export function tableSortAria<TData extends RowData>(
   table: Table<AppTableFeatures, TData>,
   columnId: string,
-): 'ascending' | 'descending' | 'none' {
+): TableSortAria {
   const direction = table.getColumn(columnId)?.getIsSorted();
-  return direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none';
+  return direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : null;
 }

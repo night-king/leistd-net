@@ -56,8 +56,8 @@ export interface PlatformStatisticsOutputDto {
   activeUsers?: StatisticValueDto;
   //#if (IncludeOperationRecords && LocalIdentity)
   succeededLogins: StatisticValueDto;
-  /** 匿名登录失败按节流采样写入，是近似值。 */
-  failedLogins: StatisticValueDto;
+  /** 失败登录告警条数：同一标识的连续失败按阈值节流记录，不是失败次数。 */
+  failedLoginAlerts: StatisticValueDto;
   //#endif
   attention: AttentionCountsDto;
 }

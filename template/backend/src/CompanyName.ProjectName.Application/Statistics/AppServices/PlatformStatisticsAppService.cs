@@ -102,7 +102,7 @@ public class PlatformStatisticsAppService(
 #if (LocalIdentity && IncludeOperationRecords)
         // 统计只出聚合数、不下发单条记录，可见性不收窄：登录成功记录对租户读者只显示本人的，按它数活跃用户只会数出自己
         var succeeded = await CountLoginsAsync(OperationRecordActions.AuthLoginSucceeded, period, distinctTargets: false, cancellationToken);
-        var failed = await CountLoginsAsync(OperationRecordActions.AuthLoginFailed, period, distinctTargets: false, cancellationToken);
+        var failedAlerts = await CountLoginsAsync(OperationRecordActions.AuthLoginFailed, period, distinctTargets: false, cancellationToken);
         // 登录成功记录的目标就是登录的用户
         var activeUsers = await CountLoginsAsync(OperationRecordActions.AuthLoginSucceeded, period, distinctTargets: true, cancellationToken);
 #elif (LocalIdentity)
@@ -140,7 +140,7 @@ public class PlatformStatisticsAppService(
 #endif
 #if (LocalIdentity && IncludeOperationRecords)
             SucceededLogins = succeeded,
-            FailedLogins = failed,
+            FailedLoginAlerts = failedAlerts,
 #endif
 #if (LocalIdentity)
             Attention = await GetAttentionAsync(users, now, cancellationToken)

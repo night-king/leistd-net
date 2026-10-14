@@ -65,7 +65,7 @@ describe('Dashboard', () => {
       //#endif
       //#if (IncludeOperationRecords && LocalIdentity)
       succeededLogins: { value: 40, previous: 20, series: series(5) },
-      failedLogins: { value: 2, previous: 4, series: series(1) },
+      failedLoginAlerts: { value: 2, previous: 4, series: series(1) },
       //#endif
       //#if (LocalIdentity)
       attention: { lockedUsers: 1, adminsWithoutTwoFactor: 2, unconfirmedEmailUsers: 0 },

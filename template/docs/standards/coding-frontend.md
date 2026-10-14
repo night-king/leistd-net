@@ -94,9 +94,18 @@ frontend/
 - 5xx 不展示技术细节，使用通用文案，响应含 `traceId` 时附上本地化的追踪 ID 标签。
 - `GlobalErrorHandler` 只兜底未处理的非 HTTP 错误，识别并忽略已归一化的 HTTP 错误。
 - 状态码与 `code` 的分工：认证与协议层处置（401 跳转、受限会话的 403、启动时的未登录判定）由 `http-error-interceptor` 与 `startup-service` 按状态码处理，eslint 只对它们放行 `local/no-status-code-branch`；feature 使用归一化后的错误反馈，需要特定业务交互时按稳定 `code` 分支。业务错误缺少 `code` 不构成 feature 按状态码分支的理由，应在后端补码。
-- 启动失败（非 401）时守卫取消导航并记下目标，重试成功后进入；`/forbidden` 与 404 页地址栏保留目标。
+- 启动失败（非 401）时守卫取消导航并记下目标，重试成功后进入；`/forbidden` 与 404 页地址栏保留目标（刷新与前进/后退时的行为见 §6.1）。
 - `catchError` 只处理特定错误，不吞掉错误。
 - 前端不兼容框架可选的响应信封（`AddResponseWrapper()`），开启须同时改拦截器。
+
+### 6.1 路由守卫与地址栏
+
+- 权限不足时，`permissionGuard` 跳到 `/forbidden?target=<被拒的目标>`，地址栏保留目标（`browserUrl`）。Router 会把"显示的地址与实际路由不同"记进历史条目，刷新、前进或后退回到这一条时，直接还原出 403 页，不经过目标路由的守卫。`/forbidden` 上的 `forbiddenGuard` 把这类还原送回目标重新判定：其间获得的权限刷新后即生效；仍无权限则回到 403 页。整个过程替换当前历史条目，不新增。
+- 内部地址带上目标，是为了让相邻两条 403 历史彼此不同，否则 Router 视为同一地址而跳过导航；路由同时声明 `runGuardsAndResolvers: 'paramsOrQueryParamsChange'`，复用无权限页时也重新执行入口守卫。不为此改 Router 全局的 `onSameUrlNavigation`。
+- 未知地址由通配路由原地显示 404 页，不用 `browserUrl`，刷新时重新匹配。
+- 新增带 `browserUrl` 或 `skipLocationChange` 的跳转，要写明刷新与前进/后退时的预期，并补测试。
+- 判断"这次导航从哪来"只用公开的导航信息（`Router.currentNavigation()` 的 `extras`，含只属于本次导航的 `info`），不读写 Angular 的私有状态键（`ɵ` 前缀，如 `history.state` 里的 `ɵrouterUrl`）：它们随版本变化，没有兼容承诺。
+- 权限守卫的测试覆盖放行、拒绝，"拒绝 → 授权 → 刷新后进入目标"与仍被拒的刷新，以及在两条相邻 403 历史之间前进/后退（见 `frontend/src/app/core/guards/permission-guard.spec.ts`）。
 
 ## 7. Mock
 

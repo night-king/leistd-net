@@ -4,7 +4,7 @@ import { provideTranslocoScope } from '@jsverse/transloco';
 //#endif
 
 import { authGuard } from './core/guards/auth-guard';
-import { permissionGuard } from './core/guards/permission-guard';
+import { forbiddenGuard, permissionGuard } from './core/guards/permission-guard';
 //#if (IncludeLocalization)
 import { resolveTranslationScopes } from './core/i18n/translation-scopes';
 //#endif
@@ -43,9 +43,12 @@ export const routes: Routes = [
       import('./features/workspace/workspace.routes').then((r) => r.WORKSPACE_ROUTES),
   },
   // 已登录但无权限：与 401 的登录跳转区分开，避免"登录成功又被弹回登录页"的循环。
-  // permissionGuard 跳到这里时地址栏显示被拒的目标，刷新即按它重新判定。
+  // permissionGuard 跳到这里时地址栏显示被拒的目标；刷新与前进/后退由 forbiddenGuard 送回目标重新判定。
   {
     path: 'forbidden',
+    canActivate: [forbiddenGuard],
+    // 内部地址按被拒的目标区分（?target=），两条无权限历史之间前进/后退也要重新执行入口守卫
+    runGuardsAndResolvers: 'paramsOrQueryParamsChange',
     //#if (IncludeLocalization)
     providers: [provideTranslocoScope('forbidden')],
     resolve: { translations: resolveTranslationScopes },

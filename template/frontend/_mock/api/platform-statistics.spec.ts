@@ -121,7 +121,7 @@ describe('platform statistics mock', () => {
     expect(result.succeededLogins.value).toBe(
       result.succeededLogins.series.reduce((a, b) => a + b, 0),
     );
-    expect(result.failedLogins.series).toHaveLength(7);
+    expect(result.failedLoginAlerts.series).toHaveLength(7);
     expect(result.activeUsers.series).toHaveLength(7);
     //#endif
   });

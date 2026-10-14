@@ -116,7 +116,7 @@ import { operationRecordActor } from '../operation-records/widgets/operation-rec
 import { injectOperationActionSentence } from '../operation-records/widgets/operation-record-table/operation-action-sentence';
 //#endif
 
-type KpiId = 'totalUsers' | 'newUsers' | 'activeUsers' | 'failedLogins';
+type KpiId = 'totalUsers' | 'newUsers' | 'activeUsers' | 'failedLoginAlerts';
 
 /** 指标卡数值从这里起用紧凑写法（1.2万、48.2K），完整整数放进提示。 */
 const COMPACT_FROM = 10_000;
@@ -317,7 +317,7 @@ export class Dashboard {
     totalUsers: 'platform.dashboard.kpi.totalUsers',
     newUsers: 'platform.dashboard.kpi.newUsers',
     activeUsers: 'platform.dashboard.kpi.activeUsers',
-    failedLogins: 'platform.dashboard.kpi.failedLogins',
+    failedLoginAlerts: 'platform.dashboard.kpi.failedLoginAlerts',
   };
   protected readonly kpiInfoKeys: Record<KpiId, string> = {
     totalUsers: 'platform.dashboard.kpi.info.totalUsers',
@@ -327,7 +327,7 @@ export class Dashboard {
     //#else
     activeUsers: 'platform.dashboard.kpi.info.activeUsersLastLogin',
     //#endif
-    failedLogins: 'platform.dashboard.kpi.info.failedLogins',
+    failedLoginAlerts: 'platform.dashboard.kpi.info.failedLoginAlerts',
   };
 
   /** 统计结果对应的区间天数；刷新失败时页面仍按旧数据自己的区间标注。 */
@@ -384,7 +384,7 @@ export class Dashboard {
       ...view('newUsers', statistics.newUsers),
       ...view('activeUsers', statistics.activeUsers),
       //#if (IncludeOperationRecords && LocalIdentity)
-      ...view('failedLogins', statistics.failedLogins, true),
+      ...view('failedLoginAlerts', statistics.failedLoginAlerts, true),
       //#endif
     ];
   });
@@ -485,13 +485,14 @@ export class Dashboard {
   );
   //#else
   private readonly succeededLabel = () => 'Succeeded';
-  private readonly failedLabel = () => 'Failed';
-  private readonly trendAriaLabel = () => 'Sign-ins per period';
+  private readonly failedLabel = () => 'Failure alerts';
+  private readonly trendAriaLabel = () =>
+    'Successful sign-ins and failed sign-in alerts per period';
   //#endif
 
   /**
-   * 登录趋势：成功次数画渐变面积与直线，失败次数画直线（琥珀色）；横轴按桶的真实起点在响应时区里写，
-   * 提示框显示该时段的起止与成功、失败两行。按周时把日桶按界面语言的周起始日合并。颜色取图表令牌，不写色值。
+   * 登录趋势：成功次数画渐变面积与直线，失败登录告警条数画直线（琥珀色）；横轴按桶的真实起点在响应时区里写，
+   * 提示框显示该时段的起止与成功、失败告警两行。按周时把日桶按界面语言的周起始日合并。颜色取图表令牌，不写色值。
    */
   readonly trendChart = computed(() => {
     const statistics = this.statistics();
@@ -502,7 +503,7 @@ export class Dashboard {
     const { range, buckets } = statistics;
     const locale = this.displayLocale();
     const succeeded = statistics.succeededLogins.series ?? [];
-    const failed = statistics.failedLogins.series ?? [];
+    const failed = statistics.failedLoginAlerts.series ?? [];
     const ends = [...buckets.slice(1), range.end];
 
     let keys: string[];
@@ -985,7 +986,7 @@ const ENGLISH: Record<string, string> = {
   'platform.dashboard.kpi.totalUsers': 'Total users',
   'platform.dashboard.kpi.newUsers': 'New sign-ups',
   'platform.dashboard.kpi.activeUsers': 'Active users',
-  'platform.dashboard.kpi.failedLogins': 'Failed sign-ins',
+  'platform.dashboard.kpi.failedLoginAlerts': 'Failed sign-in alerts',
   'platform.dashboard.kpi.infoLabel': 'About {{metric}}',
   'platform.dashboard.kpi.info.totalUsers':
     'Users that existed at the end of the range, not counting deleted ones.',
@@ -997,8 +998,8 @@ const ENGLISH: Record<string, string> = {
   'platform.dashboard.kpi.info.activeUsersLastLogin':
     'Users whose latest sign-in falls in the range. Earlier sign-ins are overwritten by later ones, so past ranges are approximate.',
   //#endif
-  'platform.dashboard.kpi.info.failedLogins':
-    'Approximate: repeated anonymous failures are sampled.',
+  'platform.dashboard.kpi.info.failedLoginAlerts':
+    'Recorded only when consecutive failures for one sign-in name (username or email as typed) reach 1, 5, 25 and 100, then every 100; the count restarts after 5 minutes without a failure. Use it to spot password guessing; it is not the number of failed sign-ins.',
   'platform.dashboard.kpi.vsYesterday': 'vs same time yesterday',
   'platform.dashboard.kpi.vsPreviousProgress': 'vs same point of previous {{days}} days',
   'platform.dashboard.kpi.vsPrevious': 'vs previous {{days}} days',
@@ -1007,13 +1008,13 @@ const ENGLISH: Record<string, string> = {
   //#if (IncludeOperationRecords && LocalIdentity)
   'platform.dashboard.trend.title': 'Sign-in trend',
   'platform.dashboard.trend.succeeded': 'Succeeded',
-  'platform.dashboard.trend.failed': 'Failed',
+  'platform.dashboard.trend.failed': 'Failure alerts',
   'platform.dashboard.trend.total': 'successful sign-ins',
   'platform.dashboard.trend.viewLabel': 'Group by',
   'platform.dashboard.trend.byDay': 'Daily',
   'platform.dashboard.trend.byWeek': 'Weekly',
-  'platform.dashboard.trend.failedApprox':
-    'Failed sign-ins are approximate: repeated anonymous failures are sampled.',
+  'platform.dashboard.trend.failedAlertsHint':
+    'Failure alerts are not failed sign-ins: consecutive failures for one sign-in name are recorded only at 1, 5, 25, 100 and every 100 after.',
   //#endif
   'platform.dashboard.attention.title': 'Needs attention',
   'platform.dashboard.attention.lockedUsers': 'Locked accounts: {{count}}',

@@ -19,8 +19,10 @@ using Leistd.OperationRecords.EntityFrameworkCore.Entities;
 using Leistd.OperationRecords.EntityFrameworkCore.Retention;
 using Leistd.OperationRecords.Models;
 #endif
-#if (LocalIdentity && IncludeMultiTenancy)
+#if (LocalIdentity && (IncludeMultiTenancy || IncludeOperationRecords))
 using System.Net.Http.Json;
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
 using Leistd.MultiTenancy.AspNetCore.Options;
 using Leistd.MultiTenancy.Stores;
 #endif
@@ -153,7 +155,7 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
         Assert.True(root.GetProperty("activeUsers").TryGetProperty("previous", out _));
         Assert.Equal(buckets, root.GetProperty("activeUsers").GetProperty("series").GetArrayLength());
         Assert.Equal(buckets, root.GetProperty("succeededLogins").GetProperty("series").GetArrayLength());
-        Assert.Equal(buckets, root.GetProperty("failedLogins").GetProperty("series").GetArrayLength());
+        Assert.Equal(buckets, root.GetProperty("failedLoginAlerts").GetProperty("series").GetArrayLength());
 #else
         // 没有登录记录：活跃用户退回最近登录时间，只有本期值；登录次数不存在
         var activeUsers = root.GetProperty("activeUsers");
@@ -162,7 +164,7 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
         Assert.False(activeUsers.TryGetProperty("previous", out _));
         Assert.False(activeUsers.TryGetProperty("series", out _));
         Assert.False(root.TryGetProperty("succeededLogins", out _));
-        Assert.False(root.TryGetProperty("failedLogins", out _));
+        Assert.False(root.TryGetProperty("failedLoginAlerts", out _));
 #endif
     }
 
@@ -234,8 +236,8 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
         Assert.Equal([1, 0, 0, 1, 0, 0, 1], week.SucceededLogins.Series);
         Assert.Equal((2, 2), (week.ActiveUsers.Value, week.ActiveUsers.Previous));
         Assert.Equal([1, 0, 0, 1, 0, 0, 1], week.ActiveUsers.Series);
-        Assert.Equal((2, 1), (week.FailedLogins.Value, week.FailedLogins.Previous));
-        Assert.Equal([0, 2, 0, 0, 0, 0, 0], week.FailedLogins.Series);
+        Assert.Equal((2, 1), (week.FailedLoginAlerts.Value, week.FailedLoginAlerts.Previous));
+        Assert.Equal([0, 2, 0, 0, 0, 0, 0], week.FailedLoginAlerts.Series);
 #else
         Assert.Equal(2, week.ActiveUsers.Value);
         Assert.Null(week.ActiveUsers.Previous);
@@ -404,7 +406,7 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
 
         var beforeArchiving = await GetStatisticsAsync(host.Services, currentStart, today, "UTC");
         Assert.Equal((1, 2), (beforeArchiving.ActiveUsers.Value, beforeArchiving.ActiveUsers.Previous));
-        Assert.Equal((1, 3), (beforeArchiving.FailedLogins.Value, beforeArchiving.FailedLogins.Previous));
+        Assert.Equal((1, 3), (beforeArchiving.FailedLoginAlerts.Value, beforeArchiving.FailedLoginAlerts.Previous));
 
         await using (var scope = host.Services.CreateAsyncScope())
         {
@@ -416,10 +418,31 @@ public sealed class PlatformStatisticsTests(ProjectWebApplicationFactory factory
 
         var afterArchiving = await GetStatisticsAsync(host.Services, currentStart, today, "UTC");
         Assert.Equal(beforeArchiving.ActiveUsers.Previous, afterArchiving.ActiveUsers.Previous);
-        Assert.Equal(beforeArchiving.FailedLogins.Previous, afterArchiving.FailedLogins.Previous);
+        Assert.Equal(beforeArchiving.FailedLoginAlerts.Previous, afterArchiving.FailedLoginAlerts.Previous);
         Assert.Equal(beforeArchiving.SucceededLogins.Previous, afterArchiving.SucceededLogins.Previous);
         Assert.Equal(beforeArchiving.SucceededLogins.Series, afterArchiving.SucceededLogins.Series);
-        Assert.Equal(beforeArchiving.FailedLogins.Series, afterArchiving.FailedLogins.Series);
+        Assert.Equal(beforeArchiving.FailedLoginAlerts.Series, afterArchiving.FailedLoginAlerts.Series);
+    }
+
+    /// <summary>失败登录告警数的是节流后的记录，不是失败次数：同一标识连续失败 6 次只在第 1、5 次各记一条。</summary>
+    /// <remarks>独立宿主与库：断言的是精确条数。用不存在的登录名，避免账号锁定改写第 5 次的结果。</remarks>
+    [Fact]
+    public async Task Failed_sign_in_alerts_count_throttled_records_rather_than_attempts()
+    {
+        using var host = new ProjectWebApplicationFactory();
+        using var anonymous = host.CreateProjectClient();
+        var identifier = "nobody_" + Guid.NewGuid().ToString("N")[..10];
+        for (var i = 0; i < 6; i++)
+        {
+            using var failed = await anonymous.PostAsJsonAsync(
+                "/api/v1/auth/session-login", new { UsernameOrEmail = identifier, Password = "Wrong!Passw0rd" });
+            Assert.Equal(HttpStatusCode.Unauthorized, failed.StatusCode);
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var statistics = await GetStatisticsAsync(host.Services, today, today, "UTC");
+
+        Assert.Equal(2, statistics.FailedLoginAlerts.Value);
     }
 #endif
 

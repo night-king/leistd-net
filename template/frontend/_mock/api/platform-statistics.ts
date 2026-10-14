@@ -171,7 +171,7 @@ export function getPlatformStatistics(params: Record<string, unknown>, now: numb
       series: eachBucket(distinctUsers),
     },
     succeededLogins: logins((slot) => slot.succeeded),
-    failedLogins: logins((slot) => slot.failed),
+    failedLoginAlerts: logins((slot) => slot.failed),
     //#elseif (LocalIdentity)
     // 没有操作记录时按最近登录时间计：只有本期值，与后端一样不下发 previous 与 series
     activeUsers: {
