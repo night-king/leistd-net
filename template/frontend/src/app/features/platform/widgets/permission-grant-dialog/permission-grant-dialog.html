@@ -90,13 +90,15 @@
                 </div>
 
                 <hlm-accordion-content>
-                  <!-- 缩进表达前置关系：depth 0 是资源，更深的是其上的动作。 -->
+                  <!-- 缩进表达前置关系：depth 0 是资源，更深的是其上的动作。
+                       触屏下复选框的命中区每侧伸出 14px：起始缩进不小于 14px；行高 48px，扣掉上边框后
+                       相邻两行的 44px 命中区之间仍留有余量，不会因取整互相覆盖。 -->
                   <ul class="flex list-none flex-col p-0">
                     @for (row of group.rows; track row.name) {
                       <li
-                        class="flex items-center gap-3 border-t py-2 pr-3 hover:bg-muted/40"
+                        class="flex items-center gap-3 border-t py-2 pr-3 hover:bg-muted/40 pointer-coarse:min-h-12"
                         [class.font-medium]="row.depth === 0"
-                        [style.padding-left.rem]="0.75 + row.depth * 1.5"
+                        [style.padding-left.rem]="0.875 + row.depth * 1.5"
                       >
                         <hlm-checkbox
                           [inputId]="row.name"

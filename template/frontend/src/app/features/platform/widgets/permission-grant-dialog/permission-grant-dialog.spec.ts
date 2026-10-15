@@ -15,6 +15,11 @@ import { ApplicationHttpError } from '../../../../core/errors/application-http-e
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import {
+  expectTouchTarget,
+  setCoarsePointer,
+  tapAt,
+} from '../../../../shared/utils/coarse-pointer.testing';
 
 /**
  * 权限弹窗的加载竞态：弹窗供角色与用户共用，晚到的响应若落到新主体，两边版本同为 0 时
@@ -276,6 +281,43 @@ describe('PermissionGrantDialog', () => {
     checkbox?.click();
     await fixture.whenStable();
 
+    expect(dialog().isGranted('App.Users')).toBe(false);
+  });
+
+  // 单行权限只有约 37px 高：触屏下行要撑高，相邻两行复选框的命中区才不互相覆盖
+  it('keeps the touch targets of adjacent single-line permissions apart on coarse pointers', async () => {
+    await setCoarsePointer(true);
+    onTestFinished(() => setCoarsePointer(false));
+    await fixture.whenStable();
+    httpTesting.expectOne(DEFINITIONS_URL).flush([
+      {
+        name: 'App',
+        displayName: 'App',
+        permissions: [
+          { name: 'App.Users', displayName: 'Users', parentName: undefined, children: [] },
+          { name: 'App.Roles', displayName: 'Roles', parentName: undefined, children: [] },
+        ],
+      },
+    ]);
+    httpTesting.expectOne('/api/v1/permissions/grants/roles/role-a').flush(grants('role-a', true));
+    await fixture.whenStable();
+    // 弹窗打开时有缩放动画，量尺寸前等它结束
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+    const users = document.getElementById('App.Users')!;
+    const roles = document.getElementById('App.Roles')!;
+
+    expectTouchTarget(users);
+    expectTouchTarget(roles);
+
+    // 视觉方框之外、44px 命中区之内：上一行的下沿与下一行的上沿
+    await tapAt(users, 0, 20);
+    await fixture.whenStable();
+    expect(dialog().isGranted('App.Users')).toBe(false);
+    expect(dialog().isGranted('App.Roles')).toBe(false);
+
+    await tapAt(roles, -20, -20);
+    await fixture.whenStable();
+    expect(dialog().isGranted('App.Roles')).toBe(true);
     expect(dialog().isGranted('App.Users')).toBe(false);
   });
 

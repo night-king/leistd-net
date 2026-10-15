@@ -282,6 +282,49 @@ body {
 }
 
 /*
+ * 复选框、开关、单选的视觉尺寸不变，粗指针下用透明伪元素把命中区以控件中心铺成 44×44；伪元素的点按归属于
+ * 宿主元素：复选框与开关是 Brain 内部带点击处理的 button，单选是指示器（点按冒泡到 Brain 的指示器容器）。
+ * 伪元素只扩控件本身，容器要按各轴的伸出量为它留出空间（16px 复选框每侧 14px），否则被裁掉或与邻近目标
+ * 互相覆盖：表格里含复选框的单元格在这里补末端内边距、表头补高，起始侧靠选择列已有的内边距；
+ * 列表行由使用方留足内边距与行高。
+ */
+@media (pointer: coarse) {
+  :is(
+    [data-slot='checkbox'] [role='checkbox'],
+    [data-slot='switch'] [role='switch'],
+    [data-slot='radio-group-indicator']
+  ) {
+    position: relative;
+  }
+
+  :is(
+    [data-slot='checkbox'] [role='checkbox'],
+    [data-slot='switch'] [role='switch'],
+    [data-slot='radio-group-indicator']
+  )::after {
+    content: '';
+
+    position: absolute;
+
+    /* 定宽定高再居中：用 inset 百分比反推会因布局取整差出零点几像素 */
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+
+    width: calc(var(--spacing) * 11);
+    height: calc(var(--spacing) * 11);
+  }
+
+  :is([data-slot='table-head'], [data-slot='table-cell']):has([role='checkbox']) {
+    padding-inline-end: calc(var(--spacing) * 3.5);
+  }
+
+  [data-slot='table-head']:has([role='checkbox']) {
+    height: calc(var(--spacing) * 11);
+  }
+}
+
+/*
  * 侧栏当前项：Vega 已给 sidebar-accent 底色与 500 字重；再加一圈细描边，亮色下白底当前项才能与
  * 同为浅色的悬停态区分开。
  */

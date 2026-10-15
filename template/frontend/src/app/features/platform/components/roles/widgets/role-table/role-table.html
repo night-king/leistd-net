@@ -25,7 +25,7 @@
                         @case ('displayName') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('displayName')"
                           >
                             {{ t('roles.colName') }}
@@ -41,7 +41,7 @@
                         @case ('sort') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('sort')"
                           >
                             {{ t('roles.colSort') }}
@@ -51,7 +51,7 @@
                         @case ('creationTime') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('creationTime')"
                           >
                             {{ t('roles.colCreatedAt') }}
