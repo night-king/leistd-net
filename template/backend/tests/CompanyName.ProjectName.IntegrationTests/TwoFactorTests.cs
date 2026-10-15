@@ -5,6 +5,8 @@ using System.Text.Json;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Settings.Provider;
 using Leistd.Security.OneTimeCodes;
+using Leistd.OperationRecords.Models;
+using Leistd.OperationRecords.Recording;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -354,7 +356,72 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         Assert.Equal(HttpStatusCode.OK, (await direct.Client.GetAsync("/api/v1/auth/me")).StatusCode);
     }
 
-    private (WebApplicationFactory<Program> Host, FakeTimeProvider Clock) CreateHost()
+    [Fact]
+    public async Task Concurrent_regeneration_accepts_one_totp_step_and_commits_one_new_code_set()
+    {
+        var (host, clock) = CreateHost(); using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_regen_race");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var secret = await BeginSetupAsync(session.Client); var old = await EnableAsync(session.Client, secret, clock); Step(clock);
+        var code = Code(secret, clock);
+        var responses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = code })));
+        Assert.Single(responses, x => x.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, x => x.StatusCode == HttpStatusCode.BadRequest);
+        var (_, challenge) = await PasswordStepAsync(host, username);
+        Assert.Equal("Auth:TwoFactorCodeInvalid", await SecondStepErrorAsync(host, new { Token = challenge, RecoveryCode = old[0] }));
+    }
+
+    [Fact]
+    public async Task Recovery_consumption_and_regeneration_preserve_the_new_code_set()
+    {
+        var (host, clock) = CreateHost(); using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_consume_regen");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var secret = await BeginSetupAsync(session.Client); var old = await EnableAsync(session.Client, secret, clock); Step(clock);
+        var (_, token) = await PasswordStepAsync(host, username);
+        using var login = ProjectWebApplicationFactory.CreateProjectClient(host);
+        var regenerate = session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = Code(secret, clock) });
+        var consume = login.PostAsJsonAsync("/api/v1/auth/two-factor", new { Token = token, RecoveryCode = old[0] });
+        var results = await Task.WhenAll(regenerate, consume);
+        Assert.Equal(HttpStatusCode.OK, results[0].StatusCode);
+        Assert.True(results[1].StatusCode is HttpStatusCode.OK or HttpStatusCode.BadRequest);
+        using var codes = JsonDocument.Parse(await results[0].Content.ReadAsStringAsync());
+        var newCode = codes.RootElement.GetProperty("recoveryCodes")[0].GetString();
+        var (_, fresh) = await PasswordStepAsync(host, username);
+        using var completed = await SecondStepAsync(host, fresh, new { Token = fresh, RecoveryCode = newCode });
+        var status = await completed.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor");
+        Assert.Equal(RecoveryCodes.Count - 1, status.GetProperty("recoveryCodesLeft").GetInt32());
+    }
+
+    [Fact]
+    public async Task Failed_recovery_code_audit_rolls_back_the_code_set_and_totp_replay_step()
+    {
+        var fail = false;
+        var (host, clock) = CreateHost(services => {
+            var descriptor = services.Last(x => x.ServiceType == typeof(IOperationRecorder)); services.Remove(descriptor);
+            services.AddTransient<IOperationRecorder>(sp => new RegenerationAuditFailure((IOperationRecorder)(descriptor.ImplementationFactory?.Invoke(sp) ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!)), () => fail));
+        }); using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_regen_rollback");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var secret = await BeginSetupAsync(session.Client); await EnableAsync(session.Client, secret, clock); Step(clock);
+        fail = true;
+        using var result = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = Code(secret, clock) });
+        Assert.Equal(HttpStatusCode.InternalServerError, result.StatusCode);
+        fail = false;
+        // 同一个 TOTP 仍可成功重发，证明失败事务没有消费重放步序。
+        using var retried = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = Code(secret, clock) });
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+    }
+
+    private sealed class RegenerationAuditFailure(IOperationRecorder inner, Func<bool> enabled) : IOperationRecorder
+    {
+        public Task RecordSucceededAsync(string action, OperationTarget target, string authorizationBasis, CancellationToken cancellationToken = default)
+            => enabled() && action == OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated ? throw new InvalidOperationException("Injected recovery audit failure.") : inner.RecordSucceededAsync(action, target, authorizationBasis, cancellationToken);
+        public Task RecordFailedAsync(string action, OperationTarget target, string authorizationBasis, OperationFailure failure = default)
+            => inner.RecordFailedAsync(action, target, authorizationBasis, failure);
+    }
+
+    private (WebApplicationFactory<Program> Host, FakeTimeProvider Clock) CreateHost(Action<IServiceCollection>? configure = null)
     {
         // 从此刻起步：缓存条目按真实时钟回收，假时钟落在过去会让刚写入的挑战被缓存当成已过期。
         // 替换的是 TimeProvider，应用时钟（IClock）与 Cookie、OpenIddict 一并跟随
@@ -363,6 +430,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(clock);
+            configure?.Invoke(services);
         }));
         return (host, clock);
     }

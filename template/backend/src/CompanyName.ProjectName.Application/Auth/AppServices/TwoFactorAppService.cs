@@ -20,6 +20,8 @@ using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Recording;
 using Leistd.Security.Users;
 using Leistd.Timing;
+using Leistd.Lock.Abstractions;
+using Leistd.UnitOfWork;
 using Leistd.UnitOfWork.Attributes;
 using Microsoft.Extensions.Caching.Distributed;
 
@@ -44,7 +46,9 @@ internal sealed class TwoFactorAppService(
     IOperationRecorder operationRecorder,
     ILocalEventBus localEventBus,
     IDistributedCache cache,
-    IClock clock) : BaseAppService, ITwoFactorAppService
+    IClock clock,
+    IDistributedLock distributedLock,
+    IUnitOfWorkManager unitOfWorkManager) : BaseAppService, ITwoFactorAppService
 {
     // 身份验证器应用里条目的发行方，生成项目后即项目名
     private const string Issuer = "CompanyName.ProjectName";
@@ -184,6 +188,11 @@ internal sealed class TwoFactorAppService(
         TwoFactorCodeInputDto input,
         CancellationToken cancellationToken = default)
     {
+        await using var held = await distributedLock.LockAsync(
+            $"MyProject:2fa-login:lock:{currentUser.Id!.Value:N}", cancellationToken);
+        using var lockCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockCancellation.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         // 先于再认证拒绝：未启用的账号没有可校验的验证码，不该计入失败次数
         user.EnsureTwoFactorEnabled();
@@ -211,6 +220,7 @@ internal sealed class TwoFactorAppService(
             OperationRecordAuthorizations.AuthenticatedSelf,
             cancellationToken);
 
+        await unit.CompleteAsync(cancellationToken);
         return new TwoFactorRecoveryCodesOutputDto { RecoveryCodes = codes };
     }
 
