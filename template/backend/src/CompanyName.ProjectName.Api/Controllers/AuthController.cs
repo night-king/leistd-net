@@ -238,20 +238,22 @@ public sealed class AuthController(
     public Task<TwoFactorStatusOutputDto> GetTwoFactorStatusAsync(CancellationToken cancellationToken)
         => twoFactorAppService.GetStatusAsync(cancellationToken);
 
-    /// <summary>开始设置两步验证：生成待启用的密钥。</summary>
+    /// <summary>开始设置两步验证：生成待确认的密钥；已启用时为换绑。</summary>
     [Authorize]
     [AllowDuringTwoFactorSetup]
     [HttpPost("me/two-factor/setup")]
-    public Task<TwoFactorSetupOutputDto> BeginTwoFactorSetupAsync(CancellationToken cancellationToken)
-        => twoFactorAppService.BeginSetupAsync(cancellationToken);
+    public Task<TwoFactorSetupOutputDto> BeginTwoFactorSetupAsync(
+        [FromBody] BeginTwoFactorSetupInputDto input,
+        CancellationToken cancellationToken)
+        => twoFactorAppService.BeginSetupAsync(input, cancellationToken);
 
-    /// <summary>用验证码确认并启用两步验证，返回恢复码。</summary>
+    /// <summary>用新验证器上的验证码确认设置（首次启用或换绑），返回新的恢复码。</summary>
     /// <remarks>受限会话（租户要求两步验证而此前未启用）启用成功后换发一个不受限的会话。</remarks>
     [Authorize]
     [AllowDuringTwoFactorSetup]
     [HttpPost("me/two-factor/enable")]
     public async Task<TwoFactorRecoveryCodesOutputDto> EnableTwoFactorAsync(
-        [FromBody] TwoFactorCodeInputDto input,
+        [FromBody] EnableTwoFactorInputDto input,
         CancellationToken cancellationToken)
     {
         var result = await twoFactorAppService.EnableAsync(input, cancellationToken);

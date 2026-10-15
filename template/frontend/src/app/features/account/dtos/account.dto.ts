@@ -17,7 +17,16 @@ export interface TwoFactorLoginInputDto {
   recoveryCode?: string;
 }
 
+/** 开始设置：会话不够新时带当前口令；换绑时带现有验证器的码或一个恢复码。 */
+export interface BeginTwoFactorSetupInputDto {
+  password?: string;
+  code?: string;
+  recoveryCode?: string;
+}
+
 export interface TwoFactorSetupOutputDto {
+  /** 这一次设置的 Id，确认时原样带回。 */
+  setupId: string;
   /** Base32 密钥，供无法扫码时手动输入。 */
   secret: string;
   /** otpauth:// 地址，二维码的内容。 */

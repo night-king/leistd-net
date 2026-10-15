@@ -36,6 +36,7 @@ import {
 //#if (Email)
   EmailVerificationChallengeOutputDto,
 //#endif
+  BeginTwoFactorSetupInputDto,
   DisableTwoFactorInputDto,
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
@@ -136,14 +137,17 @@ export class AccountService {
     return this.http.get<TwoFactorStatusOutputDto>('/api/v1/auth/me/two-factor');
   }
 
-  /** 开始设置：生成待启用的密钥（几分钟内有效）。 */
-  beginTwoFactorSetup(): Observable<TwoFactorSetupOutputDto> {
-    return this.http.post<TwoFactorSetupOutputDto>('/api/v1/auth/me/two-factor/setup', {});
+  /** 开始设置：生成待确认的密钥（几分钟内有效）；已启用时是换绑。 */
+  beginTwoFactorSetup(
+    input: BeginTwoFactorSetupInputDto = {},
+  ): Observable<TwoFactorSetupOutputDto> {
+    return this.http.post<TwoFactorSetupOutputDto>('/api/v1/auth/me/two-factor/setup', input);
   }
 
-  /** 用验证码确认并启用，返回一次性展示的恢复码。 */
-  enableTwoFactor(code: string): Observable<TwoFactorRecoveryCodesOutputDto> {
+  /** 用新验证器上的验证码确认这一次设置（首次启用或换绑），返回一次性展示的恢复码。 */
+  enableTwoFactor(setupId: string, code: string): Observable<TwoFactorRecoveryCodesOutputDto> {
     return this.http.post<TwoFactorRecoveryCodesOutputDto>('/api/v1/auth/me/two-factor/enable', {
+      setupId,
       code,
     });
   }

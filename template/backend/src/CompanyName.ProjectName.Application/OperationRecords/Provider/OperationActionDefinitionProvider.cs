@@ -236,6 +236,11 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
             OperationVisibility.Actor,
             OperationSeverity.Notice);
         context.Add(
+            OperationRecordActions.AuthTwoFactorAuthenticatorReplaced,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor,
+            OperationSeverity.Notice);
+        context.Add(
             OperationRecordActions.AuthTwoFactorDisabled,
             OperationRecordCategories.Authentication,
             OperationVisibility.Actor,

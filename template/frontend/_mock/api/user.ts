@@ -252,6 +252,14 @@ export function resetTwoFactor(id: string) {
       message: 'The built-in super administrator cannot be operated on by other administrators.',
     });
   }
+  // 与后端一致：本人走个人设置的换绑或停用，管理入口不放行
+  if (user.id === getCurrentUser()?.id) {
+    throw new MockException(400, {
+      code: 'User:SelfTwoFactorResetForbidden',
+      message:
+        "You can't reset your own two-factor authentication here. Use your security settings.",
+    });
+  }
   user.twoFactorEnabled = false;
   user.recoveryCodes = [];
 }

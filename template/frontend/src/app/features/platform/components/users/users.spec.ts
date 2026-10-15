@@ -1,4 +1,10 @@
-import { provideHttpClient } from '@angular/common/http';
+// prettier-ignore
+import {
+  //#if (LocalIdentity)
+  HttpErrorResponse,
+  //#endif
+  provideHttpClient,
+} from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { ComponentFixture, DeferBlockState, TestBed } from '@angular/core/testing';
@@ -10,6 +16,9 @@ import { of, Subject, throwError } from 'rxjs';
 
 import { Users } from './users';
 import { UserTable } from './widgets/user-table/user-table';
+//#if (LocalIdentity)
+import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
+//#endif
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
@@ -29,7 +38,15 @@ describe('Users page query round trip', () => {
   let fixture: ComponentFixture<Users>;
   let component: Users;
   let router: Router;
-  let service: Pick<MockedObject<UserManagementService>, 'getUsers' | 'batchDisableUsers'>;
+  // prettier-ignore
+  let service: Pick<
+    MockedObject<UserManagementService>,
+    | 'getUsers'
+    | 'batchDisableUsers'
+    //#if (LocalIdentity)
+    | 'resetTwoFactor'
+    //#endif
+  >;
 
   function lastQuery(): GetUsersInputDto {
     const calls = vi.mocked(service.getUsers).mock.calls;
@@ -50,6 +67,9 @@ describe('Users page query round trip', () => {
     service = {
       getUsers: vi.fn().mockName('UserManagementService.getUsers'),
       batchDisableUsers: vi.fn().mockName('UserManagementService.batchDisableUsers'),
+      //#if (LocalIdentity)
+      resetTwoFactor: vi.fn().mockName('UserManagementService.resetTwoFactor'),
+      //#endif
     };
     service.getUsers.mockReturnValue(of({ items: [], totalCount: 0 }) as never);
 
@@ -86,6 +106,33 @@ describe('Users page query round trip', () => {
     fixture.detectChanges();
   });
 
+  //#if (LocalIdentity)
+  // 管理员会话不够新：服务端要口令，页面弹出确认身份，带上口令重试同一个重置
+  it('asks the administrator for their password and retries the two-factor reset with it', async () => {
+    const target = { id: 'user-2', username: 'bob' } as never;
+    service.resetTwoFactor.mockReturnValueOnce(
+      throwError(() =>
+        ApplicationHttpError.from(
+          new HttpErrorResponse({ status: 400, error: { code: 'Auth:ReauthenticationRequired' } }),
+        ),
+      ),
+    );
+    service.resetTwoFactor.mockReturnValueOnce(of(undefined));
+
+    await component.handleResetTwoFactor(target);
+    await fixture.whenStable();
+
+    expect(service.resetTwoFactor).toHaveBeenCalledWith('user-2', undefined);
+    expect(component.reauthDialogVisible()).toBe(true);
+
+    component.onReauthenticated('admin-password');
+    await fixture.whenStable();
+
+    expect(service.resetTwoFactor).toHaveBeenLastCalledWith('user-2', 'admin-password');
+    expect(component.reauthDialogVisible()).toBe(false);
+  });
+
+  //#endif
   it('writes paging to the URL and refetches the new page', async () => {
     table().paginationChange.emit({ pageIndex: 2, pageSize: 20 } as PaginationState);
     await fixture.whenStable();

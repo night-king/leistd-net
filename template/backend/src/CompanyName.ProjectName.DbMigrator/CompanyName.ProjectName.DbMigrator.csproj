@@ -23,7 +23,7 @@
     <PackageReference Include="Leistd.Data" />
   </ItemGroup>
   <ItemGroup>
-<!--#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))-->
+<!--#if (RemoteTokenAuth || LocalIdentity)-->
     <ProjectReference Include="..\CompanyName.ProjectName.Application\CompanyName.ProjectName.Application.csproj" />
     <PackageReference Include="Leistd.Tracing.Core" />
 <!--#if (!IncludeOperationRecords)-->

@@ -101,13 +101,13 @@ public sealed class UserController(IUserAppService userAppService) : BaseControl
         await userAppService.UnlockAsync(id, cancellationToken);
     }
 
-    /// <summary>重置用户的两步验证（需要用户更新权限）。</summary>
+    /// <summary>重置用户的两步验证（需要用户更新权限；不能重置自己；管理员的会话不够新时带上自己的当前口令）。</summary>
     [HttpPost("{id}/reset-two-factor")]
     [Authorize(Policy = PermissionConstant.Users.Update)]
     [OperationRecordAction(OperationRecordActions.UserTwoFactorReset, "id")]
-    public async Task ResetTwoFactorAsync(Guid id, CancellationToken cancellationToken)
+    public async Task ResetTwoFactorAsync(Guid id, [FromBody] ResetUserTwoFactorInputDto input, CancellationToken cancellationToken)
     {
-        await userAppService.ResetTwoFactorAsync(id, cancellationToken);
+        await userAppService.ResetTwoFactorAsync(id, input, cancellationToken);
     }
 #endif
 

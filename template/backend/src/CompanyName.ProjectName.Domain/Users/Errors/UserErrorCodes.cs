@@ -22,6 +22,10 @@ public static class UserErrorCodes
     /// <summary>不能停用自己：默认 400，不登记映射。</summary>
     public const string SelfDisableForbidden = "User:SelfDisableForbidden";
 #if (LocalIdentity)
+    /// <summary>不能经用户管理重置自己的两步验证（会绕过自助停用的再认证与组织的强制策略）：默认 400，不登记映射。</summary>
+    public const string SelfTwoFactorResetForbidden = "User:SelfTwoFactorResetForbidden";
+#endif
+#if (LocalIdentity)
     public const string SortingCredentialsForbidden = "User:SortingCredentialsForbidden";
     public const string SuperAdminDeleteForbidden = "User:SuperAdminDeleteForbidden";
 #endif

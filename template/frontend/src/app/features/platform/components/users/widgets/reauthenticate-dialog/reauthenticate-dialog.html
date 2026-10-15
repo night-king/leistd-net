@@ -1,0 +1,49 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-dialog
+    [state]="visible() ? 'open' : 'closed'"
+    (stateChanged)="onDialogStateChange($event)"
+    [closeOnOutsidePointerEvents]="!saving()"
+  >
+    <hlm-dialog-content *hlmDialogPortal class="sm:max-w-md" [showCloseButton]="!saving()">
+      <hlm-dialog-header>
+        <h2 hlmDialogTitle>{{ t('users.reauthDialog.header') }}</h2>
+        <p hlmDialogDescription>{{ t('users.reauthDialog.description') }}</p>
+      </hlm-dialog-header>
+
+      <form
+        novalidate
+        class="flex flex-col gap-4"
+        data-testid="reauthenticate-form"
+        (submit)="$event.preventDefault(); confirm()"
+      >
+        <div hlmField>
+          <label hlmFieldLabel for="reauthenticate-password">{{
+            t('users.reauthDialog.passwordLabel')
+          }}</label>
+          <input
+            hlmInput
+            id="reauthenticate-password"
+            type="password"
+            autocomplete="current-password"
+            [formField]="reauthForm.password"
+          />
+        </div>
+        <hlm-dialog-footer>
+          <button hlmBtn type="button" variant="ghost" (click)="onHide()">
+            {{ t('common.cancel') }}
+          </button>
+          <button hlmBtn type="submit" [disabled]="saving()">
+            @if (saving()) {
+              <hlm-spinner class="text-base" data-icon="inline-start" />
+            }
+            {{ t('users.reauthDialog.confirm') }}
+          </button>
+        </hlm-dialog-footer>
+      </form>
+    </hlm-dialog-content>
+  </hlm-dialog>
+</ng-container>

@@ -211,5 +211,10 @@
     [(saving)]="resetPasswordSaving"
     (saved)="handleResetPassword($event)"
   />
+  <app-reauthenticate-dialog
+    [(visible)]="reauthDialogVisible"
+    [(saving)]="reauthSaving"
+    (confirmed)="onReauthenticated($event)"
+  />
   <!--#endif-->
 </ng-container>

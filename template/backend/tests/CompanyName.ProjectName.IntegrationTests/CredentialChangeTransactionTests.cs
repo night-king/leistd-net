@@ -82,12 +82,13 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
         var (username, userId) = await CreateUserAsync("tx_tfa_on");
         using var current = await LoginAsync(username, Password);
         using var other = await LoginAsync(username, Password);
-        var secret = await BeginSetupAsync(current.Client);
+        var setup = await BeginSetupAsync(current.Client);
+        var secret = setup.Secret;
 
         fixture.Faults.FailRecordingOf = OperationRecordActions.AuthTwoFactorEnabled;
         try
         {
-            using var failed = await EnableAsync(current.Client, secret);
+            using var failed = await EnableAsync(current.Client, setup);
             Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
         }
         finally
@@ -103,7 +104,7 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
 
         // 不重新开始设置：回滚保留下来的那份密钥直接确认
         fixture.Step();
-        using (var enabled = await EnableAsync(current.Client, secret))
+        using (var enabled = await EnableAsync(current.Client, setup))
             Assert.Equal(HttpStatusCode.OK, enabled.StatusCode);
 
         Assert.True(await IsTwoFactorEnabledAsync(current.Client));
@@ -118,8 +119,9 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
     {
         var (username, userId) = await CreateUserAsync("tx_tfa_off");
         using var current = await LoginAsync(username, Password);
-        var secret = await BeginSetupAsync(current.Client);
-        using (var enabled = await EnableAsync(current.Client, secret))
+        var setup = await BeginSetupAsync(current.Client);
+        var secret = setup.Secret;
+        using (var enabled = await EnableAsync(current.Client, setup))
             Assert.Equal(HttpStatusCode.OK, enabled.StatusCode);
         fixture.Alerts.Clear(userId);
 
@@ -160,8 +162,9 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
         using var target = await LoginAsync(username, Password);
         if (operation == "reset-two-factor")
         {
-            var secret = await BeginSetupAsync(target.Client);
-            using var enabled = await EnableAsync(target.Client, secret);
+            var setup = await BeginSetupAsync(target.Client);
+            var secret = setup.Secret;
+            using var enabled = await EnableAsync(target.Client, setup);
             Assert.Equal(HttpStatusCode.OK, enabled.StatusCode);
             fixture.Alerts.Clear(userId);
         }
@@ -299,7 +302,7 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
     {
         "disable" => admin.PatchAsync($"/api/v1/users/{userId}/disable", null),
         "reset-password" => admin.PostAsJsonAsync($"/api/v1/users/{userId}/reset-password", new { Password = Password + "R" }),
-        "reset-two-factor" => admin.PostAsync($"/api/v1/users/{userId}/reset-two-factor", null),
+        "reset-two-factor" => admin.PostAsJsonAsync($"/api/v1/users/{userId}/reset-two-factor", new { }),
         _ => admin.DeleteAsync($"/api/v1/users/{userId}")
     };
 
@@ -326,16 +329,16 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
             ConfirmPassword = next
         });
 
-    private static async Task<string> BeginSetupAsync(HttpClient client)
+    private static async Task<(Guid SetupId, string Secret)> BeginSetupAsync(HttpClient client)
     {
-        using var response = await client.PostAsync("/api/v1/auth/me/two-factor/setup", null);
+        using var response = await client.PostAsJsonAsync("/api/v1/auth/me/two-factor/setup", new { });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return body.RootElement.GetProperty("secret").GetString()!;
+        return (body.RootElement.GetProperty("setupId").GetGuid(), body.RootElement.GetProperty("secret").GetString()!);
     }
 
-    private Task<HttpResponseMessage> EnableAsync(HttpClient client, string secret) =>
-        client.PostAsJsonAsync("/api/v1/auth/me/two-factor/enable", new { Code = fixture.Code(secret) });
+    private Task<HttpResponseMessage> EnableAsync(HttpClient client, (Guid SetupId, string Secret) setup) =>
+        client.PostAsJsonAsync("/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = fixture.Code(setup.Secret) });
 
     private Task<HttpResponseMessage> DisableTwoFactorAsync(HttpClient client, string secret) =>
         client.PostAsJsonAsync("/api/v1/auth/me/two-factor/disable", new { Password, Code = fixture.Code(secret) });

@@ -14,10 +14,7 @@
         </div>
       </div>
     </div>
-    <ol
-      data-testid="recovery-codes-sensitive"
-      class="grid grid-cols-1 gap-2 font-mono text-sm sm:grid-cols-2"
-    >
+    <ol class="grid grid-cols-1 gap-2 font-mono text-sm sm:grid-cols-2">
       @for (code of codes(); track code) {
         <li class="bg-muted rounded-md px-3 py-1.5 text-center select-all">{{ code }}</li>
       }

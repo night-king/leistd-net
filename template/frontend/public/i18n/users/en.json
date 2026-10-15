@@ -72,7 +72,8 @@
     "superAdminNoManage": "Only the built-in super administrator can do this to their own account",
     "resetPassword": "Reset password",
     "unlock": "Unlock",
-    "resetTwoFactor": "Reset two-factor authentication"
+    "resetTwoFactor": "Reset two-factor authentication",
+    "selfNoResetTwoFactor": "Manage your own in Personal settings"
   },
   "editDialog": {
     "editHeader": "Edit user",
@@ -137,5 +138,11 @@
     "rolesTitle": "Add roles to {{count}} users",
     "rolesDescription": "The selected roles are added. Roles the users already have are kept.",
     "assign": "Add roles"
+  },
+  "reauthDialog": {
+    "header": "Confirm it is you",
+    "description": "This action changes how someone signs in. Enter your own current password to continue.",
+    "passwordLabel": "Your current password",
+    "confirm": "Confirm"
   }
 }

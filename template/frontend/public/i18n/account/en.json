@@ -57,7 +57,19 @@
     "recoveryCodesWarning": "Save these recovery codes somewhere safe. Each one signs you in once if you lose your phone. They will not be shown again.",
     "copyCodes": "Copy",
     "downloadCodes": "Download",
-    "savedCodes": "I've saved them"
+    "savedCodes": "I've saved them",
+    "replace": "Replace authenticator",
+    "replaceHint": "Enter a code from your current authenticator app. Lost it? Use a recovery code instead; it is used up right away.",
+    "useRecoveryCode": "Lost your authenticator? Use a recovery code",
+    "useCode": "Use a verification code instead",
+    "recoveryCodeLabel": "Recovery code",
+    "continue": "Continue",
+    "replaceConfirm": "Verify and replace",
+    "replacedToast": "Authenticator replaced. The old one and its recovery codes no longer work, and other devices were signed out.",
+    "reauthHint": "To protect your account, enter your current password to continue.",
+    "signInAgainHint": "To protect your account, sign out and sign in again, then set it up right away.",
+    "setupExpired": "This setup is no longer valid (it expired or was restarted elsewhere). The key above was discarded.",
+    "restart": "Start again"
   },
   "twoFactorLogin": {
     "title": "Two-factor authentication",

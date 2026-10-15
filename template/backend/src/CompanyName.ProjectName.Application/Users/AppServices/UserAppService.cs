@@ -10,10 +10,13 @@ using Leistd.MultiTenancy.Context;
 using Leistd.UnitOfWork;
 #if (LocalIdentity)
 using CompanyName.ProjectName.Application.Auth.Events;
+using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.Sessions;
+using CompanyName.ProjectName.Application.Auth.TwoFactor;
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using Leistd.EventBus.Abstractions;
+using Leistd.Lock.Abstractions;
 #endif
 using CompanyName.ProjectName.Application.Permissions.Provider;
 using CompanyName.ProjectName.Application.Roles.Dtos;
@@ -51,7 +54,7 @@ using Microsoft.Extensions.Localization;
 namespace CompanyName.ProjectName.Application.Users.AppServices;
 
 /// <summary>用户应用服务。</summary>
-public class UserAppService(
+internal sealed class UserAppService(
     IUserRepository userRepository,
     IRoleRepository roleRepository,
     IPermissionChecker permissionChecker,
@@ -65,6 +68,8 @@ public class UserAppService(
     UserSortingValidator userSortingValidator,
     UserSessionDomainService userSessionDomainService,
     ILocalEventBus localEventBus,
+    IDistributedLock distributedLock,
+    IReauthenticationGuard reauthenticationGuard,
 #endif
 #if (OpenIddictServer)
     IOpenIddictTokenManager tokenManager,
@@ -450,17 +455,34 @@ public class UserAppService(
 
     /// <summary>重置用户的两步验证：停用并清掉密钥与恢复码，该用户的会话全部失效。</summary>
     /// <remarks>
-    /// 给丢了手机又没了恢复码的人用。会话一并作废：能走到这一步，说明账号的第二道门已经不在本人手里。
-    /// 所在租户要求两步验证时，本人下次登录会被带去重新设置。
-    /// 停用与撤销同生共死；提醒在提交之后发出。
+    /// <para>给丢了手机又没了恢复码的人用。会话一并作废：能走到这一步，说明账号的第二道门已经不在本人手里。
+    /// 所在租户要求两步验证时，本人下次登录会被带去重新设置。</para>
+    /// <para>不能重置自己（<see cref="User.CanTwoFactorBeResetBy"/>）：本人走个人安全设置的换绑或停用。
+    /// 管理员的会话要刚认证过，否则出示自己的当前口令——被盗的管理员会话不能直接拆掉别人的第二道门，
+    /// 单独重置口令对启用了两步验证的账号仍然登不进去，两步一起做才能接管。</para>
+    /// <para>在目标用户的凭据锁内读、改并提交，与本人同时进行的换绑、重发、登录第二步互不覆盖；提醒在提交之后发出。</para>
     /// </remarks>
-    [UnitOfWork]
-    public async Task ResetTwoFactorAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task ResetTwoFactorAsync(Guid id, ResetUserTwoFactorInputDto input, CancellationToken cancellationToken = default)
     {
+        var actorId = currentUser.Id!.Value;
+        var actor = await GetUserOrThrowAsync(actorId, cancellationToken);
+        await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
+            actor, input.Password, OperationRecordActions.UserTwoFactorReset, cancellationToken);
+
+        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(id), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetUserOrThrowAsync(id, cancellationToken);
-        if (!user.CanBeManagedBy(currentUser.Id))
+        if (!user.CanBeManagedBy(actorId))
         {
             throw new BusinessException(UserErrorCodes.SuperAdminOperationForbidden, "The built-in super administrator cannot be operated on by other administrators.");
+        }
+
+        if (!user.CanTwoFactorBeResetBy(actorId))
+        {
+            throw new BusinessException(UserErrorCodes.SelfTwoFactorResetForbidden, "You can't reset your own two-factor authentication here. Use your security settings.");
         }
 
         if (!user.TwoFactorEnabled)
@@ -480,10 +502,8 @@ public class UserAppService(
             PermissionConstant.Users.Update,
             cancellationToken);
 
-        await RevokeAllAccessAsync(
-            user.Id,
-            user.Id == currentUser.Id ? currentUser.GetSessionId() : null,
-            cancellationToken);
+        await RevokeAllAccessAsync(user.Id, keepSessionId: null, cancellationToken);
+        await unit.CompleteAsync(cancellationToken);
     }
 #endif
 

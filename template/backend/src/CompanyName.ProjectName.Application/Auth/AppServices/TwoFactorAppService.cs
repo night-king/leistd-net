@@ -6,6 +6,7 @@ using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using CompanyName.ProjectName.Application.Auth.Sessions;
+using CompanyName.ProjectName.Application.Auth.TwoFactor;
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
@@ -22,17 +23,19 @@ using Leistd.Security.Users;
 using Leistd.Timing;
 using Leistd.Lock.Abstractions;
 using Leistd.UnitOfWork;
-using Leistd.UnitOfWork.Attributes;
+using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 
 namespace CompanyName.ProjectName.Application.Auth.AppServices;
 
 /// <inheritdoc cref="ITwoFactorAppService" />
 /// <remarks>
-/// 待启用的密钥放在缓存里而不是用户行上：没确认的设置不该改变账号状态，
-/// 半途放弃也不留痕。缓存里存的同样是加密后的密钥。
-/// <para>启用与停用各有多次写入（用户行、会话撤销），标 <c>[UnitOfWork]</c> 同生共死；
-/// 提醒与设置密钥的清理经本地事件在提交之后执行，回滚的变更不发提醒、也不丢掉还能再确认的设置。</para>
+/// <para>待确认的设置放在缓存里而不是用户行上：没确认的设置不该改变账号状态，半途放弃也不留痕。
+/// 缓存里存的同样是加密后的密钥，并带着设置 Id 与开始时的安全版本：别处重新开始过（Id 对不上）、
+/// 之后凭据变过（安全版本对不上），这一次设置都作废。</para>
+/// <para>改写凭据的方法都先取 <see cref="TwoFactorCredentialLock"/>，再读用户、改写，并在锁内用手动工作单元提交；
+/// 提醒与设置密钥的清理经本地事件在提交之后执行，回滚的变更不发提醒、也不丢掉还能再确认的设置。
+/// 再认证失败的计数与审计各自独立提交，不随本类方法的回滚丢失。</para>
 /// </remarks>
 internal sealed class TwoFactorAppService(
     IRepository<User, Guid> userRepository,
@@ -69,15 +72,51 @@ internal sealed class TwoFactorAppService(
     }
 
     /// <inheritdoc />
-    public async Task<TwoFactorSetupOutputDto> BeginSetupAsync(CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// <para>先确认会话的主人刚认证过：拿到会话就能把自己的验证器绑上去的话，被盗会话能把本人挡在第二步之外。</para>
+    /// <para>换绑再出示一次第二因素：现有验证器上的码，或者验证器丢了时用一个恢复码。恢复码在这里当场用掉，
+    /// 只换得一次重新绑定的机会，新的一组恢复码要等新验证器确认后才发——恢复码不能直接换出新的恢复码。</para>
+    /// </remarks>
+    public async Task<TwoFactorSetupOutputDto> BeginSetupAsync(
+        BeginTwoFactorSetupInputDto input,
+        CancellationToken cancellationToken = default)
     {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetCurrentUserEntityAsync(cancellationToken);
-        user.EnsureTwoFactorDisabled();
+        var replacing = user.TwoFactorEnabled;
+        // 已启用又没出示任何第二因素：是"再启用一次"而不是换绑，不当作一次猜错计数
+        if (replacing && string.IsNullOrWhiteSpace(input.Code) && string.IsNullOrWhiteSpace(input.RecoveryCode))
+        {
+            user.EnsureTwoFactorDisabled();
+        }
+
+        var action = replacing
+            ? OperationRecordActions.AuthTwoFactorAuthenticatorReplaced
+            : OperationRecordActions.AuthTwoFactorEnabled;
+        await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(user, input.Password, action, cancellationToken);
+
+        if (replacing)
+        {
+            await ProveCurrentSecondFactorAsync(user, input, action, cancellationToken);
+        }
 
         var secret = Totp.GenerateSecret();
+        var setup = new PendingSetup(
+            Guid.NewGuid(),
+            twoFactorDomainService.ProtectSecret(secret),
+            user.SecurityStamp,
+            replacing);
+
+        await unit.CompleteAsync(cancellationToken);
+        // 提交之后再写：换绑用掉的恢复码没落库时，不该留下一份可以确认的设置
         await cache.SetStringAsync(
             SetupKey(user.Id),
-            twoFactorDomainService.ProtectSecret(secret),
+            JsonSerializer.Serialize(setup),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = SetupLifetime },
             cancellationToken);
 
@@ -88,54 +127,85 @@ internal sealed class TwoFactorAppService(
             : user.Username;
         return new TwoFactorSetupOutputDto
         {
+            SetupId = setup.Id,
             Secret = base32,
             OtpAuthUri = Totp.BuildUri(Issuer, account, secret)
         };
     }
 
     /// <inheritdoc />
-    [UnitOfWork]
     public async Task<TwoFactorRecoveryCodesOutputDto> EnableAsync(
-        TwoFactorCodeInputDto input,
+        EnableTwoFactorInputDto input,
         CancellationToken cancellationToken = default)
     {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetCurrentUserEntityAsync(cancellationToken);
-        // 先于取缓存与校验验证码拒绝：已启用的账号不该看到"设置已过期"或"验证码不对"
-        user.EnsureTwoFactorDisabled();
+        var setup = await GetPendingSetupAsync(user.Id, cancellationToken);
+        // 先于"过期"拒绝：首次设置时账号已启用，说明在别处启用过，告诉本人"已经启用"而不是让他重来
+        if (setup is { Replacing: false })
+        {
+            user.EnsureTwoFactorDisabled();
+        }
 
-        var protectedSecret = await cache.GetStringAsync(SetupKey(user.Id), cancellationToken)
-            ?? throw new BusinessException(AuthErrorCodes.TwoFactorSetupExpired, "The setup has expired. Start again.");
+        if (setup is null || setup.Id != input.SetupId!.Value || !user.HasSecurityStamp(setup.SecurityStamp)
+            || setup.Replacing != user.TwoFactorEnabled)
+        {
+            throw new BusinessException(AuthErrorCodes.TwoFactorSetupExpired, "The setup is no longer valid. Start again.");
+        }
 
-        if (twoFactorDomainService.VerifySetupCode(protectedSecret, input.Code, clock.Now) is not { } step)
+        if (twoFactorDomainService.VerifySetupCode(setup.ProtectedSecret, input.Code, clock.Now) is not { } step)
         {
             throw CodeInvalid();
         }
 
         var codes = RecoveryCodes.Generate();
-        user.EnableTwoFactor(protectedSecret, codes.Select(RecoveryCodes.Hash), step);
+        if (setup.Replacing)
+        {
+            user.ReplaceTwoFactor(setup.ProtectedSecret, codes.Select(RecoveryCodes.Hash), step);
+        }
+        else
+        {
+            user.EnableTwoFactor(setup.ProtectedSecret, codes.Select(RecoveryCodes.Hash), step);
+        }
+
         await userRepository.UpdateAsync(user, cancellationToken);
 
-        // 登录方式变了，此前的其他会话都是在没有第二道门时建立的
+        // 登录方式变了：此前的其他会话是在旧的（或没有）第二道门时建立的
         await userSessionDomainService.RevokeAllAsync(user.Id, currentUser.GetSessionId(), cancellationToken);
 
         await operationRecorder.RecordSucceededAsync(
-            OperationRecordActions.AuthTwoFactorEnabled,
+            setup.Replacing
+                ? OperationRecordActions.AuthTwoFactorAuthenticatorReplaced
+                : OperationRecordActions.AuthTwoFactorEnabled,
             OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
             OperationRecordAuthorizations.AuthenticatedSelf,
             cancellationToken);
         await localEventBus.PublishAsync(new TwoFactorSetupCompletedEvent(user.Id, clock.Now), cancellationToken);
         await localEventBus.PublishAsync(
-            new SecurityAlertRequestedEvent(user.Id, new SecurityAlert(SecurityAlertKind.TwoFactorEnabled), clock.Now),
+            new SecurityAlertRequestedEvent(
+                user.Id,
+                new SecurityAlert(setup.Replacing ? SecurityAlertKind.TwoFactorAuthenticatorReplaced : SecurityAlertKind.TwoFactorEnabled),
+                clock.Now),
             cancellationToken);
 
+        await unit.CompleteAsync(cancellationToken);
         return new TwoFactorRecoveryCodesOutputDto { RecoveryCodes = codes };
     }
 
     /// <inheritdoc />
-    /// <remarks>再认证失败的计数与审计各自独立提交，不随本方法的回滚丢失。</remarks>
-    [UnitOfWork]
     public async Task DisableAsync(DisableTwoFactorInputDto input, CancellationToken cancellationToken = default)
     {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         if (!user.TwoFactorEnabled)
             return;
@@ -181,6 +251,8 @@ internal sealed class TwoFactorAppService(
         await localEventBus.PublishAsync(
             new SecurityAlertRequestedEvent(user.Id, new SecurityAlert(SecurityAlertKind.TwoFactorDisabled), clock.Now),
             cancellationToken);
+
+        await unit.CompleteAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -188,16 +260,18 @@ internal sealed class TwoFactorAppService(
         TwoFactorCodeInputDto input,
         CancellationToken cancellationToken = default)
     {
-        await using var held = await distributedLock.LockAsync(
-            $"MyProject:2fa-login:lock:{currentUser.Id!.Value:N}", cancellationToken);
-        using var lockCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
-        cancellationToken = lockCancellation.Token;
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         // 先于再认证拒绝：未启用的账号没有可校验的验证码，不该计入失败次数
         user.EnsureTwoFactorEnabled();
 
-        // 重发恢复码同样是再认证：拿到恢复码等于拿到一组可绕过两步验证的凭据
+        // 重发恢复码同样是再认证：拿到恢复码等于拿到一组可绕过两步验证的凭据。
+        // 只认验证码，不认恢复码：恢复码不能用来换出一组新的恢复码
         await reauthenticationGuard.EnsureAllowedAsync(user, cancellationToken);
 
         if (!twoFactorDomainService.VerifyCode(user, input.Code, clock.Now))
@@ -232,6 +306,57 @@ internal sealed class TwoFactorAppService(
     /// <summary>待确认设置密钥的缓存键。</summary>
     internal static string SetupKey(Guid userId) => SetupKeyPrefix + userId.ToString("N");
 
+    /// <summary>换绑前再出示一次现有的第二因素；失败按再认证计数。用掉的步或恢复码随本次工作单元落库。</summary>
+    private async Task ProveCurrentSecondFactorAsync(
+        User user,
+        BeginTwoFactorSetupInputDto input,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        var usedRecoveryCode = !string.IsNullOrWhiteSpace(input.RecoveryCode);
+        var proven = usedRecoveryCode
+            ? twoFactorDomainService.UseRecoveryCode(user, input.RecoveryCode!)
+            : !string.IsNullOrWhiteSpace(input.Code) && twoFactorDomainService.VerifyCode(user, input.Code, clock.Now);
+        if (!proven)
+        {
+            throw await reauthenticationGuard.RejectAsync(
+                user,
+                action,
+                AuthErrorCodes.TwoFactorCodeInvalid,
+                CodeInvalidMessage,
+                cancellationToken);
+        }
+
+        await userRepository.UpdateAsync(user, cancellationToken);
+        if (usedRecoveryCode)
+        {
+            await operationRecorder.RecordSucceededAsync(
+                OperationRecordActions.AuthTwoFactorRecoveryCodeUsed,
+                OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
+                OperationRecordAuthorizations.AuthenticatedSelf,
+                cancellationToken);
+        }
+    }
+
+    private async Task<PendingSetup?> GetPendingSetupAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var json = await cache.GetStringAsync(SetupKey(userId), cancellationToken);
+        if (json is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<PendingSetup>(json);
+        }
+        catch (JsonException)
+        {
+            // 读不懂的条目（例如升级前写下的旧格式）按已失效处理，本人重新开始即可
+            return null;
+        }
+    }
+
     private async Task<User> GetCurrentUserEntityAsync(CancellationToken cancellationToken)
     {
         var userId = currentUser.Id!.Value;
@@ -239,5 +364,12 @@ internal sealed class TwoFactorAppService(
             ?? throw new BusinessException(UserErrorCodes.NotFound, $"User {userId} not found.")
                 .WithData("Id", userId);
     }
+
+    /// <summary>一次待确认的设置。</summary>
+    /// <param name="Id">设置 Id，确认时要对得上。</param>
+    /// <param name="ProtectedSecret">加密后的新密钥。</param>
+    /// <param name="SecurityStamp">开始设置时用户的安全版本。</param>
+    /// <param name="Replacing">是否为换绑（开始时已启用）。</param>
+    private sealed record PendingSetup(Guid Id, string ProtectedSecret, string SecurityStamp, bool Replacing);
 }
 #endif

@@ -1,6 +1,6 @@
 using CompanyName.ProjectName.DbMigrator;
 using CompanyName.ProjectName.DbMigrator.Runners;
-#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))
+#if (RemoteTokenAuth || LocalIdentity)
 using CompanyName.ProjectName.Infrastructure;
 using Leistd.Lock.Redis.Options;
 #endif
@@ -8,7 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
-#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))
+#if (RemoteTokenAuth || LocalIdentity)
 using Microsoft.Extensions.Options;
 #endif
 
@@ -56,16 +56,17 @@ public class MigratorRegistrationTests
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<DatabaseMigrationRunner>());
     }
 
-#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))
+#if (RemoteTokenAuth || LocalIdentity)
     // 管理员命令与 API 一样在生产以外开启构建期校验：组合里混进只在 API 注册的能力（实时推送、当前用户的设置等）时，
     // 本机与测试环境的命令会在启动时失败。这里不连数据库与 Redis，开了实时等能力的形态也在这一层暴露
-    [Fact]
-    public void The_admin_command_registration_passes_build_time_validation()
+    [Theory]
+    [MemberData(nameof(AdminCommands))]
+    public void The_admin_command_registration_passes_build_time_validation(string command)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(LockConfiguration([])).Build();
 
         // 执行器是 internal 类型、不在这里解析：构建期校验会逐条检查它及其依赖的注册
-        var failure = Record.Exception(() => AdminCommandServices(configuration).BuildServiceProvider(new ServiceProviderOptions
+        var failure = Record.Exception(() => AdminCommandServices(configuration, command).BuildServiceProvider(new ServiceProviderOptions
         {
             ValidateOnBuild = true,
             ValidateScopes = true
@@ -77,25 +78,41 @@ public class MigratorRegistrationTests
     // 管理员命令与 API 里的初始化（开通、启动初始化）靠同一把 Redis 锁互斥：两边的锁键前缀必须相同。
     // API 一侧读它实际随包发布的 appsettings.json，命令一侧只有部署给的环境变量（作业没有自己的 appsettings.json），
     // 所以只写在 API 配置文件里的前缀会在这里暴露为不一致
-    [Fact]
-    public void The_admin_command_and_the_api_lock_on_the_same_redis_key_prefix()
+    [Theory]
+    [MemberData(nameof(AdminCommands))]
+    public void The_admin_command_and_the_api_lock_on_the_same_redis_key_prefix(string command)
     {
         var api = ApiLockPrefix(new Dictionary<string, string?>());
-        var command = CommandLockPrefix(new Dictionary<string, string?>());
+        var commandPrefix = CommandLockPrefix(new Dictionary<string, string?>(), command);
 
         Assert.False(string.IsNullOrEmpty(api), "The API registers no Redis lock key prefix");
-        Assert.Equal(api, command);
+        Assert.Equal(api, commandPrefix);
     }
 
     // 部署侧覆盖前缀（例如追加环境）时，两边都取配置值，默认值不会盖过它
-    [Fact]
-    public void A_configured_redis_key_prefix_overrides_the_default_in_the_api_and_the_admin_command()
+    [Theory]
+    [MemberData(nameof(AdminCommands))]
+    public void A_configured_redis_key_prefix_overrides_the_default_in_the_api_and_the_admin_command(string command)
     {
         var overrides = new Dictionary<string, string?> { [$"{RedisLockOptions.SectionName}:KeyPrefix"] = "companyname-projectname:staging:" };
 
         Assert.Equal("companyname-projectname:staging:", ApiLockPrefix(overrides));
-        Assert.Equal("companyname-projectname:staging:", CommandLockPrefix(overrides));
+        Assert.Equal("companyname-projectname:staging:", CommandLockPrefix(overrides, command));
     }
+
+    /// <summary>DbMigrator 的管理员命令：每一个都与 API 抢同一类锁。</summary>
+    public static TheoryData<string> AdminCommands => new()
+    {
+#if (RemoteTokenAuth)
+        "grant-admin",
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+        "restore-tenant-admin",
+#endif
+#if (LocalIdentity)
+        "reset-two-factor",
+#endif
+    };
 
     private static string ApiLockPrefix(Dictionary<string, string?> deployment)
     {
@@ -111,23 +128,39 @@ public class MigratorRegistrationTests
         return provider.GetRequiredService<IOptions<RedisLockOptions>>().Value.KeyPrefix;
     }
 
-    private static string CommandLockPrefix(Dictionary<string, string?> deployment)
+    private static string CommandLockPrefix(Dictionary<string, string?> deployment, string command)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(LockConfiguration(deployment)).Build();
-        using var provider = AdminCommandServices(configuration).BuildServiceProvider();
+        using var provider = AdminCommandServices(configuration, command).BuildServiceProvider();
         return provider.GetRequiredService<IOptions<RedisLockOptions>>().Value.KeyPrefix;
     }
 
     // DbMigrator 的管理员命令组合（与 Program 中对应分支相同）
-    private static ServiceCollection AdminCommandServices(IConfiguration configuration)
+    private static ServiceCollection AdminCommandServices(IConfiguration configuration, string command)
     {
         var services = new ServiceCollection();
         services.AddLogging().AddSingleton(configuration);
+        switch (command)
+        {
 #if (RemoteTokenAuth)
-        services.AddResourceAdminBootstrapServices(configuration);
-#else
-        services.AddTenantAdminRestoreServices(configuration, new DevelopmentEnvironment());
+            case "grant-admin":
+                services.AddResourceAdminBootstrapServices(configuration);
+                break;
 #endif
+#if (LocalIdentity && IncludeMultiTenancy)
+            case "restore-tenant-admin":
+                services.AddTenantAdminRestoreServices(configuration, new DevelopmentEnvironment());
+                break;
+#endif
+#if (LocalIdentity)
+            case "reset-two-factor":
+                services.AddTwoFactorResetServices(configuration, new DevelopmentEnvironment());
+                break;
+#endif
+            default:
+                throw new ArgumentOutOfRangeException(nameof(command), command, null);
+        }
+
         return services;
     }
 
