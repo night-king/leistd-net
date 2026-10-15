@@ -443,6 +443,80 @@ describe('SettingSection groups', () => {
   });
 });
 
+/** 进程级设置的生效范围：整组都是时在分组顶部说一次，混有其他层级时按行标注。 */
+describe('SettingSection host scope hint', () => {
+  const hostRow = (name: string, group: string) =>
+    row({
+      name,
+      group,
+      groupDisplayName: group,
+      allowsTenantScope: false,
+      allowsUserScope: false,
+      allowsHostScope: true,
+    });
+
+  async function render(settings: SettingOutputDto[]): Promise<HTMLElement> {
+    TestBed.configureTestingModule({
+      imports: [SettingSection],
+      providers: [...pageProviders()],
+    });
+    const fixture = TestBed.createComponent(SettingSection);
+    fixture.componentRef.setInput('scope', 'system');
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController).expectOne('/api/v1/settings').flush(settings);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  const sectionOf = (host: HTMLElement, group: string) =>
+    host.querySelector<HTMLElement>(
+      `[data-testid="settings-group-section"][data-group="${group}"]`,
+    )!;
+  const groupHints = (section: HTMLElement) =>
+    section.querySelectorAll('[data-testid="settings-group-host-scope-hint"]').length;
+  const rowHints = (section: HTMLElement) =>
+    section.querySelectorAll('[data-testid="setting-host-scope-hint"]').length;
+
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  it('says it once under the group when every setting in the group is process-wide', async () => {
+    const host = await render([
+      hostRow('Logging.ProbeA', 'Operations'),
+      hostRow('Logging.ProbeB', 'Operations'),
+      row({ name: 'Display.Probe', group: 'Display', groupDisplayName: 'Display' }),
+    ]);
+
+    const operations = sectionOf(host, 'Operations');
+    expect(groupHints(operations)).toBe(1);
+    expect(rowHints(operations)).toBe(0);
+    // 没有进程级设置的分组两处都不出
+    expect(groupHints(sectionOf(host, 'Display'))).toBe(0);
+    expect(rowHints(sectionOf(host, 'Display'))).toBe(0);
+  });
+
+  it('marks each process-wide row when the group mixes scopes', async () => {
+    const host = await render([
+      hostRow('Logging.ProbeA', 'Operations'),
+      row({ name: 'Logging.TenantProbe', group: 'Operations', groupDisplayName: 'Operations' }),
+      hostRow('Logging.ProbeB', 'Operations'),
+    ]);
+
+    const operations = sectionOf(host, 'Operations');
+    expect(groupHints(operations)).toBe(0);
+    expect(rowHints(operations)).toBe(2);
+  });
+
+  // 单组面板没有分组标题，说明照样出在分组顶部
+  it('keeps the group hint on a single-group panel without a heading', async () => {
+    const host = await render([hostRow('Logging.ProbeA', 'Operations')]);
+
+    expect(host.querySelector('h4')).toBeNull();
+    expect(groupHints(sectionOf(host, 'Operations'))).toBe(1);
+    expect(rowHints(sectionOf(host, 'Operations'))).toBe(0);
+  });
+});
+
 /** 开关没有占位符，本层未覆盖时显示继承来的生效值。 */
 describe('SettingSection switches', () => {
   const switches = [
@@ -492,6 +566,162 @@ describe('SettingSection switches', () => {
     });
   });
 });
+//#if (ExternalLogin)
+
+/**
+ * 外部登录按提供方分卡片，卡片里的行与其他分组同一份实现；本组设置保存或恢复默认后重取状态，
+ * 其他分组的写入不触发。
+ */
+describe('SettingSection external login', () => {
+  const statusUrl = '/api/v1/settings/external-login/status';
+  const hostRow = (name: string, group: string, overrides: Partial<SettingOutputDto> = {}) =>
+    row({
+      name,
+      group,
+      allowsTenantScope: false,
+      allowsUserScope: false,
+      allowsHostScope: true,
+      ...overrides,
+    });
+
+  const settings = () => [
+    hostRow('ExternalLogin.Github.ClientId', 'ExternalLogin'),
+    hostRow('ExternalLogin.Google.Enabled', 'ExternalLogin', { isBoolean: true }),
+    hostRow('ExternalLogin.Github.Enabled', 'ExternalLogin', { isBoolean: true }),
+    // 不符合 `ExternalLogin.{提供方}.{字段}` 约定：不进卡片，也不能从界面上消失
+    hostRow('ExternalLogin.CallbackPath', 'ExternalLogin'),
+    hostRow('Logging.Probe', 'Operations', { isBoolean: true }),
+  ];
+
+  let fixture: ComponentFixture<SettingSection>;
+  let http: HttpTestingController;
+
+  async function render(scope: string): Promise<HTMLElement> {
+    TestBed.configureTestingModule({
+      imports: [SettingSection],
+      providers: [...pageProviders()],
+    });
+    fixture = TestBed.createComponent(SettingSection);
+    http = TestBed.inject(HttpTestingController);
+    fixture.componentRef.setInput('scope', scope);
+    fixture.detectChanges();
+    http.expectOne('/api/v1/settings').flush(settings());
+    await fixture.whenStable();
+    fixture.detectChanges();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  /** 卡片里渲染了哪些设置行，按重置按钮判定（同 {@link hasRow}）。 */
+  function cardRows(host: HTMLElement, provider: string): string[] {
+    const card = host.querySelector(
+      `[data-testid="external-login-provider"][data-provider="${provider}"]`,
+    );
+    return [...(card?.querySelectorAll<HTMLElement>('[data-testid^="setting-reset-"]') ?? [])].map(
+      (button) => button.dataset['testid']!.replace('setting-reset-', ''),
+    );
+  }
+
+  /** 点该行的"恢复默认"，应答 PUT 与随后的快照刷新，并走完"保存中"的最短时长，下一次写入才会出队。 */
+  async function reset(host: HTMLElement, name: string): Promise<void> {
+    host.querySelector<HTMLButtonElement>(`[data-testid="setting-reset-${name}"]`)!.click();
+    await fixture.whenStable();
+    http.expectOne('/api/v1/settings/current-tenant').flush(null);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    http.expectOne('/api/v1/settings').flush(settings());
+    await vi.advanceTimersByTimeAsync(400);
+    await fixture.whenStable();
+  }
+
+  afterEach(() => {
+    try {
+      http.verify();
+    } finally {
+      try {
+        fixture.destroy();
+      } finally {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
+    }
+  });
+
+  it('puts each provider in its own card, switch first, and keeps unmatched settings as rows', async () => {
+    const host = await render('system');
+    http.expectOne(statusUrl).flush({ providers: [] });
+
+    expect(cardRows(host, 'github')).toEqual([
+      'ExternalLogin.Github.Enabled',
+      'ExternalLogin.Github.ClientId',
+    ]);
+    expect(cardRows(host, 'google')).toEqual(['ExternalLogin.Google.Enabled']);
+    // 约定外的设置在卡片之外按普通行渲染
+    expect(hasRow(host, 'ExternalLogin.CallbackPath')).toBe(true);
+    expect(
+      host
+        .querySelector('[data-testid="setting-reset-ExternalLogin.CallbackPath"]')
+        ?.closest('[data-testid="external-login-provider"]'),
+    ).toBeNull();
+    // 卡片里的行是同一份行实现：开关照样渲染成开关
+    expect(
+      host.querySelector('[data-testid="setting-switch-ExternalLogin.Github.Enabled"]'),
+    ).not.toBeNull();
+  });
+
+  it('shows the saving state on a row inside a card', async () => {
+    const host = await render('system');
+    http.expectOne(statusUrl).flush({ providers: [] });
+
+    const card = host.querySelector(
+      '[data-testid="external-login-provider"][data-provider="github"]',
+    )!;
+    const resetButton = card.querySelector<HTMLButtonElement>(
+      '[data-testid="setting-reset-ExternalLogin.Github.ClientId"]',
+    )!;
+    resetButton.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // 行状态由设置区块持有，模板插在卡片里照样跟着刷新
+    expect(resetButton.disabled).toBe(true);
+    expect(card.querySelector('hlm-field-description hlm-spinner')).not.toBeNull();
+
+    http.expectOne('/api/v1/settings/current-tenant').flush(null);
+    await fixture.whenStable();
+    http.expectOne('/api/v1/settings').flush(settings());
+    await vi.advanceTimersByTimeAsync(400);
+    await fixture.whenStable();
+    http.expectOne(statusUrl).flush({ providers: [] });
+  });
+
+  it('refetches the status after a setting in the group is saved, not after other groups', async () => {
+    const host = await render('system');
+    expect(host.querySelector('app-external-login-providers')).not.toBeNull();
+    http.expectOne(statusUrl).flush({ providers: [] });
+
+    await reset(host, 'Logging.Probe');
+    fixture.detectChanges();
+    http.expectNone(statusUrl);
+
+    await reset(host, 'ExternalLogin.Github.Enabled');
+    fixture.detectChanges();
+    http.expectOne(statusUrl).flush({ providers: [] });
+
+    // 约定外的行也属于本组：写入同样触发重取
+    await reset(host, 'ExternalLogin.CallbackPath');
+    fixture.detectChanges();
+    http.expectOne(statusUrl).flush({ providers: [] });
+  });
+
+  it('does not mount the provider cards on personal settings', async () => {
+    const host = await render('account');
+
+    expect(host.querySelector('app-external-login-providers')).toBeNull();
+    http.expectNone(statusUrl);
+  });
+});
+//#endif
 //#if (IncludeLocalization)
 
 /**

@@ -167,8 +167,8 @@ OpenIddict 的 issuer、证书和 HTTPS 要求通过 `OAuth` 配置，部署要�
 <!--#endif-->
 <!--#if (ExternalLogin)-->
 
-外部登录凭据通过 `ExternalAuth` 配置或密钥系统提供，不写入仓库。每个提供商（`Github` / `Google`）只配置
-`ClientId`、`ClientSecret`：两项全空表示不启用，部分填写在启动期报出缺失键名。
+外部登录凭据通过 `ExternalAuth` 配置或密钥系统提供，不写入仓库，宿主管理员也可在系统设置里运行期覆盖。
+每个提供商（`Github` / `Google`）配置 `Enabled`、`ClientId`、`ClientSecret`：开关默认关闭，打开且凭据齐全才可用，凭据不全只记警告、不阻止启动。
 提供商后台登记后端 HTTPS 回调 `/api/v1/external-auth/{github,google}/signin`，由官方处理器在后端验证 code/state。
 组合根直接使用 AddGoogle、AddGitHub 与短时服务端外部票据；Application 接收规范化 ExternalUserInfo 与可用提供商名称，不读取适配器凭据。
 完整流程、Cookie 与部署规则见 [浏览器认证](../docs/standards/auth.md#浏览器认证)。

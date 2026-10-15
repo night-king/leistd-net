@@ -48,6 +48,27 @@
   },
   "secretSet": "Set (type a new value to replace it)",
   "secretUnset": "Not set",
+  //#if (ExternalLogin)
+  "externalLoginProviders": {
+    "description": "Status shows the instance that answered this request.",
+    "active": "Active",
+    "inactive": "Not active",
+    "off": "Off",
+    "clientId": "Client ID",
+    "clientSecret": "Client secret",
+    "configured": "Set",
+    "notConfigured": "Not set",
+    "missingClientId": "Enabled but not active: the client ID is missing.",
+    "missingClientSecret": "Enabled but not active: the client secret is missing.",
+    "missingBoth": "Enabled but not active: the client ID and client secret are missing.",
+    "pending": "Enabled and configured, but this instance has not picked it up yet. Refresh in about 30 seconds.",
+    "stopping": "Turned off, but this instance still offers it. Refresh in about 30 seconds.",
+    "callbackUrl": "Callback URL",
+    "copyCallbackUrl": "Copy callback URL",
+    "copied": "Copied",
+    "loadFailed": "Couldn't load the sign-in status"
+  },
+  //#endif
   "emailTest": {
     "title": "Send a test email",
     "description": "Uses the settings above as they are now. Save your changes first.",

@@ -9,5 +9,8 @@ public static class AppSettingErrorCodes
     public const string TestEmailFailed = "AppSetting:TestEmailFailed";
     public const string TestEmailHostOnly = "AppSetting:TestEmailHostOnly";
 #endif
+#if (ExternalLogin)
+    public const string ExternalLoginStatusHostOnly = "AppSetting:ExternalLoginStatusHostOnly";
+#endif
     public const string TimeZoneInvalid = "AppSetting:TimeZoneInvalid";
 }

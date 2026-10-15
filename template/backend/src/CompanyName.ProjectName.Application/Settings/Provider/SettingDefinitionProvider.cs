@@ -9,7 +9,8 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 
 /// <summary>设置定义提供器。</summary>
 /// <remarks>
-/// 这里只声明<b>运行期可改</b>的业务偏好。连接串、密钥、认证协议等部署期配置一律留在
+/// 这里只声明<b>运行期可改</b>的业务偏好，以及管理员运行期维护的第三方集成客户端凭据（发信口令、外部登录的
+/// Client ID 与 Client Secret，边界见设置组件文档）。连接串、签名与摘要密钥、认证协议参数等部署期配置一律留在
 /// <c>appsettings</c> 与 <c>IOptions&lt;T&gt;</c>：把它们搬进设置表等于给运行期一个能悄悄
 /// 拆掉安全与正确性保证的开关。
 /// <para>已经是某个实体字段的东西也不要再定义成设置——例如租户显示名归
@@ -20,7 +21,7 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// 键由名称推导，不必在定义里再抄一遍。</para>
 /// </remarks>
 /// <para>值域（布尔、整数区间、候选值）声明在定义上：设置组件在写入端据此校验，设置页据此渲染控件。
-/// 覆盖部署配置的宿主级设置（日志级别、审计、发信参数）不写默认值——设置组件按绑定取部署基线
+/// 覆盖部署配置的宿主级设置（日志级别、审计、发信参数、外部登录）不写默认值——设置组件按绑定取部署基线
 /// （见 Api 的 <c>HostSettingBindings</c>），清除覆盖值即回落到部署配置，而不是回落到一个写死的值。</para>
 #if (LocalIdentity)
 /// <param name="registrationOptions">
@@ -207,6 +208,17 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
         AddEmail(context, SettingConstant.Email.DefaultFromAddress, "Sender address");
         AddEmail(context, SettingConstant.Email.DefaultFromName, "Sender name");
 #endif
+#if (ExternalLogin)
+
+        // 外部登录也是进程级的：认证方案与回调地址整个部署共用。开关默认值取部署基线（模板基线为关闭）；
+        // 客户端密钥是机密设置，没有默认值，未设置时用配置里的密钥
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubEnabled, "Enable GitHub sign-in").AsBoolean();
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubClientId, "GitHub client ID");
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubClientSecret, "GitHub client secret").IsEncrypted = true;
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleEnabled, "Enable Google sign-in").AsBoolean();
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleClientId, "Google client ID");
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleClientSecret, "Google client secret").IsEncrypted = true;
+#endif
 #endif
 #if (IncludeNotifications)
 
@@ -248,6 +260,20 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
             SettingScopes.Host,
             displayName,
             SettingConstant.Groups.Email);
+        definition.IsVisibleToClients = true;
+        return definition;
+    }
+#endif
+#if (ExternalLogin)
+
+    private static ISettingDefinition AddExternalLogin(ISettingDefinitionContext context, string name, string displayName)
+    {
+        var definition = context.Add(
+            name,
+            defaultValue: null,
+            SettingScopes.Host,
+            displayName,
+            SettingConstant.Groups.ExternalLogin);
         definition.IsVisibleToClients = true;
         return definition;
     }

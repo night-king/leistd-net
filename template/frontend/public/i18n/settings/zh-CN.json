@@ -48,6 +48,27 @@
   },
   "secretSet": "已设置（输入新值即替换）",
   "secretUnset": "未设置",
+  //#if (ExternalLogin)
+  "externalLoginProviders": {
+    "description": "生效状态以响应本次请求的实例为准。",
+    "active": "已生效",
+    "inactive": "未生效",
+    "off": "未启用",
+    "clientId": "Client ID",
+    "clientSecret": "Client Secret",
+    "configured": "已配置",
+    "notConfigured": "未配置",
+    "missingClientId": "已启用但未生效：缺少 Client ID。",
+    "missingClientSecret": "已启用但未生效：缺少 Client Secret。",
+    "missingBoth": "已启用但未生效：缺少 Client ID 和 Client Secret。",
+    "pending": "已启用且凭据齐全，本实例还没跟上，约 30 秒后刷新再看。",
+    "stopping": "已关闭，本实例仍在提供，约 30 秒后刷新再看。",
+    "callbackUrl": "回调地址",
+    "copyCallbackUrl": "复制回调地址",
+    "copied": "已复制",
+    "loadFailed": "外部登录状态加载失败"
+  },
+  //#endif
   "emailTest": {
     "title": "发送测试邮件",
     "description": "使用上面当前生效的设置发送；改动请先保存。",

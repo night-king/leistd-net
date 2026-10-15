@@ -20,6 +20,9 @@ internal sealed class ExternalOAuthBackchannel : HttpMessageHandler
 {
     public ExternalUserInfo User { get; set; } = new() { ProviderId = "provider-id", ProviderAccountLabel = "provider-user", SuggestedUsername = "provider-user" };
     public string? CodeVerifier { get; private set; }
+    /// <summary>最近一次换 token 时提交的客户端凭据：验证运行期换了凭据后，处理器确实用的是新值。</summary>
+    public string? ClientId { get; private set; }
+    public string? ClientSecret { get; private set; }
     public bool EmailsUnavailable { get; set; }
     /// <summary>GitHub 资料里不公开邮箱（返回 null），只能经 /user/emails 取得。</summary>
     public bool PublicEmailHidden { get; set; }
@@ -32,6 +35,8 @@ internal sealed class ExternalOAuthBackchannel : HttpMessageHandler
         {
             var form = QueryHelpers.ParseQuery(await request.Content!.ReadAsStringAsync(cancellationToken));
             CodeVerifier = form["code_verifier"].ToString();
+            ClientId = form["client_id"].ToString();
+            ClientSecret = form["client_secret"].ToString();
             return new HttpResponseMessage(string.IsNullOrEmpty(CodeVerifier) ? HttpStatusCode.BadRequest : HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(string.IsNullOrEmpty(CodeVerifier)
@@ -55,11 +60,13 @@ internal sealed class ExternalOAuthBackchannel : HttpMessageHandler
         };
     }
 
-    public WebApplicationFactory<Program> CreateHost(ProjectWebApplicationFactory factory, bool businessData = false) =>
+    /// <param name="deployed">两个提供方是否由部署配置启用；为 false 时只装好协议替身，开关与凭据由用例经系统设置写入。</param>
+    public WebApplicationFactory<Program> CreateHost(ProjectWebApplicationFactory factory, bool businessData = false, bool deployed = true) =>
         factory.WithWebHostBuilder(builder =>
         {
-            foreach (var provider in new[] { "Github", "Google" })
+            foreach (var provider in deployed ? new[] { "Github", "Google" } : [])
             {
+                builder.UseSetting($"ExternalAuth:{provider}:Enabled", "true");
                 builder.UseSetting($"ExternalAuth:{provider}:ClientId", "protocol-test-client");
                 builder.UseSetting($"ExternalAuth:{provider}:ClientSecret", "protocol-test-secret");
             }

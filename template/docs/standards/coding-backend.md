@@ -164,10 +164,11 @@ public class UserAppService(
 | --- | --- |
 | 租户级、用户级 | 经应用层策略提供方读 `ISettingProvider`；替别人判断用 `GetOrNullForUserAsync`。不做成 Options |
 | 宿主级、运行期可改 | 在 `Api/Configuration/HostSettingBindings` 加一行绑定，消费方注入 `IOptionsMonitor<T>`/`IOptionsSnapshot<T>`；自带配置重载的库直接绑定它读的键 |
-| 部署期定死（凭据、连接、协议参数） | `IOptions<T>`；不在服务里读 `IConfiguration["键"]` |
+| 部署期定死（连接与签名凭据、协议参数） | `IOptions<T>`；不在服务里读 `IConfiguration["键"]` |
 
 - 宿主级设置以最高优先级配置源覆盖部署配置，写入后本进程即时生效，其他实例由周期任务跟上；组合起来让 Options 校验不过的一组整组不生效并记错误日志。
 - 绑定了配置键的宿主级设置不写代码默认值，清除即回到部署配置。
+- 管理员运行期维护的第三方集成客户端凭据（发信、外部登录）走宿主级设置，口令与密钥定义为机密设置；边界以 `settings` 组件随包文档的注意事项为准（随包文档的定位见 [后端说明](../../backend/README.md#leistd-框架-api)）。
 - 值域声明在设置定义上（`AsBoolean()`、`AsInteger(min, max)`、`WithAllowedValues(...)`）；定义表达不了的规则写成 `Application/Settings/Validators` 下的 `ISettingValueValidator`。
 
 ## 4. 依赖注入

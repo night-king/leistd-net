@@ -7,6 +7,10 @@ using Leistd.Settings.Hosting;
 #if (Email)
 using Leistd.Email.Smtp.Options;
 #endif
+#if (ExternalLogin)
+using CompanyName.ProjectName.Infrastructure.Auth.OAuth.Options;
+using Leistd.Settings.Hosting.Options;
+#endif
 using Serilog.Events;
 
 namespace CompanyName.ProjectName.Api.Configuration;
@@ -52,5 +56,24 @@ public static class HostSettingBindings
             bindings.BindOption<OperationRecordRetentionOptions>(
                 SettingConstant.Audit.RetentionDays, OperationRecordRetentionOptions.SectionName, nameof(OperationRecordRetentionOptions.RetentionDays));
 #endif
+#if (ExternalLogin)
+            // 提供方是 ExternalAuth 下的嵌套节，BindOption 只映射顶层属性，这里直接列配置键。
+            // 不参与选项的整组校验：凭据不全只让该提供方不可用（见 ExternalSchemeSynchronizer），不连带回滚同批的其他设置
+            BindExternalLogin(bindings, "Github",
+                SettingConstant.ExternalLogin.GithubEnabled, SettingConstant.ExternalLogin.GithubClientId, SettingConstant.ExternalLogin.GithubClientSecret);
+            BindExternalLogin(bindings, "Google",
+                SettingConstant.ExternalLogin.GoogleEnabled, SettingConstant.ExternalLogin.GoogleClientId, SettingConstant.ExternalLogin.GoogleClientSecret);
+#endif
         });
+#if (ExternalLogin)
+
+    private static void BindExternalLogin(
+        HostSettingBindingBuilder bindings, string provider, string enabled, string clientId, string clientSecret)
+    {
+        var section = $"{ExternalAuthOptions.SectionName}:{provider}";
+        bindings.Bind(enabled, [$"{section}:{nameof(ExternalAuthOptions.ProviderOptions.Enabled)}"], fallback: "false");
+        bindings.Bind(clientId, [$"{section}:{nameof(ExternalAuthOptions.ProviderOptions.ClientId)}"]);
+        bindings.Bind(clientSecret, [$"{section}:{nameof(ExternalAuthOptions.ProviderOptions.ClientSecret)}"]);
+    }
+#endif
 }

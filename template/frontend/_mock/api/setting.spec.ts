@@ -64,17 +64,15 @@ describe('settings mock', () => {
   });
 
   it('registers the settings endpoints', () => {
+    const expected = [get, putTenant, putUser];
     //#if (Email)
     // 测试邮件端点仅随有效邮件能力生成
-    expect(Object.keys(SETTING_API).sort()).toEqual([
-      get,
-      'POST /api/v1/settings/email/test',
-      putTenant,
-      putUser,
-    ]);
-    //#else
-    expect(Object.keys(SETTING_API).sort()).toEqual([get, putTenant, putUser]);
+    expected.push('POST /api/v1/settings/email/test');
     //#endif
+    //#if (ExternalLogin)
+    expected.push('GET /api/v1/settings/external-login/status');
+    //#endif
+    expect(Object.keys(SETTING_API).sort()).toEqual(expected.sort());
   });
 
   // Controller 整体 [Authorize]：匿名一律 401，不是空列表。
@@ -312,3 +310,164 @@ describe('settings mock', () => {
   });
   //#endif
 });
+//#if (ExternalLogin)
+
+/**
+ * 外部登录的启停与凭据是宿主级设置：提供方目录、绑定列表与状态端点读同一份有效配置
+ * （Mock 部署基线叠加宿主覆盖），在设置页改完三处一起变。
+ */
+describe('external login settings mock', () => {
+  const api = SETTING_API as unknown as Record<string, MockHandler>;
+  const auth = AUTH_API as unknown as Record<string, () => unknown>;
+  const putTenant = 'PUT /api/v1/settings/current-tenant';
+
+  interface ProviderStatus {
+    provider: string;
+    enabled: boolean;
+    hasClientId: boolean;
+    hasClientSecret: boolean;
+    active: boolean;
+    callbackUrl: string;
+  }
+
+  const status = () =>
+    (
+      api['GET /api/v1/settings/external-login/status'](request()) as {
+        providers: ProviderStatus[];
+      }
+    ).providers;
+  const providers = () =>
+    (auth['GET /api/v1/external-auth/providers']() as { providers: string[] }).providers;
+  const linked = () =>
+    (
+      auth['GET /api/v1/external-auth/links']() as { providers: { provider: string }[] }
+    ).providers.map((item) => item.provider);
+  const set = (name: string, value: string | null) => api[putTenant](request({ name, value }));
+
+  function rejectionOf(run: () => unknown): MockException {
+    try {
+      run();
+    } catch (error: unknown) {
+      if (error instanceof MockException) return error;
+      throw error;
+    }
+    throw new Error('Expected the handler to reject.');
+  }
+
+  beforeEach(() => {
+    USER_SETTING_VALUES.clear();
+    TENANT_SETTING_VALUES.clear();
+    setMockSessionUserId('user_admin');
+    setMockSessionTenantKey(null);
+  });
+
+  afterEach(() => {
+    TENANT_SETTING_VALUES.clear();
+    setMockSessionUserId(null);
+    setMockSessionTenantKey(null);
+  });
+
+  // 演示基线两个都启用、凭据齐全：设置页、登录入口与状态三处说法一致
+  it('offers both providers from the demo deployment baseline', () => {
+    expect(providers()).toEqual(['github', 'google']);
+    expect(linked()).toEqual(['github', 'google']);
+    expect(status()).toEqual([
+      expect.objectContaining({ provider: 'github', enabled: true, active: true }),
+      expect.objectContaining({ provider: 'google', enabled: true, active: true }),
+    ]);
+    expect(status()[0].callbackUrl).toMatch(/\/api\/v1\/external-auth\/github\/signin$/);
+  });
+
+  it('removes a provider everywhere when it is turned off, and restores it on reset', () => {
+    set('ExternalLogin.Github.Enabled', 'false');
+
+    expect(providers()).toEqual(['google']);
+    expect(linked()).toEqual(['google']);
+    expect(status()[0]).toMatchObject({ provider: 'github', enabled: false, active: false });
+
+    set('ExternalLogin.Github.Enabled', null);
+
+    expect(providers()).toEqual(['github', 'google']);
+    expect(status()[0]).toMatchObject({ enabled: true, active: true });
+  });
+
+  // 清除覆盖回落到部署基线，而不是变成"没有密钥"
+  it('falls back to the deployment secret when the override is cleared', () => {
+    set('ExternalLogin.Google.ClientSecret', 'rotated-secret');
+    set('ExternalLogin.Google.ClientSecret', null);
+
+    expect(status()[1]).toMatchObject({ provider: 'google', hasClientSecret: true, active: true });
+    expect(providers()).toEqual(['github', 'google']);
+  });
+
+  // 机密只写不回显：状态只给布尔值，设置列表也不下发部署或覆盖的密钥
+  it('never returns secret values', () => {
+    set('ExternalLogin.Github.ClientSecret', 'override-secret');
+
+    const responses = JSON.stringify([status(), api['GET /api/v1/settings'](request())]);
+    expect(responses).not.toContain('override-secret');
+    expect(responses).not.toContain('mock-github-client-secret');
+    expect(responses).not.toContain('mock-google-client-secret');
+  });
+
+  // 部署提供的密钥不算设置的覆盖值：设置行显示"未设置"，状态端点照样报告已配置
+  it('reports a deployment secret as configured although the setting has no value', () => {
+    const rows = api['GET /api/v1/settings'](request()) as (SettingRow & {
+      hasSecretValue: boolean;
+    })[];
+
+    expect(
+      rows.find((row) => row.name === 'ExternalLogin.Github.ClientSecret')?.hasSecretValue,
+    ).toBe(false);
+    expect(status()[0].hasClientSecret).toBe(true);
+  });
+
+  // 与后端的 IsNullOrWhiteSpace 一致：只有空白的凭据算没配，三处一起判为不可用
+  it.each([
+    ['ExternalLogin.Github.ClientId', { hasClientId: false, hasClientSecret: true }],
+    ['ExternalLogin.Github.ClientSecret', { hasClientId: true, hasClientSecret: false }],
+  ])('treats a whitespace-only %s as missing', (name, expected) => {
+    set(name, '   ');
+
+    expect(status()[0]).toMatchObject({ provider: 'github', ...expected, active: false });
+    expect(providers()).toEqual(['google']);
+    expect(linked()).toEqual(['google']);
+  });
+
+  // 布尔设置与设置组件一样只认小写的 true / false，拒绝时不落库
+  it.each(['True', 'FALSE', '1', 'invalid'])('rejects %s for a boolean setting', (value) => {
+    const rejection = rejectionOf(() => set('ExternalLogin.Github.Enabled', value));
+
+    expect(rejection.status).toBe(400);
+    expect(rejection.error.code).toBe('Setting:BooleanRequired');
+    expect(TENANT_SETTING_VALUES.size).toBe(0);
+  });
+
+  it('requires authentication and the settings permission for the status', () => {
+    setMockSessionUserId(null);
+    expect(rejectionOf(status).status).toBe(401);
+
+    setMockSessionUserId('user_demo');
+    expect(rejectionOf(status).status).toBe(403);
+  });
+  //#if (IncludeMultiTenancy)
+
+  // 进程级设置只有宿主一份：租户看不到、写不进，状态端点在租户上下文下同样拒绝
+  it('keeps the external login settings and status on the host', () => {
+    setMockSessionTenantKey('tenant_acme');
+
+    const rows = api['GET /api/v1/settings'](request()) as SettingRow[];
+    expect(rows.some((row) => row.group === 'ExternalLogin')).toBe(false);
+
+    const write = rejectionOf(() => set('ExternalLogin.Github.Enabled', 'false'));
+    expect(write.status).toBe(403);
+    expect(write.error.code).toBe('Setting:HostOnly');
+    expect(TENANT_SETTING_VALUES.size).toBe(0);
+
+    const read = rejectionOf(status);
+    expect(read.status).toBe(403);
+    expect(read.error.code).toBe('AppSetting:ExternalLoginStatusHostOnly');
+  });
+  //#endif
+});
+//#endif

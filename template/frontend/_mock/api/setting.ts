@@ -1,8 +1,17 @@
 import { requirePermission } from './authorization';
+//#if (ExternalLogin)
+import { ExternalLoginStatusOutputDto } from '../../src/app/core/settings/setting.dto';
+//#endif
 import { PERMISSIONS } from '../../src/app/shared/constants/permission.constants';
 import { MockException, MockRequest } from '../core/models';
 // prettier-ignore
 import {
+  //#if (ExternalLogin)
+  externalLoginConfigs,
+  hasExternalLoginCredential,
+  isExternalLoginAvailable,
+  //#endif
+  MockSettingDefinition,
   SETTING_DEFINITIONS,
   SETTING_GROUP_NAMES,
   //#if (IncludeLocalization)
@@ -43,6 +52,13 @@ function requireSubjectId(): string {
   return subjectId;
 }
 
+/** 本会话能看到的设置：与真实后端一样，进程级设置只在宿主上下文下发。 */
+function visibleDefinitions(tenantKey: string): MockSettingDefinition[] {
+  return tenantKey === 'host'
+    ? SETTING_DEFINITIONS
+    : SETTING_DEFINITIONS.filter((definition) => !definition.allowsHostScope);
+}
+
 // 顺序与后端设置组件的写入端一致：先确认设置存在且可见，再校验值域。
 // 反过来的话，写一个不存在的设置名会先撞值域校验，返回 400 而不是 404。
 function requireDefinition(name: string) {
@@ -57,7 +73,8 @@ function requireDefinition(name: string) {
 }
 
 // 值域与后端保持一致：Mock 放行了真实后端会拒的值，只会把问题推迟到联调时才发现。
-function assertValidValue(name: string, value: string | null): void {
+function assertValidValue(definition: MockSettingDefinition, value: string | null): void {
+  const name = definition.name;
   if (value === null) {
     return;
   }
@@ -66,6 +83,14 @@ function assertValidValue(name: string, value: string | null): void {
     throw new MockException(400, {
       code: 'Setting:EmptyValueRejected',
       message: `An empty value is not accepted for '${name}'. Send null to clear the override.`,
+    });
+  }
+
+  // 与设置组件一致：布尔设置只认小写的 true / false，`True`、`1` 都拒绝
+  if (definition.isBoolean && value !== 'true' && value !== 'false') {
+    throw new MockException(400, {
+      code: 'Setting:BooleanRequired',
+      message: `'${value}' is not a boolean; use 'true' or 'false'.`,
     });
   }
 
@@ -109,6 +134,34 @@ function write(map: StoredMap, key: string, value: string | null): null {
   return null;
 }
 
+//#if (ExternalLogin)
+/**
+ * 外部登录的生效状态：与提供方目录读同一份有效配置。只给布尔值，不回显也不截取密钥；
+ * Mock 没有多实例，"本实例已生效"即可用。
+ */
+function getExternalLoginStatus(): ExternalLoginStatusOutputDto {
+  requirePermission(PERMISSIONS.settings.default);
+  // 外部登录是进程级配置，只有宿主能改，也只有宿主来看
+  if (getMockSessionTenantKey() !== 'host') {
+    throw new MockException(403, {
+      code: 'AppSetting:ExternalLoginStatusHostOnly',
+      message: 'The external sign-in status is only available on the host.',
+    });
+  }
+
+  return {
+    providers: externalLoginConfigs().map((config) => ({
+      provider: config.provider,
+      enabled: config.enabled,
+      hasClientId: hasExternalLoginCredential(config.clientId),
+      hasClientSecret: hasExternalLoginCredential(config.clientSecret),
+      active: isExternalLoginAvailable(config),
+      callbackUrl: `${location.origin}/api/v1/external-auth/${config.provider}/signin`,
+    })),
+  };
+}
+
+//#endif
 /** 设置中心 Mock API（对应设置组件映射的 /api/v1/settings 端点）。 */
 export const SETTING_API = {
   //#if (IncludeLocalization)
@@ -118,7 +171,7 @@ export const SETTING_API = {
   //#endif
     const subjectId = requireSubjectId();
     const tenantKey = getMockSessionTenantKey();
-    return SETTING_DEFINITIONS.map((definition) => ({
+    return visibleDefinitions(tenantKey).map((definition) => ({
       name: definition.name,
       //#if (IncludeLocalization)
       displayName: localizedText(req, `Setting:${definition.name}`, definition.displayName),
@@ -157,8 +210,8 @@ export const SETTING_API = {
   'PUT /api/v1/settings/current-user': (req: MockRequest) => {
     const subjectId = requireSubjectId();
     const { name, value } = readBody(req);
-    requireDefinition(name);
-    assertValidValue(name, value);
+    const definition = requireDefinition(name);
+    assertValidValue(definition, value);
     return write(USER_SETTING_VALUES, `${getMockSessionTenantKey()}:${subjectId}:${name}`, value);
   },
 
@@ -166,9 +219,17 @@ export const SETTING_API = {
     // 改系统默认值需要管理权限；改自己的偏好只要登录。这层差异是两个端点存在的理由。
     requirePermission(PERMISSIONS.settings.default);
     const { name, value } = readBody(req);
-    requireDefinition(name);
-    assertValidValue(name, value);
-    return write(TENANT_SETTING_VALUES, `${getMockSessionTenantKey()}:${name}`, value);
+    const definition = requireDefinition(name);
+    const tenantKey = getMockSessionTenantKey();
+    // 进程级设置只有宿主那一行：租户写不进去，否则会存成该租户自己的覆盖
+    if (definition.allowsHostScope && tenantKey !== 'host') {
+      throw new MockException(403, {
+        code: 'Setting:HostOnly',
+        message: `Setting '${definition.displayName}' is process-wide and can only be changed on the host.`,
+      });
+    }
+    assertValidValue(definition, value);
+    return write(TENANT_SETTING_VALUES, `${tenantKey}:${name}`, value);
   },
   //#if (Email)
 
@@ -177,5 +238,9 @@ export const SETTING_API = {
     requirePermission(PERMISSIONS.settings.default);
     return 'ok';
   },
+  //#endif
+  //#if (ExternalLogin)
+
+  'GET /api/v1/settings/external-login/status': () => getExternalLoginStatus(),
   //#endif
 };

@@ -125,7 +125,13 @@
 
 Google 使用微软官方 AddGoogle（UserInfo v3）；GitHub 使用 aspnet-contrib 的 AddGitHub（`AspNet.Security.OAuth.GitHub`），显式启用 S256 PKCE。处理器自带的邮箱补取已关闭，因为它只给地址、不给 verified，且失败即中断登录；主邮箱及其 verified 由 `OnCreatingTicket` 查询 `/user/emails` 取得，查询失败时只是不按邮箱关联。定制 github scheme 时用 `Configure<GitHubAuthenticationOptions>`，不是 `OAuthOptions`。添加提供商时在组合根注册官方远程处理器：scheme 名为 `AuthenticationSchemeNames.ExternalProviderPrefix + provider`（provider 使用小写），`SignInScheme` 指向 `ExternalCookie`，`CallbackPath` 在 `/api/**` 下，并在 `OnCreatingTicket` 把规范化 `ExternalUserInfo` 序列化到 `context.Properties.Items[ExternalAuthenticationExtensions.UserInfoKey]`。目录从该专用前缀的远程 scheme 得出，Cookie/Bearer/策略 scheme 均不开放。注册时明确协议失败响应、所需 PKCE 与资料验证；账号关联、锁定、用户名生成与第二步验证仍由领域/应用层决定。
 
-0. 登录页匿名读取 `GET /api/v1/external-auth/providers`，只为已登记的提供商显示入口；读取失败时单独提示并可重试（5xx 附追踪 ID），不当作"未配置"。登录页只内置 GitHub、Google 两个入口，新增提供商时要同时补前端入口和 `getExternalLoginUrl` 的提供商类型。
+**启用与配置**：每个提供商有启用开关和 `ClientId`、`ClientSecret`（配置节 `ExternalAuth:{Github|Google}`），部署配置给基线（开关默认关闭），宿主管理员可在「系统设置 → 外部登录」运行期覆盖，密钥是机密设置、只写不回显。开关打开且两项凭据齐全时提供商才**可用**；凭据不全不拒绝写入、也不阻止启动，只是不提供该入口并记警告日志（列出缺失的键）。设置页的状态部件显示开关、凭据是否已配置（含部署配置提供的密钥）、本实例是否生效与回调地址（`GET /api/v1/settings/external-login/status`，仅宿主）。
+
+启动时始终调用 `AddGoogle`、`AddGitHub` 装配处理器与官方选项链；运行期的 scheme 目录由 `ExternalSchemeSynchronizer` 按可用性增删，并作废命名选项缓存，凭据每次重建选项时读 `IOptionsMonitor<ExternalAuthOptions>`；不能把不可用的 scheme 留在目录里，认证中间件每个请求都会初始化它并触发官方的必填校验。多实例经宿主级设置的周期刷新各自收敛。停用只关闭新的入口：再发起 challenge 返回 503（`ExternalAuth:ProviderNotConfigured`），已跳到提供商、停用后才回调的请求落到 `/api/**` 兜底返回 404，已签发的外部票据在五分钟有效期内仍可完成。停用前注意：只靠该提供商登录、又没有密码的用户将无法登录；邮箱已验证且发信可用时，可经找回密码设置密码。
+
+新增提供商除了上面的 scheme 登记，还要补设置定义、`HostSettingBindings` 绑定行、`ExternalAuthOptions` 节、同步器与状态端点里的提供商、前端入口与 Mock。
+
+0. 登录页匿名读取 `GET /api/v1/external-auth/providers`，只为可用的提供商显示入口；列表为空时登录页、注册页不显示入口与分隔文案，账户与安全不显示外部账号区块；读取失败时单独提示并可重试（5xx 附追踪 ID），不当作"未配置"。登录页只内置 GitHub、Google 两个入口，新增提供商时要同时补前端入口和 `getExternalLoginUrl` 的提供商类型。
 1. 浏览器导航至 `GET /api/v1/external-auth/{provider}/challenge`，可带站内 `returnUrl`（外站地址返回 400）。绑定使用 `GET /api/v1/external-auth/{provider}/link/challenge`，要求通过自然人策略的非受限会话。
 2. 提供商回调至 `/api/v1/external-auth/{provider}/signin`，官方处理器完成 code/state/correlation/PKCE 与 UserInfo，签发五分钟外部票据引用，然后重定向前端 `/auth/external-callback/{provider}?intent=...`。用户在提供商处取消或协议校验失败（state、correlation 等）时，不签发外部票据，重定向前端 `/auth/external-callback/{provider}?intent=...&error=cancelled|failed`：登录意图显示原因并提供返回登录入口（会话仍有效时直接回到应用，例如后退键重放旧回调），绑定意图回到安全设置页并提示。业务提示中的提供商名使用官方 scheme 的显示名（`ExternalUserInfo.ProviderDisplayName`）。
 3. 前端 `POST /api/v1/external-auth/{provider}/complete` 或受保护的 `POST /api/v1/external-auth/{provider}/link/complete`，请求体为空对象。后端匹配受保护的提供商、意图、绑定发起者与租户，先一次消费外部票据，再执行账号政策；登录返回最终会话结果或第二步凭据及受保护的 `returnUrl`，前端在登录或第二步成功后接续该地址；绑定成功为空响应（HTTP 200），结果以绑定列表为准。登录与第二步的会话 Cookie 统一由 `backend/src/CompanyName.ProjectName.Api/Auth/Sessions/SessionCookieIssuer.cs` 签发：先结束当前会话再签发，要求第二步时只返回凭据、不签发最终会话。

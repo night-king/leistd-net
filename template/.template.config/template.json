@@ -472,6 +472,9 @@
           "condition": "!ExternalLogin",
           "exclude": [
             "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/ExternalAuthenticationExtensions.cs",
+            "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/ExternalSchemeSynchronizer.cs",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/ExternalLoginSettingController.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Dtos/ExternalLoginStatusOutputDto.cs",
             "backend/src/CompanyName.ProjectName.Infrastructure/Auth/OAuth/Options/ExternalAuthOptions.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/ExternalOAuthTestHost.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/ExternalAuthController.cs",
@@ -487,10 +490,12 @@
             "backend/src/CompanyName.ProjectName.Infrastructure/Auth/**",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/ExternalAuthenticationTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/ExternalLoginLinkTests.cs",
-            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/ExternalAuthOptionsValidatorTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ExternalLoginSettingsTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/ExternalSchemeSynchronizerTests.cs",
             "frontend/src/app/features/account/components/external-auth-callback/**",
             "frontend/src/app/features/account/widgets/external-login-buttons/**",
             "frontend/src/app/features/account/components/external-logins/**",
+            "frontend/src/app/features/settings/components/setting-section/widgets/external-login-providers/**",
             "backend/tests/CompanyName.ProjectName.UnitTests/Domain/ExternalLoginConnectionTests.cs"
           ]
         },
@@ -645,7 +650,7 @@
             "backend/tests/CompanyName.ProjectName.IntegrationTests/EmailVerificationChallengeTests.cs",
             "backend/tests/CompanyName.ProjectName.UnitTests/Application/EmailChallengeStoreTests.cs",
             "frontend/src/app/features/settings/components/setting-section/widgets/email-test/**",
-            "backend/src/CompanyName.ProjectName.Application/Settings/Dtos/**"
+            "backend/src/CompanyName.ProjectName.Application/Settings/Dtos/SendTestEmailInputDto.cs"
           ]
         },
         {

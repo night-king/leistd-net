@@ -40,3 +40,27 @@ export interface SetSettingInputDto {
   name: string;
   value: string | null;
 }
+//#if (ExternalLogin)
+
+/** 外部登录各提供方在本实例上的生效状态（宿主）。不含任何凭据内容。 */
+export interface ExternalLoginStatusOutputDto {
+  /** 按提供方标识排序。 */
+  providers: ExternalLoginProviderStatusOutputDto[];
+}
+
+/** 一个提供方的生效状态。 */
+export interface ExternalLoginProviderStatusOutputDto {
+  /** 提供方标识（`github`、`google`）。 */
+  provider: string;
+  /** 开关是否打开（启用意图）。 */
+  enabled: boolean;
+  /** 是否配置了 Client ID（设置或部署配置）。 */
+  hasClientId: boolean;
+  /** 是否配置了 Client Secret（设置或部署配置）；机密设置不回显，设置页本身看不出部署提供的密钥。 */
+  hasClientSecret: boolean;
+  /** 本实例当前是否提供该入口；多实例在刷新周期内可能各不相同。 */
+  active: boolean;
+  /** 要登记到提供方的回调地址。 */
+  callbackUrl: string;
+}
+//#endif
