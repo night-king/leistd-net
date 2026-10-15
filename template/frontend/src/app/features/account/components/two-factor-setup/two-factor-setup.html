@@ -36,6 +36,11 @@
             autocomplete="current-password"
             [formField]="passwordForm.password"
           />
+          @for (error of passwordForm.password().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
         </div>
         <div class="flex gap-2">
           <button hlmBtn type="submit">

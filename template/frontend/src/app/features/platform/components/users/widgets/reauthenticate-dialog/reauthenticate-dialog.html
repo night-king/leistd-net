@@ -31,6 +31,11 @@
             autocomplete="current-password"
             [formField]="reauthForm.password"
           />
+          @for (error of reauthForm.password().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
         </div>
         <hlm-dialog-footer>
           <button hlmBtn type="button" variant="ghost" (click)="onHide()">

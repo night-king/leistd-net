@@ -187,6 +187,27 @@ describe('TwoFactorSetup', () => {
     expect(host().querySelector('[data-testid="two-factor-secret"]')).not.toBeNull();
   });
 
+  it('does not retry with an empty password and says why', async () => {
+    account.beginTwoFactorSetup.mockReturnValueOnce(
+      throwError(() => failure('Auth:ReauthenticationRequired')),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const form = host().querySelector('[data-testid="two-factor-setup-password"]')!;
+    const shownErrors = () =>
+      Array.from(form.querySelectorAll<HTMLElement>('hlm-field-error')).filter(
+        (element) => !element.hidden,
+      ).length;
+    expect(shownErrors()).toBe(0);
+
+    form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    await fixture.whenStable();
+
+    expect(account.beginTwoFactorSetup).toHaveBeenCalledOnce();
+    expect(shownErrors()).toBeGreaterThan(0);
+  });
+
   // 没有本地口令可出示：只能重新登录，不再自动重试
   it('tells an account without a password to sign in again', async () => {
     account.beginTwoFactorSetup.mockReturnValueOnce(
