@@ -419,10 +419,34 @@ function getTwoFactorStatus(): TwoFactorStatusOutputDto {
   };
 }
 
-function beginTwoFactorSetup(): TwoFactorSetupOutputDto {
+/** 最近一次开始的设置：只认它，别处重新开始过就作废（同后端）。Mock 的会话总算"刚认证过"，不要口令。 */
+let mockPendingSetupId: string | null = null;
+
+function beginTwoFactorSetup(req: MockRequest): TwoFactorSetupOutputDto {
   const user = requireCurrentMockUser();
+  if (user.twoFactorEnabled) {
+    // 换绑：出示现有验证器上的码，或者用掉一个恢复码
+    const recoveryCode = req.body?.recoveryCode as string | undefined;
+    if (recoveryCode) {
+      const index = (user.recoveryCodes ?? []).indexOf(recoveryCode.trim());
+      if (index < 0) {
+        ensureMockTwoFactorCode(undefined);
+      }
+      user.recoveryCodes = (user.recoveryCodes ?? []).filter((_, i) => i !== index);
+    } else if (req.body?.code) {
+      ensureMockTwoFactorCode(req.body.code);
+    } else {
+      throw new MockException(409, {
+        code: 'Auth:TwoFactorAlreadyEnabled',
+        message: 'Two-factor authentication is already turned on.',
+      });
+    }
+  }
+
   const secret = 'JBSWY3DPEHPK3PXP';
+  mockPendingSetupId = crypto.randomUUID();
   return {
+    setupId: mockPendingSetupId,
     secret,
     otpAuthUri: `otpauth://totp/Mock:${encodeURIComponent(user.username)}?secret=${secret}&issuer=Mock`,
   };
@@ -430,7 +454,14 @@ function beginTwoFactorSetup(): TwoFactorSetupOutputDto {
 
 function enableTwoFactor(req: MockRequest): TwoFactorRecoveryCodesOutputDto {
   const user = requireCurrentMockUser();
+  if (!mockPendingSetupId || req.body?.setupId !== mockPendingSetupId) {
+    throw new MockException(400, {
+      code: 'Auth:TwoFactorSetupExpired',
+      message: 'The setup is no longer valid. Start again.',
+    });
+  }
   ensureMockTwoFactorCode(req.body?.code);
+  mockPendingSetupId = null;
   mockSessions = mockSessions.filter((s) => s.isCurrent);
   return issueRecoveryCodes(user);
 }
@@ -834,7 +865,7 @@ export const AUTH_API = {
     confirmCurrentUserEmail(req),
   //#endif
   'GET /api/v1/auth/me/two-factor': () => getTwoFactorStatus(),
-  'POST /api/v1/auth/me/two-factor/setup': () => beginTwoFactorSetup(),
+  'POST /api/v1/auth/me/two-factor/setup': (req: MockRequest) => beginTwoFactorSetup(req),
   'POST /api/v1/auth/me/two-factor/enable': (req: MockRequest) => enableTwoFactor(req),
   'POST /api/v1/auth/me/two-factor/disable': (req: MockRequest) => disableTwoFactor(req),
   'POST /api/v1/auth/me/two-factor/recovery-codes': (req: MockRequest) =>

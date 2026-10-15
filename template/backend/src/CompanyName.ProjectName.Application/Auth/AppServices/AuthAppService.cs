@@ -160,9 +160,13 @@ internal sealed class AuthAppService(
         }
 
         // 同一用户的第二步串行执行，与验证码挑战同一做法：输错次数记在缓存里，
-        // 并发请求会读到同一个次数，不加锁就能在一个挑战上试出远超上限的次数。锁内重读挑战
+        // 并发请求会读到同一个次数，不加锁就能在一个挑战上试出远超上限的次数。
+        // 用的是凭据锁：用掉的步与恢复码要写回凭据，不能与重发、停用、重置交错。
+        // 本方法没有工作单元，仓储写入立即落库，都发生在锁释放之前。锁内重读挑战
         await using var userLock = await distributedLock.LockAsync(
-            $"MyProject:2fa-login:lock:{challenge.UserId:N}", cancellationToken);
+            TwoFactorCredentialLock.Key(challenge.UserId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, userLock.LockLost);
+        cancellationToken = lockScope.Token;
         challenge = await twoFactorChallengeStore.GetAsync(input.Token, cancellationToken);
         var user = challenge is not null
             ? await userRepository.GetByIdAsync(challenge.UserId, cancellationToken)
@@ -240,12 +244,17 @@ internal sealed class AuthAppService(
     }
 
     /// <summary>换发当前会话：结束现在这个，按账号最新状态签发一个新的。</summary>
-    /// <remarks>受限会话的用户完成两步验证设置后调用，换掉带限制声明的那一个。</remarks>
+    /// <remarks>
+    /// 受限会话的用户完成两步验证设置后调用，换掉带限制声明的那一个。
+    /// 换发不是一次认证：新会话沿用原会话的认证时刻（见 <see cref="SessionIssuer.SignInAsync"/>）。
+    /// </remarks>
     public async Task<ClaimsPrincipal> ReissueSessionAsync(CancellationToken cancellationToken = default)
     {
         var user = await GetCurrentUserEntityAsync(cancellationToken);
+        var authenticatedAt = SessionIssuer.ReadAuthenticationTime(
+            currentUser.FindClaim(SessionIssuer.AuthenticationTimeClaimType)) ?? DateTimeOffset.UnixEpoch;
         await currentSessionTerminator.EndAsync(cancellationToken);
-        return await sessionIssuer.SignInAsync(user, cancellationToken: cancellationToken);
+        return await sessionIssuer.SignInAsync(user, cancellationToken: cancellationToken, authenticatedAt: authenticatedAt);
     }
 
     // 登录成功的"什么人"由目标承载：SignInAsync 只往响应里种 Cookie，

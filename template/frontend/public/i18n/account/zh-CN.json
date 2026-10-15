@@ -57,7 +57,19 @@
     "recoveryCodesWarning": "请把这些恢复码保存在安全的地方。手机丢失时，每个恢复码可以代替验证码登录一次。它们不会再次显示。",
     "copyCodes": "复制",
     "downloadCodes": "下载",
-    "savedCodes": "我已保存"
+    "savedCodes": "我已保存",
+    "replace": "更换身份验证器",
+    "replaceHint": "输入当前身份验证器上的验证码。验证器丢了？改用一个恢复码，它会被立即用掉。",
+    "useRecoveryCode": "验证器丢了？改用恢复码",
+    "useCode": "改用验证码",
+    "recoveryCodeLabel": "恢复码",
+    "continue": "继续",
+    "replaceConfirm": "验证并更换",
+    "replacedToast": "身份验证器已更换。原来的验证器和旧恢复码都已失效，其他设备已退出登录。",
+    "reauthHint": "为了保护账号，请输入当前密码后继续。",
+    "signInAgainHint": "为了保护账号，请退出后重新登录，再立即进行设置。",
+    "setupExpired": "这次设置已失效（已过期或在别处重新开始），上面的密钥已作废。",
+    "restart": "重新开始"
   },
   "twoFactorLogin": {
     "title": "两步验证",

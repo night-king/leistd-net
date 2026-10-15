@@ -33,13 +33,14 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         using var other = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
         using var mine = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
 
-        var secret = await BeginSetupAsync(mine.Client);
-        using (var wrong = await mine.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/enable", new { Code = "000000" }))
+        var setup = await BeginSetupAsync(mine.Client);
+        var secret = setup.Secret;
+        using (var wrong = await mine.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = "000000" }))
         {
             Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
         }
 
-        var codes = await EnableAsync(mine.Client, secret, clock);
+        var codes = await EnableAsync(mine.Client, setup, clock);
 
         Assert.Equal(RecoveryCodes.Count, codes.Count);
         Assert.Equal(HttpStatusCode.Unauthorized, (await other.Client.GetAsync("/api/v1/auth/me")).StatusCode);
@@ -154,8 +155,9 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_recovery");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
-        var secret = await BeginSetupAsync(session.Client);
-        var recovery = (await EnableAsync(session.Client, secret, clock))[0];
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        var recovery = (await EnableAsync(session.Client, setup, clock))[0];
 
         var (_, token) = await PasswordStepAsync(host, username);
         using var client = await SecondStepAsync(host, token, new { Token = token, RecoveryCode = recovery.ToUpperInvariant() });
@@ -193,8 +195,9 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_disable");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
-        var secret = await BeginSetupAsync(session.Client);
-        await EnableAsync(session.Client, secret, clock);
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        await EnableAsync(session.Client, setup, clock);
         Step(clock);
 
         using (var wrongPassword = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/disable",
@@ -230,21 +233,24 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
             Assert.Equal("Auth:TwoFactorNotEnabled", await ErrorCodeAsync(regenerate));
         }
 
-        var secret = await BeginSetupAsync(session.Client);
-        await EnableAsync(session.Client, secret, clock);
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        await EnableAsync(session.Client, setup, clock);
         Step(clock);
 
-        using (var setupAgain = await session.Client.PostAsync("/api/v1/auth/me/two-factor/setup", null))
+        // 已启用又不出示第二因素：不是换绑，按"已启用"拒绝，不计入再认证失败
+        using (var setupAgain = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/setup", new { }))
         {
             Assert.Equal(HttpStatusCode.Conflict, setupAgain.StatusCode);
             Assert.Equal("Auth:TwoFactorAlreadyEnabled", await ErrorCodeAsync(setupAgain));
         }
 
+        // 用过的那一次设置不能再确认：启用时安全版本已换过
         using (var enableAgain = await session.Client.PostAsJsonAsync(
-                   "/api/v1/auth/me/two-factor/enable", new { Code = Code(secret, clock) }))
+                   "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(secret, clock) }))
         {
-            Assert.Equal(HttpStatusCode.Conflict, enableAgain.StatusCode);
-            Assert.Equal("Auth:TwoFactorAlreadyEnabled", await ErrorCodeAsync(enableAgain));
+            Assert.Equal(HttpStatusCode.BadRequest, enableAgain.StatusCode);
+            Assert.Equal("Auth:TwoFactorSetupExpired", await ErrorCodeAsync(enableAgain));
         }
 
         // 原密钥仍在用：恢复码数没变，下一步的验证码照样能重发恢复码
@@ -282,9 +288,10 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
                 Assert.NotEqual(HttpStatusCode.Forbidden, page.StatusCode);
             }
 
-            var secret = await BeginSetupAsync(restricted.Client);
+            var setup = await BeginSetupAsync(restricted.Client);
+        var secret = setup.Secret;
             using var enable = await restricted.Client.PostAsJsonAsync(
-                "/api/v1/auth/me/two-factor/enable", new { Code = Code(secret, clock) });
+                "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(secret, clock) });
             Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
 
             // 换发的会话不再受限；旧的受限会话随之结束
@@ -349,77 +356,448 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         var user = users.GetProperty("items").EnumerateArray().Single(u => u.GetProperty("username").GetString() == username);
         Assert.True(user.GetProperty("isTwoFactorEnabled").GetBoolean());
 
-        using var reset = await admin.Client.PostAsync($"/api/v1/users/{user.GetProperty("id").GetGuid()}/reset-two-factor", null);
+        using var reset = await admin.Client.PostAsJsonAsync($"/api/v1/users/{user.GetProperty("id").GetGuid()}/reset-two-factor", new { });
         Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
 
         using var direct = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
         Assert.Equal(HttpStatusCode.OK, (await direct.Client.GetAsync("/api/v1/auth/me")).StatusCode);
     }
 
+    // 会话超过"刚认证过"的窗口：绑定验证器要当场出示口令，错的口令按再认证失败处理
+    [Fact]
+    public async Task Binding_from_an_older_session_requires_the_current_password()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_stale_bind");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        clock.Advance(StaleSessionAge);
+
+        using (var bare = await session.Client.PostAsJsonAsync(SetupUrl, new { }))
+        {
+            Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(bare));
+        }
+
+        using (var wrong = await session.Client.PostAsJsonAsync(SetupUrl, new { Password = Password + "x" }))
+        {
+            Assert.Equal("Security:CurrentPasswordIncorrect", await ErrorCodeAsync(wrong));
+        }
+
+        var setup = await BeginSetupAsync(session.Client, new { Password });
+        await EnableAsync(session.Client, setup, clock);
+    }
+
+    // 受限会话（组织要求而本人未启用）只是"受限"，不等于"刚认证过"：开久了同样要口令
+    [Fact]
+    public async Task A_restricted_setup_session_still_needs_a_recent_sign_in()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_stale_required");
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        try
+        {
+            using var restricted = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+            clock.Advance(StaleSessionAge);
+
+            using (var bare = await restricted.Client.PostAsJsonAsync(SetupUrl, new { }))
+            {
+                Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(bare));
+            }
+
+            var setup = await BeginSetupAsync(restricted.Client, new { Password });
+            using var enable = await restricted.Client.PostAsJsonAsync(
+                "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(setup.Secret, clock) });
+            Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
+        }
+        finally
+        {
+            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+        }
+    }
+
+    // 两个标签页各开始一次设置：只有最近那一次能确认，先开的那一页按"已失效"重来，而不是报"验证码不对"
+    [Fact]
+    public async Task Only_the_latest_setup_can_be_confirmed()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_two_tabs");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var first = await BeginSetupAsync(session.Client);
+        var second = await BeginSetupAsync(session.Client);
+
+        using (var stale = await session.Client.PostAsJsonAsync(
+                   "/api/v1/auth/me/two-factor/enable", new { first.SetupId, Code = Code(first.Secret, clock) }))
+        {
+            Assert.Equal("Auth:TwoFactorSetupExpired", await ErrorCodeAsync(stale));
+        }
+
+        await EnableAsync(session.Client, second, clock);
+    }
+
+    // 开始设置之后改过口令：凭据变了，之前开始的设置作废
+    [Fact]
+    public async Task A_setup_started_before_a_password_change_cannot_be_confirmed()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_stamp_bound");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var setup = await BeginSetupAsync(session.Client);
+
+        using (var changed = await session.Client.PostAsJsonAsync("/api/v1/auth/change-password", new
+               {
+                   CurrentPassword = Password,
+                   NewPassword = Password + "2",
+                   ConfirmPassword = Password + "2"
+               }))
+        {
+            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        }
+
+        using var enable = await session.Client.PostAsJsonAsync(
+            "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(setup.Secret, clock) });
+        Assert.Equal("Auth:TwoFactorSetupExpired", await ErrorCodeAsync(enable));
+    }
+
+    // 换绑：出示现有验证器上的码，确认新验证器后旧验证器与旧恢复码一并作废，其他设备退出
+    [Fact]
+    public async Task Replacing_the_authenticator_retires_the_old_one_and_its_recovery_codes()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_replace");
+        using var other = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var original = await BeginSetupAsync(session.Client);
+        var oldCodes = await EnableAsync(session.Client, original, clock);
+        using var second = await SignInWithCodeAsync(host, username, original.Secret, clock);
+        Step(clock);
+
+        var replacement = await BeginSetupAsync(session.Client, new { Code = Code(original.Secret, clock) });
+        Step(clock);
+        var newCodes = await EnableAsync(session.Client, replacement, clock);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await second.GetAsync("/api/v1/auth/me")).StatusCode);
+        Step(clock);
+        var (_, token) = await PasswordStepAsync(host, username);
+        Assert.Equal("Auth:TwoFactorCodeInvalid", await SecondStepErrorAsync(host, new { Token = token, Code = Code(original.Secret, clock) }));
+        Assert.Equal("Auth:TwoFactorCodeInvalid", await SecondStepErrorAsync(host, new { Token = token, RecoveryCode = oldCodes[0] }));
+        using var signedIn = await SecondStepAsync(host, token, new { Token = token, RecoveryCode = newCodes[0] });
+    }
+
+    // 验证器丢了、组织又强制两步验证：用恢复码登录，再用另一个恢复码换绑，全程不经过"未启用"
+    [Fact]
+    public async Task A_lost_authenticator_is_replaced_with_recovery_codes_even_when_two_factor_is_required()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_lost_required");
+        var oldCodes = await EnableWithCodesAsync(host, username, clock);
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        try
+        {
+            var (_, token) = await PasswordStepAsync(host, username);
+            using var recovered = await SecondStepAsync(host, token, new { Token = token, RecoveryCode = oldCodes[0] });
+
+            // 恢复码只换得一次重新绑定，不能换出新的恢复码
+            using (var regenerate = await recovered.PostAsJsonAsync(RecoveryCodesUrl, new { Code = oldCodes[1] }))
+            {
+                Assert.Equal(HttpStatusCode.BadRequest, regenerate.StatusCode);
+            }
+
+            var replacement = await BeginSetupAsync(recovered, new { RecoveryCode = oldCodes[1] });
+            var newCodes = await EnableAsync(recovered, replacement, clock);
+
+            var status = await recovered.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor");
+            Assert.True(status.GetProperty("enabled").GetBoolean());
+            Assert.Equal(RecoveryCodes.Count, status.GetProperty("recoveryCodesLeft").GetInt32());
+            var (_, next) = await PasswordStepAsync(host, username);
+            Assert.Equal("Auth:TwoFactorCodeInvalid", await SecondStepErrorAsync(host, new { Token = next, RecoveryCode = oldCodes[2] }));
+            Step(clock);
+            using var signedIn = await SecondStepAsync(host, next, new { Token = next, Code = Code(replacement.Secret, clock) });
+            Assert.Equal(RecoveryCodes.Count, newCodes.Count);
+        }
+        finally
+        {
+            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+        }
+    }
+
+    // 换绑出示的恢复码不对：按再认证失败拒绝，不开始设置，也不用掉任何恢复码
+    [Fact]
+    public async Task Replacing_with_a_wrong_recovery_code_starts_nothing()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_replace_wrong");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var setup = await BeginSetupAsync(session.Client);
+        await EnableAsync(session.Client, setup, clock);
+
+        using var rejected = await session.Client.PostAsJsonAsync(SetupUrl, new { RecoveryCode = "AAAA-BBBB-CCCC-DDDD" });
+        Assert.Equal("Auth:TwoFactorCodeInvalid", await ErrorCodeAsync(rejected));
+        var status = await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor");
+        Assert.Equal(RecoveryCodes.Count, status.GetProperty("recoveryCodesLeft").GetInt32());
+    }
+
+    // 管理员不能经用户管理重置自己的两步验证：那会绕过停用要的口令与验证码，也绕过组织的强制策略
+    [Fact]
+    public async Task An_administrator_cannot_reset_their_own_two_factor()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var adminId = await UserIdAsync(admin.Client, "admin");
+
+        using var reset = await admin.Client.PostAsJsonAsync($"/api/v1/users/{adminId}/reset-two-factor", new { });
+
+        Assert.Equal("User:SelfTwoFactorResetForbidden", await ErrorCodeAsync(reset));
+    }
+
+    // 管理员会话不够新时，重置别人的两步验证要出示自己的口令：被盗的管理员会话不能直接拆掉别人的第二道门
+    [Fact]
+    public async Task Resetting_someone_else_from_an_older_admin_session_requires_the_admin_password()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_reset_stale");
+        await EnableForAsync(host, username, clock);
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var userId = await UserIdAsync(admin.Client, username);
+        clock.Advance(StaleSessionAge);
+
+        using (var bare = await admin.Client.PostAsJsonAsync($"/api/v1/users/{userId}/reset-two-factor", new { }))
+        {
+            Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(bare));
+        }
+
+        Assert.True(await IsTwoFactorEnabledAsync(admin.Client, username));
+        using var reset = await admin.Client.PostAsJsonAsync(
+            $"/api/v1/users/{userId}/reset-two-factor", new { Password = ProjectWebApplicationFactory.TestAdminPassword });
+        Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
+        Assert.False(await IsTwoFactorEnabledAsync(admin.Client, username));
+    }
+
+    // 第一次重发停在提交之前、仍持着锁，第二次用同一步的码只能等它提交后再读：步序已用，拒绝
     [Fact]
     public async Task Concurrent_regeneration_accepts_one_totp_step_and_commits_one_new_code_set()
     {
-        var (host, clock) = CreateHost(); using var _ = host;
+        var gate = new RecorderGate(OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated);
+        var (host, clock) = CreateHost(services => gate.Install(services));
+        using var _ = host;
         var username = await CreateUserAsync(host, "tfa_regen_race");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
-        var secret = await BeginSetupAsync(session.Client); var old = await EnableAsync(session.Client, secret, clock); Step(clock);
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        var old = await EnableAsync(session.Client, setup, clock);
+        Step(clock);
         var code = Code(secret, clock);
-        var responses = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ => session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = code })));
-        Assert.Single(responses, x => x.StatusCode == HttpStatusCode.OK);
-        Assert.Single(responses, x => x.StatusCode == HttpStatusCode.BadRequest);
+
+        var first = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = code });
+        await gate.Entered;
+        var second = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = code });
+        await AssertStillWaitingAsync(second);
+        gate.Release();
+
+        using var firstResponse = await first;
+        using var secondResponse = await second;
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal("Auth:TwoFactorCodeInvalid", await ErrorCodeAsync(secondResponse));
         var (_, challenge) = await PasswordStepAsync(host, username);
         Assert.Equal("Auth:TwoFactorCodeInvalid", await SecondStepErrorAsync(host, new { Token = challenge, RecoveryCode = old[0] }));
     }
 
+    // 重发停在提交之前、仍持着锁：登录第二步拿旧恢复码只能等它提交后再读，读到的已是新的一组
     [Fact]
-    public async Task Recovery_consumption_and_regeneration_preserve_the_new_code_set()
+    public async Task Recovery_code_sign_in_waits_for_an_in_flight_regeneration()
     {
-        var (host, clock) = CreateHost(); using var _ = host;
+        var gate = new RecorderGate(OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated);
+        var (host, clock) = CreateHost(services => gate.Install(services));
+        using var _ = host;
         var username = await CreateUserAsync(host, "tfa_consume_regen");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
-        var secret = await BeginSetupAsync(session.Client); var old = await EnableAsync(session.Client, secret, clock); Step(clock);
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        var old = await EnableAsync(session.Client, setup, clock);
+        Step(clock);
         var (_, token) = await PasswordStepAsync(host, username);
         using var login = ProjectWebApplicationFactory.CreateProjectClient(host);
-        var regenerate = session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = Code(secret, clock) });
+
+        var regenerate = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = Code(secret, clock) });
+        await gate.Entered;
         var consume = login.PostAsJsonAsync("/api/v1/auth/two-factor", new { Token = token, RecoveryCode = old[0] });
-        var results = await Task.WhenAll(regenerate, consume);
-        Assert.Equal(HttpStatusCode.OK, results[0].StatusCode);
-        Assert.True(results[1].StatusCode is HttpStatusCode.OK or HttpStatusCode.BadRequest);
-        using var codes = JsonDocument.Parse(await results[0].Content.ReadAsStringAsync());
-        var newCode = codes.RootElement.GetProperty("recoveryCodes")[0].GetString();
+        await AssertStillWaitingAsync(consume);
+        gate.Release();
+
+        using var regenerated = await regenerate;
+        using var consumed = await consume;
+        Assert.Equal(HttpStatusCode.OK, regenerated.StatusCode);
+        Assert.Equal("Auth:TwoFactorCodeInvalid", await ErrorCodeAsync(consumed));
+        var newCode = (await RecoveryCodesOfAsync(regenerated))[0];
         var (_, fresh) = await PasswordStepAsync(host, username);
         using var completed = await SecondStepAsync(host, fresh, new { Token = fresh, RecoveryCode = newCode });
         var status = await completed.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor");
         Assert.Equal(RecoveryCodes.Count - 1, status.GetProperty("recoveryCodesLeft").GetInt32());
     }
 
+    // 管理员重置与本人重发改的是同一份凭据：重置要等重发提交后再读，最终一定是停用状态，
+    // 不能被重发晚到的写入改回"已启用"
     [Fact]
-    public async Task Failed_recovery_code_audit_rolls_back_the_code_set_and_totp_replay_step()
+    public async Task Admin_reset_waits_for_an_in_flight_regeneration_and_leaves_two_factor_off()
     {
-        var fail = false;
-        var (host, clock) = CreateHost(services => {
-            var descriptor = services.Last(x => x.ServiceType == typeof(IOperationRecorder)); services.Remove(descriptor);
-            services.AddTransient<IOperationRecorder>(sp => new RegenerationAuditFailure((IOperationRecorder)(descriptor.ImplementationFactory?.Invoke(sp) ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!)), () => fail));
-        }); using var _ = host;
-        var username = await CreateUserAsync(host, "tfa_regen_rollback");
+        var gate = new RecorderGate(OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated);
+        var (host, clock) = CreateHost(services => gate.Install(services));
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_reset_race");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
-        var secret = await BeginSetupAsync(session.Client); await EnableAsync(session.Client, secret, clock); Step(clock);
-        fail = true;
-        using var result = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = Code(secret, clock) });
-        Assert.Equal(HttpStatusCode.InternalServerError, result.StatusCode);
-        fail = false;
-        // 同一个 TOTP 仍可成功重发，证明失败事务没有消费重放步序。
-        using var retried = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/recovery-codes", new { Code = Code(secret, clock) });
-        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        await EnableAsync(session.Client, setup, clock);
+        Step(clock);
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var userId = await UserIdAsync(admin.Client, username);
+
+        var regenerate = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = Code(secret, clock) });
+        await gate.Entered;
+        var reset = admin.Client.PostAsJsonAsync($"/api/v1/users/{userId}/reset-two-factor", new { });
+        await AssertStillWaitingAsync(reset);
+        gate.Release();
+
+        using var regenerated = await regenerate;
+        using var resetResponse = await reset;
+        Assert.Equal(HttpStatusCode.OK, regenerated.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, resetResponse.StatusCode);
+        Assert.False(await IsTwoFactorEnabledAsync(admin.Client, username));
+        using var direct = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        Assert.Equal(HttpStatusCode.OK, (await direct.Client.GetAsync("/api/v1/auth/me")).StatusCode);
     }
 
-    private sealed class RegenerationAuditFailure(IOperationRecorder inner, Func<bool> enabled) : IOperationRecorder
+    // 调用期失败：成功记录在提交之前就抛出，整个工作单元回滚——新恢复码没有落库、旧的一组仍然可用，
+    // 验证码的步序也没有记下（同一个码还能再重发一次），也没有留下成功记录。
+    // 这与"提交之后才写出"的失败不同：数据库存储的成功记录随业务同一事务提交，日志存储在提交后写出、
+    // 写不出只报告不回滚（见框架 operation-records 文档），那一类由组件自己的测试覆盖
+    [Fact]
+    public async Task Regeneration_rolls_back_codes_and_totp_step_when_the_success_record_fails()
     {
-        public Task RecordSucceededAsync(string action, OperationTarget target, string authorizationBasis, CancellationToken cancellationToken = default)
-            => enabled() && action == OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated ? throw new InvalidOperationException("Injected recovery audit failure.") : inner.RecordSucceededAsync(action, target, authorizationBasis, cancellationToken);
-        public Task RecordFailedAsync(string action, OperationTarget target, string authorizationBasis, OperationFailure failure = default)
-            => inner.RecordFailedAsync(action, target, authorizationBasis, failure);
+        var gate = new RecorderGate(OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated) { Fail = true };
+        var (host, clock) = CreateHost(services => gate.Install(services));
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_regen_rollback");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        var old = await EnableAsync(session.Client, setup, clock);
+        Step(clock);
+        gate.Release();
+
+        using (var failed = await session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = Code(secret, clock) }))
+        {
+            Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        }
+
+        // 旧的一组还在：用其中一个完成登录第二步
+        var (_, token) = await PasswordStepAsync(host, username);
+        using var signedInWithOldCode = await SecondStepAsync(host, token, new { Token = token, RecoveryCode = old[0] });
+
+        gate.Fail = false;
+        using var retried = await session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = Code(secret, clock) });
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var userId = await UserIdAsync(admin.Client, username);
+        Assert.Equal(1, await OperationRecordQueries.CountSucceededAsync(
+            host, admin.Client, OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated, userId.ToString()));
     }
+
+    private const string RecoveryCodesUrl = "/api/v1/auth/me/two-factor/recovery-codes";
+    private const string SetupUrl = "/api/v1/auth/me/two-factor/setup";
+
+    /// <summary>超出"刚认证过"的窗口。</summary>
+    private static readonly TimeSpan StaleSessionAge = TimeSpan.FromMinutes(16);
+
+    private sealed record Setup(Guid SetupId, string Secret);
+
+    /// <summary>
+    /// 包住真实记录器：指定动作的成功记录停在调用处等放行（或直接抛出）。成功记录在工作单元提交之前调用，
+    /// 停在这里等于让业务持着锁、尚未提交，用来把并发交错固定下来，而不是碰运气。
+    /// </summary>
+    private sealed class RecorderGate(string action)
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool Fail { get; set; }
+
+        public Task Entered => _entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        public void Release() => _release.TrySetResult();
+
+        public void Install(IServiceCollection services)
+        {
+            var descriptor = services.Last(x => x.ServiceType == typeof(IOperationRecorder));
+            services.Remove(descriptor);
+            services.AddTransient<IOperationRecorder>(sp => new Recorder(this, (IOperationRecorder)(
+                descriptor.ImplementationFactory?.Invoke(sp)
+                ?? ActivatorUtilities.CreateInstance(sp, descriptor.ImplementationType!))));
+        }
+
+        private async Task PassAsync(string recorded)
+        {
+            if (recorded != action)
+            {
+                return;
+            }
+
+            _entered.TrySetResult();
+            await _release.Task;
+            if (Fail)
+            {
+                throw new InvalidOperationException("Injected success record failure.");
+            }
+        }
+
+        private sealed class Recorder(RecorderGate gate, IOperationRecorder inner) : IOperationRecorder
+        {
+            public async Task RecordSucceededAsync(
+                string action, OperationTarget target, string authorizationBasis, CancellationToken cancellationToken = default)
+            {
+                await gate.PassAsync(action);
+                await inner.RecordSucceededAsync(action, target, authorizationBasis, cancellationToken);
+            }
+
+            public Task RecordFailedAsync(
+                string action, OperationTarget target, string authorizationBasis, OperationFailure failure = default)
+                => inner.RecordFailedAsync(action, target, authorizationBasis, failure);
+        }
+    }
+
+    /// <summary>另一个请求被同一把锁挡住：放行之前它不能完成。</summary>
+    private static async Task AssertStillWaitingAsync(Task request)
+    {
+        var finished = await Task.WhenAny(request, Task.Delay(TimeSpan.FromMilliseconds(500)));
+        Assert.NotSame(request, finished);
+    }
+
+    private static async Task<List<string>> RecoveryCodesOfAsync(HttpResponseMessage response)
+    {
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return body.RootElement.GetProperty("recoveryCodes").EnumerateArray().Select(c => c.GetString()!).ToList();
+    }
+
+    private static async Task<JsonElement> ManagedUserAsync(HttpClient admin, string username)
+    {
+        var users = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/users?offset=0&limit=10&keyword={username}");
+        return users.GetProperty("items").EnumerateArray().Single(u => u.GetProperty("username").GetString() == username);
+    }
+
+    private static async Task<Guid> UserIdAsync(HttpClient admin, string username) =>
+        (await ManagedUserAsync(admin, username)).GetProperty("id").GetGuid();
+
+    private static async Task<bool> IsTwoFactorEnabledAsync(HttpClient admin, string username) =>
+        (await ManagedUserAsync(admin, username)).GetProperty("isTwoFactorEnabled").GetBoolean();
 
     private (WebApplicationFactory<Program> Host, FakeTimeProvider Clock) CreateHost(Action<IServiceCollection>? configure = null)
     {
@@ -435,27 +813,44 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         return (host, clock);
     }
 
+    private async Task<List<string>> EnableWithCodesAsync(WebApplicationFactory<Program> host, string username, FakeTimeProvider clock)
+    {
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var setup = await BeginSetupAsync(session.Client);
+        return await EnableAsync(session.Client, setup, clock);
+    }
+
+    private static async Task<HttpClient> SignInWithCodeAsync(
+        WebApplicationFactory<Program> host, string username, string secret, FakeTimeProvider clock)
+    {
+        Step(clock);
+        var (_, token) = await PasswordStepAsync(host, username);
+        return await SecondStepAsync(host, token, new { Token = token, Code = Code(secret, clock) });
+    }
+
     private async Task<string> EnableForAsync(WebApplicationFactory<Program> host, string username, FakeTimeProvider clock)
     {
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
-        var secret = await BeginSetupAsync(session.Client);
-        await EnableAsync(session.Client, secret, clock);
+        var setup = await BeginSetupAsync(session.Client);
+        var secret = setup.Secret;
+        await EnableAsync(session.Client, setup, clock);
         return secret;
     }
 
-    private static async Task<string> BeginSetupAsync(HttpClient client)
+    /// <summary>开始一次设置（首次启用，或带上 <paramref name="proof"/> 换绑）。</summary>
+    private static async Task<Setup> BeginSetupAsync(HttpClient client, object? proof = null)
     {
-        using var response = await client.PostAsync("/api/v1/auth/me/two-factor/setup", null);
+        using var response = await client.PostAsJsonAsync("/api/v1/auth/me/two-factor/setup", proof ?? new { });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var secret = body.RootElement.GetProperty("secret").GetString()!;
         Assert.StartsWith("otpauth://totp/", body.RootElement.GetProperty("otpAuthUri").GetString());
-        return secret;
+        return new Setup(body.RootElement.GetProperty("setupId").GetGuid(), body.RootElement.GetProperty("secret").GetString()!);
     }
 
-    private static async Task<List<string>> EnableAsync(HttpClient client, string secret, FakeTimeProvider clock)
+    private static async Task<List<string>> EnableAsync(HttpClient client, Setup setup, FakeTimeProvider clock)
     {
-        using var response = await client.PostAsJsonAsync("/api/v1/auth/me/two-factor/enable", new { Code = Code(secret, clock) });
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(setup.Secret, clock) });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return body.RootElement.GetProperty("recoveryCodes").EnumerateArray().Select(c => c.GetString()!).ToList();

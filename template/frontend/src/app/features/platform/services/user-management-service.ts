@@ -86,9 +86,12 @@ export class UserManagementService {
     return this.http.post<BatchOperationOutputDto>(`${this.baseUrl}/batch/unlock`, data);
   }
 
-  /** 重置用户的两步验证（给丢了手机和恢复码的人用），该用户的会话全部失效。 */
-  resetTwoFactor(id: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/${id}/reset-two-factor`, {});
+  /**
+   * 重置用户的两步验证（给丢了手机和恢复码的人用），该用户的会话全部失效。
+   * 管理员的会话不够新时服务端要求带上管理员自己的当前口令（`Auth:ReauthenticationRequired`）。
+   */
+  resetTwoFactor(id: string, password?: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${id}/reset-two-factor`, { password });
   }
 
   deleteUser(id: string): Observable<void> {

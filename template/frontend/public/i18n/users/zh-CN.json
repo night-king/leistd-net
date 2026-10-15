@@ -72,7 +72,8 @@
     "superAdminNoManage": "系统内置超级管理员的这些操作只能由其本人进行",
     "resetPassword": "重置密码",
     "unlock": "解除锁定",
-    "resetTwoFactor": "重置两步验证"
+    "resetTwoFactor": "重置两步验证",
+    "selfNoResetTwoFactor": "自己的两步验证请在“个人设置”里更换或停用"
   },
   "editDialog": {
     "editHeader": "编辑用户",
@@ -137,5 +138,11 @@
     "rolesTitle": "为 {{count}} 位用户追加角色",
     "rolesDescription": "选中的角色会追加给这些用户，已有的角色保持不变。",
     "assign": "追加角色"
+  },
+  "reauthDialog": {
+    "header": "确认是你本人",
+    "description": "这项操作会改变他人的登录方式。请输入你自己的当前密码后继续。",
+    "passwordLabel": "你的当前密码",
+    "confirm": "确认"
   }
 }

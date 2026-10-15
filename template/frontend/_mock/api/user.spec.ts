@@ -250,6 +250,17 @@ describe('user mock', () => {
       expect(admin.twoFactorEnabled).toBe(true);
     });
 
+    it('refuses to reset your own two-factor with 400', () => {
+      setMockSessionUserId('user_admin');
+      const admin = enableTwoFactor('user_admin');
+
+      const error = rejectionOf(() => reset({ params: { id: 'user_admin' } }));
+
+      expect(error.status).toBe(400);
+      expect(error.error.code).toBe('User:SelfTwoFactorResetForbidden');
+      expect(admin.twoFactorEnabled).toBe(true);
+    });
+
     it('turns two-factor off and drops the recovery codes', () => {
       setMockSessionUserId('user_admin');
       const demo = enableTwoFactor('user_demo');

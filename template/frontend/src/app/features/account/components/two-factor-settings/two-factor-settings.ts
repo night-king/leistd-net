@@ -29,11 +29,14 @@ import { OtpCodeInput } from '../otp-code-input/otp-code-input';
 import { RecoveryCodes } from '../recovery-codes/recovery-codes';
 import { TwoFactorSetup } from '../two-factor-setup/two-factor-setup';
 
-type Mode = 'idle' | 'setup' | 'codes' | 'disable' | 'regenerate';
+type Mode = 'idle' | 'setup' | 'codes' | 'disable' | 'regenerate' | 'replace' | 'replaceSetup';
 
 /**
- * 「账户与安全」面板的一节：两步验证的启用、停用与恢复码。启用与停用都会让本人其他设备退出，
+ * 「账户与安全」面板的一节：两步验证的启用、换绑、停用与恢复码。启用、换绑与停用都会让本人其他设备退出，
  * 面板据 {@link sessionsChanged} 刷新设备列表。
+ *
+ * 换绑先出示现有验证器上的码；验证器丢了时用一个恢复码（当场用掉），再走与首次启用相同的设置。
+ * 不经过"停用"，组织强制两步验证时同样可用。
  */
 @Component({
   selector: 'app-two-factor-settings',
@@ -75,6 +78,11 @@ export class TwoFactorSettings {
 
   protected readonly password = signal('');
   protected readonly code = signal('');
+  protected readonly recoveryCode = signal('');
+  /** 换绑时用恢复码代替验证码（验证器已经丢了）。 */
+  protected readonly useRecoveryCode = signal(false);
+  /** 换绑出示的第二因素，交给设置组件随开始设置一并提交。 */
+  protected readonly proof = signal<{ code?: string; recoveryCode?: string } | null>(null);
   protected readonly codeValid = computed(() => /^\d{6}$/.test(this.code().replace(/\s/g, '')));
 
   constructor() {
@@ -92,7 +100,38 @@ export class TwoFactorSettings {
   protected setMode(mode: Mode): void {
     this.password.set('');
     this.code.set('');
+    this.recoveryCode.set('');
+    if (mode !== 'replaceSetup') {
+      this.proof.set(null);
+    }
     this.mode.set(mode);
+  }
+
+  protected toggleRecoveryCode(): void {
+    this.useRecoveryCode.update((value) => !value);
+    this.code.set('');
+    this.recoveryCode.set('');
+  }
+
+  protected onRecoveryCodeInput(event: Event): void {
+    this.recoveryCode.set((event.target as HTMLInputElement).value);
+  }
+
+  protected canReplace(): boolean {
+    return this.useRecoveryCode() ? this.recoveryCode().trim().length > 0 : this.codeValid();
+  }
+
+  protected startReplace(): void {
+    if (!this.canReplace()) {
+      return;
+    }
+
+    this.proof.set(
+      this.useRecoveryCode()
+        ? { recoveryCode: this.recoveryCode().trim() }
+        : { code: this.code().replace(/\s/g, '') },
+    );
+    this.setMode('replaceSetup');
   }
 
   protected onPasswordInput(event: Event): void {
@@ -100,15 +139,18 @@ export class TwoFactorSettings {
   }
 
   protected onEnabled(codes: string[]): void {
+    const replaced = this.mode() === 'replaceSetup';
+    this.proof.set(null);
     this.codes.set(codes);
     this.mode.set('codes');
     this.reload();
     this.refreshCurrentUser();
     this.sessionsChanged.emit();
+    const message = replaced ? 'account.twoFactor.replacedToast' : 'account.twoFactor.enabledToast';
     //#if (IncludeLocalization)
-    toast.success(this.transloco.translate('account.twoFactor.enabledToast'));
+    toast.success(this.transloco.translate(message));
     //#else
-    toast.success(this.t('account.twoFactor.enabledToast'));
+    toast.success(this.t(message));
     //#endif
   }
 
@@ -208,5 +250,14 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactor.disabledToast':
     'Two-factor authentication is off. Other devices were signed out.',
   'account.twoFactor.loadFailed': "Couldn't load the two-factor status.",
+  'account.twoFactor.replace': 'Replace authenticator',
+  'account.twoFactor.replaceHint':
+    'Enter a code from your current authenticator app. Lost it? Use a recovery code instead; it is used up right away.',
+  'account.twoFactor.useRecoveryCode': 'Lost your authenticator? Use a recovery code',
+  'account.twoFactor.useCode': 'Use a verification code instead',
+  'account.twoFactor.recoveryCodeLabel': 'Recovery code',
+  'account.twoFactor.continue': 'Continue',
+  'account.twoFactor.replacedToast':
+    'Authenticator replaced. The old one and its recovery codes no longer work, and other devices were signed out.',
 };
 //#endif

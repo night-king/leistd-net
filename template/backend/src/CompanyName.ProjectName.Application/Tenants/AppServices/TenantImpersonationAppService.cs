@@ -106,8 +106,10 @@ internal sealed class TenantImpersonationAppService(
                 claims.Add(new Claim(ImpersonationClaimTypes.ImpersonatorTenantId, impersonatorTenantId.ToString()));
             }
 
+            // 模拟不是一次认证：模拟会话沿用发起人的认证时刻，退出时再原样带回（见 SessionIssuer.SignInAsync）
             principal = await sessionIssuer.SignInAsync(
-                admin, roleNames: null, additionalClaims: claims, cancellationToken: cancellationToken);
+                admin, roleNames: null, additionalClaims: claims, cancellationToken: cancellationToken,
+                authenticatedAt: CurrentAuthenticationTime());
 
             logger.LogWarning(
                 "Impersonation started: user {ImpersonatorId} is now acting as {Username} in tenant {TenantName} ({TenantId})",
@@ -191,8 +193,9 @@ internal sealed class TenantImpersonationAppService(
                 cancellationToken)
                 ?? throw new BusinessException(UserErrorCodes.NotFound, "The impersonating user no longer exists.");
 
+            // 换回发起人也不是一次认证：沿用模拟会话里带着的、发起人原来的认证时刻
             principal = await sessionIssuer.SignInAsync(
-                impersonator, cancellationToken: cancellationToken);
+                impersonator, cancellationToken: cancellationToken, authenticatedAt: CurrentAuthenticationTime());
 
             logger.LogWarning(
                 "Impersonation ended: session returned to user {ImpersonatorId}", impersonatorId);
@@ -280,5 +283,10 @@ internal sealed class TenantImpersonationAppService(
         Guid.TryParse(currentUser.FindClaim(ImpersonationClaimTypes.ImpersonatorTenantId)?.Value, out var id)
             ? id
             : null;
+
+    /// <summary>当前会话的实际认证时刻；读不出时按"很久以前"处理，依赖它的判据随之要求重新认证。</summary>
+    private DateTimeOffset CurrentAuthenticationTime() =>
+        SessionIssuer.ReadAuthenticationTime(currentUser.FindClaim(SessionIssuer.AuthenticationTimeClaimType))
+        ?? DateTimeOffset.UnixEpoch;
 }
 #endif

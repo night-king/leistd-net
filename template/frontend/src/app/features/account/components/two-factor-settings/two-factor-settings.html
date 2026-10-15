@@ -53,6 +53,66 @@
         @case ('setup') {
           <app-two-factor-setup (enabled)="onEnabled($event)" (cancelled)="setMode('idle')" />
         }
+        @case ('replaceSetup') {
+          <app-two-factor-setup
+            [proof]="proof()"
+            (enabled)="onEnabled($event)"
+            (cancelled)="setMode('idle')"
+            (proofRejected)="setMode('replace')"
+          />
+        }
+        @case ('replace') {
+          <form
+            class="flex flex-col gap-3"
+            novalidate
+            data-testid="two-factor-replace-form"
+            (submit)="$event.preventDefault(); startReplace()"
+          >
+            <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.replaceHint') }}</p>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+              @if (useRecoveryCode()) {
+                <input
+                  hlmInput
+                  autocomplete="off"
+                  data-testid="two-factor-replace-recovery-code"
+                  [attr.aria-label]="t('account.twoFactor.recoveryCodeLabel')"
+                  [placeholder]="t('account.twoFactor.recoveryCodeLabel')"
+                  [value]="recoveryCode()"
+                  (input)="onRecoveryCodeInput($event)"
+                />
+              } @else {
+                <app-otp-code-input
+                  inputId="two-factor-replace-code"
+                  [label]="t('account.twoFactor.codeLabel')"
+                  [(value)]="code"
+                />
+              }
+              <div class="flex gap-2">
+                <button hlmBtn type="submit" [disabled]="!canReplace()">
+                  {{ t('account.twoFactor.continue') }}
+                </button>
+                <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
+                  {{ t('common.cancel') }}
+                </button>
+              </div>
+            </div>
+            <button
+              hlmBtn
+              variant="link"
+              size="sm"
+              type="button"
+              class="self-start px-0"
+              data-testid="two-factor-replace-toggle"
+              (click)="toggleRecoveryCode()"
+            >
+              {{
+                useRecoveryCode()
+                  ? t('account.twoFactor.useCode')
+                  : t('account.twoFactor.useRecoveryCode')
+              }}
+            </button>
+          </form>
+        }
         @case ('codes') {
           <app-recovery-codes [codes]="codes()" (done)="finishCodes()" />
         }
@@ -133,6 +193,15 @@
                 t('account.twoFactor.recoveryCodesLeft', { count: s.recoveryCodesLeft })
               }}</span>
               <div class="flex flex-wrap gap-2">
+                <button
+                  hlmBtn
+                  variant="outline"
+                  size="sm"
+                  data-testid="two-factor-replace"
+                  (click)="setMode('replace')"
+                >
+                  {{ t('account.twoFactor.replace') }}
+                </button>
                 <button hlmBtn variant="outline" size="sm" (click)="setMode('regenerate')">
                   {{ t('account.twoFactor.regenerate') }}
                 </button>

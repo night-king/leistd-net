@@ -6,7 +6,10 @@ using System.Text.Json;
 using CompanyName.ProjectName.Application.Permissions.Provider;
 using Leistd.Authorization.Grants;
 using Leistd.Authorization.Constants;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Time.Testing;
 
 namespace CompanyName.ProjectName.IntegrationTests;
 
@@ -207,6 +210,70 @@ public sealed class ImpersonationTests(ProjectWebApplicationFactory factory)
     /// <para>租户侧结束记录的模拟者名来自模拟声明；声明名与操作记录读取的不一致时它恒为空，
     /// 模拟期间的所有记录都会丢掉"由谁模拟操作"，而且不报错。</para>
     /// </remarks>
+    // 进入再退出模拟只是两次会话切换，不是认证：认证时刻沿用发起人登录的那一刻。
+    // 否则一个早已不新鲜的宿主管理员会话，绕一圈模拟就能免口令重置别人的两步验证
+    [Fact]
+    public async Task Returning_from_impersonation_does_not_make_an_old_admin_session_recent()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        }));
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var tenantId = await CreateTenantAsync(admin, "stale" + Guid.NewGuid().ToString("N")[..8]);
+        var targetId = await CreateHostUserAsync(admin.Client);
+        clock.Advance(TimeSpan.FromMinutes(16));
+
+        using (var stale = await admin.Client.PostAsJsonAsync($"/api/v1/users/{targetId}/reset-two-factor", new { }))
+        {
+            Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(stale));
+        }
+
+        using var enter = await admin.Client.PostAsync($"/api/v1/tenants/{tenantId}/impersonate", null);
+        Assert.Equal(HttpStatusCode.OK, enter.StatusCode);
+        using var impersonated = ProjectWebApplicationFactory.CreateProjectClient(host);
+        impersonated.DefaultRequestHeaders.Add("Cookie", CookieOf(enter));
+        using var exit = await impersonated.PostAsync("/api/v1/auth/end-impersonation", null);
+        Assert.Equal(HttpStatusCode.OK, exit.StatusCode);
+        using var restored = ProjectWebApplicationFactory.CreateProjectClient(host);
+        restored.DefaultRequestHeaders.Add("Cookie", CookieOf(exit));
+
+        using (var afterRoundTrip = await restored.PostAsJsonAsync($"/api/v1/users/{targetId}/reset-two-factor", new { }))
+        {
+            Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(afterRoundTrip));
+        }
+
+        using var withPassword = await restored.PostAsJsonAsync(
+            $"/api/v1/users/{targetId}/reset-two-factor", new { Password = ProjectWebApplicationFactory.TestAdminPassword });
+        Assert.Equal(HttpStatusCode.OK, withPassword.StatusCode);
+    }
+
+    private static async Task<Guid> CreateHostUserAsync(HttpClient admin)
+    {
+        var username = $"stale_{Guid.NewGuid():N}"[..20];
+        using var create = await admin.PostAsJsonAsync("/api/v1/users", new
+        {
+            Username = username,
+            Email = $"{username}@example.test",
+            Password = TenantAdminPassword + "x",
+            IsActive = true
+        });
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        var users = await admin.GetFromJsonAsync<JsonElement>($"/api/v1/users?offset=0&limit=10&keyword={username}");
+        return users.GetProperty("items").EnumerateArray().Single().GetProperty("id").GetGuid();
+    }
+
+    private static string CookieOf(HttpResponseMessage response) =>
+        string.Join("; ", response.Headers.GetValues("Set-Cookie").Select(value => value.Split(';', 2)[0]));
+
+    private static async Task<string?> ErrorCodeAsync(HttpResponseMessage response)
+    {
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return body.RootElement.TryGetProperty("code", out var code) ? code.GetString() : null;
+    }
+
     [Fact]
     public async Task Impersonation_records_start_and_end_on_both_sides()
     {

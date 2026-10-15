@@ -48,7 +48,16 @@ import {
   switchMap,
 } from 'rxjs/operators';
 
-import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+//#if (LocalIdentity)
+import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
+//#endif
+// prettier-ignore
+import {
+  //#if (LocalIdentity)
+  ApplicationHttpError,
+  //#endif
+  applicationErrorMessage,
+} from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { LayoutService } from '../../../../core/services/layout-service';
@@ -85,6 +94,7 @@ import { RoleService } from '../../services/role-service';
 import { UserManagementService } from '../../services/user-management-service';
 import { BatchRolesDialog } from './widgets/batch-roles-dialog/batch-roles-dialog';
 //#if (LocalIdentity)
+import { ReauthenticateDialog } from './widgets/reauthenticate-dialog/reauthenticate-dialog';
 import { ResetUserPasswordDialog } from './widgets/reset-user-password-dialog/reset-user-password-dialog';
 //#endif
 //#if (LocalIdentity)
@@ -122,6 +132,7 @@ const DEFAULT_USER_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
     //#endif
     //#if (LocalIdentity)
     ResetUserPasswordDialog,
+    ReauthenticateDialog,
     //#endif
   ],
   providers: [
@@ -187,6 +198,10 @@ export class Users {
   resetPasswordDialogVisible = signal(false);
   resetPasswordSaving = signal(false);
   resettingUserId = signal<string | null>(null);
+  reauthDialogVisible = signal(false);
+  reauthSaving = signal(false);
+  /** 等待管理员出示口令后重试的两步验证重置。 */
+  private pendingTwoFactorReset: UserManagementOutputDto | null = null;
   //#endif
 
   // 搜索框即时值：随 URL 回填，输入时乐观更新，防抖后写回 URL。
@@ -606,11 +621,29 @@ export class Users {
       return;
     }
 
+    this.resetTwoFactor(user);
+  }
+
+  /** 管理员在确认身份的对话框里出示了口令：带上它重试。 */
+  onReauthenticated(password: string) {
+    const user = this.pendingTwoFactorReset;
+    if (user) {
+      this.resetTwoFactor(user, password);
+    }
+  }
+
+  private resetTwoFactor(user: UserManagementOutputDto, password?: string) {
+    this.reauthSaving.set(password !== undefined);
     this.service
-      .resetTwoFactor(user.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .resetTwoFactor(user.id, password)
+      .pipe(
+        finalize(() => this.reauthSaving.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe({
         next: () => {
+          this.pendingTwoFactorReset = null;
+          this.reauthDialogVisible.set(false);
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate('users.toast.twoFactorReset'),
@@ -620,7 +653,18 @@ export class Users {
           //#endif
           this.reloadList();
         },
-        error: (error) => this.showRequestError(error),
+        error: (error) => {
+          // 管理员的会话不够新：先确认身份再重试；口令错误时留在对话框里重输
+          if (
+            error instanceof ApplicationHttpError &&
+            error.code === API_ERROR_CODES.reauthenticationRequired
+          ) {
+            this.pendingTwoFactorReset = user;
+            this.reauthDialogVisible.set(true);
+            return;
+          }
+          this.showRequestError(error);
+        },
       });
   }
 

@@ -63,6 +63,7 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'auth.session.revoked': (t) => `Signed out a device (${t})`,
   'auth.sessions.others-revoked': () => 'Signed out all other devices',
   'auth.two-factor.enabled': () => 'Turned on two-factor authentication',
+  'auth.two-factor.authenticator-replaced': () => 'Replaced their authenticator app',
   'auth.two-factor.disabled': () => 'Turned off two-factor authentication',
   'auth.two-factor.recovery-codes-regenerated': () => 'Regenerated recovery codes',
   'auth.two-factor.recovery-code-used': (t) => `Account ${t} signed in with a recovery code`,

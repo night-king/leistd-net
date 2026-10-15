@@ -15,5 +15,14 @@ export const API_ERROR_CODES = {
 
   /** 两步验证码不正确：停在当前页重试，不退出挑战流程。 */
   twoFactorCodeInvalid: 'Auth:TwoFactorCodeInvalid',
+
+  /** 会话不够新，要当场出示当前口令。 */
+  reauthenticationRequired: 'Auth:ReauthenticationRequired',
+
+  /** 会话不够新又没有本地口令可出示：重新登录才能继续。 */
+  signInAgainRequired: 'Auth:SignInAgainRequired',
+
+  /** 这一次两步验证设置已失效（过期、别处重新开始或凭据变过）：清掉二维码与密钥，请本人重新开始。 */
+  twoFactorSetupExpired: 'Auth:TwoFactorSetupExpired',
   //#endif
 } as const;

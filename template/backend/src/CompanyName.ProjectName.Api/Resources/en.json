@@ -16,12 +16,14 @@
     "Auth:EmailVerificationUnavailable": "Email verification is temporarily unavailable. Please contact your administrator.",
     "Auth:InvalidCredentials": "The username or password is incorrect.",
     "Auth:InvalidCredentials:Record": "Incorrect username or password (failed attempts in the last {windowMinutes} minutes: {attempts})",
+    "Auth:ReauthenticationRequired": "Enter your current password to continue.",
+    "Auth:SignInAgainRequired": "Sign in again to continue.",
     "Auth:TwoFactorAlreadyEnabled": "Two-factor authentication is already turned on.",
     "Auth:TwoFactorChallengeExpired": "The sign-in attempt has expired. Sign in again.",
     "Auth:TwoFactorCodeInvalid": "The verification code is incorrect.",
     "Auth:TwoFactorNotEnabled": "Two-factor authentication is not turned on.",
     "Auth:TwoFactorRequiredByPolicy": "Two-factor authentication is required here and cannot be turned off.",
-    "Auth:TwoFactorSetupExpired": "The setup has expired. Start again.",
+    "Auth:TwoFactorSetupExpired": "This setup is no longer valid (it expired or was restarted elsewhere). Start again.",
     "Auth:TwoFactorSetupRequired": "Set up two-factor authentication before continuing.",
     "Auth:UserDisabled": "This account is disabled. Contact your administrator.",
     "Auth:UserLockedOut": "This account is locked. Contact your administrator.",
@@ -126,6 +128,7 @@
     "Phone number": "Phone number",
     "Recipient": "Recipient",
     "Recovery code": "Recovery code",
+    "Setup id": "Setup id",
     "Role": "Role",
     "Role name": "Role name",
     "Role:NameAlreadyUsed": "Role '{Name}' already exists.",
@@ -149,6 +152,8 @@
     "SecurityAlert:PasswordChanged:Title": "Your password was changed",
     "SecurityAlert:PasswordReset:Content": "Your other devices were signed out.",
     "SecurityAlert:PasswordReset:Title": "Your password was reset by an administrator",
+    "SecurityAlert:TwoFactorAuthenticatorReplaced:Content": "Codes from your previous authenticator and your old recovery codes no longer work. If you didn't do this, contact your administrator right away.",
+    "SecurityAlert:TwoFactorAuthenticatorReplaced:Title": "Authenticator app replaced",
     "SecurityAlert:TwoFactorDisabled:Content": "If you didn't do this, turn it back on and change your password.",
     "SecurityAlert:TwoFactorDisabled:Title": "Two-factor authentication turned off",
     "SecurityAlert:TwoFactorEnabled:Content": "Signing in now also needs a code from your authenticator app.",
@@ -241,6 +246,9 @@
     "User:SelfDeleteForbidden": "You cannot delete your own account.",
 //#endif
     "User:SelfDisableForbidden": "You cannot disable your own account.",
+//#if (LocalIdentity)
+    "User:SelfTwoFactorResetForbidden": "You can't reset your own two-factor authentication here. Replace or turn it off in your security settings.",
+//#endif
 //#if (LocalIdentity)
     "User:SuperAdminDeleteForbidden": "The built-in super administrator cannot be deleted.",
 //#endif

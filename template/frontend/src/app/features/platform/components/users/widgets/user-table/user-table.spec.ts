@@ -253,6 +253,28 @@ describe('UserTable', () => {
     expect(deleteReason.textContent).toMatch(/delete your own account|selfNoDelete/);
   });
 
+  //#if (LocalIdentity)
+  // 管理入口重置自己的两步验证会绕过个人设置要的口令与验证码和组织的强制策略，服务端同样拒绝：本人行置灰并就地说明
+  it("greys out resetting the signed-in user's own two-factor and says why", async () => {
+    const menu = await openMenuAs('1', { ...user('1', 'alice'), isTwoFactorEnabled: true });
+
+    const reset = menu.querySelector<HTMLButtonElement>('[data-testid="user-reset-two-factor"]')!;
+    expect(reset.disabled).toBe(true);
+    const reason = menu.querySelector('[data-testid="user-self-reset-two-factor-reason"]')!;
+    expect(reset.getAttribute('aria-describedby')).toBe(reason.id);
+    expect(reason.textContent).toMatch(/Personal settings|selfNoResetTwoFactor/);
+  });
+
+  it("leaves resetting someone else's two-factor available", async () => {
+    const menu = await openMenuAs('2', { ...user('1', 'alice'), isTwoFactorEnabled: true });
+
+    expect(
+      menu.querySelector<HTMLButtonElement>('[data-testid="user-reset-two-factor"]')!.disabled,
+    ).toBe(false);
+    expect(menu.querySelector('[data-testid="user-self-reset-two-factor-reason"]')).toBeNull();
+  });
+
+  //#endif
   it("leaves disabling and deleting someone else's account available", async () => {
     const menu = await openMenuAs('2');
 

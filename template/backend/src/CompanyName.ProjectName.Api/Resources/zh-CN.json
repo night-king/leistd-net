@@ -16,12 +16,14 @@
     "Auth:EmailVerificationUnavailable": "邮箱验证暂时不可用，请联系管理员。",
     "Auth:InvalidCredentials": "用户名或密码不正确。",
     "Auth:InvalidCredentials:Record": "用户名或密码不正确（{windowMinutes} 分钟内已失败 {attempts} 次）",
+    "Auth:ReauthenticationRequired": "请输入当前密码以继续。",
+    "Auth:SignInAgainRequired": "请重新登录后再继续。",
     "Auth:TwoFactorAlreadyEnabled": "两步验证已经启用。",
     "Auth:TwoFactorChallengeExpired": "登录已过期，请重新登录。",
     "Auth:TwoFactorCodeInvalid": "验证码不正确。",
     "Auth:TwoFactorNotEnabled": "两步验证尚未启用。",
     "Auth:TwoFactorRequiredByPolicy": "所在组织要求启用两步验证，不能停用。",
-    "Auth:TwoFactorSetupExpired": "设置已过期，请重新开始。",
+    "Auth:TwoFactorSetupExpired": "设置已失效（已过期或在别处重新开始），请重新开始。",
     "Auth:TwoFactorSetupRequired": "请先完成两步验证设置。",
     "Auth:UserDisabled": "该账号已被禁用，请联系管理员。",
     "Auth:UserLockedOut": "该账号已被锁定，请联系管理员。",
@@ -126,6 +128,7 @@
     "Phone number": "手机号",
     "Recipient": "收件地址",
     "Recovery code": "恢复码",
+    "Setup id": "设置 Id",
     "Role": "角色",
     "Role name": "角色名称",
     "Role:NameAlreadyUsed": "角色“{Name}”已存在。",
@@ -149,6 +152,8 @@
     "SecurityAlert:PasswordChanged:Title": "密码已修改",
     "SecurityAlert:PasswordReset:Content": "你在其他设备上的登录已全部退出。",
     "SecurityAlert:PasswordReset:Title": "管理员重置了你的密码",
+    "SecurityAlert:TwoFactorAuthenticatorReplaced:Content": "原来的身份验证器和旧恢复码都已失效。如果不是你本人操作，请立即联系管理员。",
+    "SecurityAlert:TwoFactorAuthenticatorReplaced:Title": "身份验证器已更换",
     "SecurityAlert:TwoFactorDisabled:Content": "如果不是你本人操作，请重新启用并修改密码。",
     "SecurityAlert:TwoFactorDisabled:Title": "两步验证已停用",
     "SecurityAlert:TwoFactorEnabled:Content": "今后登录除了密码，还要输入身份验证器应用上的验证码。",
@@ -241,6 +246,9 @@
     "User:SelfDeleteForbidden": "不能删除自己的账号。",
 //#endif
     "User:SelfDisableForbidden": "不能禁用自己的账号。",
+//#if (LocalIdentity)
+    "User:SelfTwoFactorResetForbidden": "不能在用户管理中重置自己的两步验证，请到个人安全设置中更换或停用。",
+//#endif
 //#if (LocalIdentity)
     "User:SuperAdminDeleteForbidden": "系统内置超级管理员不允许删除。",
 //#endif

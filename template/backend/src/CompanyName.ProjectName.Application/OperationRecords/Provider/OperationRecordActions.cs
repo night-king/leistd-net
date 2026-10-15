@@ -154,6 +154,9 @@ public static class OperationRecordActions
     /// <summary>用户启用了两步验证。</summary>
     public const string AuthTwoFactorEnabled = "auth.two-factor.enabled";
 
+    /// <summary>用户换绑了身份验证器（新密钥与新的一组恢复码，旧的随即作废）。</summary>
+    public const string AuthTwoFactorAuthenticatorReplaced = "auth.two-factor.authenticator-replaced";
+
     /// <summary>用户停用了两步验证。</summary>
     public const string AuthTwoFactorDisabled = "auth.two-factor.disabled";
 
@@ -226,8 +229,8 @@ public static class OperationRecordAuthorizations
     /// 开出用户侧端点时，应先定义相应权限并改用那个权限名。
     /// </remarks>
     public const string DirectUserGrant = "DirectUserGrant";
-#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))
-    /// <summary>持有数据库部署权限的命令行作业（DbMigrator 的管理员引导与恢复）。</summary>
+#if (RemoteTokenAuth || LocalIdentity)
+    /// <summary>持有数据库部署权限的命令行作业（DbMigrator 的管理员引导、恢复与两步验证重置）。</summary>
     public const string DeploymentBootstrap = "DeploymentBootstrap";
 #endif
 #if (LocalIdentity)

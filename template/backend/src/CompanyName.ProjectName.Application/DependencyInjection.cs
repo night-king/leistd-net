@@ -95,8 +95,7 @@ public static class DependencyInjection
 #endif
         services.TryAddTransient<SessionIssuer>();
         services.TryAddTransient<IUserSessionValidator, UserSessionValidator>();
-        // 会话撤销后作废它的校验缓存（事务提交后由本地事件总线分发）
-        services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<UserSessionRevokedEvent>, UserSessionRevokedEventHandler>());
+        services.AddUserSessionCacheEviction();
         services.TryAddTransient<CurrentSessionTerminator>();
         services.TryAddTransient<IUserSessionAppService, UserSessionAppService>();
         // 安全提醒默认不发；启用通知时宿主换成经通知组件发布的实现
@@ -184,6 +183,16 @@ public static class DependencyInjection
         return services;
     }
 
+#if (LocalIdentity)
+    /// <summary>会话撤销后作废它的校验缓存（事务提交后由本地事件总线分发），撤销对已发出的 Cookie 立即生效。</summary>
+    /// <remarks>部署作业撤销会话时也注册它：与 API 共享 Redis 时，作业里的撤销同样立即作废 API 的校验缓存。</remarks>
+    public static IServiceCollection AddUserSessionCacheEviction(this IServiceCollection services)
+    {
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<UserSessionRevokedEvent>, UserSessionRevokedEventHandler>());
+        return services;
+    }
+
+#endif
     /// <summary>注册本项目的权限定义与操作动作定义，以及权限组件解析主体所需的本项目实现。</summary>
     /// <remarks>
     /// <see cref="AddApplicationServices"/> 已包含它。只组合部分运行期能力的一次性作业（DbMigrator 的管理员引导与恢复）单独调用：

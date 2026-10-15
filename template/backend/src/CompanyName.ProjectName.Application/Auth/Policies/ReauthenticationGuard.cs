@@ -1,11 +1,16 @@
 #if (LocalIdentity)
 using CompanyName.ProjectName.Application.Auth.SignIn;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
+using CompanyName.ProjectName.Domain.Auth.Errors;
+using CompanyName.ProjectName.Domain.Users.DomainServices;
 using CompanyName.ProjectName.Domain.Users.Entities;
+using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Domain.Users.ValueObjects;
 using Leistd.ExceptionHandling;
 using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Recording;
+using Leistd.Security.Claims;
+using Leistd.Security.Users;
 using Leistd.Timing;
 
 namespace CompanyName.ProjectName.Application.Auth.Policies;
@@ -27,6 +32,28 @@ internal interface IReauthenticationGuard
 {
     /// <summary>锁定期内直接拒绝，不进入校验。必须在比对口令或验证码<b>之前</b>调用。</summary>
     Task EnsureAllowedAsync(User user, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 确认当前会话的主人刚刚证明过自己：会话的认证时间（<c>auth_time</c>）在 <see cref="ReauthenticationGuard.RecentAuthenticationWindow"/> 内，
+    /// 或者本次出示了正确的当前口令。用在绑定验证器、换绑、管理员重置他人两步验证这类"拿到会话就能改掉凭据"的入口前。
+    /// </summary>
+    /// <remarks>
+    /// <para>只看会话是否受限不够：要求两步验证的受限会话可能已经开着很久，判据只认真实的认证时间。
+    /// 模拟登录签发的会话不算——那是发起人认证的时间，不是这个账号的主人。</para>
+    /// <para>不新鲜时：有本地口令的账号以 <see cref="AuthErrorCodes.ReauthenticationRequired"/> 要求出示口令；
+    /// 只经外部登录、没有本地口令的账号以 <see cref="AuthErrorCodes.SignInAgainRequired"/> 要求重新登录——
+    /// 重新走一遍外部登录得到新的认证时间，就满足了同一条判据，不为它另开豁免。</para>
+    /// <para>口令错误按再认证失败计数与锁定（同 <see cref="RejectAsync"/>）。</para>
+    /// </remarks>
+    /// <param name="user">当前会话的用户本人。</param>
+    /// <param name="currentPassword">本次出示的当前口令；没有出示时为 null。</param>
+    /// <param name="action">业务动作码，失败审计用，与该操作成功路径的值一致。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task EnsureRecentlyAuthenticatedAsync(
+        User user,
+        string? currentPassword,
+        string action,
+        CancellationToken cancellationToken = default);
 
     /// <summary>登记一次再认证失败（计数、必要时锁定、留下审计），并<b>返回该抛给调用方的异常</b>。</summary>
     /// <remarks>
@@ -52,8 +79,14 @@ internal interface IReauthenticationGuard
 internal sealed class ReauthenticationGuard(
     IAccessFailureCounter accessFailureCounter,
     IOperationRecorder operationRecorder,
+    UserDomainService userDomainService,
+    ICurrentUser currentUser,
     IClock clock) : IReauthenticationGuard
 {
+    /// <summary>会话认证时间离现在多久以内算"刚刚认证过"。</summary>
+    /// <remarks>覆盖"登录后接着去设置两步验证"这一段操作；更久的会话改为当场出示口令。</remarks>
+    public static readonly TimeSpan RecentAuthenticationWindow = TimeSpan.FromMinutes(15);
+
     /// <inheritdoc />
     public async Task EnsureAllowedAsync(User user, CancellationToken cancellationToken = default)
     {
@@ -101,6 +134,62 @@ internal sealed class ReauthenticationGuard(
 
         // 取刚提交的那一行，不是调用方手里的陈旧实例
         return SessionIssuer.LockedOut(counted, clock.Now);
+    }
+
+    /// <inheritdoc />
+    public async Task EnsureRecentlyAuthenticatedAsync(
+        User user,
+        string? currentPassword,
+        string action,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        if (user.Id != currentUser.Id)
+        {
+            throw new InvalidOperationException("Recent authentication is checked for the signed-in user only.");
+        }
+
+        await EnsureAllowedAsync(user, cancellationToken);
+
+        if (!string.IsNullOrEmpty(currentPassword))
+        {
+            if (userDomainService.VerifyCurrentPassword(user, currentPassword))
+            {
+                return;
+            }
+
+            throw await RejectAsync(
+                user,
+                action,
+                SecurityErrorCodes.CurrentPasswordIncorrect,
+                "The current password is incorrect.",
+                cancellationToken);
+        }
+
+        if (IsRecentSession())
+        {
+            return;
+        }
+
+        throw user.HasLocalPassword
+            ? new BusinessException(AuthErrorCodes.ReauthenticationRequired, "Enter your current password to continue.")
+            : new BusinessException(AuthErrorCodes.SignInAgainRequired, "Sign in again to continue.");
+    }
+
+    private bool IsRecentSession()
+    {
+        if (currentUser.FindClaim(CustomClaimTypes.ImpersonatorUserId) is not null)
+        {
+            return false;
+        }
+
+        if (SessionIssuer.ReadAuthenticationTime(currentUser.FindClaim(SessionIssuer.AuthenticationTimeClaimType)) is not { } authenticatedAt)
+        {
+            return false;
+        }
+
+        var now = new DateTimeOffset(DateTime.SpecifyKind(clock.Now, DateTimeKind.Utc));
+        return now - authenticatedAt <= RecentAuthenticationWindow;
     }
 }
 #endif

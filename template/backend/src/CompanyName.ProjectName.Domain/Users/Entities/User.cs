@@ -208,6 +208,18 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     {
         return CanBeDeleted() && Id != actorUserId;
     }
+
+    /// <summary>能否由 <paramref name="actorUserId"/> 经用户管理重置两步验证：在 <see cref="CanBeManagedBy"/> 之上，任何人都不能重置自己。</summary>
+    /// <remarks>
+    /// 本人的两步验证走个人安全设置：停用要口令与验证码、受组织强制策略约束，换绑要再认证与第二因素。
+    /// 管理入口不查这些，放行本人就等于给会话持有者一条绕过它们的路。
+    /// 丢了验证器的本人用恢复码登录后自助换绑；内置超级管理员只能由本人操作，因此也只走这条路，
+    /// 恢复码也用尽时由部署方处理（见项目文档）。
+    /// </remarks>
+    public bool CanTwoFactorBeResetBy(Guid? actorUserId)
+    {
+        return CanBeManagedBy(actorUserId) && Id != actorUserId;
+    }
 #endif
 
     /// <summary>撤回软删除，让这一行按原 Id 回到正常查询里；删除时间与删除者一并清空。</summary>
@@ -380,6 +392,18 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     public void EnableTwoFactor(string protectedSecret, IEnumerable<string> recoveryCodeHashes, long usedStep)
     {
         EnsureTwoFactorDisabled();
+        TwoFactor = TwoFactorCredential.Create(protectedSecret, recoveryCodeHashes, usedStep);
+        RotateSecurityStamp();
+    }
+
+    /// <summary>换绑身份验证器：换成新的密钥与一组新的恢复码，旧验证器与旧恢复码随即作废。</summary>
+    /// <param name="protectedSecret">已加密的新密钥。</param>
+    /// <param name="recoveryCodeHashes">新恢复码摘要。</param>
+    /// <param name="usedStep">确认新密钥时校验通过的那一步，随即记为已用。</param>
+    /// <exception cref="BusinessException">两步验证未启用（<see cref="AuthErrorCodes.TwoFactorNotEnabled"/>）：没有可换的验证器，应走启用。</exception>
+    public void ReplaceTwoFactor(string protectedSecret, IEnumerable<string> recoveryCodeHashes, long usedStep)
+    {
+        EnsureTwoFactorEnabled();
         TwoFactor = TwoFactorCredential.Create(protectedSecret, recoveryCodeHashes, usedStep);
         RotateSecurityStamp();
     }

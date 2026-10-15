@@ -45,6 +45,15 @@ internal sealed class SessionIssuer(
     // 否则官方 IsInRole / RequireRole 按默认的 ClaimTypes.Role 去找，静默判为不在角色中。
     private const string RoleClaimType = "role";
 
+    /// <summary>会话主体上记录实际认证时刻的 OIDC 标准声明名。</summary>
+    public const string AuthenticationTimeClaimType = "auth_time";
+
+    /// <summary>读出主体的实际认证时刻；没有或格式不对时返回 null。</summary>
+    public static DateTimeOffset? ReadAuthenticationTime(Claim? claim) =>
+        long.TryParse(claim?.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+            ? DateTimeOffset.FromUnixTimeSeconds(seconds)
+            : null;
+
     /// <summary>登录第一步（密码或外部登录）通过之后决定去向。</summary>
     /// <remarks>
     /// <list type="bullet">
@@ -91,6 +100,12 @@ internal sealed class SessionIssuer(
     /// 已认证请求的租户由 cookie claim 定案，请求头改写不了，所以模拟态也必须落在这里。
     /// </param>
     /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="authenticatedAt">
+    /// 这次会话对应的实际认证时刻，写进 <c>auth_time</c>。只有真正出示了凭据的那一刻（登录、第二步通过）才是"现在"，
+    /// 此时不传；只是换发会话的调用方（进入或退出模拟、受限会话转正）传入原会话的认证时刻，
+    /// 读不出时传 <see cref="DateTimeOffset.UnixEpoch"/>——宁可让依赖它的判据（近期认证、OIDC <c>max_age</c>）要求重新认证，
+    /// 也不能把一次会话切换当成刚认证过。
+    /// </param>
     /// <remarks>
     /// 模拟登录复用本方法，因此 <c>RecordLoginSuccess</c> 也会记在被模拟的账号上：
     /// 换来的是访问校验（禁用、锁定）只有一条实现，不会出现"正常登录拒绝、模拟登录放行"的偏差。
@@ -102,7 +117,8 @@ internal sealed class SessionIssuer(
         User user,
         List<string>? roleNames = null,
         IEnumerable<Claim>? additionalClaims = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? authenticatedAt = null)
     {
         var now = clock.Now;
         EnsureAllowed(user, now);
@@ -127,9 +143,10 @@ internal sealed class SessionIssuer(
         var identity = new ClaimsIdentity(AuthenticationSchemeNames.SessionCookie, ClaimTypes.Name, RoleClaimType);
         identity.AddClaim(new Claim(claimTypes.Value.UserIds[0], user.Id.ToString()));
         identity.AddClaim(new Claim(CustomClaimTypes.SessionId, session.Id.ToString()));
-        // 真正认证时记录，Cookie 滑动续期不能更新 OIDC max_age 的基准。
-        identity.AddClaim(new Claim("auth_time", new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc))
-            .ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64));
+        // 真正认证时记录，Cookie 滑动续期与会话换发都不能更新 OIDC max_age 与近期认证的基准。
+        var authenticationTime = authenticatedAt ?? new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc));
+        identity.AddClaim(new Claim(AuthenticationTimeClaimType,
+            authenticationTime.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64));
         identity.AddClaim(new Claim(ClaimTypes.Name, user.Username));
         // ICurrentUser 的约定：Username 取 preferred_username，Name 是显示名、取 name。
         // 只写 ClaimTypes.Name 时两者都读到登录名，操作记录的操作人列就与目标列口径不一——

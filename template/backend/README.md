@@ -241,6 +241,33 @@ dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --restore-tenant-
 - 记录的操作人是部署身份（`deployment:<用户>@<主机>`），授权依据为 `DeploymentBootstrap`，在提交之后写进安全行为日志。
 <!--#endif-->
 <!--#endif-->
+<!--#if (LocalIdentity)-->
+
+## 两步验证的再认证与恢复
+
+改写两步验证凭据的入口都假设会话可能被盗用，按下面的规则把关：
+
+- **刚认证过才放行**：绑定验证器、换绑、管理员重置他人的两步验证之前，会话的认证时间（`auth_time`）要在 15 分钟内；否则当场出示当前口令（`Auth:ReauthenticationRequired`），口令错误与登录共用失败计数和锁定。只经外部登录、没有本地口令的账号重新登录即可（`Auth:SignInAgainRequired`），新的认证时间满足同一条判据。"组织要求设置"的受限会话只是受限，不算刚认证；模拟登录的会话也不算。停用两步验证与重发恢复码照旧每次出示口令或验证码。
+- **一次设置一个 Id**：开始设置返回 `setupId`，确认时原样带回。别处重新开始过、或之后凭据变过（改口令、重置等换发了安全版本）的设置都作废（`Auth:TwoFactorSetupExpired`），界面清掉二维码与密钥、请本人重新开始。
+- **换绑**：已启用时再开始设置就是换绑，要出示现有验证器上的码，或者验证器丢了时用一个恢复码（当场用掉）。确认新验证器后发一组新恢复码，旧验证器与旧恢复码随即作废，其他设备退出。恢复码只能换得一次重新绑定，不能直接换出新的恢复码；整个过程不经过"未启用"，组织强制两步验证时同样可用。
+- **管理员重置**：不能重置自己（`User:SelfTwoFactorResetForbidden`）——本人走个人设置的换绑或停用；重置他人前管理员自己要刚认证过或出示口令。
+- **并发**：启用、换绑、停用、重发、登录第二步、管理员重置都先取同一把用户级凭据锁（`TwoFactorCredentialLock`），在锁内读、写并提交，互相不会覆盖。
+
+验证器丢了、恢复码也用尽、在线又没人能替他重置时（典型是内置超级管理员——只能由本人操作），由部署方执行：
+
+```bash
+dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --reset-two-factor <user-id>          # 预演
+dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --reset-two-factor <user-id> --apply  # 施加
+```
+
+<!--#if (IncludeMultiTenancy)-->
+租户里的用户加 `--tenant <tenant-id>`，命令按正式路由进入该租户的实际落点（与 API 共用 Data Protection 密钥环）。
+<!--#endif-->
+施加时在该用户的凭据锁内、一个事务里停用两步验证、清掉密钥与恢复码、结束全部会话，并留下动作码为 `user.two-factor-reset`、授权依据为 `DeploymentBootstrap` 的成功记录；本人随后用口令登录并重新设置。边界：
+
+- 结束的会话经提交后的事件作废校验缓存：与 API 共享 Redis 时立即生效，不共享时运行中的 API 最多滞后一分钟。
+- 已签发给应用的访问令牌不在这里撤销，按有效期自然过期；安全提醒也只在 API 里发送。这条命令用于本人找回，不用于账号失窃——失窃时先在线停用账号。
+<!--#endif-->
 
 <!--#if (SpaFrontend)-->
 ## 前后端联调

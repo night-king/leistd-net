@@ -16,6 +16,9 @@ public enum SecurityAlertKind
     /// <summary>启用了两步验证。</summary>
     TwoFactorEnabled,
 
+    /// <summary>换绑了身份验证器。</summary>
+    TwoFactorAuthenticatorReplaced,
+
     /// <summary>停用了两步验证。</summary>
     TwoFactorDisabled,
 

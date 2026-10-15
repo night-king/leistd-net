@@ -55,4 +55,39 @@ describe('TwoFactorSettings', () => {
     expect(host.querySelector('[data-testid="two-factor-turn-off"]')).toBeNull();
     expect(host.querySelector('[data-testid="recovery-codes-left"]')).not.toBeNull();
   });
+
+  // 验证器丢了：用一个恢复码开始换绑，不经过"停用"，组织强制两步验证时同样可用
+  it('replaces a lost authenticator with a recovery code even when two-factor is required', async () => {
+    account.beginTwoFactorSetup.mockReturnValue(
+      of({
+        setupId: 'setup-1',
+        secret: 'JBSWY3DPEHPK3PXP',
+        otpAuthUri: 'otpauth://totp/App:alice',
+      }),
+    );
+    const host = await render({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: true });
+
+    host.querySelector<HTMLButtonElement>('[data-testid="two-factor-replace"]')!.click();
+    fixture.detectChanges();
+    host.querySelector<HTMLButtonElement>('[data-testid="two-factor-replace-toggle"]')!.click();
+    fixture.detectChanges();
+    const input = host.querySelector<HTMLInputElement>(
+      '[data-testid="two-factor-replace-recovery-code"]',
+    )!;
+    input.value = ' AAAA-BBBB ';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    host
+      .querySelector('[data-testid="two-factor-replace-form"]')!
+      .dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(account.beginTwoFactorSetup).toHaveBeenCalledWith({
+      recoveryCode: 'AAAA-BBBB',
+      password: undefined,
+    });
+    expect(host.querySelector('[data-testid="two-factor-secret"]')).not.toBeNull();
+  });
 });

@@ -453,16 +453,32 @@
                                       </button>
                                     }
                                     @if (canUpdate() && row.original.isTwoFactorEnabled) {
+                                      <!-- 本人行：会绕过个人设置里停用要的口令与验证码和组织的强制策略，服务端同样拒绝；置灰并就地说明 -->
                                       <button
                                         hlmDropdownMenuItem
                                         data-testid="user-reset-two-factor"
-                                        [disabled]="isOtherSuperAdmin(row.original)"
-                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
+                                        [disabled]="
+                                          isOtherSuperAdmin(row.original) || isSelf(row.original)
+                                        "
+                                        [attr.aria-describedby]="
+                                          isSelf(row.original)
+                                            ? 'user-self-reset-two-factor-' + row.original.id
+                                            : superAdminReasonId(row.original)
+                                        "
                                         (click)="resetTwoFactor.emit(row.original)"
                                       >
                                         <ng-icon name="lucideShieldOff" />
                                         {{ t('users.tooltip.resetTwoFactor') }}
                                       </button>
+                                      @if (isSelf(row.original)) {
+                                        <p
+                                          [id]="'user-self-reset-two-factor-' + row.original.id"
+                                          data-testid="user-self-reset-two-factor-reason"
+                                          class="px-1.5 pb-1 text-xs text-muted-foreground"
+                                        >
+                                          {{ t('users.tooltip.selfNoResetTwoFactor') }}
+                                        </p>
+                                      }
                                     }
                                     <!--#endif-->
                                     @if (canUpdate()) {

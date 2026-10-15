@@ -14,6 +14,8 @@ public static class AuthErrorCodes
     public const string EmailVerificationUnavailable = "Auth:EmailVerificationUnavailable";
 #endif
     public const string InvalidCredentials = "Auth:InvalidCredentials";
+    public const string ReauthenticationRequired = "Auth:ReauthenticationRequired";
+    public const string SignInAgainRequired = "Auth:SignInAgainRequired";
     public const string TwoFactorAlreadyEnabled = "Auth:TwoFactorAlreadyEnabled";
     public const string TwoFactorChallengeExpired = "Auth:TwoFactorChallengeExpired";
     public const string TwoFactorCodeInvalid = "Auth:TwoFactorCodeInvalid";

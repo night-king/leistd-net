@@ -86,6 +86,7 @@ public sealed class NotificationSecurityAlertPublisher(
             SecurityAlertKind.PasswordChanged => ("Your password was changed", "If you didn't do this, contact your administrator right away."),
             SecurityAlertKind.PasswordReset => ("Your password was reset by an administrator", "Your other devices were signed out."),
             SecurityAlertKind.TwoFactorEnabled => ("Two-factor authentication turned on", "Signing in now also needs a code from your authenticator app."),
+            SecurityAlertKind.TwoFactorAuthenticatorReplaced => ("Authenticator app replaced", "Codes from your previous authenticator and your old recovery codes no longer work. If you didn't do this, contact your administrator right away."),
             SecurityAlertKind.TwoFactorDisabled => ("Two-factor authentication turned off", "If you didn't do this, turn it back on and change your password."),
             SecurityAlertKind.TwoFactorReset => ("Two-factor authentication was reset by an administrator", "Set it up again from your security settings."),
             SecurityAlertKind.LockedOut => ("Your account was locked", "There were too many failed sign-in attempts. It unlocks at {Until} (UTC)."),

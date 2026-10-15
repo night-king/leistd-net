@@ -342,6 +342,7 @@ const ENGLISH: Record<string, string> = {
   'users.tooltip.disable': 'Disable',
   'users.tooltip.enable': 'Enable',
   'users.tooltip.selfNoDisable': "You can't disable your own account",
+  'users.tooltip.selfNoResetTwoFactor': 'Manage your own in Personal settings',
   'users.tooltip.selfNoDelete': "You can't delete your own account",
   'users.tooltip.superAdminNoManage':
     'Only the built-in super administrator can do this to their own account',
