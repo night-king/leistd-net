@@ -79,6 +79,33 @@ class TestHost {
 })
 class TableHost {}
 
+/**
+ * 弹窗里常见的滚动列表：外层有内边距，滚动区（`overflow-y-auto`）却紧贴首列。滚动区会裁掉伸出它的命中区，
+ * 外层的内边距补不上；第二个列表在滚动区内部给行留了起始内边距。两行纵向都留足了空间，只差起始内边距。
+ */
+@Component({
+  selector: 'app-scroll-host',
+  imports: [HlmCheckboxImports],
+  template: `
+    <div class="flex flex-col gap-12 p-12">
+      <div class="max-h-40 overflow-y-auto" data-testid="flush">
+        <div class="flex items-center gap-3 py-3.5">
+          <hlm-checkbox aria-label="flush" />
+          <span>Flush</span>
+        </div>
+      </div>
+      <div class="max-h-40 overflow-y-auto" data-testid="padded">
+        <div class="flex items-center gap-3 py-3.5 ps-3.5">
+          <hlm-checkbox aria-label="padded" />
+          <span>Padded</span>
+        </div>
+      </div>
+    </div>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class ScrollHost {}
+
 describe('small controls on coarse pointers', () => {
   afterEach(async () => {
     await setCoarsePointer(false);
@@ -166,5 +193,18 @@ describe('small controls on coarse pointers', () => {
     expectTouchTarget(bare);
     expectTouchTarget(neighbour.querySelector('[role="checkbox"]')!);
     expectTouchTarget(neighbour.querySelector('button:not([role])')!);
+  });
+
+  // 滚动区紧贴首列时命中区左沿被裁：外层留白救不了，助手必须能查出来；在滚动区内部留起始内边距后通过
+  it('detects a hit area clipped by a scroll container and passes once the container leaves room', async () => {
+    await setCoarsePointer(true);
+    const fixture = TestBed.createComponent(ScrollHost);
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(() =>
+      expectTouchTarget(root.querySelector('[data-testid="flush"] [role="checkbox"]')!),
+    ).toThrow();
+    expectTouchTarget(root.querySelector('[data-testid="padded"] [role="checkbox"]')!);
   });
 });

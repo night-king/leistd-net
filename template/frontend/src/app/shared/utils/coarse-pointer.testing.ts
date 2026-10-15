@@ -22,9 +22,9 @@ export async function setCoarsePointer(enabled: boolean): Promise<void> {
  * 没有被祖先裁掉或被别的元素盖住。不取四角：命中检测按圆角裁剪，角上的点本来就落在元素外。
  *
  * 元素自身不足 44px 时，命中区必须来自 styles.css 铺开的透明 `::after`：以元素中心为心、按伪元素的计算尺寸
- * 构造有效命中框，在中心和四边中点内缩 0.25px 处采样，用来发现裁切与邻近目标覆盖；这是采样检查，
- * 结果也受浏览器命中检测的取整影响，不保证不足一像素的裁切都能查出。命中检测只认视口内的点，
- * 先把元素滚到视口中间。几何只说明点按落在了谁身上，点按是否触发了动作由 `tapAt` 加行为断言证明。
+ * 构造有效命中框，在中心和四边中点内缩 0.25px 处采样，用来发现裁切（包括 `overflow-*` 滚动容器裁掉伸出
+ * 它的部分）与邻近目标覆盖；这是采样检查，结果也受浏览器命中检测的取整影响，不保证不足一像素的裁切都能查出。
+ * 命中检测只认视口内的点，先把元素滚到视口中间。几何只说明点按落在了谁身上，点按是否触发了动作由 `tapAt` 加行为断言证明。
  */
 export function expectTouchTarget(element: Element): void {
   element.scrollIntoView({ block: 'center', inline: 'center' });
