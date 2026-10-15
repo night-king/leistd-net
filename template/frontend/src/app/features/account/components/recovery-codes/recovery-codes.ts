@@ -4,6 +4,7 @@ import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideCheck, lucideCopy, lucideDownload, lucideTriangleAlert } from '@ng-icons/lucide';
+import { HlmAlertImports } from '@spartan-ng/helm/alert';
 import { HlmButton } from '@spartan-ng/helm/button';
 
 import { injectCopyToClipboard } from '../../../../shared/utils/clipboard';
@@ -23,6 +24,7 @@ import { englishText } from '../../../../shared/utils/english-text';
   imports: [
     NgIcon,
     HlmButton,
+    ...HlmAlertImports,
     //#if (IncludeLocalization)
     TranslocoDirective,
     //#endif
