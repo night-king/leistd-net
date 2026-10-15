@@ -36,7 +36,7 @@
                         @case ('username') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('username')"
                           >
                             {{ t('users.table.colUser') }}
@@ -46,7 +46,7 @@
                         @case ('email') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('email')"
                           >
                             {{ t('users.table.colEmail') }}
@@ -63,7 +63,7 @@
                         @case ('lastLoginTime') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('lastLoginTime')"
                           >
                             {{ t('users.table.colLastLogin') }}
@@ -74,7 +74,7 @@
                         @case ('creationTime') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('creationTime')"
                           >
                             {{ t('users.table.colCreatedAt') }}

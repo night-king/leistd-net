@@ -1,5 +1,5 @@
 /// <reference types="@vitest/browser-playwright" />
-import { cdp } from 'vitest/browser';
+import { cdp, userEvent } from 'vitest/browser';
 
 /** 触屏点按目标的最小边长（docs/standards/frontend-ui.md「可访问性」）。 */
 export const MIN_TOUCH_TARGET_PX = 44;
@@ -18,26 +18,29 @@ export async function setCoarsePointer(enabled: boolean): Promise<void> {
 }
 
 /**
- * 断言元素是一个可点的触屏目标：宽高都不小于 44px，且四条边中点附近与中心这几个采样点的点按都落在它自己身上，
+ * 断言元素是一个可点的触屏目标：有效命中框宽高都不小于 44px，且四条边中点与中心的点按都落在它自己身上，
  * 没有被祖先裁掉或被别的元素盖住。不取四角：命中检测按圆角裁剪，角上的点本来就落在元素外。
- * 命中检测只认视口内的点，先把元素滚到视口中间。
+ *
+ * 元素自身不足 44px 时，命中区必须来自 styles.css 铺开的透明 `::after`：以元素中心为心、按伪元素的计算尺寸
+ * 构造有效命中框，在中心和四边中点内缩 0.25px 处采样，用来发现裁切与邻近目标覆盖；这是采样检查，
+ * 结果也受浏览器命中检测的取整影响，不保证不足一像素的裁切都能查出。命中检测只认视口内的点，
+ * 先把元素滚到视口中间。几何只说明点按落在了谁身上，点按是否触发了动作由 `tapAt` 加行为断言证明。
  */
 export function expectTouchTarget(element: Element): void {
   element.scrollIntoView({ block: 'center', inline: 'center' });
-  const rect = element.getBoundingClientRect();
+  const box = touchTargetBox(element);
   // 只容忍布局取整的浮点误差，不放宽到半个像素
   const tolerance = 0.01;
-  expect(rect.width + tolerance, 'touch target width').toBeGreaterThanOrEqual(MIN_TOUCH_TARGET_PX);
-  expect(rect.height + tolerance, 'touch target height').toBeGreaterThanOrEqual(
-    MIN_TOUCH_TARGET_PX,
-  );
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
+  expect(box.width + tolerance, 'touch target width').toBeGreaterThanOrEqual(MIN_TOUCH_TARGET_PX);
+  expect(box.height + tolerance, 'touch target height').toBeGreaterThanOrEqual(MIN_TOUCH_TARGET_PX);
+  const inset = box.expanded ? 0.25 : 2;
+  const centerX = box.left + box.width / 2;
+  const centerY = box.top + box.height / 2;
   const points = [
-    [rect.left + 2, centerY],
-    [rect.right - 2, centerY],
-    [centerX, rect.top + 2],
-    [centerX, rect.bottom - 2],
+    [box.left + inset, centerY],
+    [box.left + box.width - inset, centerY],
+    [centerX, box.top + inset],
+    [centerX, box.top + box.height - inset],
     [centerX, centerY],
   ];
   for (const [x, y] of points) {
@@ -46,4 +49,80 @@ export function expectTouchTarget(element: Element): void {
       true,
     );
   }
+}
+
+/**
+ * 在以元素中心为原点、偏移 (dx, dy) 的视口坐标上真实点按一次：浏览器按坐标做命中检测再派发事件，
+ * 落在伪元素铺开的区域也算点到元素。不用 `HTMLElement.click()`，那会绕过命中检测。
+ * 点禁用控件时传 `disabled`：先确认该坐标确实落在控件上，再跳过 Playwright 的可点前提照样按下，
+ * 用来证明扩出的命中区没有绕过禁用，而不是点在了空白处。
+ */
+export async function tapAt(
+  element: Element,
+  dx: number,
+  dy: number,
+  options: { readonly disabled?: boolean } = {},
+): Promise<void> {
+  element.scrollIntoView({ block: 'center', inline: 'center' });
+  const rect = element.getBoundingClientRect();
+  if (options.disabled) {
+    const hit = document.elementFromPoint(
+      rect.left + rect.width / 2 + dx,
+      rect.top + rect.height / 2 + dy,
+    );
+    expect(
+      hit !== null && (hit === element || element.contains(hit)),
+      'tap lands on the control',
+    ).toBe(true);
+  }
+  // Playwright 的 position 以 padding box 左上角为原点，getBoundingClientRect 是 border box
+  const style = getComputedStyle(element);
+  await userEvent.click(element, {
+    position: {
+      x: rect.width / 2 + dx - Number.parseFloat(style.borderLeftWidth),
+      y: rect.height / 2 + dy - Number.parseFloat(style.borderTopWidth),
+    },
+    force: options.disabled,
+  });
+}
+
+interface TouchTargetBox {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+  /** 命中区来自 `::after`，不是元素自身的盒子。 */
+  readonly expanded: boolean;
+}
+
+function touchTargetBox(element: Element): TouchTargetBox {
+  const rect = element.getBoundingClientRect();
+  if (rect.width >= MIN_TOUCH_TARGET_PX && rect.height >= MIN_TOUCH_TARGET_PX) {
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      expanded: false,
+    };
+  }
+  const after = getComputedStyle(element, '::after');
+  expect(
+    after.content !== 'none' && after.content !== 'normal' && after.position === 'absolute',
+    `${describe(element)} is ${rect.width}x${rect.height}px and needs an absolutely positioned ::after hit area`,
+  ).toBe(true);
+  const width = Math.max(rect.width, Number.parseFloat(after.width));
+  const height = Math.max(rect.height, Number.parseFloat(after.height));
+  return {
+    left: rect.left + rect.width / 2 - width / 2,
+    top: rect.top + rect.height / 2 - height / 2,
+    width,
+    height,
+    expanded: true,
+  };
+}
+
+function describe(element: Element): string {
+  const label = element.getAttribute('aria-label') ?? element.id;
+  return `<${element.tagName.toLowerCase()}${label ? ` ${label}` : ''}>`;
 }

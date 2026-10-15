@@ -25,7 +25,7 @@
                         @case ('clientId') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('clientId')"
                           >
                             {{ t('openApp.table.colApp') }}
@@ -53,7 +53,7 @@
                         @case ('creationTime') {
                           <button
                             type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors"
+                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
                             (click)="toggleSort('creationTime')"
                           >
                             {{ t('openApp.table.colCreatedAt') }}

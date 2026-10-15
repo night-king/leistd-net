@@ -10,6 +10,11 @@ import { ApplicationHttpError } from '../../../../../../core/errors/application-
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
+import {
+  expectTouchTarget,
+  setCoarsePointer,
+  tapAt,
+} from '../../../../../../shared/utils/coarse-pointer.testing';
 import { RoleBriefDto } from '../../../../dtos/role.dto';
 import {
   UpdateUserRolesInputDto,
@@ -110,6 +115,25 @@ describe('UserRolesDialog', () => {
       expect(label?.textContent).toContain(role.displayName);
       expect(document.getElementById(`role-${role.id}`)).not.toBeNull();
     }
+  });
+
+  // 列表滚动区左侧没有内边距：触屏下行首要留出 14px，复选框命中区的左沿才不被裁掉
+  it('keeps the left edge of each role checkbox tappable on coarse pointers', async () => {
+    await setCoarsePointer(true);
+    onTestFinished(() => setCoarsePointer(false));
+    await fixture.whenStable();
+    // 弹窗打开时有缩放动画，量尺寸前等它结束
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+    const dialog = fixture.debugElement.query(By.directive(UserRolesDialog))
+      .componentInstance as UserRolesDialog;
+
+    for (const role of host.roles) {
+      expectTouchTarget(document.getElementById(`role-${role.id}`)!);
+    }
+
+    await tapAt(document.getElementById('role-role-admin')!, -20, 0);
+    await fixture.whenStable();
+    expect(dialog.isSelected('role-admin')).toBe(true);
   });
 
   it('starts from the roles the user already has', () => {

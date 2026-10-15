@@ -8,6 +8,11 @@ import { UserEditDialog } from './user-edit-dialog';
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
 import { PASSWORD_MIN_LENGTH } from '../../../../../../core/validation/password-rule';
+import {
+  expectTouchTarget,
+  setCoarsePointer,
+  tapAt,
+} from '../../../../../../shared/utils/coarse-pointer.testing';
 import { RoleBriefDto } from '../../../../dtos/role.dto';
 import {
   CreateUserInputDto,
@@ -176,6 +181,22 @@ describe('UserEditDialog', () => {
       expect(describedBy).toBeTruthy();
       expect(document.getElementById(describedBy!)?.textContent?.trim()).toBe(description);
     }
+  });
+
+  // 开关视觉只有约 32×18px：触屏下命中区铺到 44px，点在开关外沿也能切换
+  it('toggles the active switch from the edge of its touch target on coarse pointers', async () => {
+    await setCoarsePointer(true);
+    onTestFinished(() => setCoarsePointer(false));
+    // 弹窗打开时有缩放动画，量尺寸前等它结束
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+    const active = document.getElementById('user-is-active')!;
+    const before = active.getAttribute('aria-checked');
+
+    expectTouchTarget(active);
+    await tapAt(active, 0, 20);
+    await fixture.whenStable();
+
+    expect(active.getAttribute('aria-checked')).toBe(before === 'true' ? 'false' : 'true');
   });
 
   it('does not submit an empty create form and reveals the errors on submit', async () => {

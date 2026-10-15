@@ -7,7 +7,7 @@ import { provideRouter } from '@angular/router';
 //#if (IncludeLocalization)
 import { TranslocoService } from '@jsverse/transloco';
 //#endif
-import { PaginationState, SortingState } from '@tanstack/angular-table';
+import { PaginationState, RowSelectionState, SortingState } from '@tanstack/angular-table';
 import { BehaviorSubject } from 'rxjs';
 import { page } from 'vitest/browser';
 
@@ -16,6 +16,11 @@ import { UserTable } from './user-table';
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
 import { AuthService } from '../../../../../../core/services/auth-service';
+import {
+  expectTouchTarget,
+  setCoarsePointer,
+  tapAt,
+} from '../../../../../../shared/utils/coarse-pointer.testing';
 import { expectAriaSortOnSortedHeaderOnly } from '../../../../../../shared/utils/table-sorting.testing';
 import { UserManagementOutputDto } from '../../../../dtos/user-management.dto';
 
@@ -383,6 +388,69 @@ describe('UserTable', () => {
     expandButtons()[1].click();
     await fixture.whenStable();
     expect(expandedStates()).toEqual(['false', 'false']);
+  });
+
+  describe('on coarse pointers', () => {
+    afterEach(async () => {
+      await setCoarsePointer(false);
+    });
+
+    /** 选择列的复选框与右邻排序按钮、展开按钮各自是 44px 目标，命中区互不覆盖。 */
+    async function renderSelectable() {
+      await setCoarsePointer(true);
+      fixture.componentRef.setInput('selectable', true);
+      const [table] = await fixture.getDeferBlocks();
+      await table.render(DeferBlockState.Complete);
+      await fixture.whenStable();
+      // hlmBtn 的尺寸类在插入后才套上，transition-all 会把按钮从细指针尺寸过渡到 44px，量之前等它结束
+      await Promise.all(document.getAnimations().map((animation) => animation.finished));
+      const selections: RowSelectionState[] = [];
+      const sorts: SortingState[] = [];
+      component.rowSelectionChange.subscribe((value) => selections.push(value));
+      component.sortingChange.subscribe((value) => sorts.push(value));
+      const [selectAll, firstRow] = host().querySelectorAll('[role="checkbox"]');
+      const sortButton = host().querySelector('thead button:not([role])')!;
+      return { selectAll, firstRow, sortButton, selections, sorts };
+    }
+
+    // 复选框视觉方框之外、44px 命中区之内
+    const EDGE = 20;
+
+    it('gives the select checkboxes and the neighbouring sort button full touch targets', async () => {
+      const { selectAll, firstRow, sortButton } = await renderSelectable();
+
+      expectTouchTarget(selectAll);
+      expectTouchTarget(firstRow);
+      expectTouchTarget(sortButton);
+    });
+
+    it('routes taps at the shared edge to the control under them', async () => {
+      const { selectAll, firstRow, sortButton, selections, sorts } = await renderSelectable();
+
+      await tapAt(selectAll, EDGE, 0);
+      expect(selections).toEqual([{ '1': true, '2': true }]);
+      expect(sorts).toEqual([]);
+
+      const sortLeft = sortButton.getBoundingClientRect().width / 2 - 1;
+      await tapAt(sortButton, -sortLeft, 0);
+      expect(sorts).toEqual([[{ id: 'username', desc: false }]]);
+      expect(selections).toHaveLength(1);
+
+      await tapAt(firstRow, EDGE, EDGE);
+      expect(selections.at(-1)).toEqual({ '1': true });
+    });
+
+    it('keeps the select checkbox and the expand button apart on narrow tables', async () => {
+      viewport.next(desktop(false));
+      const { firstRow, selections } = await renderSelectable();
+      const [expand] = expandButtons();
+
+      expectTouchTarget(firstRow);
+      expectTouchTarget(expand);
+      await tapAt(firstRow, EDGE, 0);
+      expect(selections).toEqual([{ '1': true }]);
+      expect(expandedStates()).toEqual(['false', 'false']);
+    });
   });
 
   //#if (LocalIdentity)
