@@ -20,7 +20,7 @@ public static class AuthenticationExtensions
         AddBrowserSession(builder);
 #endif
 #if (ExternalLogin)
-        builder.Services.AddExternalAuthentication(builder.Configuration);
+        builder.Services.AddExternalAuthentication();
 #endif
 #if (LocalIdentity)
         builder.AddLocalSessionAuthentication();

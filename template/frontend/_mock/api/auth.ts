@@ -36,6 +36,9 @@ import {
 import { SessionLoginOutputDto, UserOutputDto } from '../../src/app/shared/dtos/auth.dto';
 import { MockException, MockRequest } from '../core/models';
 import { ensureAcceptablePassword } from '../data/password-policy';
+//#if (ExternalLogin)
+import { availableExternalProviders } from '../data/settings';
+//#endif
 //#if (IncludeMultiTenancy)
 import { TENANTS } from '../data/tenant';
 //#endif
@@ -756,9 +759,6 @@ function normalizeEmail(email: string): string {
 }
 //#if (ExternalLogin)
 
-/** mock 部署"已配置"的提供商：登录页入口与绑定列表读同一份。 */
-const MOCK_EXTERNAL_PROVIDERS = ['github', 'google'];
-
 /** mock 下的外部账号绑定：只演示列表与解绑；绑定要跳真实的提供商，mock 走不通。 */
 let mockExternalLinks: {
   id: string;
@@ -784,7 +784,7 @@ function getExternalLinks() {
   const user = requireCurrentMockUser();
   return {
     hasPassword: !!user.password,
-    providers: MOCK_EXTERNAL_PROVIDERS.map((provider) => ({
+    providers: availableExternalProviders().map((provider) => ({
       provider,
       link: mockExternalLinks.find((l) => l.provider === provider) ?? null,
     })),
@@ -798,7 +798,7 @@ function getExternalLinks() {
 function completeExternalLink(req: MockRequest): 'ok' {
   const user = requireCurrentMockUser();
   const provider = String(req.params.provider);
-  if (!MOCK_EXTERNAL_PROVIDERS.includes(provider)) {
+  if (!availableExternalProviders().includes(provider)) {
     throw new MockException(400, {
       code: 'ExternalAuth:InvalidState',
       message: 'Invalid or expired external authentication intent.',
@@ -878,7 +878,8 @@ export const AUTH_API = {
   'POST /api/v1/external-auth/:provider/complete': (req: MockRequest) => externalLoginCallback(req),
   'POST /api/v1/external-auth/:provider/link/complete': (req: MockRequest) =>
     completeExternalLink(req),
-  'GET /api/v1/external-auth/providers': () => ({ providers: MOCK_EXTERNAL_PROVIDERS }),
+  // 可用的提供方由部署基线叠加宿主设置决定（见 data/settings.ts），在设置页关掉即从这里消失
+  'GET /api/v1/external-auth/providers': () => ({ providers: availableExternalProviders() }),
   'GET /api/v1/external-auth/links': () => getExternalLinks(),
   'DELETE /api/v1/external-auth/links/:id': (req: MockRequest) => unlinkExternalLogin(req),
   //#endif

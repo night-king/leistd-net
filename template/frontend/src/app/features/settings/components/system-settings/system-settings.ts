@@ -8,6 +8,9 @@ import { provideIcons } from '@ng-icons/core';
 import {
   lucideActivity,
   lucideArchive,
+  //#if (ExternalLogin)
+  lucideLogIn,
+  //#endif
   lucideMail,
   lucideSettings,
   lucideShieldCheck,
@@ -37,6 +40,9 @@ const GROUP_ICONS: Readonly<Record<string, string>> = {
   Registration: 'lucideUserPlus',
   Security: 'lucideShieldCheck',
   Email: 'lucideMail',
+  //#if (ExternalLogin)
+  ExternalLogin: 'lucideLogIn',
+  //#endif
   Operations: 'lucideActivity',
   Audit: 'lucideArchive',
 };
@@ -52,6 +58,9 @@ const GROUP_ICONS: Readonly<Record<string, string>> = {
     provideIcons({
       lucideActivity,
       lucideArchive,
+      //#if (ExternalLogin)
+      lucideLogIn,
+      //#endif
       lucideMail,
       lucideSettings,
       lucideShieldCheck,

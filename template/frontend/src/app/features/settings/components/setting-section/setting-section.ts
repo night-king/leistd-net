@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 //#if (IncludeLocalization)
 import { TranslocoDirective } from '@jsverse/transloco';
@@ -17,6 +18,15 @@ import { firstValueFrom } from 'rxjs';
 
 //#if (Email)
 import { EmailTest } from './widgets/email-test/email-test';
+//#endif
+//#if (ExternalLogin)
+// prettier-ignore
+import {
+  EXTERNAL_LOGIN_GROUP,
+  ExternalLoginProviders,
+  ExternalLoginProviderSettings,
+  partitionExternalLoginSettings,
+} from './widgets/external-login-providers/external-login-providers';
 //#endif
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
@@ -57,6 +67,18 @@ interface RowState {
   message?: string;
 }
 
+/** 一个分组的渲染内容：分组本身加上按专属布局拆走之后剩下的普通行。 */
+interface GroupView extends SettingGroup {
+  /** 按通用两列网格渲染的行。 */
+  rows: SettingOutputDto[];
+  /** 整组都是进程级设置：生效范围在分组顶部说一次，不在每行重复。 */
+  hostScopeOnce: boolean;
+  //#if (ExternalLogin)
+  /** 外部登录分组按提供方拆出的卡片；其他分组为空。 */
+  externalLoginProviders: ExternalLoginProviderSettings[];
+  //#endif
+}
+
 /** "已保存"提示的停留时长：看得见，又不与下一次改动的状态混淆。 */
 const SAVED_HINT_MS = 2000;
 
@@ -78,6 +100,7 @@ export const SAVING_MIN_MS = 400;
   //#if (IncludeLocalization)
   imports: [
     NgIcon,
+    NgTemplateOutlet,
     HlmBadge,
     HlmButton,
     HlmInput,
@@ -91,10 +114,14 @@ export const SAVING_MIN_MS = 400;
     //#if (Email)
     EmailTest,
     //#endif
+    //#if (ExternalLogin)
+    ExternalLoginProviders,
+    //#endif
   ],
   //#else
   imports: [
     NgIcon,
+    NgTemplateOutlet,
     HlmBadge,
     HlmButton,
     HlmInput,
@@ -106,6 +133,9 @@ export const SAVING_MIN_MS = 400;
     ...HlmTooltipImports,
     //#if (Email)
     EmailTest,
+    //#endif
+    //#if (ExternalLogin)
+    ExternalLoginProviders,
     //#endif
   ],
   //#endif
@@ -156,6 +186,11 @@ export class SettingSection {
   protected readonly showEmailTest = computed(
     () => this.scope() === 'system' && this.groups().some((group) => group.key === 'Email'),
   );
+  //#if (ExternalLogin)
+
+  /** 外部登录分组的写入成功次数：提供方卡片据此在保存或恢复默认后重取生效状态。 */
+  protected readonly externalLoginRevision = signal(0);
+  //#endif
 
   /** 分组由后端下发的分组标识驱动，前端不另列清单，否则漏登记的新设置会从界面上静默消失。 */
   protected readonly groups = computed<SettingGroup[]>(() => {
@@ -168,6 +203,42 @@ export class SettingSection {
     const excluded = new Set(this.exclude());
     return groups.filter((group) => !excluded.has(group.key));
   });
+
+  /** 模板按它渲染：每个分组要走通用网格的行、是否统一说明生效范围，以及专属布局拆走的部分。 */
+  protected readonly groupViews = computed<GroupView[]>(() =>
+    this.groups().map((group) => {
+      const view: GroupView = {
+        ...group,
+        rows: group.settings,
+        hostScopeOnce: isHostScopeOnly(group.settings),
+        //#if (ExternalLogin)
+        externalLoginProviders: [],
+        //#endif
+      };
+      //#if (ExternalLogin)
+
+      // 外部登录按提供方分卡片，开关打开了没生效时管理员要在同一张卡片上看到缺什么；
+      // 不符合命名约定的设置留在通用网格里，不能静默消失
+      if (this.scope() === 'system' && group.key === EXTERNAL_LOGIN_GROUP) {
+        const { providers, others } = partitionExternalLoginSettings(group.settings);
+        view.rows = others;
+        view.externalLoginProviders = providers;
+      }
+      //#endif
+
+      return view;
+    }),
+  );
+
+  /** 已在分组顶部说过生效范围的分组：其中的行不再各挂一个同样的徽章。 */
+  private readonly hostScopeOnceGroups = computed(
+    () => new Set(this.groupViews().flatMap((view) => (view.hostScopeOnce ? [view.key] : []))),
+  );
+
+  /** 该行是否单独挂"全实例生效"徽章：进程级设置，且所在分组没有在顶部统一说明。 */
+  protected showsRowHostScope(setting: SettingOutputDto): boolean {
+    return setting.allowsHostScope && !this.hostScopeOnceGroups().has(setting.group);
+  }
 
   /** 输入框显示本层覆盖值而非生效值，否则租户页会显示个人偏好，保存即写成租户默认值。 */
   protected draftOf(setting: SettingOutputDto, scope: SettingScope): string {
@@ -389,6 +460,12 @@ export class SettingSection {
             : this.settingService.setForCurrentTenant({ name: setting.name, value });
 
         await firstValueFrom(request);
+        //#if (ExternalLogin)
+        // 写入已生效就重取状态，不等快照：快照刷新失败不影响本实例的方案目录已经变了
+        if (setting.group === EXTERNAL_LOGIN_GROUP) {
+          this.externalLoginRevision.update((revision) => revision + 1);
+        }
+        //#endif
 
         // 走会话上下文而非 load()：语言由设置派生，只刷新数据不会重新应用；
         // 同一份快照也用于刷新本页，避免两次请求结果不一致。
@@ -446,6 +523,11 @@ export class SettingSection {
       }
     }, SAVED_HINT_MS);
   }
+}
+
+/** 整组都是进程级设置（与每行"全实例生效"徽章同一判据）；空组不算，没有行可说明。 */
+function isHostScopeOnly(settings: readonly SettingOutputDto[]): boolean {
+  return settings.length > 0 && settings.every((setting) => setting.allowsHostScope);
 }
 //#if (!IncludeLocalization)
 

@@ -55,7 +55,7 @@
 - 开启注册邮箱验证（`UserRegistration:EnableEmailVerification`，compose 的 `ENABLE_EMAIL_VERIFICATION`）时必须提供 `Leistd:Security:VerificationCodes:Key`（compose 的 `VERIFICATION_CODES_KEY`）：Base64、至少 32 字节，所有实例相同且跨重启不变，可用 `openssl rand -base64 32` 生成。缺失或无效即启动失败并报出键名；关闭时可不提供；非空无效密钥始终在启动时失败，缺失时无法在系统设置里开启。
 <!--#endif-->
 <!--#if (ExternalLogin)-->
-- 外部登录提供商（`ExternalAuth:Github`、`ExternalAuth:Google`）的 `ClientId` 与 `ClientSecret` 成对提供，只给一项启动失败；都不给则不启用该提供商。提供商后台登记的回调地址是 `https://<站点对外地址>/api/v1/external-auth/{github,google}/signin`。
+- 外部登录提供商（`ExternalAuth:Github`、`ExternalAuth:Google`）默认关闭，`Enabled`（compose 的 `GITHUB_LOGIN_ENABLED`、`GOOGLE_LOGIN_ENABLED`）打开且 `ClientId`、`ClientSecret` 都提供时才生效；缺一项不阻止启动，只是不提供该入口并记警告日志。宿主管理员也可在「系统设置 → 外部登录」运行期覆盖开关与凭据，清除覆盖值即回到这里的部署配置。从只填凭据的旧版本升级时，要显式打开开关才会继续提供入口。提供商后台登记的回调地址是 `https://<站点对外地址>/api/v1/external-auth/{github,google}/signin`，设置页的状态部件按当前请求地址显示。
 <!--#endif-->
 
 ## 本地验证

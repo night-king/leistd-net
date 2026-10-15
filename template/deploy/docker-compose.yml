@@ -132,10 +132,13 @@ services:
       # - Cors__AllowedOrigins__0=https://your-domain.com
 
 #if (ExternalLogin)
-      # 外部登录：提供商的 ClientId 与 ClientSecret 成对填写，只填一项启动失败；都不填则不启用该提供商。
+      # 外部登录：开关缺省关闭；打开后 ClientId 与 ClientSecret 都填齐才生效，缺一项只记警告、不提供该入口。
+      # 宿主管理员也可在「系统设置 → 外部登录」里运行期覆盖。
       # 在提供商后台登记的回调地址是 API 端点 https://<站点对外地址>/api/v1/external-auth/{github,google}/signin
+      - ExternalAuth__Github__Enabled=${GITHUB_LOGIN_ENABLED:-false}
       - ExternalAuth__Github__ClientId=${GITHUB_CLIENT_ID:-}
       - ExternalAuth__Github__ClientSecret=${GITHUB_CLIENT_SECRET:-}
+      - ExternalAuth__Google__Enabled=${GOOGLE_LOGIN_ENABLED:-false}
       - ExternalAuth__Google__ClientId=${GOOGLE_CLIENT_ID:-}
       - ExternalAuth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET:-}
 #endif

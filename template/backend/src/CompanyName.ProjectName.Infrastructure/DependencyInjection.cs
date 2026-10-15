@@ -54,7 +54,6 @@ using Leistd.Email.Smtp;
 #endif
 #if (ExternalLogin)
 using CompanyName.ProjectName.Infrastructure.Auth.OAuth.Options;
-using Microsoft.Extensions.Options;
 #endif
 using StackExchange.Redis;
 #if (LocalIdentity && IncludeMultiTenancy)
@@ -122,15 +121,8 @@ public static class DependencyInjection
 #endif
 
 #if (ExternalLogin)
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ExternalAuthOptions>, ExternalAuthOptionsValidator>());
-        services.AddOptions<ExternalAuthOptions>()
-            .Configure<IConfiguration>((options, config) =>
-            {
-                var section = config.GetSection(ExternalAuthOptions.SectionName);
-                BindProvider(options.Github, section.GetSection("Github"));
-                BindProvider(options.Google, section.GetSection("Google"));
-            })
-            .ValidateOnStart();
+        // 绑定登记了配置变更令牌：宿主级设置改了开关或凭据，监视器随配置重载拿到新值
+        services.AddOptions<ExternalAuthOptions>().BindConfiguration(ExternalAuthOptions.SectionName);
         services.AddHttpClient();
 #endif
 
@@ -306,16 +298,6 @@ public static class DependencyInjection
 
         return services;
     }
-
-#if (ExternalLogin)
-    private static void BindProvider(
-        ExternalAuthOptions.ProviderOptions options,
-        IConfiguration configuration)
-    {
-        options.ClientId = configuration[nameof(options.ClientId)];
-        options.ClientSecret = configuration[nameof(options.ClientSecret)];
-    }
-#endif
 
     // 独立标记区分"本入口已注册过"与宿主自行添加的同类服务
     private sealed class InfrastructureRegistrationMarker;

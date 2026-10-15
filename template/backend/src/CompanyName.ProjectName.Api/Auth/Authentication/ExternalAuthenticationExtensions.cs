@@ -10,6 +10,7 @@ using CompanyName.ProjectName.Domain.Auth.Abstractions;
 using CompanyName.ProjectName.Infrastructure.Auth.OAuth.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.Extensions.Options;
 
@@ -19,9 +20,12 @@ internal static class ExternalAuthenticationExtensions
 {
     internal const string UserInfoKey = "external.user";
 
-    public static void AddExternalAuthentication(this IServiceCollection services, IConfiguration configuration)
+    /// <summary>提供方的回调路径。认证注册与系统设置的状态端点共用：后者要给管理员显示回调地址，
+    /// 不能为此去取（可能不可用的）OAuth 命名选项——一取就会触发官方的必填校验。</summary>
+    internal static string CallbackPath(string provider) => $"/api/v1/external-auth/{provider}/signin";
+
+    public static void AddExternalAuthentication(this IServiceCollection services)
     {
-        var providers = configuration.GetSection(ExternalAuthOptions.SectionName).Get<ExternalAuthOptions>() ?? new();
         var authentication = services.AddAuthentication().AddCookie(AuthenticationSchemeNames.ExternalCookie, cookie =>
         {
             cookie.Cookie.Name = "__Host-CompanyName.ProjectName.External";
@@ -37,44 +41,55 @@ internal static class ExternalAuthenticationExtensions
             {
                 cookie.Cookie.SameSite = session.Value.SameSite ?? SameSiteMode.Lax;
             });
-        if (providers.Google.IsAvailable)
-            authentication.AddGoogle(AuthenticationSchemeNames.ExternalProviderPrefix + "google", options =>
+        // 两个提供方始终登记（处理器、官方 PostConfigure 与选项校验都由官方扩展装好），是否对外提供由
+        // ExternalSchemeSynchronizer 按开关与凭据增删方案；凭据每次重建选项时从监视器读，运行期改了即生效
+        var google = AuthenticationSchemeNames.ExternalProviderPrefix + ExternalSchemeSynchronizer.Google;
+        authentication.AddGoogle(google, options =>
+        {
+            options.SignInScheme = AuthenticationSchemeNames.ExternalCookie;
+            options.Events.OnRemoteFailure = RejectRemoteFailureAsync;
+            options.Events.OnAccessDenied = ReturnAccessDeniedAsync;
+            options.CallbackPath = CallbackPath(ExternalSchemeSynchronizer.Google);
+            options.Events.OnCreatingTicket = context =>
             {
-                options.ClientId = providers.Google.ClientId!;
-                options.ClientSecret = providers.Google.ClientSecret!;
-                options.SignInScheme = AuthenticationSchemeNames.ExternalCookie;
-                options.Events.OnRemoteFailure = RejectRemoteFailureAsync;
-                options.Events.OnAccessDenied = ReturnAccessDeniedAsync;
-                options.CallbackPath = "/api/v1/external-auth/google/signin";
-                options.Events.OnCreatingTicket = context =>
+                var user = context.User;
+                var id = Text(user, "sub") ?? throw new InvalidOperationException("Google user-info contains no sub.");
+                context.Properties.Items[UserInfoKey] = JsonSerializer.Serialize(new ExternalUserInfo
                 {
-                    var user = context.User;
-                    var id = Text(user, "sub") ?? throw new InvalidOperationException("Google user-info contains no sub.");
-                    context.Properties.Items[UserInfoKey] = JsonSerializer.Serialize(new ExternalUserInfo
-                    {
-                        ProviderId = id, ProviderAccountLabel = Text(user, "email") ?? id,
-                        Email = Text(user, "email"), EmailVerified = Flag(user, "email_verified"),
-                        DisplayName = Text(user, "name"), AvatarUrl = Text(user, "picture"),
-                        ProviderDisplayName = context.Scheme.DisplayName
-                    });
-                    return Task.CompletedTask;
-                };
-            });
-        if (providers.Github.IsAvailable)
-            authentication.AddGitHub(AuthenticationSchemeNames.ExternalProviderPrefix + "github", options =>
-            {
-                options.ClientId = providers.Github.ClientId!;
-                options.ClientSecret = providers.Github.ClientSecret!;
-                options.SignInScheme = AuthenticationSchemeNames.ExternalCookie;
-                options.Events.OnRemoteFailure = RejectRemoteFailureAsync;
-                options.Events.OnAccessDenied = ReturnAccessDeniedAsync;
-                options.CallbackPath = "/api/v1/external-auth/github/signin";
-                options.UsePkce = true;
-                options.Scope.Add("user:email");
-                // 包内的邮箱补取只给地址、不给 verified，且失败即中断登录；改由 CreatingTicket 自取并降级。
-                options.UserEmailsEndpoint = string.Empty;
-                options.Events.OnCreatingTicket = CreateGitHubTicketAsync;
-            });
+                    ProviderId = id, ProviderAccountLabel = Text(user, "email") ?? id,
+                    Email = Text(user, "email"), EmailVerified = Flag(user, "email_verified"),
+                    DisplayName = Text(user, "name"), AvatarUrl = Text(user, "picture"),
+                    ProviderDisplayName = context.Scheme.DisplayName
+                });
+                return Task.CompletedTask;
+            };
+        });
+        services.AddOptions<GoogleOptions>(google)
+            .Configure<IOptionsMonitor<ExternalAuthOptions>>((options, monitor) => UseCredentials(options, monitor.CurrentValue.Google));
+        var github = AuthenticationSchemeNames.ExternalProviderPrefix + ExternalSchemeSynchronizer.Github;
+        authentication.AddGitHub(github, options =>
+        {
+            options.SignInScheme = AuthenticationSchemeNames.ExternalCookie;
+            options.Events.OnRemoteFailure = RejectRemoteFailureAsync;
+            options.Events.OnAccessDenied = ReturnAccessDeniedAsync;
+            options.CallbackPath = CallbackPath(ExternalSchemeSynchronizer.Github);
+            options.UsePkce = true;
+            options.Scope.Add("user:email");
+            // 包内的邮箱补取只给地址、不给 verified，且失败即中断登录；改由 CreatingTicket 自取并降级。
+            options.UserEmailsEndpoint = string.Empty;
+            options.Events.OnCreatingTicket = CreateGitHubTicketAsync;
+        });
+        services.AddOptions<GitHubAuthenticationOptions>(github)
+            .Configure<IOptionsMonitor<ExternalAuthOptions>>((options, monitor) => UseCredentials(options, monitor.CurrentValue.Github));
+        services.AddSingleton<ExternalSchemeSynchronizer>();
+        services.AddHostedService(provider => provider.GetRequiredService<ExternalSchemeSynchronizer>());
+    }
+
+    // 只有可用（凭据齐全）的方案才会被登记、才会取到这里的选项，因此空值不会进入官方的必填校验
+    private static void UseCredentials(OAuthOptions options, ExternalAuthOptions.ProviderOptions provider)
+    {
+        options.ClientId = provider.ClientId ?? string.Empty;
+        options.ClientSecret = provider.ClientSecret ?? string.Empty;
     }
 
     // 回调是浏览器整页导航：失败时回到前端回调页并给出原因码，不签发外部票据、不把问题详情 JSON 直接呈现给用户。

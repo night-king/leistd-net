@@ -2,7 +2,14 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { SetSettingInputDto, SettingOutputDto } from './setting.dto';
+// prettier-ignore
+import {
+  //#if (ExternalLogin)
+  ExternalLoginStatusOutputDto,
+  //#endif
+  SetSettingInputDto,
+  SettingOutputDto,
+} from './setting.dto';
 
 @Injectable({ providedIn: 'root' })
 export class SettingService {
@@ -28,6 +35,13 @@ export class SettingService {
   /** 用当前生效的发信参数发一封测试邮件（宿主）。 */
   sendTestEmail(to: string): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/email/test`, { to });
+  }
+  //#endif
+  //#if (ExternalLogin)
+
+  /** 外部登录各提供方在本实例上的生效状态（宿主）。 */
+  getExternalLoginStatus(): Observable<ExternalLoginStatusOutputDto> {
+    return this.http.get<ExternalLoginStatusOutputDto>(`${this.baseUrl}/external-login/status`);
   }
   //#endif
 }

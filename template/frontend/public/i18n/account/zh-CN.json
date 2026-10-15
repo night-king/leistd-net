@@ -110,8 +110,7 @@
     "unlinked": "已解绑",
     "linked": "外部账号已绑定",
     "lastMethod": "唯一的登录方式",
-    "loadFailed": "无法加载已绑定的外部账号。",
-    "none": "部署未配置任何外部登录方式。"
+    "loadFailed": "无法加载已绑定的外部账号。"
   },
   "profile": {
     "superAdminTag": "超级管理员",

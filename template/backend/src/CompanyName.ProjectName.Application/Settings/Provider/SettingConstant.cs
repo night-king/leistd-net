@@ -41,6 +41,11 @@ public static class SettingConstant
         public const string Email = "Email";
 
 #endif
+#if (ExternalLogin)
+        /// <summary>外部登录：进程级的第三方登录开关与客户端凭据。</summary>
+        public const string ExternalLogin = "ExternalLogin";
+
+#endif
 #endif
 #if (IncludeNotifications)
         /// <summary>通知偏好：每个人各自决定哪类通知经哪个渠道收。</summary>
@@ -189,6 +194,36 @@ public static class SettingConstant
 
         /// <summary>默认发件显示名。</summary>
         public const string DefaultFromName = "Email.DefaultFromName";
+    }
+#endif
+#if (ExternalLogin)
+
+    /// <summary>外部登录提供方（GitHub、Google）的启用开关与客户端凭据。</summary>
+    /// <remarks>
+    /// <para><b>进程级</b>（<c>SettingScopes.Host</c>）：认证方案与回调地址整个部署共用，不按租户各配一套。</para>
+    /// <para>设置值经宿主级设置配置源覆盖配置文件的 <c>ExternalAuth</c> 节，认证注册照常读 <c>IOptionsMonitor&lt;ExternalAuthOptions&gt;</c>；
+    /// 开关的代码默认值是部署基线，客户端密钥是机密设置、没有默认值，未设置时就是配置里的密钥。
+    /// 开关打开且两项凭据齐全时提供方才可用；凭据不全时只是不提供该入口，不拒绝写入。</para>
+    /// </remarks>
+    public static class ExternalLogin
+    {
+        /// <summary>是否启用 GitHub 登录。</summary>
+        public const string GithubEnabled = "ExternalLogin.Github.Enabled";
+
+        /// <summary>GitHub OAuth App 的 Client ID。</summary>
+        public const string GithubClientId = "ExternalLogin.Github.ClientId";
+
+        /// <summary>GitHub OAuth App 的 Client Secret。机密设置：加密落库、只写不读。</summary>
+        public const string GithubClientSecret = "ExternalLogin.Github.ClientSecret";
+
+        /// <summary>是否启用 Google 登录。</summary>
+        public const string GoogleEnabled = "ExternalLogin.Google.Enabled";
+
+        /// <summary>Google OAuth 客户端的 Client ID。</summary>
+        public const string GoogleClientId = "ExternalLogin.Google.ClientId";
+
+        /// <summary>Google OAuth 客户端的 Client Secret。机密设置：加密落库、只写不读。</summary>
+        public const string GoogleClientSecret = "ExternalLogin.Google.ClientSecret";
     }
 #endif
 

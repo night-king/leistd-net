@@ -417,7 +417,9 @@ const ENGLISH: Record<string, string> = {
   'account.login.noAccount': "Don't have an account?",
   'account.login.registerNow': 'Sign up',
   'account.login.submit': 'Sign In',
+  //#if (ExternalLogin)
   'account.login.or': 'Or sign in with your account',
+  //#endif
   'account.login.testAccount': 'Development test account',
   'account.login.tenantUnavailable':
     'The tenant this address points to is unavailable. Contact your administrator.',

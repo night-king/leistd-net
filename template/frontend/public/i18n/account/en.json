@@ -110,8 +110,7 @@
     "unlinked": "Account unlinked",
     "linked": "Account linked",
     "lastMethod": "Your only way to sign in",
-    "loadFailed": "Couldn't load linked accounts.",
-    "none": "No external sign-in providers are configured."
+    "loadFailed": "Couldn't load linked accounts."
   },
   "profile": {
     "superAdminTag": "Super Admin",

@@ -21,6 +21,47 @@ export interface MockSettingDefinition {
   isSecret?: boolean;
 }
 
+//#if (ExternalLogin)
+/** 外部登录提供方标识与设置名中段的对应，按标识排序（与真实后端状态端点的顺序一致）。 */
+const EXTERNAL_LOGIN_PROVIDERS = [
+  { provider: 'github', key: 'Github' },
+  { provider: 'google', key: 'Google' },
+] as const;
+
+/**
+ * Mock 的演示部署基线（对应真实部署的 `ExternalAuth` 配置节）：两个提供方都启用、凭据齐全，
+ * 设置页、登录入口与状态部件三处一致。生产基线两个提供方都是关闭的。
+ * 假密钥只在这里出现：与真实后端一样，部署提供的密钥不作为默认值下发，任何 Mock 端点都不返回它。
+ */
+const EXTERNAL_LOGIN_DEPLOYMENT: Readonly<Record<string, string>> = {
+  'ExternalLogin.Github.Enabled': 'true',
+  'ExternalLogin.Github.ClientId': 'mock-github-client-id',
+  'ExternalLogin.Github.ClientSecret': 'mock-github-client-secret',
+  'ExternalLogin.Google.Enabled': 'true',
+  'ExternalLogin.Google.ClientId': 'mock-google-client-id.apps.googleusercontent.com',
+  'ExternalLogin.Google.ClientSecret': 'mock-google-client-secret',
+};
+
+/** 外部登录的一项设置定义：宿主级，非机密项以部署基线为默认值。 */
+function externalLoginSetting(
+  name: string,
+  displayName: string,
+  kind: 'boolean' | 'text' | 'secret',
+): MockSettingDefinition {
+  return {
+    name,
+    displayName,
+    group: 'ExternalLogin',
+    defaultValue: kind === 'secret' ? null : (EXTERNAL_LOGIN_DEPLOYMENT[name] ?? null),
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+    ...(kind === 'boolean' ? { isBoolean: true } : {}),
+    ...(kind === 'secret' ? { isSecret: true } : {}),
+  };
+}
+
+//#endif
 export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
   //#if (IncludeLocalization)
   {
@@ -41,8 +82,8 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     allowsTenantScope: false,
     allowsUserScope: true,
   },
-  // 进程级：两个层级标记都是 false，只有 allowsHostScope。真实后端在租户上下文下
-  // 根本不下发这类设置，Mock 只有宿主视角，因此照常列出。
+  // 进程级：两个层级标记都是 false，只有 allowsHostScope。与真实后端一样，租户上下文下
+  // 不下发这类设置，写入也被拒绝（见 api/setting.ts）。
   {
     name: 'Logging.MinimumLevel',
     displayName: 'Minimum log level',
@@ -225,6 +266,14 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     allowsHostScope: true,
   },
   //#endif
+  //#if (ExternalLogin)
+  externalLoginSetting('ExternalLogin.Github.Enabled', 'Enable GitHub sign-in', 'boolean'),
+  externalLoginSetting('ExternalLogin.Github.ClientId', 'GitHub client ID', 'text'),
+  externalLoginSetting('ExternalLogin.Github.ClientSecret', 'GitHub client secret', 'secret'),
+  externalLoginSetting('ExternalLogin.Google.Enabled', 'Enable Google sign-in', 'boolean'),
+  externalLoginSetting('ExternalLogin.Google.ClientId', 'Google client ID', 'text'),
+  externalLoginSetting('ExternalLogin.Google.ClientSecret', 'Google client secret', 'secret'),
+  //#endif
   //#if (LocalIdentity)
   {
     name: 'Notifications.Security.Email',
@@ -278,6 +327,9 @@ export const SETTING_GROUP_NAMES: Readonly<Record<string, string>> = {
   //#endif
   //#if (Email)
   Email: 'Email',
+  //#endif
+  //#if (ExternalLogin)
+  ExternalLogin: 'External sign-in',
   //#endif
   //#if (IncludeNotifications)
   Notifications: 'Notifications',
@@ -337,6 +389,14 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   //#if (Email)
   'Setting:Email.DefaultFromName': '发件人名称',
   //#endif
+  //#if (ExternalLogin)
+  'Setting:ExternalLogin.Github.Enabled': '启用 GitHub 登录',
+  'Setting:ExternalLogin.Github.ClientId': 'GitHub Client ID',
+  'Setting:ExternalLogin.Github.ClientSecret': 'GitHub Client Secret',
+  'Setting:ExternalLogin.Google.Enabled': '启用 Google 登录',
+  'Setting:ExternalLogin.Google.ClientId': 'Google Client ID',
+  'Setting:ExternalLogin.Google.ClientSecret': 'Google Client Secret',
+  //#endif
   //#if (LocalIdentity)
   'Setting:Notifications.Security.Email': '安全提醒同时发邮件',
   //#endif
@@ -360,6 +420,9 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   //#if (Email)
   'SettingGroup:Email': '邮件发送',
   //#endif
+  //#if (ExternalLogin)
+  'SettingGroup:ExternalLogin': '外部登录',
+  //#endif
   //#if (IncludeNotifications)
   'SettingGroup:Notifications': '通知',
   //#endif
@@ -375,3 +438,57 @@ export const USER_SETTING_VALUES = new StoredMap('mock_user_settings');
 
 /** 租户级覆盖：`${tenantKey}:${settingName}` → 值；宿主用 `host`。 */
 export const TENANT_SETTING_VALUES = new StoredMap('mock_tenant_settings');
+//#if (ExternalLogin)
+
+/** 一个外部登录提供方的有效配置。 */
+export interface MockExternalLoginConfig {
+  provider: string;
+  enabled: boolean;
+  clientId: string | null;
+  clientSecret: string | null;
+}
+
+/**
+ * 外部登录的有效配置：部署基线叠加宿主设置覆盖（宿主那一行，不是任何租户的覆盖），与真实后端的配置源顺序一致。
+ * 提供方目录、绑定列表与状态端点都从这里判断，三处不会说法不一。
+ */
+export function externalLoginConfigs(): MockExternalLoginConfig[] {
+  return EXTERNAL_LOGIN_PROVIDERS.map(({ provider, key }) => {
+    // 清除覆盖（写 null）即删掉宿主那一行，读取回落到部署基线
+    const value = (field: string): string | null => {
+      const name = `ExternalLogin.${key}.${field}`;
+      return TENANT_SETTING_VALUES.get(`host:${name}`) ?? EXTERNAL_LOGIN_DEPLOYMENT[name] ?? null;
+    };
+    return {
+      provider,
+      enabled: value('Enabled') === 'true',
+      clientId: value('ClientId'),
+      clientSecret: value('ClientSecret'),
+    };
+  });
+}
+
+/**
+ * 凭据是否算"有"：与后端的 `string.IsNullOrWhiteSpace` 一致，只有空白也算没有。
+ * 只用于判定，不改写存储的值。
+ */
+export function hasExternalLoginCredential(value: string | null): boolean {
+  return value !== null && value.trim().length > 0;
+}
+
+/** 可用 = 已启用且两项凭据都有，真实后端据此登记认证方案。 */
+export function isExternalLoginAvailable(config: MockExternalLoginConfig): boolean {
+  return (
+    config.enabled &&
+    hasExternalLoginCredential(config.clientId) &&
+    hasExternalLoginCredential(config.clientSecret)
+  );
+}
+
+/** 当前可用的提供方标识，按标识排序：登录入口与绑定列表读这一份。 */
+export function availableExternalProviders(): string[] {
+  return externalLoginConfigs()
+    .filter(isExternalLoginAvailable)
+    .map((config) => config.provider);
+}
+//#endif
