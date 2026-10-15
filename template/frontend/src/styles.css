@@ -194,8 +194,9 @@ body {
 }
 
 /*
- * 以下规则调整 Spartan 组件在本项目的表现，写在这里而不是改 libs/ui：组件保持上游原样，升级时
- * 不必逐个手工合入。规则不放进 @layer，才能盖过组件上的 Tailwind 工具类。
+ * 以下规则调整 Spartan 组件在本项目的表现。样式表能区分的调整写在这里而不是改 libs/ui，这些组件
+ * 升级时可直接同步上游；确需改组件的已登记在 docs/standards/frontend-spartan.md，升级时逐个手工合入。
+ * 规则不放进 @layer，才能盖过组件上的 Tailwind 工具类。
  */
 
 /*
