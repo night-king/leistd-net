@@ -352,6 +352,14 @@ function Invoke-BrowserNavigationClick([string]$Role, [string]$Name) {
     }
 }
 
+# 场景隔离：需要匿名起步的场景先清掉浏览器里的登录 Cookie，不继承上一场景（可能中途失败）留下的会话。
+# 清完核对两侧会话 Cookie 都不在，否则直接失败。
+function Reset-BrowserSession {
+    Invoke-Browser @('cookies','clear') | Out-Null
+    $names = @((Get-SessionCookieName 'Orders'), (Get-SessionCookieName 'Idp'))
+    $left = @((Invoke-Browser @('cookies','get')).cookies | Where-Object { $names -contains $_.name })
+    Assert-Value 'browser-session-reset' 0 $left.Count
+}
 function Start-BrowserResource {
     Invoke-Browser @('open', $urls.orders) | Out-Null
     Wait-BrowserElement 'a[href="/workspace"]'
@@ -433,14 +441,13 @@ function Wait-RealTicketExpiration($Ticket, [string]$Label) {
     Assert-Value "$Label-real-expired" $true ([DateTimeOffset]::UtcNow -gt $expiration)
 }
 function Click-BrowserLogout([string]$Landing = ($urls.orders + '/')) {
-    Wait-BrowserElement 'app-user-menu button'
-    Invoke-Browser @('click','app-user-menu button') | Out-Null
-    Wait-BrowserElement '[role="menuitem"]'
+    Invoke-BrowserClickUntil 'app-user-menu button' '[role="menuitem"]'
     Invoke-Browser @('find','role','menuitem','click','--name','Sign out') | Out-Null
     Wait-BrowserUrl $Landing
 }
 
 function Test-BrowserRoleListRealtime {
+    Reset-BrowserSession
     Start-BrowserResource
     Login-BrowserPassword
     $identity = Invoke-BrowserJs '(async () => (await (await fetch("/api/e2e/natural")).json()).userId)()'
@@ -448,9 +455,8 @@ function Test-BrowserRoleListRealtime {
     Invoke-Tool 'dotnet' @($services.orders.Migrator, '--grant-admin', $identity, '--apply') 'realtime-host-admin' -Variables $environment | Out-Null
     # 完整导航重新读取本地权限；随后只用 SPA 链接进入列表，保留已经建立的通知连接。
     Invoke-Browser @('open', ($urls.orders + '/workspace')) | Out-Null
-    Wait-BrowserElement 'app-user-menu button'
-    Invoke-Browser @('click', 'app-user-menu button') | Out-Null
-    Wait-BrowserElement '[role="menuitem"]'
+    # 刚完整加载、/workspace 仍在重定向时，点击偶发落空（菜单没打开）：没打开才重点
+    Invoke-BrowserClickUntil 'app-user-menu button' '[role="menuitem"]'
     Invoke-Browser @('find', 'role', 'menuitem', 'click', '--name', 'Admin platform', '--exact') | Out-Null
     Wait-BrowserUrl ($urls.orders + '/platform*')
     Wait-BrowserElement 'a[href="/platform/roles"]'
@@ -592,6 +598,8 @@ function Wait-BrowserDialogClosed {
 }
 
 $identityFlowUser = $null
+# 上一场景走完、浏览器停在该账号已解除限制的 Identity 会话上时才为真；确认身份场景以此为前置
+$identityFlowSessionReady = $false
 function Test-BrowserRestrictedAuthorization {
     # 浏览器阶段切快速档时 Identity 重启过，之前的 HTTP 会话（服务端票据在进程内缓存）已失效，重新登录
     $admin = Login
@@ -610,6 +618,7 @@ function Test-BrowserRestrictedAuthorization {
         Assert-Http 'require-two-factor-on' 204 ($urls.idp + '/api/v1/settings/current-tenant') -Method PUT -Token $token `
             -Body @{ name = 'Security.RequireTwoFactor'; value = 'true' } | Out-Null
         $required = $true
+        Reset-BrowserSession
         Start-BrowserResource
         $authorize = Invoke-BrowserJs '(new URL(location.href)).searchParams.get("returnUrl")'
         Assert-Value 'restricted-authorize-pending' $true ([string]$authorize).StartsWith('/connect/authorize')
@@ -644,6 +653,7 @@ function Test-BrowserRestrictedAuthorization {
         $off = Invoke-BrowserFetch '/api/v1/settings/current-tenant' 'PUT' @{ name = 'Security.RequireTwoFactor'; value = $null }
         Assert-Value 'require-two-factor-off' 204 $off.status
         $required = $false
+        $script:identityFlowSessionReady = $true
     }
     finally {
         if ($required) {
@@ -655,9 +665,10 @@ function Test-BrowserRestrictedAuthorization {
 }
 
 function Test-BrowserReauthenticationDialog {
-    if (-not $identityFlowUser) { throw '缺少上一场景建立的账号。' }
+    if (-not $identityFlowSessionReady) { throw '上一场景未建立 mfa_flow_user 的浏览器会话，不在其他账号的会话上执行。' }
     Invoke-Browser @('open', ($urls.idp + '/workspace/settings/profile')) | Out-Null
     Wait-BrowserElement '#profile-email'
+    Assert-Value 'reauth-session-is-flow-user' $identityFlowUser.Id (Invoke-BrowserFetch '/api/v1/auth/me').body.id
     $page = $urls.idp + '/workspace/settings/profile'
     Set-BrowserIdentitySessionStale
     $changed = 'mfa-flow-changed@oidc-e2e.example.test'
@@ -693,6 +704,7 @@ function Test-BrowserReauthenticationDialog {
 }
 
 function Test-BrowserExternalRecovery {
+    Reset-BrowserSession
     # 外部登录场景建立的纯外部账号：先在 Identity 本地登录
     Invoke-Browser @('open', ($urls.idp + '/auth/login')) | Out-Null
     Wait-BrowserButton 'Google'
