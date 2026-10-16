@@ -456,14 +456,21 @@ describe('Dashboard', () => {
     return labels;
   }
 
+  // 比的是图表给每个刻度的坐标（居中标签的 x），不量文字包围盒：包围盒随字体与平台的整像素取整抖动
+  // （Linux 无头 Chromium 上同样等间隔的标签中心相差近 1px），而一年按日的窄图上相邻两点只差不到 1px，
+  // 放宽到像素级容差就分不出"差一个点"的不等间隔。坐标保留两位小数，容差按此给
   function expectEvenlySpaced(labels: readonly SVGTextElement[]): void {
-    const centers = labels.map((label) => {
-      const box = label.getBoundingClientRect();
-      return box.left + box.width / 2;
+    // 缺失或空的 x 经 Number 会变成 0，所有间距都为 0 也算"等间隔"：先确认每个标签真的带着坐标
+    const positions = labels.map((label) => {
+      const x = label.getAttribute('x')?.trim();
+      expect(x, 'axis label x').toBeTruthy();
+      return Number(x);
     });
-    const gaps = centers.slice(1).map((center, index) => center - centers[index]);
+    expect(positions.every(Number.isFinite)).toBe(true);
+    const gaps = positions.slice(1).map((position, index) => position - positions[index]);
     for (const gap of gaps) {
-      expect(gap).toBeCloseTo(gaps[0], 0);
+      expect(gap).toBeGreaterThan(0);
+      expect(gap).toBeCloseTo(gaps[0], 1);
     }
   }
 
