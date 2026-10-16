@@ -42,7 +42,10 @@ export interface UserOutputDto {
    */
   hasPassword: boolean;
   //#endif
-  /** 受限会话：所在租户要求两步验证而本人尚未启用，必须先完成设置。 */
+  /**
+   * 受限会话：所在租户要求两步验证而本人尚未启用，必须先完成设置。服务端每个请求按当时的策略与本人状态判定，
+   * 这里是读取那一刻的结论：策略或状态变了要重新读当前用户，不能沿用旧值。
+   */
   twoFactorSetupRequired?: boolean;
   isSuperAdmin: boolean;
   //#if (LocalIdentity)

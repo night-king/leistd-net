@@ -21,7 +21,10 @@ public record UserOutputDto
     public bool HasPassword { get; init; }
 
     /// <summary>当前是受限会话：所在租户要求两步验证而本人尚未启用，必须先完成设置。</summary>
-    /// <remarks>来自会话声明而不是账号字段，只在"获取当前用户"时有值。</remarks>
+    /// <remarks>
+    /// 来自本次请求的会话校验（按当时的策略与本人的两步验证状态），与服务端拦截同一判定，
+    /// 只在"获取当前用户"时有值。策略或状态一变，下一次获取即反映，不必重新登录。
+    /// </remarks>
     public bool TwoFactorSetupRequired { get; init; }
     public bool IsSuperAdmin { get; init; }
     public DateTime CreationTime { get; init; }

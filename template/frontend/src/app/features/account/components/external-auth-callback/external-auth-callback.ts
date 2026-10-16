@@ -17,6 +17,7 @@ import {
   ApplicationHttpError,
   applicationErrorMessage,
 } from '../../../../core/errors/application-http-error';
+import { ReturnUrlService } from '../../../../core/routing/return-url-service';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { SessionContextService } from '../../../../core/services/session-context-service';
@@ -51,6 +52,7 @@ export class ExternalAuthCallback implements OnInit {
   private accountService = inject(AccountService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private readonly returnUrls = inject(ReturnUrlService);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -144,26 +146,17 @@ export class ExternalAuthCallback implements OnInit {
    * 设置也必须在这里就位：SPA 内跳转不会重跑应用初始化器。
    */
   private async enterApplication(returnUrl?: string | null): Promise<void> {
+    // 受限会话先去设置，原目标随之带过去，设置完成后回到那里
     if (this.authService.currentUser()?.twoFactorSetupRequired) {
-      await this.router.navigate(['/auth/two-factor-setup']);
+      await this.router.navigateByUrl(this.returnUrls.twoFactorSetup(returnUrl));
       return;
     }
     await this.sessionContext.establish();
-    if (returnUrl) {
-      //#if (OpenIddictServer)
-      if (returnUrl.startsWith('/connect/')) {
-        window.location.href = returnUrl;
-        return;
-      }
-      //#endif
-      await this.router.navigateByUrl(returnUrl);
-      return;
-    }
-    if (this.authorizationService.canAccessPlatform()) {
-      await this.router.navigate(['/platform']);
-    } else {
-      await this.router.navigate(['/workspace']);
-    }
+    await this.returnUrls.navigate(returnUrl, () =>
+      this.router.navigate([
+        this.authorizationService.canAccessPlatform() ? '/platform' : '/workspace',
+      ]),
+    );
   }
 
   /** 静默探测会话：401 不触发全局跳转，失败即视为未登录。 */

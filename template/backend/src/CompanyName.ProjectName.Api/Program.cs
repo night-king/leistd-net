@@ -254,7 +254,7 @@ try
     app.UseMiddleware<ResourceUserProvisioningMiddleware>();
 #endif
 #if (LocalIdentity)
-    // 受限会话（租户要求两步验证而本人未启用）只放行完成设置所需的接口
+    // 受限会话（租户要求两步验证而本人未启用）只放行完成设置所需的接口；受限与否由会话 Cookie 校验逐请求判定
     app.UseMiddleware<TwoFactorSetupEnforcementMiddleware>();
 #endif
     app.UseAuthorization();

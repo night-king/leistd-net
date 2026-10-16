@@ -31,6 +31,7 @@ import {
   applicationErrorMessage,
 } from '../../../../core/errors/application-http-error';
 import { MOCKED_URL } from '../../../../core/mock/mocked-url';
+import { ReturnUrlService } from '../../../../core/routing/return-url-service';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { SecurityConfigService } from '../../../../core/services/security-config-service';
@@ -99,6 +100,7 @@ export class Login implements OnInit {
   protected readonly registrationOpen = this.securityConfig.registrationOpen;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private readonly returnUrls = inject(ReturnUrlService);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -242,9 +244,9 @@ export class Login implements OnInit {
     this.sessionContext.clear();
     await lastValueFrom(this.authService.loadUser());
 
-    // 受限会话（组织要求两步验证而本人尚未启用）：先去设置，别的页面都进不去
+    // 受限会话（组织要求两步验证而本人尚未启用）：先去设置，别的页面都进不去；设置完成后回到原目标
     if (this.authService.currentUser()?.twoFactorSetupRequired) {
-      await this.router.navigate(['/auth/two-factor-setup']);
+      await this.router.navigateByUrl(this.returnUrls.twoFactorSetup(returnUrl));
       return;
     }
 
@@ -263,39 +265,18 @@ export class Login implements OnInit {
     toast.success('Signed in successfully', { description: 'Welcome back!', duration: 3000 });
     //#endif
 
-    if (this.isSafeLocalReturnUrl(returnUrl)) {
-      //#if (OpenIddictServer)
-      // 授权端点把未登录的授权请求送来这里；登录后整页回到服务端的授权端点继续签发，它不是前端路由
-      if (returnUrl.startsWith('/connect/')) {
-        window.location.href = returnUrl;
-        return;
-      }
-      //#endif
-      await this.router.navigateByUrl(returnUrl);
-      return;
-    }
-
-    // 按权限跳转：拥有任一平台入口权限才进管理区，而不是按角色名或超管标志判断。
-    if (this.authorizationService.canAccessPlatform()) {
-      this.router.navigate(['/platform']);
-    } else {
-      this.router.navigate(['/workspace']);
-    }
+    // 有可接续的站内目标就回去（授权端点 /connect/* 整页回到服务端继续签发）；
+    // 否则按权限跳转：拥有任一平台入口权限才进管理区，而不是按角色名或超管标志判断。
+    await this.returnUrls.navigate(returnUrl, () =>
+      this.router.navigate([
+        this.authorizationService.canAccessPlatform() ? '/platform' : '/workspace',
+      ]),
+    );
   }
 
   /** 改动任一输入：上一次被拒的原因不再对应当前填写的内容。 */
   protected clearLoginError(): void {
     this.loginError.set(null);
-  }
-
-  private isSafeLocalReturnUrl(returnUrl: string | null): returnUrl is string {
-    return (
-      !!returnUrl &&
-      returnUrl.startsWith('/') &&
-      !returnUrl.startsWith('//') &&
-      !returnUrl.includes('://') &&
-      !returnUrl.includes('\\')
-    );
   }
 
   //#if (IncludeMultiTenancy)

@@ -12,9 +12,7 @@ using CompanyName.ProjectName.Application.Auth.Sessions;
 using CompanyName.ProjectName.Application.Shared;
 using CompanyName.ProjectName.Domain.Auth.Options;
 using CompanyName.ProjectName.Application.Users.Options;
-#if (!IncludeMultiTenancy)
 using Leistd.Security.Claims;
-#endif
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -76,7 +74,7 @@ internal static class LocalSessionAuthenticationExtensions
 
             // 每个请求确认业务会话仍有效，服务端票据存储另负责 Cookie 引用的撤销。
             //
-            // 撤销（退出其他设备、改密码）才能对已发出的 Cookie 生效。结果带短缓存，见 IUserSessionValidator
+            // 撤销（退出其他设备、改密码）才能对已发出的 Cookie 生效。有效性带短缓存，受限判定不缓存，见 IUserSessionValidator
             options.Events.OnValidatePrincipal = async context =>
             {
 #if (!IncludeMultiTenancy)
@@ -87,20 +85,28 @@ internal static class LocalSessionAuthenticationExtensions
                     return;
                 }
 #endif
-                var validator = context.HttpContext.RequestServices.GetRequiredService<IUserSessionValidator>();
-                var validation = context.Principal is null
-                    ? UserSessionValidation.Invalid
-                    : await validator.ValidateAsync(context.Principal, context.HttpContext.RequestAborted);
-                if (!validation.IsValid)
+                var services = context.HttpContext.RequestServices;
+                var result = context.Principal is null
+                    ? SessionValidationResult.Invalid
+                    : await services.GetRequiredService<IUserSessionValidator>()
+                        .ValidateAsync(context.Principal, context.HttpContext.RequestAborted);
+                if (!result.IsValid ||
+                    !Guid.TryParse(context.Principal!.FindFirst(CustomClaimTypes.SessionId)?.Value, out var sessionId))
                 {
                     context.RejectPrincipal();
                     await context.HttpContext.SignOutAsync(AuthenticationSchemeNames.SessionCookie);
                     return;
                 }
 
+                // 以下两步都只在会话确认有效之后发生，互不依赖：
+                // 受限与否只在这里写入本请求的会话状态，不写进 Cookie：策略或本人的两步验证状态一变，
+                // 下一个请求就按新的判定，不必重新登录或换发 Cookie
+                services.GetRequiredService<ICurrentSessionState>().Set(sessionId, result.TwoFactorSetupRequired);
+
                 // 租户调整了会话空闲时限：把票据有效期收敛到新时长再续发（官方滑动续期按签发与到期之差续期）。
-                // 只在校验器这次实际查过会话时比对，用的是它按主体租户读到的值；缓存命中期间不另查
-                if (validation.IdleTimeout is { } idleTimeout
+                // 只在校验器这次实际查过会话时比对，用的是它按主体租户读到的值；缓存命中期间不收敛。
+                // 续发只改票据时序，sid 与认证时间不变，上面写入的会话状态照样对应这个 Cookie
+                if (result.IdleTimeout is { } idleTimeout
                     && context.Properties.ExpiresUtc - context.Properties.IssuedUtc != idleTimeout)
                 {
                     SetLifetime(context.Properties, idleTimeout, context.Options.TimeProvider ?? TimeProvider.System);

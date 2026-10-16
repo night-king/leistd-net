@@ -13,7 +13,6 @@ using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Application.Auth.TwoFactor;
 using Leistd.UnitOfWork;
 using Leistd.UnitOfWork.Attributes;
-using CompanyName.ProjectName.Application.Auth.Constants;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Users.Mappings;
 using Leistd.OperationRecords.Models;
@@ -52,6 +51,7 @@ internal sealed class AuthAppService(
     UserDomainService userDomainService,
     IRoleRepository roleRepository,
     ICurrentUser currentUser,
+    ICurrentSessionState currentSession,
     ICaptchaVerifier captchaVerifier,
 #if (Email)
     EmailChallengeStore emailChallengeStore,
@@ -263,21 +263,6 @@ internal sealed class AuthAppService(
         return await sessionIssuer.SignInAsync(user, cancellationToken: cancellationToken);
     }
 
-    /// <summary>换发当前会话的主体：同一个服务端会话，按账号最新状态去掉受限声明。</summary>
-    /// <remarks>
-    /// 受限会话的用户完成两步验证设置后调用。沿用原会话 Id 与认证时刻（见 <see cref="SessionIssuer.ReissueAsync"/>）：
-    /// 换发不是一次认证，也不登记新会话，这个会话在此期间被撤销的话，换发出的 Cookie 一样不能用。
-    /// </remarks>
-    public async Task<ClaimsPrincipal> ReissueSessionAsync(CancellationToken cancellationToken = default)
-    {
-        var user = await GetCurrentUserEntityAsync(cancellationToken);
-        var sessionId = currentUser.GetSessionId()
-            ?? throw new InvalidOperationException("Only a signed-in session can be reissued.");
-        var authenticatedAt = SessionIssuer.ReadAuthenticationTime(
-            currentUser.FindClaim(SessionIssuer.AuthenticationTimeClaimType)) ?? DateTimeOffset.UnixEpoch;
-        return await sessionIssuer.ReissueAsync(user, sessionId, authenticatedAt, cancellationToken);
-    }
-
     // 登录成功的"什么人"由目标承载：SignInAsync 只往响应里种 Cookie，
     // 本次请求的主体仍是匿名，操作人字段为空是诚实的。
     private Task RecordLoginSucceededAsync(User user, CancellationToken cancellationToken) =>
@@ -452,8 +437,8 @@ internal sealed class AuthAppService(
     public async Task<UserOutputDto> GetCurrentUserAsync(CancellationToken cancellationToken = default)
     {
         var output = await ToOutputAsync(await GetCurrentUserEntityAsync(cancellationToken), cancellationToken);
-        // 受限会话由会话声明而不是账号字段决定：同一个账号换个没开强制的租户登录就不受限
-        return output with { TwoFactorSetupRequired = currentUser.FindClaim(TwoFactorClaimTypes.SetupRequired) is not null };
+        // 与服务端拦截读同一份判定（本请求的会话校验结果），界面与接口对受限与否不会各说各的
+        return output with { TwoFactorSetupRequired = currentSession.TwoFactorSetupRequired };
     }
 
     /// <summary>更新个人信息。</summary>

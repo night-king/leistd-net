@@ -639,4 +639,33 @@ describe('mock registration switch tenancy', () => {
   });
 });
 //#endif
+
+/** 组织"要求两步验证"与后端同口径：当前用户的受限标记每次按设置与本人状态得出，开关一改下一次读取即反映。 */
+describe('mock two-factor requirement', () => {
+  const me = AUTH_API['GET /api/v1/auth/me'] as Handler;
+  const alice = USERS.find((u) => !u.isSuperAdmin && u.password && u.twoFactorEnabled !== true)!;
+  const key = 'host:Security.RequireTwoFactor';
+
+  beforeEach(() => setMockSessionUserId(alice.id));
+
+  afterEach(() => {
+    TENANT_SETTING_VALUES.delete(key);
+    alice.twoFactorEnabled = undefined;
+    setMockSessionUserId(null);
+  });
+
+  it('follows the setting and the user state on every read', () => {
+    expect(me({})).toMatchObject({ twoFactorSetupRequired: false });
+
+    TENANT_SETTING_VALUES.set(key, 'true');
+    expect(me({})).toMatchObject({ twoFactorSetupRequired: true });
+
+    alice.twoFactorEnabled = true;
+    expect(me({})).toMatchObject({ twoFactorSetupRequired: false });
+
+    alice.twoFactorEnabled = undefined;
+    TENANT_SETTING_VALUES.delete(key);
+    expect(me({})).toMatchObject({ twoFactorSetupRequired: false });
+  });
+});
 //#endif

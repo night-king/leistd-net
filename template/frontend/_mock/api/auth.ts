@@ -163,7 +163,19 @@ function requireCurrentMockUser(): MockUser {
 }
 
 function getCurrentUser(_req: MockRequest): UserOutputDto {
-  return toUserOutput(requireCurrentMockUser());
+  const user = requireCurrentMockUser();
+  // 与后端同一判定：每次按会话所属租户的"要求两步验证"与本人状态得出，不记在会话里；模拟登录的会话不受限
+  const requiredByPolicy =
+    TENANT_SETTING_VALUES.get(`${getMockSessionTenantKey()}:Security.RequireTwoFactor`) === 'true';
+  //#if (Impersonation)
+  const restrictable = getMockImpersonator() === null;
+  //#else
+  const restrictable = true;
+  //#endif
+  return {
+    ...toUserOutput(user),
+    twoFactorSetupRequired: requiredByPolicy && restrictable && user.twoFactorEnabled !== true,
+  };
 }
 
 function updateCurrentUser(req: MockRequest): UserOutputDto {

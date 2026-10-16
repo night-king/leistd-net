@@ -1,6 +1,10 @@
 #if (LocalIdentity)
 using System.Net;
 using System.Net.Http.Json;
+using Leistd.MultiTenancy.Context;
+using Leistd.Settings.Definitions;
+using Leistd.Settings.Management;
+using Leistd.UnitOfWork;
 #endif
 #if (RemoteTokenAuth)
 using CompanyName.ProjectName.Api.HealthChecks;
@@ -276,6 +280,25 @@ public sealed class ProjectWebApplicationFactory : WebApplicationFactory<Program
         Assert.False(string.IsNullOrWhiteSpace(cookie));
         client.DefaultRequestHeaders.Add("Cookie", cookie);
         return new AuthenticatedSession(client, cookie);
+    }
+
+    /// <summary>经设置写入端直接写宿主（<paramref name="tenantId"/> 为 <see langword="null"/>）或某个租户的租户级设置。</summary>
+    /// <remarks>
+    /// 不经设置接口：有的设置一写就限制写入者自己的会话（例如"要求两步验证"对没启用的管理员即时生效），
+    /// 用管理员会话写入之后连撤回的请求都发不出去。走的仍是写入端（定义校验、作用域缓存作废），下一个请求可见。
+    /// </remarks>
+    public static async Task SetTenantSettingAsync(
+        WebApplicationFactory<Program> host,
+        string name,
+        string? value,
+        Guid? tenantId = null)
+    {
+        await using var scope = host.Services.CreateAsyncScope();
+        var services = scope.ServiceProvider;
+        using var tenant = services.GetRequiredService<ICurrentTenant>().Change(tenantId);
+        using var unitOfWork = services.GetRequiredService<IUnitOfWorkManager>().Begin(requiresNew: true);
+        await services.GetRequiredService<ISettingManager>().SetAsync(name, value, SettingScopes.Tenant);
+        await unitOfWork.CompleteAsync();
     }
 #endif
 

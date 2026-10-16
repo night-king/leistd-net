@@ -1,6 +1,5 @@
 #if (LocalIdentity)
 using CompanyName.ProjectName.Api.Auth.Authorization;
-using CompanyName.ProjectName.Application.Auth.Constants;
 using CompanyName.ProjectName.Application.Shared;
 using CompanyName.ProjectName.Application.Auth.AppServices;
 using CompanyName.ProjectName.Application.Auth.Dtos;
@@ -246,24 +245,14 @@ public sealed class AuthController(
         => twoFactorAppService.BeginSetupAsync(input, cancellationToken);
 
     /// <summary>用新验证器上的验证码确认设置（首次启用或换绑），返回新的恢复码。</summary>
-    /// <remarks>受限会话（租户要求两步验证而此前未启用）启用成功后换发一个不受限的会话。</remarks>
+    /// <remarks>受限会话（组织要求两步验证而此前未启用）启用成功后，下一个请求即不再受限：会话与 Cookie 都不变。</remarks>
     [Authorize]
     [AllowDuringTwoFactorSetup]
     [HttpPost("me/two-factor/enable")]
-    public async Task<TwoFactorRecoveryCodesOutputDto> EnableTwoFactorAsync(
+    public Task<TwoFactorRecoveryCodesOutputDto> EnableTwoFactorAsync(
         [FromBody] EnableTwoFactorInputDto input,
         CancellationToken cancellationToken)
-    {
-        var result = await twoFactorAppService.EnableAsync(input, cancellationToken);
-
-        if (User.HasClaim(claim => claim.Type == TwoFactorClaimTypes.SetupRequired))
-        {
-            var principal = await authService.ReissueSessionAsync(cancellationToken);
-            await sessionCookieIssuer.ReissueAsync(HttpContext, principal);
-        }
-
-        return result;
-    }
+        => twoFactorAppService.EnableAsync(input, cancellationToken);
 
     /// <summary>停用两步验证（有口令的账号要密码与验证码，没有口令的只要验证码）。</summary>
     [Authorize]

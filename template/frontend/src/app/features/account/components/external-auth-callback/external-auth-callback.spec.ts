@@ -1,9 +1,9 @@
 //#if (ExternalLogin)
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { signal } from '@angular/core';
+import { WritableSignal, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, UrlTree, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { ExternalAuthCallback } from './external-auth-callback';
@@ -14,6 +14,9 @@ import {
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
+//#endif
+//#if (OpenIddictServer)
+import { ReturnUrlService } from '../../../../core/routing/return-url-service';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
 import { SessionContextService } from '../../../../core/services/session-context-service';
@@ -131,6 +134,42 @@ describe('ExternalAuthCallback', () => {
     expect(navigate).toHaveBeenCalledWith('/workspace/settings/security');
     expect(calls.indexOf('establish')).toBeLessThan(calls.indexOf('navigate-return'));
   });
+
+  // 组织要求两步验证而本人未启用：先去设置页，受保护的原目标随之带过去
+  it('takes a restricted session to the setup page together with the protected return address', async () => {
+    (authService.currentUser as unknown as WritableSignal<object>).set({
+      hasPassword: false,
+      isTwoFactorEnabled: false,
+      twoFactorSetupRequired: true,
+    });
+    accountService.externalLoginCallback.mockReturnValue(
+      of({ returnUrl: '/workspace/settings/security' }),
+    );
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(TestBed.inject(Router).serializeUrl(navigate.mock.calls[0][0] as UrlTree)).toBe(
+      '/auth/two-factor-setup?returnUrl=%2Fworkspace%2Fsettings%2Fsecurity',
+    );
+    expect(calls).not.toContain('establish');
+  });
+  //#if (OpenIddictServer)
+
+  it('continues an authorization request with a full page load', async () => {
+    const target = '/connect/authorize?client_id=resource&request_uri=urn%3Aabc';
+    accountService.externalLoginCallback.mockReturnValue(of({ returnUrl: target }));
+    const loadPage = vi
+      .spyOn(TestBed.inject(ReturnUrlService), 'loadPage')
+      .mockImplementation(() => undefined);
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(loadPage).toHaveBeenCalledExactlyOnceWith(target);
+    expect(calls.indexOf('establish')).toBeGreaterThanOrEqual(0);
+  });
+  //#endif
 
   it('shows the server reason when the sign-in is rejected', async () => {
     vi.spyOn(console, 'error').mockReturnValue(undefined);

@@ -19,6 +19,7 @@ using CompanyName.ProjectName.Application;
 using CompanyName.ProjectName.Application.Auth.Options;
 #endif
 #if (LocalIdentity)
+using CompanyName.ProjectName.Application.Auth.Sessions;
 using Leistd.Security.RequestContext;
 #endif
 #if (IncludeRealTime)
@@ -312,6 +313,40 @@ public class ServiceRegistrationTests
         var descriptor = Assert.Single(builder.Services, d => d.ServiceType == typeof(IRequestClientInfo));
         Assert.Equal(typeof(HttpRequestClientInfo), descriptor.ImplementationType);
         Assert.Equal(ServiceLifetime.Transient, descriptor.Lifetime);
+    }
+
+    // 会话状态由认证事件写入、中间件与应用服务读取：同一请求（作用域）内必须是同一个实例，请求之间互不相干
+    [Fact]
+    public void Current_session_state_is_shared_within_a_request_and_isolated_between_requests()
+    {
+        var services = new ServiceCollection().AddLogging().AddApplicationServices();
+        var descriptor = Assert.Single(services, d => d.ServiceType == typeof(ICurrentSessionState));
+        Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        var sessionId = Guid.NewGuid();
+        using (var request = provider.CreateScope())
+        {
+            request.ServiceProvider.GetRequiredService<ICurrentSessionState>().Set(sessionId, twoFactorSetupRequired: true);
+            var later = request.ServiceProvider.GetRequiredService<ICurrentSessionState>();
+            Assert.Equal(sessionId, later.SessionId);
+            Assert.True(later.TwoFactorSetupRequired);
+        }
+
+        using var next = provider.CreateScope();
+        var fresh = next.ServiceProvider.GetRequiredService<ICurrentSessionState>();
+        Assert.Null(fresh.SessionId);
+        Assert.False(fresh.TwoFactorSetupRequired);
+    }
+
+    // 受限状态的判定在 Application，HTTP 桥接在 Api：Application 不引用 ASP.NET Core 的 HTTP 抽象（HttpContext 等）
+    [Fact]
+    public void The_application_layer_does_not_reference_http_abstractions()
+    {
+        var referenced = typeof(ICurrentSessionState).Assembly.GetReferencedAssemblies().Select(name => name.Name!).ToList();
+
+        Assert.DoesNotContain(referenced, name => name.StartsWith("Microsoft.AspNetCore.Http", StringComparison.Ordinal));
+        Assert.DoesNotContain(referenced, name => name == "Microsoft.AspNetCore.Mvc.Core");
     }
 #endif
 #if (IncludeNotifications && Email)
