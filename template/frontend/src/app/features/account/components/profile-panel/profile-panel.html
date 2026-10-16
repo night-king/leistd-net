@@ -3,8 +3,8 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <form novalidate hlmCard (submit)="$event.preventDefault(); onSubmit()">
-    <div hlmCardContent class="flex flex-col gap-6">
+  <form novalidate class="flex flex-col gap-6" (submit)="$event.preventDefault(); onSubmit()">
+    <div class="flex flex-col gap-6">
       <div class="flex items-center gap-4 border-b border-border pb-5">
         <!-- 头像上传：无图时常驻居中图标；有图时 hover / 键盘 focus-visible 显示、触屏（pointer-coarse）常驻。 -->
         <!-- 选完即上传：头像有自己的接口，不随下面的表单保存，也不被「撤销修改」撤回 -->
@@ -228,7 +228,7 @@
     </div>
 
     <!-- 页面内的表单：保存在下，撤销回到当前已保存的资料 -->
-    <div hlmCardFooter class="justify-end gap-2">
+    <div class="flex justify-end gap-2">
       <button hlmBtn type="button" variant="outline" [disabled]="saving()" (click)="reset()">
         {{ t('account.profile.discardChanges') }}
       </button>

@@ -6,7 +6,6 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideSend } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
-import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
@@ -27,7 +26,6 @@ import { englishText } from '../../../../../../shared/utils/english-text';
     HlmButton,
     HlmInput,
     HlmSpinner,
-    ...HlmCardImports,
     //#if (IncludeLocalization)
     TranslocoDirective,
     //#endif

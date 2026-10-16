@@ -7,7 +7,6 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideCircleCheck, lucideCircleX, lucideRotateCcw } from '@ng-icons/lucide';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
-import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmComboboxImports } from '@spartan-ng/helm/combobox';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInput } from '@spartan-ng/helm/input';
@@ -106,7 +105,6 @@ export const SAVING_MIN_MS = 400;
     HlmButton,
     HlmInput,
     HlmSpinner,
-    ...HlmCardImports,
     ...HlmComboboxImports,
     ...HlmFieldImports,
     ...HlmSelectImports,
@@ -128,7 +126,6 @@ export const SAVING_MIN_MS = 400;
     HlmButton,
     HlmInput,
     HlmSpinner,
-    ...HlmCardImports,
     ...HlmComboboxImports,
     ...HlmFieldImports,
     ...HlmSelectImports,

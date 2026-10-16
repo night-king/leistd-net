@@ -87,17 +87,21 @@
 
         <!-- 面板列：宽度上限与两列判断只在这里定一处。面板内的两列一律按这个命名容器判断
              （@2xl/panel:grid-cols-2），不按视口：同一视口下面板宽度还受侧栏与左侧导航影响。 -->
-        <div class="@container/panel flex w-full max-w-3xl min-w-0 flex-auto flex-col gap-4">
+        <!-- 面板与其中的分区不套卡片：标题下一条实线划界，分区内的行只靠留白分隔。 -->
+        <div class="@container/panel flex w-full max-w-3xl min-w-0 flex-auto flex-col gap-6">
           @if (activePanel(); as panel) {
-            <header class="flex flex-col gap-1">
+            <header class="flex flex-col gap-1 border-b pb-4">
               <h3 class="text-base leading-none font-medium">{{ panel.label }}</h3>
               @if (panel.description) {
                 <p class="text-muted-foreground text-sm">{{ panel.description }}</p>
               }
             </header>
           }
-          <ng-content />
-          <router-outlet />
+          <!-- router-outlet 元素本身留在 DOM 里，直接放在 gap 容器里会多占一个间距 -->
+          <div class="flex min-w-0 flex-col">
+            <ng-content />
+            <router-outlet />
+          </div>
         </div>
       </div>
     </div>

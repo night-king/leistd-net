@@ -7,7 +7,6 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideEye, lucideEyeOff, lucideLock } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
-import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import {
   HlmInputGroup,
@@ -45,7 +44,6 @@ import { TwoFactorSettings } from '../two-factor-settings/two-factor-settings';
     ExternalLogins,
     //#endif
     HlmButton,
-    ...HlmCardImports,
     HlmSpinner,
     HlmInputGroup,
     HlmInputGroupInput,

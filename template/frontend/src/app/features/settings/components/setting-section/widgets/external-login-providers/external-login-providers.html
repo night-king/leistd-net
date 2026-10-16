@@ -4,7 +4,7 @@
 <ng-container>
 <!--#endif-->
   <div class="flex flex-col gap-4" data-testid="external-login-providers">
-    <!-- 状态整组取一次：刷新与失败提示放在卡片上方，不在每张卡片上各来一份。 -->
+    <!-- 状态整组取一次：刷新与失败提示放在各渠道分区上方，不在每个分区里各来一份。 -->
     <div class="flex items-center justify-between gap-3">
       <p class="text-muted-foreground min-w-0 text-xs">
         {{ t('settings.externalLoginProviders.description') }}
@@ -29,7 +29,7 @@
       </button>
     </div>
 
-    <!-- 读不到状态时卡片照常渲染设置行，只是没有徽章与回调地址；已有状态时刷新失败，保留原内容。 -->
+    <!-- 读不到状态时各分区照常渲染设置行，只是没有徽章与回调地址；已有状态时刷新失败，保留原内容。 -->
     @if (loadError(); as error) {
       <div class="flex flex-col items-start gap-1" data-testid="external-login-status-error">
         <p class="flex items-center gap-2 text-sm" role="alert">
@@ -51,18 +51,18 @@
       </div>
     }
 
-    <!-- 每个渠道一张卡，纵向排列：面板列上限 768px，并排时每张不足 380px，卡内还要再排字段。 -->
-    <div class="flex flex-col gap-6">
+    <!-- 渠道分区纵向排列：面板列上限 768px，并排时每节不足 380px，节内还要再排设置行。 -->
+    <div class="flex flex-col gap-10">
       @for (card of cards(); track card.key) {
+        <!-- 每个渠道一节，不套卡片：标题行（渠道名与生效状态）下一条实线，行间只留白 -->
         <section
-          hlmCard
-          class="min-w-0"
+          class="flex min-w-0 flex-col gap-5"
           data-testid="external-login-provider"
           [attr.data-provider]="card.key"
         >
-          <div hlmCardHeader>
-            <h4 hlmCardTitle class="truncate">{{ card.label }}</h4>
-            <div hlmCardAction>
+          <header class="flex flex-col gap-1 border-b pb-3">
+            <div class="flex items-center justify-between gap-3">
+              <h4 class="min-w-0 truncate text-sm leading-none font-semibold">{{ card.label }}</h4>
               @if (card.status; as status) {
                 @switch (status.state) {
                   @case ('active') {
@@ -70,6 +70,7 @@
                       hlmBadge
                       appStatusDot
                       variant="success"
+                      class="shrink-0"
                       data-testid="external-login-state"
                     >
                       {{ t('settings.externalLoginProviders.active') }}
@@ -80,6 +81,7 @@
                       hlmBadge
                       appStatusDot
                       variant="warning"
+                      class="shrink-0"
                       data-testid="external-login-state"
                     >
                       {{ t('settings.externalLoginProviders.inactive') }}
@@ -90,6 +92,7 @@
                       hlmBadge
                       appStatusDot
                       variant="secondary"
+                      class="shrink-0"
                       data-testid="external-login-state"
                     >
                       {{ t('settings.externalLoginProviders.off') }}
@@ -101,7 +104,7 @@
               }
             </div>
             @if (card.status; as status) {
-              <div hlmCardDescription class="flex flex-col gap-1">
+              <div class="text-muted-foreground flex flex-col gap-1 text-sm">
                 <!-- 只给"是否已配置"，不含凭据内容；部署提供的密钥在口令框里显示"未设置"，靠这一行看出已配置。
                    文字写明状态，颜色不是唯一信息。 -->
                 <dl
@@ -136,23 +139,19 @@
                 }
               </div>
             }
-          </div>
+          </header>
 
-          <div hlmCardContent class="flex flex-col gap-5">
-            <!-- 行由设置区块的行模板渲染：控件、校验、即改即存与恢复默认都与其他分组同一份实现。
-                 网格规则与普通分组相同；启用开关是这张卡的总开关，独占一行，凭据两项并排。 -->
-            <div class="grid gap-x-6 gap-y-4 @2xl/panel:grid-cols-2">
+          <div class="flex flex-col gap-5">
+            <!-- 行由设置区块的行模板渲染：控件、校验、即改即存与恢复默认都与其他分组同一份实现；
+                 列表写法与普通分组相同（单列、左右排、行间只留白）。 -->
+            <div hlmFieldGroup class="gap-5">
               @for (setting of card.settings; track setting.name) {
-                <div class="min-w-0" [class.col-span-full]="setting.isBoolean">
-                  <ng-container
-                    *ngTemplateOutlet="rowTemplate(); context: { $implicit: setting }"
-                  />
-                </div>
+                <ng-container *ngTemplateOutlet="rowTemplate(); context: { $implicit: setting }" />
               }
             </div>
 
             @if (card.status; as status) {
-              <!-- 与设置行同一结构：标签在上（字段标签同款），内容与右侧图标按钮在下 -->
+              <!-- 列表的最后一项：地址太长，标签在上（字段标签同款），地址框与右侧图标按钮在下，按钮与恢复按钮同列 -->
               <div class="flex flex-col gap-2">
                 <span class="text-sm leading-snug font-medium">
                   {{ t('settings.externalLoginProviders.callbackUrl') }}

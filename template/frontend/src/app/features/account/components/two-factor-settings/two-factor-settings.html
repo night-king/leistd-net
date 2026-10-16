@@ -3,237 +3,235 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <section hlmCard data-testid="security-two-factor">
-    <div hlmCardContent class="flex flex-col gap-4">
-      <header
-        class="flex flex-col gap-3 @md/panel:flex-row @md/panel:items-start @md/panel:justify-between"
-      >
-        <div class="flex flex-col gap-1">
-          <div class="flex flex-wrap items-center gap-2">
-            <h4 hlmCardTitle>{{ t('account.twoFactor.header') }}</h4>
-            @if (status()?.enabled) {
-              <span hlmBadge appStatusDot variant="success" data-testid="two-factor-on">{{
-                t('account.twoFactor.on')
-              }}</span>
-            }
-          </div>
-          <p hlmCardDescription>
-            {{
-              status()?.enabled
-                ? t('account.twoFactor.subtitleOn')
-                : t('account.twoFactor.subtitleOff')
-            }}
-          </p>
-        </div>
-        @if (status(); as s) {
-          @if (!s.enabled && mode() === 'idle') {
-            <button
-              hlmBtn
-              size="sm"
-              class="shrink-0 self-start"
-              data-testid="two-factor-turn-on"
-              (click)="setMode('setup')"
-            >
-              <ng-icon name="lucideShieldCheck" data-icon="inline-start" />
-              {{ t('account.twoFactor.turnOn') }}
-            </button>
+  <section class="flex flex-col gap-5" data-testid="security-two-factor">
+    <header
+      class="flex flex-col gap-3 @md/panel:flex-row @md/panel:items-start @md/panel:justify-between border-b pb-3"
+    >
+      <div class="flex flex-col gap-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <h4 class="text-sm leading-none font-semibold">{{ t('account.twoFactor.header') }}</h4>
+          @if (status()?.enabled) {
+            <span hlmBadge appStatusDot variant="success" data-testid="two-factor-on">{{
+              t('account.twoFactor.on')
+            }}</span>
           }
-        }
-      </header>
-
-      @if (loadFailed()) {
-        <div class="flex items-center gap-3 text-sm">
-          <span class="text-muted-foreground">{{ t('account.twoFactor.loadFailed') }}</span>
-          <button hlmBtn variant="link" size="sm" class="px-0" (click)="reload()">
-            {{ t('common.retry') }}
+        </div>
+        <p class="text-muted-foreground text-sm">
+          {{
+            status()?.enabled
+              ? t('account.twoFactor.subtitleOn')
+              : t('account.twoFactor.subtitleOff')
+          }}
+        </p>
+      </div>
+      @if (status(); as s) {
+        @if (!s.enabled && mode() === 'idle') {
+          <button
+            hlmBtn
+            size="sm"
+            class="shrink-0 self-start"
+            data-testid="two-factor-turn-on"
+            (click)="setMode('setup')"
+          >
+            <ng-icon name="lucideShieldCheck" data-icon="inline-start" />
+            {{ t('account.twoFactor.turnOn') }}
           </button>
-        </div>
-      } @else if (status(); as s) {
-        @switch (mode()) {
-          @case ('setup') {
-            <app-two-factor-setup (enabled)="onEnabled($event)" (cancelled)="setMode('idle')" />
-          }
-          @case ('replaceSetup') {
-            <app-two-factor-setup
-              [proof]="proof()"
-              (enabled)="onEnabled($event)"
-              (cancelled)="setMode('idle')"
-              (proofRejected)="setMode('replace')"
-            />
-          }
-          @case ('replace') {
-            <form
-              class="flex flex-col gap-3"
-              novalidate
-              data-testid="two-factor-replace-form"
-              (submit)="$event.preventDefault(); startReplace()"
-            >
-              <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.replaceHint') }}</p>
-              <div class="flex flex-wrap items-center gap-3">
-                @if (useRecoveryCode()) {
-                  <input
-                    hlmInput
-                    class="flex-1 basis-56"
-                    autocomplete="off"
-                    data-testid="two-factor-replace-recovery-code"
-                    [attr.aria-label]="t('account.twoFactor.recoveryCodeLabel')"
-                    [placeholder]="t('account.twoFactor.recoveryCodeLabel')"
-                    [value]="recoveryCode()"
-                    (input)="onRecoveryCodeInput($event)"
-                  />
-                } @else {
-                  <app-otp-code-input
-                    inputId="two-factor-replace-code"
-                    [label]="t('account.twoFactor.codeLabel')"
-                    [(value)]="code"
-                  />
-                }
-                <div class="flex gap-2">
-                  <button hlmBtn type="submit" [disabled]="!canReplace()">
-                    {{ t('account.twoFactor.continue') }}
-                  </button>
-                  <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
-                    {{ t('common.cancel') }}
-                  </button>
-                </div>
-              </div>
-              <button
-                hlmBtn
-                variant="link"
-                size="sm"
-                type="button"
-                class="self-start px-0"
-                data-testid="two-factor-replace-toggle"
-                (click)="toggleRecoveryCode()"
-              >
-                {{
-                  useRecoveryCode()
-                    ? t('account.twoFactor.useCode')
-                    : t('account.twoFactor.useRecoveryCode')
-                }}
-              </button>
-            </form>
-          }
-          @case ('codes') {
-            <app-recovery-codes [codes]="codes()" (done)="finishCodes()" />
-          }
-          @case ('disable') {
-            <form
-              class="flex flex-col gap-3"
-              novalidate
-              data-testid="two-factor-disable-form"
-              (submit)="$event.preventDefault(); disable()"
-            >
-              <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.disableHint') }}</p>
-              <div class="flex flex-wrap items-center gap-3">
+        }
+      }
+    </header>
+
+    @if (loadFailed()) {
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-muted-foreground">{{ t('account.twoFactor.loadFailed') }}</span>
+        <button hlmBtn variant="link" size="sm" class="px-0" (click)="reload()">
+          {{ t('common.retry') }}
+        </button>
+      </div>
+    } @else if (status(); as s) {
+      @switch (mode()) {
+        @case ('setup') {
+          <app-two-factor-setup (enabled)="onEnabled($event)" (cancelled)="setMode('idle')" />
+        }
+        @case ('replaceSetup') {
+          <app-two-factor-setup
+            [proof]="proof()"
+            (enabled)="onEnabled($event)"
+            (cancelled)="setMode('idle')"
+            (proofRejected)="setMode('replace')"
+          />
+        }
+        @case ('replace') {
+          <form
+            class="flex flex-col gap-3"
+            novalidate
+            data-testid="two-factor-replace-form"
+            (submit)="$event.preventDefault(); startReplace()"
+          >
+            <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.replaceHint') }}</p>
+            <div class="flex flex-wrap items-center gap-3">
+              @if (useRecoveryCode()) {
                 <input
                   hlmInput
-                  type="password"
-                  autocomplete="current-password"
-                  [attr.aria-label]="t('account.twoFactor.passwordLabel')"
-                  [placeholder]="t('account.twoFactor.passwordLabel')"
-                  [value]="password()"
-                  (input)="onPasswordInput($event)"
+                  class="flex-1 basis-56"
+                  autocomplete="off"
+                  data-testid="two-factor-replace-recovery-code"
+                  [attr.aria-label]="t('account.twoFactor.recoveryCodeLabel')"
+                  [placeholder]="t('account.twoFactor.recoveryCodeLabel')"
+                  [value]="recoveryCode()"
+                  (input)="onRecoveryCodeInput($event)"
                 />
+              } @else {
                 <app-otp-code-input
-                  inputId="two-factor-disable-code"
+                  inputId="two-factor-replace-code"
                   [label]="t('account.twoFactor.codeLabel')"
                   [(value)]="code"
                 />
-              </div>
+              }
               <div class="flex gap-2">
-                <button
-                  hlmBtn
-                  variant="destructive"
-                  type="submit"
-                  [disabled]="!password() || !codeValid() || busy()"
-                >
-                  @if (busy()) {
-                    <hlm-spinner class="text-base" data-icon="inline-start" />
-                  }
-                  {{ t('account.twoFactor.confirmDisable') }}
+                <button hlmBtn type="submit" [disabled]="!canReplace()">
+                  {{ t('account.twoFactor.continue') }}
                 </button>
                 <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
                   {{ t('common.cancel') }}
                 </button>
               </div>
-            </form>
-          }
-          @case ('regenerate') {
-            <form
-              class="flex flex-col gap-3"
-              novalidate
-              data-testid="two-factor-regenerate-form"
-              (submit)="$event.preventDefault(); regenerate()"
+            </div>
+            <button
+              hlmBtn
+              variant="link"
+              size="sm"
+              type="button"
+              class="self-start px-0"
+              data-testid="two-factor-replace-toggle"
+              (click)="toggleRecoveryCode()"
             >
-              <p class="text-muted-foreground text-sm">
-                {{ t('account.twoFactor.regenerateHint') }}
-              </p>
-              <div class="flex flex-wrap items-center gap-3">
-                <app-otp-code-input
-                  inputId="two-factor-regenerate-code"
-                  [label]="t('account.twoFactor.codeLabel')"
-                  [(value)]="code"
-                />
-                <div class="flex gap-2">
-                  <button hlmBtn type="submit" [disabled]="!codeValid() || busy()">
-                    @if (busy()) {
-                      <hlm-spinner class="text-base" data-icon="inline-start" />
-                    }
-                    {{ t('account.twoFactor.confirmRegenerate') }}
-                  </button>
-                  <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
-                    {{ t('common.cancel') }}
-                  </button>
-                </div>
+              {{
+                useRecoveryCode()
+                  ? t('account.twoFactor.useCode')
+                  : t('account.twoFactor.useRecoveryCode')
+              }}
+            </button>
+          </form>
+        }
+        @case ('codes') {
+          <app-recovery-codes [codes]="codes()" (done)="finishCodes()" />
+        }
+        @case ('disable') {
+          <form
+            class="flex flex-col gap-3"
+            novalidate
+            data-testid="two-factor-disable-form"
+            (submit)="$event.preventDefault(); disable()"
+          >
+            <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.disableHint') }}</p>
+            <div class="flex flex-wrap items-center gap-3">
+              <input
+                hlmInput
+                type="password"
+                autocomplete="current-password"
+                [attr.aria-label]="t('account.twoFactor.passwordLabel')"
+                [placeholder]="t('account.twoFactor.passwordLabel')"
+                [value]="password()"
+                (input)="onPasswordInput($event)"
+              />
+              <app-otp-code-input
+                inputId="two-factor-disable-code"
+                [label]="t('account.twoFactor.codeLabel')"
+                [(value)]="code"
+              />
+            </div>
+            <div class="flex gap-2">
+              <button
+                hlmBtn
+                variant="destructive"
+                type="submit"
+                [disabled]="!password() || !codeValid() || busy()"
+              >
+                @if (busy()) {
+                  <hlm-spinner class="text-base" data-icon="inline-start" />
+                }
+                {{ t('account.twoFactor.confirmDisable') }}
+              </button>
+              <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+          </form>
+        }
+        @case ('regenerate') {
+          <form
+            class="flex flex-col gap-3"
+            novalidate
+            data-testid="two-factor-regenerate-form"
+            (submit)="$event.preventDefault(); regenerate()"
+          >
+            <p class="text-muted-foreground text-sm">
+              {{ t('account.twoFactor.regenerateHint') }}
+            </p>
+            <div class="flex flex-wrap items-center gap-3">
+              <app-otp-code-input
+                inputId="two-factor-regenerate-code"
+                [label]="t('account.twoFactor.codeLabel')"
+                [(value)]="code"
+              />
+              <div class="flex gap-2">
+                <button hlmBtn type="submit" [disabled]="!codeValid() || busy()">
+                  @if (busy()) {
+                    <hlm-spinner class="text-base" data-icon="inline-start" />
+                  }
+                  {{ t('account.twoFactor.confirmRegenerate') }}
+                </button>
+                <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
+                  {{ t('common.cancel') }}
+                </button>
               </div>
-            </form>
-          }
-          @default {
-            @if (s.enabled) {
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <span class="text-muted-foreground text-sm" data-testid="recovery-codes-left">{{
-                  t('account.twoFactor.recoveryCodesLeft', { count: s.recoveryCodesLeft })
-                }}</span>
-                <div class="flex flex-wrap gap-2">
+            </div>
+          </form>
+        }
+        @default {
+          @if (s.enabled) {
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <span class="text-muted-foreground text-sm" data-testid="recovery-codes-left">{{
+                t('account.twoFactor.recoveryCodesLeft', { count: s.recoveryCodesLeft })
+              }}</span>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  hlmBtn
+                  variant="outline"
+                  size="sm"
+                  data-testid="two-factor-replace"
+                  (click)="setMode('replace')"
+                >
+                  {{ t('account.twoFactor.replace') }}
+                </button>
+                <button hlmBtn variant="outline" size="sm" (click)="setMode('regenerate')">
+                  {{ t('account.twoFactor.regenerate') }}
+                </button>
+                @if (!s.requiredByPolicy) {
                   <button
                     hlmBtn
                     variant="outline"
                     size="sm"
-                    data-testid="two-factor-replace"
-                    (click)="setMode('replace')"
+                    data-testid="two-factor-turn-off"
+                    (click)="setMode('disable')"
                   >
-                    {{ t('account.twoFactor.replace') }}
+                    {{ t('account.twoFactor.turnOff') }}
                   </button>
-                  <button hlmBtn variant="outline" size="sm" (click)="setMode('regenerate')">
-                    {{ t('account.twoFactor.regenerate') }}
-                  </button>
-                  @if (!s.requiredByPolicy) {
-                    <button
-                      hlmBtn
-                      variant="outline"
-                      size="sm"
-                      data-testid="two-factor-turn-off"
-                      (click)="setMode('disable')"
-                    >
-                      {{ t('account.twoFactor.turnOff') }}
-                    </button>
-                  }
-                </div>
+                }
               </div>
-              @if (s.requiredByPolicy) {
-                <p class="text-muted-foreground text-xs">
-                  {{ t('account.twoFactor.requiredByPolicy') }}
-                </p>
-              }
+            </div>
+            @if (s.requiredByPolicy) {
+              <p class="text-muted-foreground text-xs">
+                {{ t('account.twoFactor.requiredByPolicy') }}
+              </p>
             }
           }
         }
-      } @else {
-        <div class="flex justify-center py-6">
-          <hlm-spinner class="text-muted-foreground text-xl" />
-        </div>
       }
-    </div>
+    } @else {
+      <div class="flex justify-center py-6">
+        <hlm-spinner class="text-muted-foreground text-xl" />
+      </div>
+    }
   </section>
 </ng-container>

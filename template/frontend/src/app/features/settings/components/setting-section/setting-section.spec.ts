@@ -285,6 +285,51 @@ describe('SettingSection input kinds', () => {
 });
 
 /** 首次加载失败与"没有可配置项"分开表达：说出原因、给重试，重试成功后渲染设置。 */
+/** 设置行左右排：长连续文本在内容列内折行，控件留在列表内并按内容块垂直居中。 */
+describe('SettingSection row layout', () => {
+  const name = 'Display.FreeTextProbe';
+  const longLabel =
+    'ExternalLogin.Github.ClientSecretWithAVeryLongContinuousIdentifierThatHasNoSpaces';
+
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  it('wraps a long continuous label inside its column and centres the control on it', async () => {
+    TestBed.configureTestingModule({
+      imports: [SettingSection],
+      providers: [...pageProviders()],
+    });
+    const fixture = TestBed.createComponent(SettingSection);
+    const host = fixture.nativeElement as HTMLElement;
+    // 448px 正是输入类控件开始左右排的宽度，左列最窄
+    host.style.display = 'block';
+    host.style.width = '448px';
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/v1/settings')
+      .flush([row({ name, displayName: longLabel })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const group = host.querySelector('[data-slot="field-group"]')!.getBoundingClientRect();
+    const content = host.querySelector('[data-slot="field-content"]')!.getBoundingClientRect();
+    const input = host
+      .querySelector(`[data-testid="setting-input-${name}"]`)!
+      .getBoundingClientRect();
+    const reset = host
+      .querySelector(`[data-testid="setting-reset-${name}"]`)!
+      .getBoundingClientRect();
+
+    // 左右排、恢复按钮没有被挤出列表
+    expect(input.left).toBeGreaterThan(content.right - 0.5);
+    expect(reset.right).toBeLessThanOrEqual(group.right + 0.5);
+    // 标签折成多行，控件按内容块的中线居中
+    expect(content.height).toBeGreaterThan(input.height);
+    expect(
+      Math.abs(content.top + content.height / 2 - (input.top + input.height / 2)),
+    ).toBeLessThan(1);
+  });
+});
+
 describe('SettingSection load failure', () => {
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
@@ -567,28 +612,35 @@ describe('SettingSection switches', () => {
   });
 
   // 开关没有宽度，标签、开关与恢复按钮排在同一行；开关不会自动关联所在字段的描述，要显式指向本行的描述
-  it('keeps the label, switch and reset on one row and describes the switch by its own row', async () => {
+  it('keeps the label, switch and reset on one line and describes the switch by its own row', async () => {
     const host = await render('account');
 
     for (const setting of switches) {
       const control = host.querySelector<HTMLElement>(
         `[data-testid="setting-switch-${setting.name}"] [role="switch"]`,
       )!;
-      const firstRow = control.closest('[data-slot="field"] > div')!;
-      expect(firstRow.querySelector('label')?.textContent?.trim()).toBe(setting.displayName);
+      const field = control.closest<HTMLElement>('[data-slot="field"]')!;
+      const label = field.querySelector<HTMLLabelElement>(`label[for="${setting.name}"]`)!;
+      const controls = control.closest('[data-slot="field"] > div')!;
+      expect(label.textContent?.trim()).toBe(setting.displayName);
       expect(
-        firstRow.querySelector(`[data-testid="setting-reset-${setting.name}"]`),
+        controls.querySelector(`[data-testid="setting-reset-${setting.name}"]`),
       ).not.toBeNull();
+
+      // 标签与开关在同一水平线上：中线对齐
+      const middle = (el: Element) => {
+        const box = el.getBoundingClientRect();
+        return box.top + box.height / 2;
+      };
+      expect(Math.abs(middle(label.parentElement!) - middle(control))).toBeLessThan(1);
 
       const description = host.querySelector(`[id="${control.getAttribute('aria-describedby')}"]`);
       expect(description?.getAttribute('data-slot')).toBe('field-description');
-      expect(description?.closest('[data-slot="field"]')).toBe(
-        control.closest('[data-slot="field"]'),
-      );
+      expect(description?.closest('[data-slot="field"]')).toBe(field);
     }
   });
 
-  // 行在带 overflow-hidden 的卡片里：开关扩出的命中区不能被裁，也不能与同一行的恢复按钮互相覆盖
+  // 开关扩出的命中区不能被裁，也不能与同一行的恢复按钮互相覆盖
   it('keeps full touch targets for the switch and its reset button on coarse pointers', async () => {
     await setCoarsePointer(true);
     onTestFinished(() => setCoarsePointer(false));

@@ -3,14 +3,13 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <!-- 独立的操作卡：与设置分组同级，不嵌在分组卡里 -->
-  <section hlmCard data-testid="email-test">
-    <div hlmCardHeader>
-      <h4 hlmCardTitle>{{ t('settings.emailTest.title') }}</h4>
-      <p hlmCardDescription>{{ t('settings.emailTest.description') }}</p>
-    </div>
+  <!-- 独立的操作分区：与设置分组同级，分区标题下一条实线 -->
+  <section class="flex flex-col gap-5" data-testid="email-test">
+    <header class="flex flex-col gap-1 border-b pb-3">
+      <h4 class="text-sm leading-none font-semibold">{{ t('settings.emailTest.title') }}</h4>
+      <p class="text-muted-foreground text-sm">{{ t('settings.emailTest.description') }}</p>
+    </header>
     <form
-      hlmCardContent
       class="flex flex-col gap-2 @md/panel:flex-row"
       novalidate
       (submit)="$event.preventDefault(); send()"

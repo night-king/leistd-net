@@ -19,7 +19,7 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideCheck, lucideCopy, lucideRefreshCw } from '@ng-icons/lucide';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
-import { HlmCardImports } from '@spartan-ng/helm/card';
+import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { finalize, Subscription } from 'rxjs';
@@ -43,11 +43,11 @@ export const EXTERNAL_LOGIN_GROUP = 'ExternalLogin';
 
 /**
  * 设置名约定 `ExternalLogin.{提供方}.{字段}`（与后端 `SettingConstant.ExternalLogin` 一致）。
- * 设置名是跨前后端的字符串契约，按它分卡片，不另列提供方清单。
+ * 设置名是跨前后端的字符串契约，按它分区，不另列提供方清单。
  */
 const PROVIDER_SETTING_NAME = /^ExternalLogin\.([^.]+)\.([^.]+)$/;
 
-/** 卡片内的字段顺序：先开关、再凭据；约定外的字段排在后面，保持下发顺序。 */
+/** 分区内的字段顺序：先开关、再凭据；约定外的字段排在后面，保持下发顺序。 */
 const FIELD_ORDER = ['Enabled', 'ClientId', 'ClientSecret'];
 
 /** 提供方的展示名，按状态端点的小写标识查；认不出的提供方退回设置名里的原文。 */
@@ -95,7 +95,7 @@ function fieldRank(setting: SettingOutputDto): number {
   return rank === -1 ? FIELD_ORDER.length : rank;
 }
 
-/** 卡片的生效状态；`hint` 为说明词条键，空串表示状态本身已说清楚。 */
+/** 分区的生效状态；`hint` 为说明词条键，空串表示状态本身已说清楚。 */
 interface ProviderState {
   state: 'active' | 'inactive' | 'off';
   /** 凭据是否已配置（设置或部署配置）：机密设置不回显，部署提供的密钥只能从这里看出来。 */
@@ -105,23 +105,23 @@ interface ProviderState {
   callbackUrl: string;
 }
 
-/** 一张提供方卡片：设置行由设置区块的行模板渲染，状态在取到之前为 `null`。 */
+/** 一个提供方分区：设置行由设置区块的行模板渲染，状态在取到之前为 `null`。 */
 interface ProviderCard {
-  /** 状态端点的提供方标识（小写），也作卡片的稳定键。 */
+  /** 状态端点的提供方标识（小写），也作分区的稳定键。 */
   key: string;
   label: string;
   settings: SettingOutputDto[];
   status: ProviderState | null;
 }
 
-/** 设置区块的行模板上下文：卡片只决定放在哪，行的控件、校验与写入都留在设置区块。 */
+/** 设置区块的行模板上下文：分区只决定放在哪，行的控件、校验与写入都留在设置区块。 */
 export interface SettingRowContext {
   $implicit: SettingOutputDto;
 }
 
 /**
- * 「外部登录」分组：每个提供方一张卡片，卡片里是该提供方的设置行，标题旁是本实例上的生效状态，
- * 卡片内说明缺什么，底部是要登记到提供方的回调地址。
+ * 「外部登录」分组：每个提供方一节，节里是该提供方的设置行，标题旁是本实例上的生效状态，
+ * 节内说明缺什么，底部是要登记到提供方的回调地址。
  *
  * 状态整组取一次，本组设置保存或恢复默认后重取。机密不回显，密钥来自部署配置时设置行看不出已配置，
  * 所以由状态端点给出。状态反映响应本次请求的实例，其他实例经刷新周期（约 30 秒）各自跟上。
@@ -136,7 +136,7 @@ export interface SettingRowContext {
     HlmButton,
     HlmSpinner,
     StatusDot,
-    ...HlmCardImports,
+    ...HlmFieldImports,
     ...HlmTooltipImports,
     //#if (IncludeLocalization)
     TranslocoDirective,
@@ -167,7 +167,7 @@ export class ExternalLoginProviders {
   protected readonly loading = signal(false);
   /** 最近一次读取的失败原因；已有状态时保留原内容，只在上方提示。 */
   protected readonly loadError = signal<string | null>(null);
-  /** 最近复制了哪个提供方的回调地址：同一个复制动作服务所有卡片，「已复制」只落在点过的那一张。 */
+  /** 最近复制了哪个提供方的回调地址：同一个复制动作服务所有分区，「已复制」只落在点过的那一节。 */
   protected readonly copiedProvider = signal<string | null>(null);
 
   protected readonly cards = computed<ProviderCard[]>(() => {

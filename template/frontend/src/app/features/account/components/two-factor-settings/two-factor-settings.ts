@@ -14,7 +14,6 @@ import { lucideShieldCheck } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
-import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
@@ -47,7 +46,6 @@ type Mode = 'idle' | 'setup' | 'codes' | 'disable' | 'regenerate' | 'replace' | 
     NgIcon,
     HlmBadge,
     HlmButton,
-    ...HlmCardImports,
     HlmInput,
     HlmSpinner,
     OtpCodeInput,
