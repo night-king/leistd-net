@@ -91,6 +91,9 @@ import { StatusDot } from '../../../../shared/directives/status-dot';
 //#endif
 import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
 import { AppNumber, formatAppNumber } from '../../../../shared/pipes/app-number-pipe';
+//#if (IncludeOperationRecords && LocalIdentity)
+import { evenCategoryTicks } from '../../../../shared/utils/category-ticks';
+//#endif
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
@@ -144,6 +147,16 @@ interface TrendRow {
   series: 'succeeded' | 'failed';
   count: number;
 }
+
+/** 登录趋势横轴的候选刻度步长（每隔几个时段一个刻度）：按小时 1、2、3、4、6、12 小时，按日 1、2、3 天与整周，按周 1、2、4 周。 */
+const TREND_TICK_STEPS: Readonly<Record<'hour' | 'day' | 'week', readonly number[]>> = {
+  hour: [1, 2, 3, 4, 6, 12],
+  day: [1, 2, 3, 7, 14],
+  week: [1, 2, 4, 8],
+};
+
+/** 纵轴刻度标签与边距大约占去的宽度（px）：图表构建时只拿得到整张图的宽度，扣掉它作为横轴可用宽度的估算。 */
+const TREND_Y_AXIS_WIDTH = 56;
 
 //#endif
 /** 需要关注的一项：计数大于 0 才出现，`route` 是处理入口，`severity` 决定图标的颜色。 */
@@ -564,55 +577,66 @@ export class Dashboard {
     const failedText = this.failedLabel();
 
     return {
+      // 响应式定义：横轴刻度要按图表实际宽度决定步长
       definition: defineChart({
-        gradients: [
-          {
-            id: 'dashboard-trend-fill',
-            x1: 0,
-            y1: 0,
-            x2: 0,
-            y2: 1,
-            stops: [
-              { offset: 0, color: 'var(--chart-1)', opacity: 0.3 },
-              { offset: 1, color: 'var(--chart-1)', opacity: 0 },
-            ],
-          },
-        ],
-        marks: [
-          areaY(succeededRows, { x: 'key', y: 'count', fill: 'url(#dashboard-trend-fill)' }),
-          lineY(succeededRows, {
-            x: 'key',
-            y: 'count',
-            z: 'series',
-            stroke: 'var(--chart-1)',
-            strokeWidth: 2,
-          }),
-          lineY(failedRows, {
-            x: 'key',
-            y: 'count',
-            z: 'series',
-            stroke: 'var(--chart-3)',
-            strokeWidth: 2,
-          }),
-        ],
-        scales: {
-          x: {
-            scale: () => scalePoint<string>(),
-            axis: {
-              ticks: { format: (key: string) => labelOf.get(key) ?? '' },
-              tickLabels: { thin: true },
+        chart: ({ width }) => ({
+          gradients: [
+            {
+              id: 'dashboard-trend-fill',
+              x1: 0,
+              y1: 0,
+              x2: 0,
+              y2: 1,
+              stops: [
+                { offset: 0, color: 'var(--chart-1)', opacity: 0.3 },
+                { offset: 1, color: 'var(--chart-1)', opacity: 0 },
+              ],
+            },
+          ],
+          marks: [
+            areaY(succeededRows, { x: 'key', y: 'count', fill: 'url(#dashboard-trend-fill)' }),
+            lineY(succeededRows, {
+              x: 'key',
+              y: 'count',
+              z: 'series',
+              stroke: 'var(--chart-1)',
+              strokeWidth: 2,
+            }),
+            lineY(failedRows, {
+              x: 'key',
+              y: 'count',
+              z: 'series',
+              stroke: 'var(--chart-3)',
+              strokeWidth: 2,
+            }),
+          ],
+          scales: {
+            x: {
+              scale: () => scalePoint<string>(),
+              axis: {
+                // 等间隔取刻度、最近一个时段必有标签；thin 只作兜底，估算正确时不会再删标签
+                ticks: {
+                  values: evenCategoryTicks(keys, labels, {
+                    axisWidth: width - TREND_Y_AXIS_WIDTH,
+                    fontSize: width < 360 ? 10 : 11,
+                    steps: TREND_TICK_STEPS[this.trendView()],
+                  }),
+                  format: (key: string) => labelOf.get(key) ?? '',
+                },
+                tickLabels: { thin: true },
+              },
+            },
+            y: {
+              scale: scaleLinear,
+              nice: true,
+              grid: true,
+              axis: {
+                ticks: { format: (value: number) => formatAppNumber(value, 'compact', locale) },
+              },
             },
           },
-          y: {
-            scale: scaleLinear,
-            nice: true,
-            grid: true,
-            axis: {
-              ticks: { format: (value: number) => formatAppNumber(value, 'compact', locale) },
-            },
-          },
-        },
-        theme: HLM_CHART_THEME,
+          theme: HLM_CHART_THEME,
+        }),
         tooltip: hlmChartTooltip<TrendRow, string, number>({
           content: (points) => {
             const key = points[0]?.datum.key ?? '';
