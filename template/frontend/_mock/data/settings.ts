@@ -84,49 +84,6 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
   },
   // 进程级：两个层级标记都是 false，只有 allowsHostScope。与真实后端一样，租户上下文下
   // 不下发这类设置，写入也被拒绝（见 api/setting.ts）。
-  {
-    name: 'Logging.MinimumLevel',
-    displayName: 'Minimum log level',
-    group: 'Operations',
-    defaultValue: 'Information',
-    allowsTenantScope: false,
-    allowsUserScope: false,
-    allowsHostScope: true,
-  },
-  {
-    name: 'Logging.RequestLevel',
-    displayName: 'Request log level',
-    group: 'Operations',
-    defaultValue: 'Information',
-    allowsTenantScope: false,
-    allowsUserScope: false,
-    allowsHostScope: true,
-  },
-  //#if (IncludeOperationRecords)
-  {
-    name: 'Audit.RetentionEnabled',
-    displayName: 'Archive expired operation records',
-    group: 'Audit',
-    defaultValue: 'false',
-    allowsTenantScope: false,
-    allowsUserScope: false,
-    allowsHostScope: true,
-    isBoolean: true,
-  },
-  //#endif
-  //#if (IncludeOperationRecords)
-  {
-    name: 'Audit.RetentionDays',
-    displayName: 'Operation record retention (days)',
-    group: 'Audit',
-    defaultValue: '365',
-    allowsTenantScope: false,
-    allowsUserScope: false,
-    allowsHostScope: true,
-    minimum: 30,
-    maximum: 3650,
-  },
-  //#endif
   //#if (Email)
   {
     name: 'Registration.EnableEmailVerification',
@@ -184,6 +141,14 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     allowsUserScope: false,
     isBoolean: true,
   },
+  //#endif
+  //#if (ExternalLogin)
+  externalLoginSetting('ExternalLogin.Github.Enabled', 'Enable GitHub sign-in', 'boolean'),
+  externalLoginSetting('ExternalLogin.Github.ClientId', 'GitHub client ID', 'text'),
+  externalLoginSetting('ExternalLogin.Github.ClientSecret', 'GitHub client secret', 'secret'),
+  externalLoginSetting('ExternalLogin.Google.Enabled', 'Enable Google sign-in', 'boolean'),
+  externalLoginSetting('ExternalLogin.Google.ClientId', 'Google client ID', 'text'),
+  externalLoginSetting('ExternalLogin.Google.ClientSecret', 'Google client secret', 'secret'),
   //#endif
   //#if (Email)
   {
@@ -266,13 +231,48 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     allowsHostScope: true,
   },
   //#endif
-  //#if (ExternalLogin)
-  externalLoginSetting('ExternalLogin.Github.Enabled', 'Enable GitHub sign-in', 'boolean'),
-  externalLoginSetting('ExternalLogin.Github.ClientId', 'GitHub client ID', 'text'),
-  externalLoginSetting('ExternalLogin.Github.ClientSecret', 'GitHub client secret', 'secret'),
-  externalLoginSetting('ExternalLogin.Google.Enabled', 'Enable Google sign-in', 'boolean'),
-  externalLoginSetting('ExternalLogin.Google.ClientId', 'Google client ID', 'text'),
-  externalLoginSetting('ExternalLogin.Google.ClientSecret', 'Google client secret', 'secret'),
+  {
+    name: 'Logging.MinimumLevel',
+    displayName: 'Minimum log level',
+    group: 'Operations',
+    defaultValue: 'Information',
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+  },
+  {
+    name: 'Logging.RequestLevel',
+    displayName: 'Request log level',
+    group: 'Operations',
+    defaultValue: 'Information',
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+  },
+  //#if (IncludeOperationRecords)
+  {
+    name: 'Audit.RetentionEnabled',
+    displayName: 'Archive expired operation records',
+    group: 'Audit',
+    defaultValue: 'false',
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+    isBoolean: true,
+  },
+  //#endif
+  //#if (IncludeOperationRecords)
+  {
+    name: 'Audit.RetentionDays',
+    displayName: 'Operation record retention (days)',
+    group: 'Audit',
+    defaultValue: '365',
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+    minimum: 30,
+    maximum: 3650,
+  },
   //#endif
   //#if (LocalIdentity)
   {

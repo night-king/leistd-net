@@ -69,7 +69,7 @@ interface RowState {
 
 /** 一个分组的渲染内容：分组本身加上按专属布局拆走之后剩下的普通行。 */
 interface GroupView extends SettingGroup {
-  /** 按通用两列网格渲染的行。 */
+  /** 按通用网格渲染的行。 */
   rows: SettingOutputDto[];
   /** 整组都是进程级设置：生效范围在分组顶部说一次，不在每行重复。 */
   hostScopeOnce: boolean;
@@ -295,6 +295,11 @@ export class SettingSection {
   /** 取值封闭的设置渲染下拉，其余渲染文本框；返回 undefined 表示没有候选项。 */
   protected choicesOf(setting: SettingOutputDto): readonly SettingChoice[] | undefined {
     return SETTING_CHOICES[setting.name];
+  }
+
+  /** 行下方描述的 id：开关不会自动关联所在字段的描述，要显式传给它的 aria-describedby。 */
+  protected descriptionIdOf(setting: SettingOutputDto): string {
+    return `${setting.name}-description`;
   }
 
   /** 布尔设置由服务端标注并渲染为开关；前端不另列清单，免得漏登记的项渲染成文本框。 */

@@ -3,16 +3,15 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <section
-    class="border-border flex flex-col gap-4 rounded-xl border p-4 sm:p-6"
-    data-testid="security-two-factor"
-  >
-    <header class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+  <section class="flex flex-col gap-5" data-testid="security-two-factor">
+    <header
+      class="flex flex-col gap-3 @md/panel:flex-row @md/panel:items-start @md/panel:justify-between border-b pb-3"
+    >
       <div class="flex flex-col gap-1">
         <div class="flex flex-wrap items-center gap-2">
           <h4 class="text-sm leading-none font-semibold">{{ t('account.twoFactor.header') }}</h4>
           @if (status()?.enabled) {
-            <span hlmBadge variant="success" data-testid="two-factor-on">{{
+            <span hlmBadge appStatusDot variant="success" data-testid="two-factor-on">{{
               t('account.twoFactor.on')
             }}</span>
           }
@@ -69,10 +68,11 @@
             (submit)="$event.preventDefault(); startReplace()"
           >
             <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.replaceHint') }}</p>
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div class="flex flex-wrap items-center gap-3">
               @if (useRecoveryCode()) {
                 <input
                   hlmInput
+                  class="flex-1 basis-56"
                   autocomplete="off"
                   data-testid="two-factor-replace-recovery-code"
                   [attr.aria-label]="t('account.twoFactor.recoveryCodeLabel')"
@@ -124,7 +124,7 @@
             (submit)="$event.preventDefault(); disable()"
           >
             <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.disableHint') }}</p>
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div class="flex flex-wrap items-center gap-3">
               <input
                 hlmInput
                 type="password"
@@ -165,8 +165,10 @@
             data-testid="two-factor-regenerate-form"
             (submit)="$event.preventDefault(); regenerate()"
           >
-            <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.regenerateHint') }}</p>
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <p class="text-muted-foreground text-sm">
+              {{ t('account.twoFactor.regenerateHint') }}
+            </p>
+            <div class="flex flex-wrap items-center gap-3">
               <app-otp-code-input
                 inputId="two-factor-regenerate-code"
                 [label]="t('account.twoFactor.codeLabel')"
@@ -188,7 +190,7 @@
         }
         @default {
           @if (s.enabled) {
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-3">
               <span class="text-muted-foreground text-sm" data-testid="recovery-codes-left">{{
                 t('account.twoFactor.recoveryCodesLeft', { count: s.recoveryCodesLeft })
               }}</span>

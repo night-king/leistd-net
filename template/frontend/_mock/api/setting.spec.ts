@@ -33,6 +33,8 @@ interface SettingRow {
   groupDisplayName: string;
   userValue: string | null;
   tenantValue: string | null;
+  allowsTenantScope: boolean;
+  allowsHostScope: boolean;
 }
 
 /** Mock 契约：除路由外还断言身份、权限、错误状态与主体隔离，与真实 API 的差异会在联调时才暴露。 */
@@ -283,6 +285,32 @@ describe('settings mock', () => {
 
     expect(row.displayName).toBe('Minimum log level');
     expect(row.groupDisplayName).toBe('Operations');
+  });
+
+  // 系统设置的面板顺序取分组首次出现的先后：与后端定义同序，按管理员的使用频率排，运维与审计在最后
+  it('lists the system groups in the backend order', () => {
+    signIn('user_admin');
+    const groups = (api[get](request()) as SettingRow[])
+      .filter((s) => s.allowsTenantScope || s.allowsHostScope)
+      .map((s) => s.group);
+
+    // prettier-ignore
+    expect([...new Set(groups)]).toEqual([
+      //#if (LocalIdentity)
+      'Registration',
+      'Security',
+      //#if (ExternalLogin)
+      'ExternalLogin',
+      //#endif
+      //#if (Email)
+      'Email',
+      //#endif
+      //#endif
+      'Operations',
+      //#if (IncludeOperationRecords)
+      'Audit',
+      //#endif
+    ]);
   });
   //#if (IncludeLocalization)
 

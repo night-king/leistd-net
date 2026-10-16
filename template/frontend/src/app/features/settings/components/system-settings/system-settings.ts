@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@a
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 //#if (IncludeLocalization)
-import { TranslocoDirective, translateSignal } from '@jsverse/transloco';
+import { TranslocoDirective, translateObjectSignal, translateSignal } from '@jsverse/transloco';
 //#endif
 import { provideIcons } from '@ng-icons/core';
 import {
@@ -83,17 +83,30 @@ export class SystemSettings {
   private readonly pageState = inject(SettingsPageState);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  //#if (!IncludeLocalization)
+  //#if (IncludeLocalization)
+  /** 各分组的说明：整段取成对象，词条到达与语言切换时随之重算；未登记的分组没有说明。 */
+  private readonly groupDescriptions = translateObjectSignal(
+    'settings.groupDescriptions',
+    {},
+    { scope: 'settings' },
+  );
+  //#else
   protected readonly t = englishText(ENGLISH);
   //#endif
 
-  protected readonly panels = computed<SettingsPanelLink[]>(() =>
-    groupSettings(settingsInScope(this.pageState.settings(), 'system')).map((group) => ({
+  protected readonly panels = computed<SettingsPanelLink[]>(() => {
+    //#if (IncludeLocalization)
+    const descriptions: Readonly<Record<string, string>> = this.groupDescriptions();
+    //#else
+    const descriptions = GROUP_DESCRIPTIONS;
+    //#endif
+    return groupSettings(settingsInScope(this.pageState.settings(), 'system')).map((group) => ({
       path: groupPath(group.key),
       label: group.label,
       icon: GROUP_ICONS[group.key] ?? 'lucideSettings',
-    })),
-  );
+      description: descriptions[group.key] ?? '',
+    }));
+  });
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -145,6 +158,26 @@ export class SystemSettings {
   }
 }
 //#if (!IncludeLocalization)
+
+/** 不含本地化时各分组的说明，与 `en.json` 的 `groupDescriptions` 同步；未登记的分组没有说明。 */
+// prettier-ignore
+const GROUP_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  //#if (LocalIdentity)
+  Registration: 'Verification for self sign-up and how long codes stay valid',
+  Security: 'Sign-in lockout and two-factor requirements',
+  //#if (ExternalLogin)
+  ExternalLogin:
+    'Sign-in with GitHub, Google and other providers: a switch and client credentials for each',
+  //#endif
+  //#if (Email)
+  Email: 'SMTP server and sender used for outgoing mail',
+  //#endif
+  //#endif
+  //#if (IncludeOperationRecords)
+  Audit: 'Archiving of expired operation records',
+  //#endif
+  Operations: 'How much detail the logs record',
+};
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {

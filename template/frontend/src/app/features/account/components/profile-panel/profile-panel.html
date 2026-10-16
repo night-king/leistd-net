@@ -3,17 +3,13 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <form
-    novalidate
-    class="flex w-full max-w-3xl flex-col gap-6"
-    (submit)="$event.preventDefault(); onSubmit()"
-  >
+  <form novalidate class="flex flex-col gap-6" (submit)="$event.preventDefault(); onSubmit()">
     <div class="flex flex-col gap-6">
       <div class="flex items-center gap-4 border-b border-border pb-5">
         <!-- 头像上传：无图时常驻居中图标；有图时 hover / 键盘 focus-visible 显示、触屏（pointer-coarse）常驻。 -->
         <!-- 选完即上传：头像有自己的接口，不随下面的表单保存，也不被「撤销修改」撤回 -->
         <label
-          class="group relative block h-20 w-20 shrink-0 cursor-pointer overflow-hidden rounded-full border border-border bg-muted transition-colors hover:border-primary focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/30"
+          class="group relative block h-20 w-20 shrink-0 cursor-pointer overflow-hidden rounded-full border border-border bg-muted transition-colors hover:border-primary focus-within:outline-none focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50"
           [class.pointer-events-none]="avatarBusy()"
           data-testid="profile-avatar"
         >
@@ -84,149 +80,203 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div hlmField>
-          <label hlmFieldLabel for="profile-username">{{ t('account.profile.username') }}</label>
-          <input
-            hlmInput
-            id="profile-username"
-            autocomplete="username"
-            class="w-full"
-            [formField]="profileForm.username"
-            [placeholder]="t('account.profile.usernamePlaceholder')"
-          />
-          @for (error of profileForm.username().errors(); track error.kind) {
-            <hlm-field-error [validator]="error.kind">{{
-              t('validation.' + error.kind, error)
-            }}</hlm-field-error>
-          }
-        </div>
-
-        <div hlmField>
-          <label hlmFieldLabel for="profile-email">{{ t('account.profile.email') }}</label>
-          <input
-            hlmInput
-            id="profile-email"
-            autocomplete="email"
-            class="w-full"
-            [formField]="profileForm.email"
-            [placeholder]="t('account.profile.emailPlaceholder')"
-          />
-          @for (error of profileForm.email().errors(); track error.kind) {
-            <hlm-field-error [validator]="error.kind">{{
-              t('validation.' + error.kind, error)
-            }}</hlm-field-error>
-          }
-<!--#if (Email)-->
-          <!-- 验证状态针对的是**已保存**的邮箱：表单里改了还没保存时，先提示保存后再验证 -->
-          @if (emailEdited()) {
-            <p class="text-muted-foreground text-xs" data-testid="email-change-hint">
-              {{ t('account.profile.emailChangeHint') }}
-            </p>
-          } @else if (user()?.isEmailVerified) {
-            <p class="text-success flex items-center gap-1 text-xs" data-testid="email-verified">
-              <ng-icon name="lucideCircleCheck" />
-              {{ t('account.profile.emailVerified') }}
-            </p>
-          } @else {
-            <div class="flex flex-col gap-2" data-testid="email-verification">
-              <p class="text-warning flex items-center gap-1 text-xs">
-                <ng-icon name="lucideCircleAlert" />
-                {{ t('account.profile.emailUnverified') }}
-              </p>
-              @if (!emailVerificationAvailable()) {
-                <p
-                  class="text-muted-foreground text-xs"
-                  data-testid="email-verification-unavailable"
-                >
-                  {{ t('account.profile.emailVerificationUnavailable') }}
-                </p>
-              } @else {
-                @if (emailChallenge()) {
-                  <div class="flex gap-2">
-                    <input
-                      hlmInput
-                      id="profile-email-code"
-                      class="w-40"
-                      inputmode="numeric"
-                      autocomplete="one-time-code"
-                      maxlength="6"
-                      [attr.aria-label]="t('account.profile.codeLabel')"
-                      [placeholder]="t('account.profile.codePlaceholder')"
-                      [value]="emailCode()"
-                      (input)="onEmailCodeInput($event)"
-                      (keydown.enter)="$event.preventDefault(); confirmEmailCode()"
-                    />
-                    <button
-                      hlmBtn
-                      type="button"
-                      size="sm"
-                      [disabled]="confirmingCode() || emailCode().trim().length === 0"
-                      (click)="confirmEmailCode()"
-                    >
-                      {{ t('account.profile.confirmCode') }}
-                    </button>
-                  </div>
-                }
-                <button
-                  hlmBtn
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  class="self-start"
-                  data-testid="email-send-code"
-                  [disabled]="sendingCode() || resendSeconds() > 0"
-                  (click)="sendEmailCode()"
-                >
-                  @if (resendSeconds() > 0) {
-                    {{ t('account.profile.resendIn', { seconds: resendSeconds() }) }}
-                  } @else if (emailChallenge()) {
-                    {{ t('account.profile.resendCode') }}
-                  } @else {
-                    {{ t('account.profile.sendCode') }}
-                  }
-                </button>
-              }
+      <!-- 与设置行同一写法：标签在左、输入在右（宽时 256px 右对齐，窄时落到标签下方），错误与验证在输入下方 -->
+      <div hlmFieldGroup class="gap-5">
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <div
+              class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-username">{{
+                t('account.profile.username')
+              }}</label>
             </div>
-          }
+          </div>
+          <div
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+          >
+            <input
+              hlmInput
+              id="profile-username"
+              autocomplete="username"
+              class="w-full"
+              [formField]="profileForm.username"
+              [placeholder]="t('account.profile.usernamePlaceholder')"
+            />
+            @for (error of profileForm.username().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </div>
+        </div>
+
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <!-- 验证状态接在标签后面，与设置行的"已保存"同一位置；需要操作的验证码输入与发送按钮留在输入框下方 -->
+            <div
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-email">{{ t('account.profile.email') }}</label>
+<!--#if (Email)-->
+              <!-- 验证状态针对的是**已保存**的邮箱：表单里改了还没保存时，先提示保存后再验证 -->
+              @if (emailEdited()) {
+                <span class="text-muted-foreground text-xs" data-testid="email-change-hint">
+                  {{ t('account.profile.emailChangeHint') }}
+                </span>
+              } @else if (user()?.isEmailVerified) {
+                <span
+                  class="text-success inline-flex items-center gap-1 text-xs"
+                  data-testid="email-verified"
+                >
+                  <ng-icon name="lucideCircleCheck" />
+                  {{ t('account.profile.emailVerified') }}
+                </span>
+              } @else {
+                <span
+                  class="text-warning inline-flex items-center gap-1 text-xs"
+                  data-testid="email-unverified"
+                >
+                  <ng-icon name="lucideCircleAlert" />
+                  {{ t('account.profile.emailUnverified') }}
+                </span>
+              }
 <!--#endif-->
+            </div>
+          </div>
+          <div
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+          >
+            <input
+              hlmInput
+              id="profile-email"
+              autocomplete="email"
+              class="w-full"
+              [formField]="profileForm.email"
+              [placeholder]="t('account.profile.emailPlaceholder')"
+            />
+            @for (error of profileForm.email().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+<!--#if (Email)-->
+            @if (!emailEdited() && !user()?.isEmailVerified) {
+              <div class="flex flex-col gap-2" data-testid="email-verification">
+                @if (!emailVerificationAvailable()) {
+                  <p
+                    class="text-muted-foreground text-xs"
+                    data-testid="email-verification-unavailable"
+                  >
+                    {{ t('account.profile.emailVerificationUnavailable') }}
+                  </p>
+                } @else {
+                  @if (emailChallenge()) {
+                    <div class="flex gap-2">
+                      <input
+                        hlmInput
+                        id="profile-email-code"
+                        class="w-40"
+                        inputmode="numeric"
+                        autocomplete="one-time-code"
+                        maxlength="6"
+                        [attr.aria-label]="t('account.profile.codeLabel')"
+                        [placeholder]="t('account.profile.codePlaceholder')"
+                        [value]="emailCode()"
+                        (input)="onEmailCodeInput($event)"
+                        (keydown.enter)="$event.preventDefault(); confirmEmailCode()"
+                      />
+                      <button
+                        hlmBtn
+                        type="button"
+                        size="sm"
+                        [disabled]="confirmingCode() || emailCode().trim().length === 0"
+                        (click)="confirmEmailCode()"
+                      >
+                        {{ t('account.profile.confirmCode') }}
+                      </button>
+                    </div>
+                  }
+                  <button
+                    hlmBtn
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    class="self-start"
+                    data-testid="email-send-code"
+                    [disabled]="sendingCode() || resendSeconds() > 0"
+                    (click)="sendEmailCode()"
+                  >
+                    @if (resendSeconds() > 0) {
+                      {{ t('account.profile.resendIn', { seconds: resendSeconds() }) }}
+                    } @else if (emailChallenge()) {
+                      {{ t('account.profile.resendCode') }}
+                    } @else {
+                      {{ t('account.profile.sendCode') }}
+                    }
+                  </button>
+                }
+              </div>
+            }
+<!--#endif-->
+          </div>
         </div>
 
-        <div hlmField>
-          <label hlmFieldLabel for="profile-display-name">{{
-            t('account.profile.displayName')
-          }}</label>
-          <input
-            hlmInput
-            id="profile-display-name"
-            class="w-full"
-            [formField]="profileForm.displayName"
-            [placeholder]="t('account.profile.displayNamePlaceholder')"
-          />
-          @for (error of profileForm.displayName().errors(); track error.kind) {
-            <hlm-field-error [validator]="error.kind">{{
-              t('validation.' + error.kind, error)
-            }}</hlm-field-error>
-          }
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <div
+              class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-display-name">{{
+                t('account.profile.displayName')
+              }}</label>
+            </div>
+          </div>
+          <div
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+          >
+            <input
+              hlmInput
+              id="profile-display-name"
+              class="w-full"
+              [formField]="profileForm.displayName"
+              [placeholder]="t('account.profile.displayNamePlaceholder')"
+            />
+            @for (error of profileForm.displayName().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </div>
         </div>
 
-        <div hlmField>
-          <label hlmFieldLabel for="profile-phone-number">{{
-            t('account.profile.phoneNumber')
-          }}</label>
-          <input
-            hlmInput
-            id="profile-phone-number"
-            autocomplete="tel"
-            class="w-full"
-            [formField]="profileForm.phoneNumber"
-            [placeholder]="t('account.profile.phoneNumberPlaceholder')"
-          />
-          @for (error of profileForm.phoneNumber().errors(); track error.kind) {
-            <hlm-field-error [validator]="error.kind">{{
-              t('validation.' + error.kind, error)
-            }}</hlm-field-error>
-          }
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <div
+              class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-phone-number">{{
+                t('account.profile.phoneNumber')
+              }}</label>
+            </div>
+          </div>
+          <div
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+          >
+            <input
+              hlmInput
+              id="profile-phone-number"
+              autocomplete="tel"
+              class="w-full"
+              [formField]="profileForm.phoneNumber"
+              [placeholder]="t('account.profile.phoneNumberPlaceholder')"
+            />
+            @for (error of profileForm.phoneNumber().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </div>
         </div>
       </div>
     </div>

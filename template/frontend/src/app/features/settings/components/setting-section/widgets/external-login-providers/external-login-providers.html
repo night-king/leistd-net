@@ -4,7 +4,7 @@
 <ng-container>
 <!--#endif-->
   <div class="flex flex-col gap-4" data-testid="external-login-providers">
-    <!-- 状态整组取一次：刷新与失败提示放在卡片上方，不在每张卡片上各来一份。 -->
+    <!-- 状态整组取一次：刷新与失败提示放在各渠道分区上方，不在每个分区里各来一份。 -->
     <div class="flex items-center justify-between gap-3">
       <p class="text-muted-foreground min-w-0 text-xs">
         {{ t('settings.externalLoginProviders.description') }}
@@ -29,7 +29,7 @@
       </button>
     </div>
 
-    <!-- 读不到状态时卡片照常渲染设置行，只是没有徽章与回调地址；已有状态时刷新失败，保留原内容。 -->
+    <!-- 读不到状态时各分区照常渲染设置行，只是没有徽章与回调地址；已有状态时刷新失败，保留原内容。 -->
     @if (loadError(); as error) {
       <div class="flex flex-col items-start gap-1" data-testid="external-login-status-error">
         <p class="flex items-center gap-2 text-sm" role="alert">
@@ -51,17 +51,18 @@
       </div>
     }
 
-    <!-- 面板够宽时两张卡片并排，卡片内一项一行；按容器宽度判断，理由同设置区块的两列布局。 -->
-    <div class="@container">
-      <div class="grid items-start gap-4 @3xl:grid-cols-2">
-        @for (card of cards(); track card.key) {
-          <section
-            class="border-border flex min-w-0 flex-col gap-4 rounded-md border p-4"
-            data-testid="external-login-provider"
-            [attr.data-provider]="card.key"
-          >
+    <!-- 渠道分区纵向排列：面板列上限 768px，并排时每节不足 380px，节内还要再排设置行。 -->
+    <div class="flex flex-col gap-10">
+      @for (card of cards(); track card.key) {
+        <!-- 每个渠道一节，不套卡片：标题行（渠道名与生效状态）下一条实线，行间只留白 -->
+        <section
+          class="flex min-w-0 flex-col gap-5"
+          data-testid="external-login-provider"
+          [attr.data-provider]="card.key"
+        >
+          <header class="flex flex-col gap-1 border-b pb-3">
             <div class="flex items-center justify-between gap-3">
-              <h4 class="truncate text-sm font-medium">{{ card.label }}</h4>
+              <h4 class="min-w-0 truncate text-sm leading-none font-semibold">{{ card.label }}</h4>
               @if (card.status; as status) {
                 @switch (status.state) {
                   @case ('active') {
@@ -103,56 +104,63 @@
               }
             </div>
             @if (card.status; as status) {
-              <!-- 只给"是否已配置"，不含凭据内容；部署提供的密钥在口令框里显示"未设置"，靠这一行看出已配置。
-                 文字写明状态，颜色不是唯一信息。 -->
-              <dl
-                class="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs"
-                data-testid="external-login-credentials"
-              >
-                <div class="flex gap-1" data-testid="external-login-client-id">
-                  <dt>{{ t('settings.externalLoginProviders.clientId') }}</dt>
-                  <dd [class.text-foreground]="status.hasClientId">
-                    {{
-                      status.hasClientId
-                        ? t('settings.externalLoginProviders.configured')
-                        : t('settings.externalLoginProviders.notConfigured')
-                    }}
-                  </dd>
-                </div>
-                <div class="flex gap-1" data-testid="external-login-client-secret">
-                  <dt>{{ t('settings.externalLoginProviders.clientSecret') }}</dt>
-                  <dd [class.text-foreground]="status.hasClientSecret">
-                    {{
-                      status.hasClientSecret
-                        ? t('settings.externalLoginProviders.configured')
-                        : t('settings.externalLoginProviders.notConfigured')
-                    }}
-                  </dd>
-                </div>
-              </dl>
+              <div class="text-muted-foreground flex flex-col gap-1 text-sm">
+                <!-- 只给"是否已配置"，不含凭据内容；部署提供的密钥在口令框里显示"未设置"，靠这一行看出已配置。
+                   文字写明状态，颜色不是唯一信息。 -->
+                <dl
+                  class="flex flex-wrap gap-x-4 gap-y-1 text-xs"
+                  data-testid="external-login-credentials"
+                >
+                  <div class="flex gap-1" data-testid="external-login-client-id">
+                    <dt>{{ t('settings.externalLoginProviders.clientId') }}</dt>
+                    <dd [class.text-foreground]="status.hasClientId">
+                      {{
+                        status.hasClientId
+                          ? t('settings.externalLoginProviders.configured')
+                          : t('settings.externalLoginProviders.notConfigured')
+                      }}
+                    </dd>
+                  </div>
+                  <div class="flex gap-1" data-testid="external-login-client-secret">
+                    <dt>{{ t('settings.externalLoginProviders.clientSecret') }}</dt>
+                    <dd [class.text-foreground]="status.hasClientSecret">
+                      {{
+                        status.hasClientSecret
+                          ? t('settings.externalLoginProviders.configured')
+                          : t('settings.externalLoginProviders.notConfigured')
+                      }}
+                    </dd>
+                  </div>
+                </dl>
+                @if (status.hint) {
+                  <p class="text-warning text-xs" data-testid="external-login-hint">
+                    {{ t(status.hint) }}
+                  </p>
+                }
+              </div>
             }
-            @if (card.status?.hint; as hint) {
-              <p class="text-warning text-xs" data-testid="external-login-hint">{{ t(hint) }}</p>
-            }
+          </header>
 
-            <!-- 行由设置区块的行模板渲染：控件、校验、即改即存与恢复默认都与其他分组同一份实现。 -->
-            <div class="flex flex-col gap-4">
+          <div class="flex flex-col gap-5">
+            <!-- 行由设置区块的行模板渲染：控件、校验、即改即存与恢复默认都与其他分组同一份实现；
+                 列表写法与普通分组相同（单列、左右排、行间只留白）。 -->
+            <div hlmFieldGroup class="gap-5">
               @for (setting of card.settings; track setting.name) {
                 <ng-container *ngTemplateOutlet="rowTemplate(); context: { $implicit: setting }" />
               }
             </div>
 
             @if (card.status; as status) {
-              <div class="flex flex-col gap-1">
-                <span class="text-muted-foreground text-xs">
+              <!-- 列表的最后一项：地址太长，标签在上（字段标签同款），地址框与右侧图标按钮在下，按钮与恢复按钮同列 -->
+              <div class="flex flex-col gap-2">
+                <span class="text-sm leading-snug font-medium">
                   {{ t('settings.externalLoginProviders.callbackUrl') }}
                 </span>
-                <!-- 长地址在框内折行，不撑宽面板 -->
-                <div
-                  class="border-border bg-muted flex items-start gap-1 rounded-md border py-1 ps-3 pe-1"
-                >
+                <!-- 长地址在框内折行，不撑宽面板。复制按钮放在框外右侧，与设置行的恢复按钮同一列、同一写法：
+                     框的最小高度同输入框，按钮与它垂直居中 -->
+                <div class="flex items-center gap-2">
                   <code
-                    class="min-w-0 flex-1 py-1.5 font-mono text-xs leading-5 break-all select-all"
+                    class="border-border bg-muted flex min-h-9 min-w-0 flex-1 items-center rounded-md border px-2.5 py-1.5 pointer-coarse:min-h-11 font-mono text-xs leading-5 break-all select-all"
                     data-testid="external-login-callback-url"
                     >{{ status.callbackUrl }}</code
                   >
@@ -175,14 +183,14 @@
                     "
                     (click)="copy(card, status.callbackUrl)"
                   >
-                    <ng-icon [name]="isCopied(card) ? 'lucideCheck' : 'lucideCopy'" />
+                    <ng-icon [name]="isCopied(card) ? 'lucideCheck' : 'lucideCopy'" size="16" />
                   </button>
                 </div>
               </div>
             }
-          </section>
-        }
-      </div>
+          </div>
+        </section>
+      }
     </div>
   </div>
 </ng-container>

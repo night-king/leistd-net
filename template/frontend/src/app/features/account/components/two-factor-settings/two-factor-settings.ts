@@ -20,6 +20,7 @@ import { finalize } from 'rxjs/operators';
 
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { AuthService } from '../../../../core/services/auth-service';
+import { StatusDot } from '../../../../shared/directives/status-dot';
 import { TwoFactorStatusOutputDto } from '../../../../shared/dtos/account-security.dto';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
@@ -49,6 +50,7 @@ type Mode = 'idle' | 'setup' | 'codes' | 'disable' | 'regenerate' | 'replace' | 
     HlmSpinner,
     OtpCodeInput,
     RecoveryCodes,
+    StatusDot,
     TwoFactorSetup,
     //#if (IncludeLocalization)
     TranslocoDirective,

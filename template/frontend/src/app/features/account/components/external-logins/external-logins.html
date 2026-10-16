@@ -5,11 +5,8 @@
 <!--#endif-->
   <!-- 成功取到空目录说明部署没有可用的外部登录，整块不出现；加载中与失败照常显示，失败可重试。 -->
   @if (!isEmpty()) {
-    <section
-      class="border-border flex flex-col gap-4 rounded-xl border p-4 sm:p-6"
-      data-testid="security-external-logins"
-    >
-      <header class="flex flex-col gap-1">
+    <section class="flex flex-col gap-5" data-testid="security-external-logins">
+      <header class="flex flex-col gap-1 border-b pb-3">
         <h4 class="text-sm leading-none font-semibold">{{ t('account.externalLogins.header') }}</h4>
         <p class="text-muted-foreground text-sm">{{ t('account.externalLogins.subtitle') }}</p>
       </header>
@@ -41,7 +38,7 @@
               </div>
               <div hlmItemContent class="min-w-0">
                 <div hlmItemTitle>{{ row.label }}</div>
-                <p hlmItemDescription class="truncate">
+                <p hlmItemDescription>
                   {{
                     row.link
                       ? t('account.externalLogins.linkedAs', {
