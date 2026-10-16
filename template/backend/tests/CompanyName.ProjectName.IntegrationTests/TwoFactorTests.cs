@@ -848,7 +848,14 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
             Armed = false;
 
             _entered.TrySetResult();
-            await _release.Task;
+            // 用例在放行之前失败时不能把请求永远挂着（它持着凭据锁）：等待有上限，到时照常往下走
+            try
+            {
+                await _release.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            catch (TimeoutException)
+            {
+            }
             if (Fail)
             {
                 throw new InvalidOperationException("Injected success record failure.");
