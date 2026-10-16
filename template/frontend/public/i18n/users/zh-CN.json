@@ -138,11 +138,5 @@
     "rolesTitle": "为 {{count}} 位用户追加角色",
     "rolesDescription": "选中的角色会追加给这些用户，已有的角色保持不变。",
     "assign": "追加角色"
-  },
-  "reauthDialog": {
-    "header": "确认是你本人",
-    "description": "这项操作会改变他人的登录方式。请输入你自己的当前密码后继续。",
-    "passwordLabel": "你的当前密码",
-    "confirm": "确认"
   }
 }

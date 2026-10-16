@@ -294,7 +294,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
                 "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(secret, clock) });
             Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
 
-            // 换发的会话不再受限；旧的受限会话随之结束
+            // 换发的 Cookie 不再受限，服务端会话还是原来那个；旧的受限 Cookie 随之作废（换发时票据存储移除旧票据）
             using var reissued = ProjectWebApplicationFactory.CreateProjectClient(host);
             reissued.DefaultRequestHeaders.Add("Cookie", CookieOf(enable));
             Assert.Equal(HttpStatusCode.OK, (await reissued.GetAsync("/api/v1/auth/me/sessions")).StatusCode);
@@ -644,6 +644,97 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         Assert.Equal(RecoveryCodes.Count - 1, status.GetProperty("recoveryCodesLeft").GetInt32());
     }
 
+    // 受限会话转正是同一个服务端会话换发 Cookie，不登记新会话：这个会话若在此期间被撤销，换发出的 Cookie 一样不能用
+    [Fact]
+    public async Task Completing_setup_from_a_restricted_session_keeps_the_same_server_session()
+    {
+        var (host, clock) = CreateHost();
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_same_sid");
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        try
+        {
+            var signedInAt = clock.GetUtcNow().UtcDateTime;
+            using var restricted = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+            clock.Advance(TimeSpan.FromMinutes(5));
+
+            var setup = await BeginSetupAsync(restricted.Client);
+            using var enable = await restricted.Client.PostAsJsonAsync(
+                "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(setup.Secret, clock) });
+            Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
+
+            using var reissued = ProjectWebApplicationFactory.CreateProjectClient(host);
+            reissued.DefaultRequestHeaders.Add("Cookie", CookieOf(enable));
+            var sessions = (await reissued.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/sessions")).EnumerateArray().ToList();
+            var current = Assert.Single(sessions);
+            Assert.True(current.GetProperty("isCurrent").GetBoolean());
+            Assert.True(current.GetProperty("creationTime").GetDateTime() <= signedInAt.AddSeconds(1),
+                "the reissued cookie must point at the session created at sign-in, not a new one");
+        }
+        finally
+        {
+            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+        }
+    }
+
+    // 受限会话只放行完成设置所需的接口：改资料（含换邮箱）不在其中
+    [Fact]
+    public async Task A_restricted_session_cannot_change_the_profile()
+    {
+        var (host, _) = CreateHost();
+        using var _host = host;
+        var username = await CreateUserAsync(host, "tfa_no_profile");
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        try
+        {
+            using var restricted = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+            using var change = await restricted.Client.PutAsJsonAsync("/api/v1/auth/me",
+                new { Username = username, Email = $"attacker-{username}@example.test", CurrentPassword = Password });
+            Assert.Equal(HttpStatusCode.Forbidden, change.StatusCode);
+            Assert.Equal("Auth:TwoFactorSetupRequired", await ErrorCodeAsync(change));
+        }
+        finally
+        {
+            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+        }
+    }
+
+    // 第二步停在登记会话之前、持着凭据锁：同时改口令要等它登记完再撤销，第二步得到的会话随改口令失效
+    [Fact]
+    public async Task A_password_change_waits_for_an_in_flight_second_step_and_revokes_its_session()
+    {
+        var gate = new RecorderGate(OperationRecordActions.AuthLoginSucceeded) { Armed = false };
+        var (host, clock) = CreateHost(services => gate.Install(services));
+        using var _ = host;
+        var username = await CreateUserAsync(host, "tfa_pwd_race");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var setup = await BeginSetupAsync(session.Client);
+        await EnableAsync(session.Client, setup, clock);
+        Step(clock);
+        var (_, token) = await PasswordStepAsync(host, username);
+        var login = ProjectWebApplicationFactory.CreateProjectClient(host);
+
+        gate.Armed = true;
+        var secondStep = login.PostAsJsonAsync("/api/v1/auth/two-factor", new { Token = token, Code = Code(setup.Secret, clock) });
+        await gate.Entered;
+        var change = session.Client.PostAsJsonAsync(
+            "/api/v1/auth/change-password", new { CurrentPassword = Password, NewPassword = Password + "1", ConfirmPassword = Password + "1" });
+        await AssertStillWaitingAsync(change);
+        gate.Release();
+
+        using (var signedIn = await secondStep)
+        {
+            Assert.Equal(HttpStatusCode.OK, signedIn.StatusCode);
+            login.DefaultRequestHeaders.Add("Cookie", CookieOf(signedIn));
+        }
+        using (var changed = await change)
+            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await login.GetAsync("/api/v1/auth/me")).StatusCode);
+        login.Dispose();
+    }
+
     // 管理员重置与本人重发改的是同一份凭据：重置要等重发提交后再读，最终一定是停用状态，
     // 不能被重发晚到的写入改回"已启用"
     [Fact]
@@ -731,6 +822,9 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
 
         public bool Fail { get; set; }
 
+        /// <summary>为 false 时不拦：准备阶段也会经过同一个动作（登录成功）时先关掉，到要拦的那一步再打开。</summary>
+        public bool Armed { get; set; } = true;
+
         public Task Entered => _entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         public void Release() => _release.TrySetResult();
@@ -746,13 +840,22 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
 
         private async Task PassAsync(string recorded)
         {
-            if (recorded != action)
+            if (recorded != action || !Armed)
             {
                 return;
             }
 
+            Armed = false;
+
             _entered.TrySetResult();
-            await _release.Task;
+            // 用例在放行之前失败时不能把请求永远挂着（它持着凭据锁）：等待有上限，到时照常往下走
+            try
+            {
+                await _release.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            catch (TimeoutException)
+            {
+            }
             if (Fail)
             {
                 throw new InvalidOperationException("Injected success record failure.");

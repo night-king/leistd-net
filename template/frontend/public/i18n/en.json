@@ -60,6 +60,12 @@
     "calendar": {
       "previousMonth": "Previous month",
       "nextMonth": "Next month"
+    },
+    "reauthenticate": {
+      "header": "Confirm it is you",
+      "description": "This change affects how you or someone else signs in. Enter your current password to continue.",
+      "passwordLabel": "Your current password",
+      "confirm": "Confirm"
     }
   },
   "validation": {

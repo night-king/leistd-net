@@ -12,7 +12,6 @@ using Leistd.UnitOfWork;
 using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.Sessions;
-using CompanyName.ProjectName.Application.Auth.TwoFactor;
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using Leistd.EventBus.Abstractions;
@@ -277,17 +276,34 @@ internal sealed class UserAppService(
 
     /// <summary>更新用户。</summary>
     /// <remarks>
-    /// 资源服务形态下没有这个入口：用户名、邮箱、显示名归签发方所有，本地改了没有回写通道，
-    /// 只会与签发方漂移。那一侧的资料由 <c>ResourceUserProvisioningMiddleware</c> 每次访问按令牌刷新。
+    /// <para>资源服务形态下没有这个入口：用户名、邮箱、显示名归签发方所有，本地改了没有回写通道，
+    /// 只会与签发方漂移。那一侧的资料由 <c>ResourceUserProvisioningMiddleware</c> 每次访问按令牌刷新。</para>
+    /// <para>改邮箱或把邮箱标为已验证时，管理员的会话要刚认证过，否则出示自己的当前口令：
+    /// 已验证的邮箱是按邮箱关联外部登录的依据，被盗的管理员会话据此就能把别人的账号接到自己的外部账号上。
+    /// 改的是自己时同样要求。在目标用户的凭据锁内读、改并提交，与本人同时进行的改邮箱、确认邮箱互不覆盖。</para>
     /// </remarks>
     public async Task<UserManagementOutputDto> UpdateAsync(Guid id, UpdateUserInputDto input, CancellationToken cancellationToken = default)
     {
         logger.LogInformation("Updating user {Id}", id);
 
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(id), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetUserWithRolesOrThrowAsync(id, cancellationToken);
         if (!user.CanBeManagedBy(currentUser.Id))
         {
             throw new BusinessException(UserErrorCodes.SuperAdminUpdateForbidden, "The built-in super administrator cannot be updated by other administrators.");
+        }
+
+        // 与领域判定"换了邮箱"同一口径（大小写不敏感）
+        if (!string.Equals(user.Email, input.Email.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            (input.IsEmailVerified && !user.EmailConfirmed))
+        {
+            var actor = await GetUserOrThrowAsync(currentUser.Id!.Value, cancellationToken);
+            await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
+                actor, input.Password, OperationRecordActions.UserUpdated, cancellationToken);
         }
 
         // 编辑表单会把读到的头像地址原样送回，那表示"没改"，换回存储的原值再校验。
@@ -305,12 +321,12 @@ internal sealed class UserAppService(
 
         // 补齐成功路径：此前只有 UserController 上的 [OperationRecordAction] 记被拒的更新，
         // 成功反而不留痕——而注解自己的文档写着"与成功路径使用的值逐字一致"，它预设了这里存在。
-        // 本方法没有 [UnitOfWork]：写入即时生效，不随后续失败回滚。
         await operationRecorder.RecordSucceededAsync(
             OperationRecordActions.UserUpdated,
             OperationTarget.For(id, user.DisplayName ?? user.Username),
             PermissionConstant.Users.Update,
             cancellationToken);
+        await unit.CompleteAsync(cancellationToken);
 
         return await MapToOutputAsync(user, cancellationToken);
     }
@@ -396,10 +412,23 @@ internal sealed class UserAppService(
 
 #if (LocalIdentity)
     /// <summary>重置用户密码，并撤销该用户的全部会话。</summary>
-    /// <remarks>口令与撤销同生共死；提醒在提交之后发出。</remarks>
-    [UnitOfWork]
+    /// <remarks>
+    /// <para>管理员的会话要刚认证过，否则出示自己的当前口令：被盗的管理员会话不能直接把别人的口令换成自己知道的。
+    /// 重置的是自己时同样要求。</para>
+    /// <para>在目标用户的凭据锁内读、改并提交：同时进行的口令登录要么先登记完会话、被这里一并撤掉，
+    /// 要么等这里提交后再按新口令判定。口令与撤销同生共死；提醒在提交之后发出。</para>
+    /// </remarks>
     public async Task ResetPasswordAsync(Guid id, ResetUserPasswordInputDto input, CancellationToken cancellationToken = default)
     {
+        var actor = await GetUserOrThrowAsync(currentUser.Id!.Value, cancellationToken);
+        await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
+            actor, input.CurrentPassword, OperationRecordActions.UserPasswordReset, cancellationToken);
+
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(id), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetUserOrThrowAsync(id, cancellationToken);
         if (!user.CanBeManagedBy(currentUser.Id))
         {
@@ -424,6 +453,7 @@ internal sealed class UserAppService(
             user.Id,
             user.Id == currentUser.Id ? currentUser.GetSessionId() : null,
             cancellationToken);
+        await unit.CompleteAsync(cancellationToken);
     }
 
     /// <summary>解除用户的登录锁定。</summary>
@@ -469,7 +499,7 @@ internal sealed class UserAppService(
         await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
             actor, input.Password, OperationRecordActions.UserTwoFactorReset, cancellationToken);
 
-        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(id), cancellationToken);
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(id), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
         using var unit = unitOfWorkManager.Begin(requiresNew: true);

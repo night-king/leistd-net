@@ -18,7 +18,7 @@ public interface IAuthAppService : IAppService
         TwoFactorLoginInputDto input,
         CancellationToken cancellationToken = default);
 
-    /// <summary>结束当前会话并按账号最新状态签发一个新的（受限会话完成两步验证设置后调用）。</summary>
+    /// <summary>在当前服务端会话上按账号最新状态换发主体（受限会话完成两步验证设置后调用）。</summary>
     Task<ClaimsPrincipal> ReissueSessionAsync(CancellationToken cancellationToken = default);
 
     /// <summary>用户注册。</summary>

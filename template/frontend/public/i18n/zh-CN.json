@@ -60,6 +60,12 @@
     "calendar": {
       "previousMonth": "上个月",
       "nextMonth": "下个月"
+    },
+    "reauthenticate": {
+      "header": "确认是你本人",
+      "description": "这项修改会影响你或他人的登录方式。请输入你的当前密码以继续。",
+      "passwordLabel": "你的当前密码",
+      "confirm": "确认"
     }
   },
   "validation": {

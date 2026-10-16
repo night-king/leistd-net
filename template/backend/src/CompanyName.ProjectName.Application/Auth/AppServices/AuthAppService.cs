@@ -9,6 +9,7 @@ using CompanyName.ProjectName.Application.Auth.EmailVerification;
 #endif
 using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Application.Auth.TwoFactor;
+using Leistd.UnitOfWork;
 using Leistd.UnitOfWork.Attributes;
 using CompanyName.ProjectName.Application.Auth.Constants;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
@@ -55,7 +56,6 @@ internal sealed class AuthAppService(
 #endif
     SessionIssuer sessionIssuer,
     UserSessionDomainService userSessionDomainService,
-    CurrentSessionTerminator currentSessionTerminator,
     TwoFactorChallengeStore twoFactorChallengeStore,
     TwoFactorDomainService twoFactorDomainService,
     IOperationRecorder operationRecorder,
@@ -70,6 +70,7 @@ internal sealed class AuthAppService(
     ICurrentTenant currentTenant,
     IClock clock,
     IDistributedLock distributedLock,
+    IUnitOfWorkManager unitOfWorkManager,
     ILogger<AuthAppService> logger) : BaseAppService(), IAuthAppService
 {
     public async Task<SessionLoginResult> AuthenticateSessionAsync(
@@ -126,7 +127,22 @@ internal sealed class AuthAppService(
             throw new BusinessException(AuthErrorCodes.InvalidCredentials, "The username or password is incorrect.");
         }
 
-        var user = result.User!;
+        // 口令对了之后，在凭据锁内按最新的用户行决定去向并提交：改口令、重置口令与之串行，
+        // 撤销会话之后不会再冒出一个凭旧口令登记的会话。口令校验本身在锁外，持锁时不做昂贵的哈希
+        var validatedStamp = result.User!.SecurityStamp;
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(result.User.Id), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
+        // 校验之后、取到锁之前安全版本变了：口令可能已被改掉或重置，按最新的口令再比一次。
+        // 只是启用或停用了两步验证（口令没变）时照常往下走，由 StartAsync 按最新状态决定要不要第二步
+        var user = await userRepository.GetByIdAsync(result.User.Id, cancellationToken);
+        if (user is null || (!user.HasSecurityStamp(validatedStamp) && !userDomainService.VerifyCurrentPassword(user, input.Password)))
+        {
+            throw new BusinessException(AuthErrorCodes.InvalidCredentials, "The username or password is incorrect.");
+        }
+
         var outcome = await sessionIssuer.StartAsync(user, cancellationToken: cancellationToken);
         if (result.PasswordRehashNeeded)
         {
@@ -140,6 +156,7 @@ internal sealed class AuthAppService(
             await RecordLoginSucceededAsync(user, cancellationToken);
         }
 
+        await unit.CompleteAsync(cancellationToken);
         return outcome;
     }
 
@@ -164,7 +181,7 @@ internal sealed class AuthAppService(
         // 用的是凭据锁：用掉的步与恢复码要写回凭据，不能与重发、停用、重置交错。
         // 本方法没有工作单元，仓储写入立即落库，都发生在锁释放之前。锁内重读挑战
         await using var userLock = await distributedLock.LockAsync(
-            TwoFactorCredentialLock.Key(challenge.UserId), cancellationToken);
+            UserCredentialLock.Key(challenge.UserId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, userLock.LockLost);
         cancellationToken = lockScope.Token;
         challenge = await twoFactorChallengeStore.GetAsync(input.Token, cancellationToken);
@@ -243,18 +260,19 @@ internal sealed class AuthAppService(
         return await sessionIssuer.SignInAsync(user, cancellationToken: cancellationToken);
     }
 
-    /// <summary>换发当前会话：结束现在这个，按账号最新状态签发一个新的。</summary>
+    /// <summary>换发当前会话的主体：同一个服务端会话，按账号最新状态去掉受限声明。</summary>
     /// <remarks>
-    /// 受限会话的用户完成两步验证设置后调用，换掉带限制声明的那一个。
-    /// 换发不是一次认证：新会话沿用原会话的认证时刻（见 <see cref="SessionIssuer.SignInAsync"/>）。
+    /// 受限会话的用户完成两步验证设置后调用。沿用原会话 Id 与认证时刻（见 <see cref="SessionIssuer.ReissueAsync"/>）：
+    /// 换发不是一次认证，也不登记新会话，这个会话在此期间被撤销的话，换发出的 Cookie 一样不能用。
     /// </remarks>
     public async Task<ClaimsPrincipal> ReissueSessionAsync(CancellationToken cancellationToken = default)
     {
         var user = await GetCurrentUserEntityAsync(cancellationToken);
+        var sessionId = currentUser.GetSessionId()
+            ?? throw new InvalidOperationException("Only a signed-in session can be reissued.");
         var authenticatedAt = SessionIssuer.ReadAuthenticationTime(
             currentUser.FindClaim(SessionIssuer.AuthenticationTimeClaimType)) ?? DateTimeOffset.UnixEpoch;
-        await currentSessionTerminator.EndAsync(cancellationToken);
-        return await sessionIssuer.SignInAsync(user, cancellationToken: cancellationToken, authenticatedAt: authenticatedAt);
+        return await sessionIssuer.ReissueAsync(user, sessionId, authenticatedAt, cancellationToken);
     }
 
     // 登录成功的"什么人"由目标承载：SignInAsync 只往响应里种 Cookie，
@@ -402,17 +420,30 @@ internal sealed class AuthAppService(
     }
 
     /// <summary>更新个人信息。</summary>
+    /// <remarks>
+    /// <para>换邮箱要会话刚认证过，否则出示当前口令（<see cref="IReauthenticationGuard.EnsureRecentlyAuthenticatedAsync"/>）：
+    /// 邮箱是安全提醒的去处，确认之后还是按邮箱关联外部登录的依据。拿到一个旧会话的人换成自己的地址、验证、
+    /// 再用同一邮箱的外部账号登录，就得到一个不依赖这个会话、改口令也撤不掉的登录方式。用户名、显示名与电话不受此限。</para>
+    /// <para>在本人的凭据锁内读、改并提交：与邮箱确认串行，确认的只能是此刻账号上的那个地址。</para>
+    /// </remarks>
     public async Task<UserOutputDto> UpdateCurrentUserAsync(UpdateCurrentUserInputDto input, CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
-        var user = await userRepository.GetByIdAsync(userId, cancellationToken);
-        if (user == null)
-        {
-            throw new BusinessException(UserErrorCodes.NotFound, $"User {userId} not found.")
-                .WithData("Id", userId);
-        }
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
 
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
         logger.LogInformation("Updating current user profile (ID: {UserId})", user.Id);
+
+        // 与领域判定"换了邮箱"同一口径（大小写不敏感）
+        var emailChanged = !string.Equals(user.Email, input.Email, StringComparison.OrdinalIgnoreCase);
+        if (emailChanged)
+        {
+            await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
+                user, input.CurrentPassword, OperationRecordActions.AuthEmailChanged, cancellationToken);
+        }
 
         await userDomainService.UpdateProfileAsync(
             user,
@@ -423,6 +454,16 @@ internal sealed class AuthAppService(
             cancellationToken);
 
         await userRepository.UpdateAsync(user, cancellationToken);
+        if (emailChanged)
+        {
+            await operationRecorder.RecordSucceededAsync(
+                OperationRecordActions.AuthEmailChanged,
+                OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
+                OperationRecordAuthorizations.AuthenticatedSelf,
+                cancellationToken);
+        }
+
+        await unit.CompleteAsync(cancellationToken);
         logger.LogInformation("Current user profile updated (ID: {UserId})", user.Id);
 
         return await ToOutputAsync(user, cancellationToken);
@@ -431,18 +472,19 @@ internal sealed class AuthAppService(
     /// <summary>修改密码，并撤销除当前以外的全部会话。</summary>
     /// <remarks>
     /// 口令与会话撤销同生共死：撤不掉就整体失败，不留"口令换了、旧会话还在"的状态。
+    /// 在本人的凭据锁内读、改并提交：同时进行的口令登录、登录第二步要么先登记完会话、被这里一并撤掉，
+    /// 要么等这里提交后再按新口令判定，撤销之后不会再冒出凭旧口令登记的会话。
     /// 再认证失败的计数与审计各自独立提交，不随本方法的回滚丢失；提醒在提交之后发出。
     /// </remarks>
-    [UnitOfWork]
     public async Task ChangePasswordAsync(ChangePasswordInputDto input, CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
-        var user = await userRepository.GetByIdAsync(userId, cancellationToken);
-        if (user == null)
-        {
-            throw new BusinessException(UserErrorCodes.NotFound, $"User {userId} not found.")
-                .WithData("Id", userId);
-        }
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
 
         logger.LogInformation("Changing current user password (ID: {UserId})", user.Id);
 
@@ -484,6 +526,7 @@ internal sealed class AuthAppService(
             OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
             OperationRecordAuthorizations.AuthenticatedSelf,
             cancellationToken);
+        await unit.CompleteAsync(cancellationToken);
     }
 
     /// <summary>设置或清除自己的头像。</summary>
@@ -519,10 +562,17 @@ internal sealed class AuthAppService(
     /// <summary>用验证码确认自己当前的邮箱。</summary>
     /// <remarks>
     /// 校验针对的是<b>此刻</b>账号上的邮箱：发码之后改过邮箱的话，旧验证码对新地址无效，
-    /// 不能用它把一个没验证过的新地址标成已验证。
+    /// 不能用它把一个没验证过的新地址标成已验证。为此读、校验与确认都在本人的凭据锁内完成，
+    /// 与改邮箱串行——锁外读出旧地址、校验通过后再写"已确认"，会把期间换上的新地址一并标成已验证。
     /// </remarks>
     public async Task<UserOutputDto> ConfirmCurrentUserEmailAsync(EmailVerificationInputDto input, CancellationToken cancellationToken = default)
     {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         if (!await emailChallengeStore.ValidateAccountEmailAsync(user.Email, input, cancellationToken))
         {
@@ -538,6 +588,7 @@ internal sealed class AuthAppService(
             OperationRecordAuthorizations.AuthenticatedSelf,
             cancellationToken);
 
+        await unit.CompleteAsync(cancellationToken);
         return await ToOutputAsync(user, cancellationToken);
     }
 #endif

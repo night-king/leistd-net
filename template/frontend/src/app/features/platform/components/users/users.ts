@@ -49,6 +49,7 @@ import {
 } from 'rxjs/operators';
 
 //#if (LocalIdentity)
+import { ReauthenticateDialog } from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
 import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
 //#endif
 // prettier-ignore
@@ -94,7 +95,6 @@ import { RoleService } from '../../services/role-service';
 import { UserManagementService } from '../../services/user-management-service';
 import { BatchRolesDialog } from './widgets/batch-roles-dialog/batch-roles-dialog';
 //#if (LocalIdentity)
-import { ReauthenticateDialog } from './widgets/reauthenticate-dialog/reauthenticate-dialog';
 import { ResetUserPasswordDialog } from './widgets/reset-user-password-dialog/reset-user-password-dialog';
 //#endif
 //#if (LocalIdentity)
@@ -200,8 +200,8 @@ export class Users {
   resettingUserId = signal<string | null>(null);
   reauthDialogVisible = signal(false);
   reauthSaving = signal(false);
-  /** 等待管理员出示口令后重试的两步验证重置。 */
-  private pendingTwoFactorReset: UserManagementOutputDto | null = null;
+  /** 等待管理员出示自己的当前口令后重试的那个操作（重置两步验证、重置口令、改邮箱）。 */
+  private pendingReauthentication: ((password: string) => void) | null = null;
   //#endif
 
   // 搜索框即时值：随 URL 回填，输入时乐观更新，防抖后写回 URL。
@@ -440,20 +440,25 @@ export class Users {
 
   //#endif
   //#if (LocalIdentity)
-  handleSave(data: CreateUserInputDto | UpdateUserInputDto) {
+  handleSave(data: CreateUserInputDto | UpdateUserInputDto, password?: string) {
     this.editDialogSaving.set(true);
+    this.reauthSaving.set(password !== undefined);
     const selected = this.selectedUser();
     const request = selected
-      ? this.service.updateUser(selected.id, data as UpdateUserInputDto)
+      ? this.service.updateUser(selected.id, { ...(data as UpdateUserInputDto), password })
       : this.service.createUser(data as CreateUserInputDto);
 
     request
       .pipe(
-        finalize(() => this.editDialogSaving.set(false)),
+        finalize(() => {
+          this.editDialogSaving.set(false);
+          this.reauthSaving.set(false);
+        }),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
         next: () => {
+          this.endReauthentication();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate(
@@ -468,7 +473,8 @@ export class Users {
           this.editDialogVisible.set(false);
           this.reloadList();
         },
-        error: (error) => this.showRequestError(error),
+        // 改邮箱或标为已验证而管理员的会话不够新：先确认身份再重试
+        error: (error) => this.handleReauthenticationError(error, (p) => this.handleSave(data, p)),
       });
   }
 
@@ -624,12 +630,30 @@ export class Users {
     this.resetTwoFactor(user);
   }
 
-  /** 管理员在确认身份的对话框里出示了口令：带上它重试。 */
+  /** 管理员在确认身份的对话框里出示了口令：带上它重试挂起的那个操作。 */
   onReauthenticated(password: string) {
-    const user = this.pendingTwoFactorReset;
-    if (user) {
-      this.resetTwoFactor(user, password);
+    this.pendingReauthentication?.(password);
+  }
+
+  /**
+   * 会话不够新（`Auth:ReauthenticationRequired`）：记下重试动作并请管理员出示自己的当前口令；
+   * 口令错误时留在对话框里重输。其余错误照常提示。
+   */
+  private handleReauthenticationError(error: unknown, retry: (password: string) => void) {
+    if (
+      error instanceof ApplicationHttpError &&
+      error.code === API_ERROR_CODES.reauthenticationRequired
+    ) {
+      this.pendingReauthentication = retry;
+      this.reauthDialogVisible.set(true);
+      return;
     }
+    this.showRequestError(error);
+  }
+
+  private endReauthentication() {
+    this.pendingReauthentication = null;
+    this.reauthDialogVisible.set(false);
   }
 
   private resetTwoFactor(user: UserManagementOutputDto, password?: string) {
@@ -642,8 +666,7 @@ export class Users {
       )
       .subscribe({
         next: () => {
-          this.pendingTwoFactorReset = null;
-          this.reauthDialogVisible.set(false);
+          this.endReauthentication();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate('users.toast.twoFactorReset'),
@@ -653,18 +676,8 @@ export class Users {
           //#endif
           this.reloadList();
         },
-        error: (error) => {
-          // 管理员的会话不够新：先确认身份再重试；口令错误时留在对话框里重输
-          if (
-            error instanceof ApplicationHttpError &&
-            error.code === API_ERROR_CODES.reauthenticationRequired
-          ) {
-            this.pendingTwoFactorReset = user;
-            this.reauthDialogVisible.set(true);
-            return;
-          }
-          this.showRequestError(error);
-        },
+        error: (error) =>
+          this.handleReauthenticationError(error, (p) => this.resetTwoFactor(user, p)),
       });
   }
 
@@ -673,21 +686,26 @@ export class Users {
     this.resetPasswordDialogVisible.set(true);
   }
 
-  handleResetPassword(data: ResetUserPasswordInputDto) {
+  handleResetPassword(data: ResetUserPasswordInputDto, currentPassword?: string) {
     const id = this.resettingUserId();
     if (!id) {
       return;
     }
 
     this.resetPasswordSaving.set(true);
+    this.reauthSaving.set(currentPassword !== undefined);
     this.service
-      .resetPassword(id, data)
+      .resetPassword(id, { ...data, currentPassword })
       .pipe(
-        finalize(() => this.resetPasswordSaving.set(false)),
+        finalize(() => {
+          this.resetPasswordSaving.set(false);
+          this.reauthSaving.set(false);
+        }),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
         next: () => {
+          this.endReauthentication();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate('users.toast.passwordReset'),
@@ -698,7 +716,9 @@ export class Users {
           this.resetPasswordDialogVisible.set(false);
           this.resettingUserId.set(null);
         },
-        error: (error) => this.showRequestError(error),
+        // 重置口令总要管理员的会话刚认证过：不够新时先确认身份再重试
+        error: (error) =>
+          this.handleReauthenticationError(error, (p) => this.handleResetPassword(data, p)),
       });
   }
 

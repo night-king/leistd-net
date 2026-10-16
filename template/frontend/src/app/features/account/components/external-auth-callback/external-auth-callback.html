@@ -30,4 +30,11 @@
       }
     </section>
   </main>
+
+  <app-reauthenticate-dialog
+    [visible]="reauthVisible()"
+    (visibleChange)="onReauthVisibleChange($event)"
+    [saving]="reauthSaving()"
+    (confirmed)="onReauthenticated($event)"
+  />
 </ng-container>

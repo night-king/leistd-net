@@ -1,6 +1,6 @@
 #if (LocalIdentity)
 using System.Security.Claims;
-using CompanyName.ProjectName.Application.Auth.TwoFactor;
+using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Domain.Users.Repositories;
@@ -69,7 +69,7 @@ internal sealed class TwoFactorResetRunner(
             [new Claim("sub", $"deployment:{Environment.UserName}@{Environment.MachineName}")], "deployment")),
             correlationId: Guid.NewGuid().ToString("N"));
 
-        await using var lockHandle = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        await using var lockHandle = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lockHandle.LockLost);
         cancellationToken = lockScope.Token;
 

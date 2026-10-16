@@ -195,6 +195,56 @@ public sealed partial class EmailVerificationChallengeTests(ProjectWebApplicatio
         Assert.True(await ReadEmailVerifiedAsync(user.Client));
     }
 
+    /// <summary>
+    /// 确认停在核对验证码处、持着本人的凭据锁：同时改邮箱要等它提交后再改，最终是新地址、未验证——
+    /// 旧地址的验证码不能顺带把新地址标成已验证。
+    /// </summary>
+    [Fact]
+    public async Task Confirming_the_old_address_while_the_email_changes_never_verifies_the_new_one()
+    {
+        var gate = new InterleavingGate();
+        using var host = CreateEmailVerificationHost(services =>
+            gate.GateLock(services, key => key.Contains(":lock:challenge:", StringComparison.Ordinal)));
+        var username = $"race_{Guid.NewGuid():N}"[..30];
+        const string password = "VerificationTests!Pw1";
+        var oldEmail = $"{username}@example.test";
+        using (var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword))
+        {
+            using var create = await admin.Client.PostAsJsonAsync("/api/v1/users", new
+            {
+                Username = username,
+                Email = oldEmail,
+                Password = password,
+                IsActive = true
+            });
+            Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        }
+
+        using var user = await ProjectWebApplicationFactory.LoginAsync(host, username, password);
+        using var send = await user.Client.PostAsync("/api/v1/auth/me/email-verification", null);
+        Assert.Equal(HttpStatusCode.OK, send.StatusCode);
+        using var challenge = JsonDocument.Parse(await send.Content.ReadAsStringAsync());
+        var challengeId = challenge.RootElement.GetProperty("challengeId").GetGuid();
+        var code = host.Services.GetRequiredService<CapturingEmailSender>().GetCode(oldEmail);
+
+        gate.Arm();
+        var confirm = user.Client.PostAsJsonAsync("/api/v1/auth/me/email-verification/confirm", new { ChallengeId = challengeId, Code = code });
+        await gate.Entered;
+        var newEmail = $"new-{oldEmail}";
+        var change = user.Client.PutAsJsonAsync("/api/v1/auth/me", new { Username = username, Email = newEmail });
+        var finished = await Task.WhenAny(change, Task.Delay(TimeSpan.FromMilliseconds(500)));
+        Assert.NotSame(change, finished);
+        gate.Release();
+
+        using (var confirmed = await confirm)
+            Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+        using (var changed = await change)
+            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        using var me = JsonDocument.Parse(await user.Client.GetStringAsync("/api/v1/auth/me"));
+        Assert.Equal(newEmail, me.RootElement.GetProperty("email").GetString());
+        Assert.False(me.RootElement.GetProperty("isEmailVerified").GetBoolean());
+    }
+
     /// <summary>注册时发出的验证码不能拿来验证已有账号的邮箱：挑战绑定用途。</summary>
     [Fact]
     public async Task Registration_code_cannot_verify_an_existing_account_email()
@@ -276,7 +326,7 @@ public sealed partial class EmailVerificationChallengeTests(ProjectWebApplicatio
         return me.RootElement.GetProperty("isEmailVerified").GetBoolean();
     }
 
-    private WebApplicationFactory<Program> CreateEmailVerificationHost()
+    private WebApplicationFactory<Program> CreateEmailVerificationHost(Action<IServiceCollection>? configure = null)
     {
         return factory.WithWebHostBuilder(builder =>
         {
@@ -294,6 +344,7 @@ public sealed partial class EmailVerificationChallengeTests(ProjectWebApplicatio
                 services.AddSingleton<CapturingEmailSender>();
                 services.AddSingleton<IEmailSender>(provider =>
                     provider.GetRequiredService<CapturingEmailSender>());
+                configure?.Invoke(services);
             });
         });
     }

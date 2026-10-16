@@ -29,7 +29,12 @@ import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
 
-import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+import { ReauthenticateDialog } from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
+import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
+import {
+  ApplicationHttpError,
+  applicationErrorMessage,
+} from '../../../../core/errors/application-http-error';
 import { AuthService } from '../../../../core/services/auth-service';
 import {
   AvatarImageRejected,
@@ -70,6 +75,7 @@ interface EmailChallenge {
     HlmSpinner,
     HlmInput,
     HlmBadge,
+    ReauthenticateDialog,
     ...HlmFieldImports,
     //#if (IncludeLocalization)
     TranslocoDirective,
@@ -90,6 +96,9 @@ export class ProfilePanel {
   //#endif
 
   readonly saving = signal(false);
+  /** 换邮箱而会话不够新时，请本人出示当前口令后重试保存。 */
+  readonly reauthVisible = signal(false);
+  readonly reauthSaving = signal(false);
   readonly user = computed(() => this.authService.currentUser());
 
   /** 角色徽章直接展示后端返回的角色名。 */
@@ -312,13 +321,18 @@ export class ProfilePanel {
   }
 
 //#endif
-  onSubmit(): void {
+  /**
+   * 保存资料。换邮箱时服务端可能要求本人刚认证过（`Auth:ReauthenticationRequired`）：
+   * 弹出确认身份的对话框，带上当前口令重试；口令错误时留在对话框里重输，取消则不保存。
+   */
+  onSubmit(currentPassword?: string): void {
     if (this.profileForm().invalid()) {
       this.profileForm().markAsTouched();
       return;
     }
 
     this.saving.set(true);
+    this.reauthSaving.set(currentPassword !== undefined);
     const { username, email, displayName, phoneNumber } = this.formModel();
 
     this.accountService
@@ -327,10 +341,17 @@ export class ProfilePanel {
         email: email.trim(),
         displayName: displayName.trim() || undefined,
         phoneNumber: phoneNumber.trim() || undefined,
+        currentPassword,
       })
-      .pipe(finalize(() => this.saving.set(false)))
+      .pipe(
+        finalize(() => {
+          this.saving.set(false);
+          this.reauthSaving.set(false);
+        }),
+      )
       .subscribe({
         next: (user) => {
+          this.reauthVisible.set(false);
           this.authService.setCurrentUser(user);
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
@@ -342,7 +363,16 @@ export class ProfilePanel {
           });
           //#endif
         },
-        error: (error) => this.showRequestError(error),
+        error: (error) => {
+          if (
+            error instanceof ApplicationHttpError &&
+            error.code === API_ERROR_CODES.reauthenticationRequired
+          ) {
+            this.reauthVisible.set(true);
+            return;
+          }
+          this.showRequestError(error);
+        },
       });
   }
 

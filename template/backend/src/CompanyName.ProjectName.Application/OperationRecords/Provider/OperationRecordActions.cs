@@ -140,6 +140,9 @@ public static class OperationRecordActions
     /// <summary>用户更换或清除了自己的头像。</summary>
     public const string AuthAvatarChanged = "auth.avatar.changed";
 
+    /// <summary>用户更换了自己的邮箱（换邮箱要求近期认证，失败也按这个动作留痕）。</summary>
+    public const string AuthEmailChanged = "auth.email.changed";
+
 #if (Email)
     /// <summary>用户用验证码确认了自己当前的邮箱。</summary>
     public const string AuthEmailVerified = "auth.email.verified";

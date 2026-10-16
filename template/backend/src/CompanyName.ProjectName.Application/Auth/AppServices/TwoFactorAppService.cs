@@ -6,7 +6,6 @@ using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using CompanyName.ProjectName.Application.Auth.Sessions;
-using CompanyName.ProjectName.Application.Auth.TwoFactor;
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
@@ -33,7 +32,7 @@ namespace CompanyName.ProjectName.Application.Auth.AppServices;
 /// <para>待确认的设置放在缓存里而不是用户行上：没确认的设置不该改变账号状态，半途放弃也不留痕。
 /// 缓存里存的同样是加密后的密钥，并带着设置 Id 与开始时的安全版本：别处重新开始过（Id 对不上）、
 /// 之后凭据变过（安全版本对不上），这一次设置都作废。</para>
-/// <para>改写凭据的方法都先取 <see cref="TwoFactorCredentialLock"/>，再读用户、改写，并在锁内用手动工作单元提交；
+/// <para>改写凭据的方法都先取 <see cref="UserCredentialLock"/>，再读用户、改写，并在锁内用手动工作单元提交；
 /// 提醒与设置密钥的清理经本地事件在提交之后执行，回滚的变更不发提醒、也不丢掉还能再确认的设置。
 /// 再认证失败的计数与审计各自独立提交，不随本类方法的回滚丢失。</para>
 /// </remarks>
@@ -82,7 +81,7 @@ internal sealed class TwoFactorAppService(
         CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
-        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
@@ -139,7 +138,7 @@ internal sealed class TwoFactorAppService(
         CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
-        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
@@ -201,7 +200,7 @@ internal sealed class TwoFactorAppService(
     public async Task DisableAsync(DisableTwoFactorInputDto input, CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
-        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
@@ -261,7 +260,7 @@ internal sealed class TwoFactorAppService(
         CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
-        await using var held = await distributedLock.LockAsync(TwoFactorCredentialLock.Key(userId), cancellationToken);
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
         using var unit = unitOfWorkManager.Begin(requiresNew: true);

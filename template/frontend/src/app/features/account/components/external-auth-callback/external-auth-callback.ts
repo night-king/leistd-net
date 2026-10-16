@@ -8,6 +8,8 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
+import { ReauthenticateDialog } from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
+import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
 import {
   ApplicationHttpError,
   applicationErrorMessage,
@@ -30,6 +32,7 @@ import { AccountService } from '../../services/account-service';
   imports: [
     HlmButton,
     HlmSpinner,
+    ReauthenticateDialog,
     RouterLink,
     //#if (IncludeLocalization)
     TranslocoDirective,
@@ -56,6 +59,12 @@ export class ExternalAuthCallback implements OnInit {
    * 存成已翻译的文字的话，停在这页切换语言时它不会跟着变。
    */
   protected readonly error = signal<{ key: string } | { text: string } | null>(null);
+
+  /** 绑定时会话不够新：请本人出示当前口令，再用同一张外部票据重试。 */
+  protected readonly reauthVisible = signal(false);
+  protected readonly reauthSaving = signal(false);
+  /** 正在等待口令重试的绑定；为 null 时对话框关闭不再触发离开。 */
+  private pendingLinkProvider: string | null = null;
 
   ngOnInit(): void {
     this.processCallback();
@@ -165,25 +174,65 @@ export class ExternalAuthCallback implements OnInit {
     }
   }
 
-  /** 完成绑定并回到「账户与安全」面板；失败也回去，由那里的列表反映实际状态。 */
-  private async completeLink(provider: string): Promise<void> {
+  /**
+   * 完成绑定并回到「账户与安全」面板；失败也回去，由那里的列表反映实际状态。
+   * 会话不够新时服务端不消费外部票据：留在这里请本人出示当前口令，带上它重试；口令不对留在对话框里重输，
+   * 取消则回去。
+   */
+  private async completeLink(provider: string, password?: string): Promise<void> {
+    this.pendingLinkProvider = provider;
+    this.reauthSaving.set(password !== undefined);
     try {
-      await lastValueFrom(this.accountService.linkExternalLogin(provider));
+      await lastValueFrom(this.accountService.linkExternalLogin(provider, password));
       //#if (IncludeLocalization)
       toast.success(this.transloco.translate('account.externalLogins.linked'));
       //#else
       toast.success('Account linked');
       //#endif
     } catch (error) {
-      //#if (IncludeLocalization)
-      toast.error(this.transloco.translate('common.requestError'), {
-        description: applicationErrorMessage(error),
-      });
-      //#else
-      toast.error('Request failed', { description: applicationErrorMessage(error) });
-      //#endif
+      if (error instanceof ApplicationHttpError) {
+        if (error.code === API_ERROR_CODES.reauthenticationRequired) {
+          this.reauthVisible.set(true);
+          return;
+        }
+        if (password !== undefined && error.code === API_ERROR_CODES.currentPasswordIncorrect) {
+          this.showLinkError(error);
+          return;
+        }
+      }
+      this.showLinkError(error);
+    } finally {
+      this.reauthSaving.set(false);
     }
+    this.pendingLinkProvider = null;
+    this.reauthVisible.set(false);
     await this.returnToSecurity();
+  }
+
+  /** 在确认身份的对话框里出示了口令：带上它重试挂起的绑定。 */
+  protected onReauthenticated(password: string): void {
+    if (this.pendingLinkProvider) {
+      void this.completeLink(this.pendingLinkProvider, password);
+    }
+  }
+
+  /** 本人关掉了确认身份的对话框：放弃这次绑定，回到「账户与安全」面板。 */
+  protected onReauthVisibleChange(visible: boolean): void {
+    this.reauthVisible.set(visible);
+    if (!visible && this.pendingLinkProvider) {
+      this.pendingLinkProvider = null;
+      void this.returnToSecurity();
+    }
+  }
+
+  private showLinkError(error: unknown): void {
+    //#if (IncludeLocalization)
+    toast.error(this.transloco.translate('common.requestError'), {
+      description: applicationErrorMessage(error),
+    });
+    //#else
+    toast.error('Request failed', { description: applicationErrorMessage(error) });
+    //#endif
   }
 
   private async returnToSecurity(): Promise<void> {
