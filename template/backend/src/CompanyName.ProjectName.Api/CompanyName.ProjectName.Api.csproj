@@ -109,6 +109,10 @@
 <!--#if (IncludeRealTime)-->
     <PackageReference Include="Leistd.RealTime.AspNetCore.SignalR" />
 <!--#endif-->
+<!--#if (IncludeNotifications || IncludeRealTime)-->
+    <!-- 官方 Redis 背板：配了 Redis 时多副本与 Worker 的推送经它路由 -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
+<!--#endif-->
   </ItemGroup>
 
 </Project>

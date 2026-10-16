@@ -610,6 +610,8 @@
         {
           "condition": "!(IncludeNotifications || IncludeRealTime)",
           "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Hosting/SignalRBackplaneExtensions.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/SignalRBackplaneTests.cs",
             "frontend/src/app/core/services/signalr-service.ts",
             "frontend/src/app/core/services/signalr-service.spec.ts"
           ]
