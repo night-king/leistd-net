@@ -87,7 +87,27 @@ describe('injectReauthentication', () => {
     );
 
     expect(reauth.error()).toBe('Too many attempts. Try again in 5 minutes.');
+    expect(reauth.codeRejected()).toBe(false);
     expect(reauth.visible()).toBe(true);
+  });
+
+  // 验证码不对（可能是刚用过的码）：对话框据此提示等待新码；下一次交出凭证时清掉
+  it('marks a rejected verification code so the dialog can suggest waiting for a new one', () => {
+    reauth.handleError(failure('Auth:ReauthenticationRequired'), undefined, vi.fn());
+    reauth.confirm({ twoFactorCode: '123456' });
+
+    reauth.handleError(
+      failure('Auth:TwoFactorCodeInvalid', 400, 'The verification code is incorrect.'),
+      { twoFactorCode: '123456' },
+      vi.fn(),
+    );
+
+    expect(reauth.error()).toBe('The verification code is incorrect.');
+    expect(reauth.codeRejected()).toBe(true);
+
+    reauth.confirm({ twoFactorCode: '654321' });
+
+    expect(reauth.codeRejected()).toBe(false);
   });
 
   it('refreshes the current user when the shown method is not available', () => {

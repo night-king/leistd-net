@@ -8,7 +8,12 @@
     (stateChanged)="onDialogStateChange($event)"
     [closeOnOutsidePointerEvents]="!saving()"
   >
-    <hlm-dialog-content *hlmDialogPortal class="sm:max-w-md" [showCloseButton]="!saving()">
+    <!-- 定宽：切换口令/验证码、出现错误时对话框不随内容变宽变窄 -->
+    <hlm-dialog-content
+      *hlmDialogPortal
+      class="min-w-[min(28rem,calc(100vw_-_2rem))] sm:max-w-md"
+      [showCloseButton]="!saving()"
+    >
       <hlm-dialog-header>
         <h2 hlmDialogTitle>{{ t('common.reauthenticate.header') }}</h2>
         <p hlmDialogDescription>
@@ -65,6 +70,13 @@
               @if (error(); as message) {
                 <hlm-field-error forceShow [id]="codeErrorId">{{ message }}</hlm-field-error>
               }
+              @if (showCodeReuseHint()) {
+                <hlm-field-description
+                  data-testid="reauthenticate-code-reuse-hint"
+                  [id]="codeReuseHintId"
+                  >{{ t('common.twoFactorCodeReuseHint') }}</hlm-field-description
+                >
+              }
             </div>
           }
           @case ('signInAgain') {
@@ -108,7 +120,13 @@
         }
 
         <hlm-dialog-footer>
-          <button hlmBtn type="button" variant="ghost" (click)="hide()">
+          <button
+            hlmBtn
+            type="button"
+            variant="ghost"
+            data-testid="reauthenticate-cancel"
+            (click)="hide()"
+          >
             {{ t('common.cancel') }}
           </button>
           @if (method() === 'signInAgain') {

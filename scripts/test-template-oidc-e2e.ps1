@@ -7,7 +7,7 @@
     运行 S2–S8、S10；生成项目、隔离包源、日志和临时凭据位于 .tmp/oidc-e2e/<run>。
     依赖 PowerShell 7、.NET 10 SDK 和 Docker，不依赖 Python、OpenSSL 或宿主 psql。
     默认不等待令牌真实到期；-IncludeExpiryWait 以快速档（访问令牌 90 秒）执行撤销到期与交换令牌到期边界，CI 在 full 档传入。
-    -IncludeBrowserScenarios 追加有头浏览器 S1/S9/S11 与官方外部登录协议闭环。
+    -IncludeBrowserScenarios 追加有头浏览器 S1/S9/S11、官方外部登录协议闭环，以及组织要求两步验证、确认身份与恢复码登录的身份链路。
     -BrowserOnly 只运行浏览器场景，不重复 HTTP 场景；另需 Node.js、npm 与 agent-browser。
     -IncludeMultiTenantScenarios 在浏览器场景后追加多租户验收 MT0–MT5（隐含浏览器场景）：
     租户行级/库级隔离、Resource 本地授权、委托调用的租户传递、两个 Resource 单点登录、退出与租户停用。
@@ -763,6 +763,8 @@ function Initialize-Environment {
             if ($name -eq "idp") {
                 $environment.E2E__ProviderOrigin = $urls.idp
                 foreach ($provider in @("Google", "Github")) {
+                    # 开关默认关闭（部署配置给基线，系统设置可运行期覆盖）：协议闭环在部署配置里打开
+                    $environment["ExternalAuth__${provider}__Enabled"] = "true"
                     $environment["ExternalAuth__${provider}__ClientId"] = "browser-fixture-$provider"
                     $environment["ExternalAuth__${provider}__ClientSecret"] = $browserFixtureSecret
                 }

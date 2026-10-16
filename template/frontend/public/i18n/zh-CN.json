@@ -61,6 +61,7 @@
       "previousMonth": "上个月",
       "nextMonth": "下个月"
     },
+    "twoFactorCodeReuseHint": "如果刚用过这个验证码，请等待新的验证码。",
     "reauthenticate": {
       "header": "确认是你本人",
       "description": "这项修改会影响你或他人的登录方式。请先确认是你本人。",

@@ -154,11 +154,11 @@ export class TwoFactorSetup implements OnInit {
           this.stage.set('reauth');
           return;
         }
-        this.showError(error);
-        if (
-          errorCode(error) === API_ERROR_CODES.twoFactorCodeInvalid &&
-          reauthProof === undefined
-        ) {
+        const proofRejected =
+          errorCode(error) === API_ERROR_CODES.twoFactorCodeInvalid && reauthProof === undefined;
+        // 换绑表单里出示的是验证码时，它可能刚在登录时用过：同一个码只能用一次，提示等新码
+        this.showError(error, proofRejected && this.proof()?.code !== undefined);
+        if (proofRejected) {
           // 换绑表单里出示的码或恢复码不对：交回调用方重新输入
           this.proofRejected.emit();
           return;
@@ -237,14 +237,18 @@ export class TwoFactorSetup implements OnInit {
     this.code.set('');
   }
 
-  private showError(error: unknown): void {
+  /** `codeRejected`：被拒的是本人输入的验证码，补一句刚用过的码要等新码。 */
+  private showError(error: unknown, codeRejected = false): void {
+    const message = applicationErrorMessage(error);
     //#if (IncludeLocalization)
+    const hint = codeRejected ? this.transloco.translate('common.twoFactorCodeReuseHint') : '';
     toast.error(this.transloco.translate('common.requestError'), {
-      description: applicationErrorMessage(error),
+      description: hint ? `${message} ${hint}` : message,
     });
     //#else
+    const hint = codeRejected ? this.t('common.twoFactorCodeReuseHint') : '';
     toast.error(this.t('common.requestError'), {
-      description: applicationErrorMessage(error),
+      description: hint ? `${message} ${hint}` : message,
     });
     //#endif
   }
@@ -260,6 +264,7 @@ const ENGLISH: Record<string, string> = {
   'common.requestError': 'Request error',
   'common.retry': 'Retry',
   'common.cancel': 'Cancel',
+  'common.twoFactorCodeReuseHint': 'If you just used this code, wait for a new one.',
   'account.twoFactor.scanTitle': '1. Add this account to your authenticator app',
   'account.twoFactor.scanHint':
     'Scan the QR code with an app such as Google Authenticator, Microsoft Authenticator or Tencent Authenticator.',

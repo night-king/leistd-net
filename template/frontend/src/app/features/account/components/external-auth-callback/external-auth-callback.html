@@ -39,6 +39,7 @@
     [description]="t('account.externalLogins.linkReauthDescription')"
     [hasPassword]="reauth.hasPassword()"
     [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
     (confirmed)="reauth.confirm($event)"
     (signInAgain)="onSignInAgain()"
   />

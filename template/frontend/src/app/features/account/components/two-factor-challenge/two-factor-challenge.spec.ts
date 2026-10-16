@@ -119,12 +119,20 @@ describe('TwoFactorChallenge', () => {
     );
   }
 
-  // 码不对：原因就地显示在输入框下方并关联到真实输入框，不弹 toast；清空后焦点回到输入框，
-  // 说明留到本人开始重输
+  function reuseHint(): HTMLElement | null {
+    return (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="two-factor-code-reuse-hint"]',
+    );
+  }
+
+  // 码不对：原因就地显示在输入框下方并关联到真实输入框，不弹 toast；同一个码只能用一次，另提示刚用过的要等新码。
+  // 清空后焦点回到输入框，说明留到本人开始重输
   it('shows a rejected code in place, clears it and keeps the reason until typing again', async () => {
     const notify = vi.spyOn(toast, 'error').mockImplementation(() => '');
     account.completeTwoFactorLogin.mockReturnValue(
-      throwError(() => rejection('Auth:TwoFactorCodeInvalid', 'Wait for the next code.', 400)),
+      throwError(() =>
+        rejection('Auth:TwoFactorCodeInvalid', 'The verification code is incorrect.', 400),
+      ),
     );
 
     type('000000');
@@ -134,18 +142,47 @@ describe('TwoFactorChallenge', () => {
     const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
       '#two-factor-code',
     )!;
-    expect(shownError()?.textContent?.trim()).toBe('Wait for the next code.');
+    expect(shownError()?.textContent?.trim()).toBe('The verification code is incorrect.');
     expect(shownError()?.getAttribute('role')).toBe('alert');
+    //#if (IncludeLocalization)
+    expect(reuseHint()?.textContent?.trim()).toBe('common.twoFactorCodeReuseHint');
+    //#else
+    expect(reuseHint()?.textContent?.trim()).toBe(
+      'If you just used this code, wait for a new one.',
+    );
+    //#endif
     expect(input.value).toBe('');
     expect(input.getAttribute('aria-invalid')).toBe('true');
-    expect(input.getAttribute('aria-describedby')).toBe(shownError()!.id);
+    expect(input.getAttribute('aria-describedby')).toBe(`${shownError()!.id} ${reuseHint()!.id}`);
     expect(document.activeElement).toBe(input);
     expect(notify).not.toHaveBeenCalled();
 
     type('1');
 
     expect(shownError()).toBeNull();
+    expect(reuseHint()).toBeNull();
     expect(input.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  // 恢复码各不相同、用过即作废，不提示等待新码
+  it('does not suggest waiting for a new code when a recovery code is rejected', async () => {
+    account.completeTwoFactorLogin.mockReturnValue(
+      throwError(() =>
+        rejection('Auth:TwoFactorCodeInvalid', 'The verification code is incorrect.', 400),
+      ),
+    );
+    Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        'button[variant="link"]',
+      ),
+    )[0].click();
+    await fixture.whenStable();
+
+    type('ABCD-EFGH-1234');
+    await submit();
+
+    expect(shownError()?.textContent?.trim()).toBe('The verification code is incorrect.');
+    expect(reuseHint()).toBeNull();
   });
 
   // 输满 6 位自动提交，随后的回车与请求在途时的再次提交都不再发

@@ -20,6 +20,15 @@ export async function reauthenticateClosed(fixture: ComponentFixture<unknown>): 
   return false;
 }
 
+/** 对话框的"取消"按钮；没打开时为 null。 */
+export function reauthenticateCancelButton(): HTMLButtonElement | null {
+  return (
+    reauthenticateForm()?.querySelector<HTMLButtonElement>(
+      '[data-testid="reauthenticate-cancel"]',
+    ) ?? null
+  );
+}
+
 /** 对话框当前收哪种凭证：`password`、`code` 或 `signInAgain`；没打开时为 null。 */
 export function reauthenticateMethod(): string | null {
   return reauthenticateForm()?.getAttribute('data-method') ?? null;
@@ -36,6 +45,15 @@ export function reauthenticateErrorText(): string {
     .map((element) => element.textContent?.trim() ?? '')
     .join(' ')
     .trim();
+}
+
+/** 验证码被拒后"刚用过的码要等新码"的提示文字，没有时为空串。 */
+export function reauthenticateCodeReuseHint(): string {
+  return (
+    reauthenticateForm()
+      ?.querySelector<HTMLElement>('[data-testid="reauthenticate-code-reuse-hint"]')
+      ?.textContent?.trim() ?? ''
+  );
 }
 
 /** 在对话框里输入口令并点"确认"。对话框须处于口令方式。 */

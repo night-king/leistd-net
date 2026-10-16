@@ -1,8 +1,11 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { toast } from '@spartan-ng/brain/sonner';
+import { of, throwError } from 'rxjs';
 
 import { TwoFactorSettings } from './two-factor-settings';
+import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
@@ -192,6 +195,48 @@ describe('TwoFactorSettings', () => {
         password: undefined,
         code: '123456',
       });
+    });
+
+    // 刚在登录时用过的码被拒：错误说明里补一句等新码；口令不对等其他原因不补
+    it('suggests waiting for a new code only when the code itself is rejected', async () => {
+      currentUser.set({ hasPassword: false, isTwoFactorEnabled: true });
+      const notify = vi.spyOn(toast, 'error').mockImplementation(() => '');
+      const reject = (code: string, detail: string) =>
+        throwError(() =>
+          ApplicationHttpError.from(
+            new HttpErrorResponse({ status: 400, error: { code, detail } }),
+          ),
+        );
+      account.disableTwoFactor
+        .mockReturnValueOnce(
+          reject('Auth:TwoFactorCodeInvalid', 'The verification code is incorrect.'),
+        )
+        .mockReturnValueOnce(
+          reject('Security:CurrentPasswordIncorrect', 'The current password is incorrect.'),
+        );
+      const host = await openDisableForm();
+      const submit = host.querySelector<HTMLButtonElement>(
+        '[data-testid="two-factor-disable-submit"]',
+      )!;
+
+      await typeCode(host);
+      submit.click();
+      await fixture.whenStable();
+      submit.click();
+      await fixture.whenStable();
+
+      const descriptions = notify.mock.calls.map(([, options]) => options?.description);
+      //#if (IncludeLocalization)
+      expect(descriptions).toEqual([
+        'The verification code is incorrect. common.twoFactorCodeReuseHint',
+        'The current password is incorrect.',
+      ]);
+      //#else
+      expect(descriptions).toEqual([
+        'The verification code is incorrect. If you just used this code, wait for a new one.',
+        'The current password is incorrect.',
+      ]);
+      //#endif
     });
   });
 });

@@ -47,9 +47,27 @@ import {
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
+import { UpdateCurrentUserInputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
 
 const PHONE_PATTERN = /^[0-9+\-()\s]{0,20}$/;
+
+/** 表单里可编辑的资料字段。 */
+interface ProfileFields {
+  username: string;
+  email: string;
+  displayName: string;
+  phoneNumber: string;
+}
+
+function sameProfile(a: ProfileFields, b: ProfileFields): boolean {
+  return (
+    a.username === b.username &&
+    a.email === b.email &&
+    a.displayName === b.displayName &&
+    a.phoneNumber === b.phoneNumber
+  );
+}
 
 /** 当前这次邮箱验证：发出的验证码对应的挑战，以及还要等多久才能重发。 */
 //#if (Email)
@@ -62,8 +80,8 @@ interface EmailChallenge {
 /**
  * 个人设置 ·「个人资料」面板：头像、用户名、邮箱（含验证）、显示名、手机。
  *
- * - 表单跟着当前用户走：进面板、保存成功后（服务端返回的新值写回当前用户）都按当前用户重填；
- *   「撤销修改」同样回到当前用户的值。
+ * - 表单跟着当前用户的资料走：进面板、保存成功后（服务端返回的新值写回当前用户）都按它重填；
+ *   「撤销修改」同样回到当前用户的值。只是账号状态变了（如确认身份时刷新当前用户）不重填，未保存的修改不丢。
  * - 头像选完即生效，不跟表单一起保存：它有自己的接口，也不该被"撤销修改"撤回。
  * - 邮箱验证针对的是**已保存**的邮箱；表单里改了还没保存时，先提示保存后再验证。
  */
@@ -109,13 +127,27 @@ export class ProfilePanel {
   /** 角色徽章直接展示后端返回的角色名。 */
   readonly roleLabels = computed(() => this.authService.currentUser()?.roles ?? []);
 
+  /** 当前用户里决定表单内容的资料；口令、两步验证等账号状态变化不算变化。 */
+  private readonly savedProfile = computed<ProfileFields>(
+    () => {
+      const user = this.user();
+      return {
+        username: user?.username ?? '',
+        email: user?.email ?? '',
+        displayName: user?.displayName ?? '',
+        phoneNumber: user?.phoneNumber ?? '',
+      };
+    },
+    { equal: sameProfile },
+  );
+
   /** 正在上传的头像（处理好的 data URL）；上传期间先显示它，完成后换成服务端给的地址。 */
   private readonly pendingAvatar = signal<string | null>(null);
   readonly avatarBusy = signal(false);
   readonly avatarPreview = computed(() => this.pendingAvatar() ?? this.user()?.avatar ?? '');
   readonly hasAvatarImage = computed(() => isAvatarImageUrl(this.avatarPreview()));
 
-  protected readonly formModel = signal({
+  protected readonly formModel = signal<ProfileFields>({
     username: '',
     email: '',
     displayName: '',
@@ -170,10 +202,10 @@ export class ProfilePanel {
     // 进入面板时取当前的验证码发送前提
     this.securityConfig.refresh();
 //#endif
-    // 当前用户一变（首次取回、保存成功后写回）就按它重填；表单模型不参与追踪，
+    // 当前用户的资料一变（首次取回、保存成功后写回）就按它重填；表单模型不参与追踪，
     // 否则每敲一个字都会触发重填，把输入抹掉。
     effect(() => {
-      this.user();
+      this.savedProfile();
       untracked(() => this.reset());
     });
 //#if (Email)
@@ -183,16 +215,11 @@ export class ProfilePanel {
 
   /** 按当前用户回填表单，丢掉未保存的修改。 */
   reset(): void {
-    const user = this.user();
-    this.formModel.set({
-      username: user?.username ?? '',
-      email: user?.email ?? '',
-      displayName: user?.displayName ?? '',
-      phoneNumber: user?.phoneNumber ?? '',
-    });
+    const saved = this.savedProfile();
+    this.formModel.set({ ...saved });
 //#if (Email)
     // 已保存的邮箱变了（改邮箱后保存），手里那个挑战是发给旧地址的，作废
-    if (this.emailChallenge()?.email !== user?.email) {
+    if (this.emailChallenge()?.email !== saved.email) {
       this.emailChallenge.set(null);
       this.emailCode.set('');
     }
@@ -329,23 +356,29 @@ export class ProfilePanel {
 //#endif
   /**
    * 保存资料。先不带凭证提交；换邮箱而会话不够新时服务端要求确认身份，弹出对话框，带上本人交出的
-   * 口令或验证码重试同一份资料。凭证被拒时留在对话框里就地说明，取消则不保存。
+   * 口令或验证码重试**这一次提交时的资料**：等确认期间当前用户可能被刷新、表单可能被重填，重试不再读表单。
+   * 凭证被拒时留在对话框里就地说明，取消则不保存。
    */
-  onSubmit(proof?: ReauthenticationProof): void {
+  onSubmit(): void {
     if (this.profileForm().invalid()) {
       this.profileForm().markAsTouched();
       return;
     }
 
-    this.saving.set(true);
     const { username, email, displayName, phoneNumber } = this.formModel();
+    this.save({
+      username: username.trim(),
+      email: email.trim(),
+      displayName: displayName.trim() || undefined,
+      phoneNumber: phoneNumber.trim() || undefined,
+    });
+  }
 
+  private save(profile: UpdateCurrentUserInputDto, proof?: ReauthenticationProof): void {
+    this.saving.set(true);
     this.accountService
       .updateCurrentUser({
-        username: username.trim(),
-        email: email.trim(),
-        displayName: displayName.trim() || undefined,
-        phoneNumber: phoneNumber.trim() || undefined,
+        ...profile,
         currentPassword: proof?.password,
         twoFactorCode: proof?.twoFactorCode,
       })
@@ -354,6 +387,8 @@ export class ProfilePanel {
         next: (user) => {
           this.reauth.complete();
           this.authService.setCurrentUser(user);
+          // 服务端规整后的资料可能与写回前相同（只改了首尾空白），不会触发重填，这里显式按它重填
+          this.reset();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate('account.profile.updateSuccess'),
@@ -365,7 +400,7 @@ export class ProfilePanel {
           //#endif
         },
         error: (error) => {
-          if (!this.reauth.handleError(error, proof, (next) => this.onSubmit(next))) {
+          if (!this.reauth.handleError(error, proof, (next) => this.save(profile, next))) {
             this.showRequestError(error);
           }
         },

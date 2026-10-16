@@ -37,6 +37,7 @@ import { AccountService } from '../../services/account-service';
 const CODE_INPUT_ID = 'two-factor-code';
 const RECOVERY_INPUT_ID = 'two-factor-recovery-code';
 const ERROR_ID = 'two-factor-error';
+const REUSE_HINT_ID = 'two-factor-code-reuse-hint';
 
 /**
  * 登录第二步：输入身份验证器验证码或恢复码；通过后由登录页建立会话上下文，凭据过期或次数用完时
@@ -92,6 +93,7 @@ export class TwoFactorChallenge {
   protected readonly codeInputId = CODE_INPUT_ID;
   protected readonly recoveryInputId = RECOVERY_INPUT_ID;
   protected readonly errorId = ERROR_ID;
+  protected readonly reuseHintId = REUSE_HINT_ID;
 
   protected readonly canSubmit = computed(() => {
     const value = this.value().replace(/\s/g, '');
@@ -191,5 +193,6 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactorLogin.useRecovery': "Can't use your authenticator? Use a recovery code",
   'account.twoFactorLogin.useCode': 'Use an authenticator code instead',
   'account.twoFactorLogin.back': 'Back to sign in',
+  'common.twoFactorCodeReuseHint': 'If you just used this code, wait for a new one.',
 };
 //#endif

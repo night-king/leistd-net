@@ -44,6 +44,7 @@ const PASSWORD_INPUT_ID = 'reauthenticate-password';
 const CODE_INPUT_ID = 'reauthenticate-code';
 const CODE_DESCRIPTION_ID = 'reauthenticate-code-description';
 const CODE_ERROR_ID = 'reauthenticate-code-error';
+const CODE_REUSE_HINT_ID = 'reauthenticate-code-reuse-hint';
 
 /**
  * 确认是本人：改邮箱、设置口令、设置或换绑两步验证、绑定或解绑外部账号、重置他人的口令或两步验证这类操作
@@ -56,6 +57,8 @@ const CODE_ERROR_ID = 'reauthenticate-code-error';
  */
 @Component({
   selector: 'app-reauthenticate-dialog',
+  // 内容经浮层渲染在 body 上，宿主本身不占位：放在 gap 布局里（如账户与安全页的各节之间）不多出一道间距
+  host: { class: 'hidden' },
   // prettier-ignore
   imports: [
     FormField,
@@ -90,6 +93,11 @@ export class ReauthenticateDialog {
   readonly twoFactorEnabled = input(false);
   /** 服务端拒绝凭证的原因，显示在输入框下方；本人改动输入时清掉。 */
   readonly error = model<string | null>(null);
+  /**
+   * 被拒的是验证码本身（不是锁定等其他原因）：同一个码只能用一次，刚在登录或别处用过的码会被拒，
+   * 此时在错误下方提示等待新码。
+   */
+  readonly codeRejected = input(false);
   readonly confirmed = output<ReauthenticationProof>();
   /** 本人选择重新登录（没有可出示的凭证，或用不了身份验证器）。 */
   readonly signInAgain = output<void>();
@@ -128,9 +136,15 @@ export class ReauthenticateDialog {
   protected readonly codeInputId = CODE_INPUT_ID;
   protected readonly codeDescriptionId = CODE_DESCRIPTION_ID;
   protected readonly codeErrorId = CODE_ERROR_ID;
-  protected readonly codeDescribedBy = computed(() =>
-    this.error() ? `${CODE_DESCRIPTION_ID} ${CODE_ERROR_ID}` : CODE_DESCRIPTION_ID,
-  );
+  protected readonly codeReuseHintId = CODE_REUSE_HINT_ID;
+  protected readonly showCodeReuseHint = computed(() => !!this.error() && this.codeRejected());
+  protected readonly codeDescribedBy = computed(() => {
+    if (!this.error()) {
+      return CODE_DESCRIPTION_ID;
+    }
+    const ids = `${CODE_DESCRIPTION_ID} ${CODE_ERROR_ID}`;
+    return this.showCodeReuseHint() ? `${ids} ${CODE_REUSE_HINT_ID}` : ids;
+  });
 
   constructor() {
     // 可选方式变了（本人切换，或调用方按刷新后的账号状态重新传入）：清掉另一种已输入的内容
@@ -263,6 +277,7 @@ const ENGLISH: Record<string, string> = {
   'common.reauthenticate.passwordLabel': 'Your current password',
   'common.reauthenticate.codeLabel': 'Verification code',
   'common.reauthenticate.codeHint': 'Enter the 6-digit code from your authenticator app.',
+  'common.twoFactorCodeReuseHint': 'If you just used this code, wait for a new one.',
   'common.reauthenticate.useCode': 'Use an authenticator code instead',
   'common.reauthenticate.usePassword': 'Use your password instead',
   'common.reauthenticate.cannotUseAuthenticator': "Can't use your authenticator? Sign in again",

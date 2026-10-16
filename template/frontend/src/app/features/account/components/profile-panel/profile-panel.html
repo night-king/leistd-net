@@ -303,6 +303,7 @@
     [description]="t('account.profile.reauthDescription')"
     [hasPassword]="reauth.hasPassword()"
     [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
     (confirmed)="reauth.confirm($event)"
     (signInAgain)="reauth.signInAgain()"
   />

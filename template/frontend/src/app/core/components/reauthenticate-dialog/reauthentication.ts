@@ -26,6 +26,8 @@ export interface Reauthentication {
   readonly saving: Signal<boolean>;
   /** 对话框里就地显示的原因；对话框在本人改动输入时清掉它。 */
   readonly error: WritableSignal<string | null>;
+  /** 就地显示的原因是验证码不对：可能是刚用过的码（同一个码只能用一次），对话框据此提示等待新码。 */
+  readonly codeRejected: Signal<boolean>;
   /** 出示凭证的是当前用户（管理员操作他人时是操作者本人），不是操作对象。 */
   readonly hasPassword: Signal<boolean>;
   readonly twoFactorEnabled: Signal<boolean>;
@@ -65,6 +67,7 @@ export function injectReauthentication(): Reauthentication {
   const visible = signal(false);
   const saving = signal(false);
   const error = signal<string | null>(null);
+  const codeRejected = signal(false);
   const hasPassword = computed(() => authService.currentUser()?.hasPassword ?? true);
   const twoFactorEnabled = computed(() => authService.currentUser()?.isTwoFactorEnabled ?? false);
   let pending: ((proof: ReauthenticationProof) => void) | null = null;
@@ -74,10 +77,15 @@ export function injectReauthentication(): Reauthentication {
     authService.loadUser().subscribe({ error: () => undefined });
   };
 
+  const clearError = (): void => {
+    error.set(null);
+    codeRejected.set(false);
+  };
+
   const complete = (): void => {
     pending = null;
     saving.set(false);
-    error.set(null);
+    clearError();
     visible.set(false);
   };
 
@@ -85,6 +93,7 @@ export function injectReauthentication(): Reauthentication {
     visible: visible.asReadonly(),
     saving: saving.asReadonly(),
     error,
+    codeRejected: codeRejected.asReadonly(),
     hasPassword,
     twoFactorEnabled,
 
@@ -106,7 +115,7 @@ export function injectReauthentication(): Reauthentication {
           refreshCurrentUser();
         }
         pending = retry;
-        error.set(null);
+        clearError();
         visible.set(true);
         return true;
       }
@@ -116,6 +125,7 @@ export function injectReauthentication(): Reauthentication {
           refreshCurrentUser();
         }
         error.set(applicationErrorMessage(failure));
+        codeRejected.set(code === API_ERROR_CODES.twoFactorCodeInvalid);
         return true;
       }
 
@@ -128,7 +138,7 @@ export function injectReauthentication(): Reauthentication {
         return;
       }
       saving.set(true);
-      error.set(null);
+      clearError();
       pending(proof);
     },
 
@@ -139,7 +149,7 @@ export function injectReauthentication(): Reauthentication {
       if (!value) {
         pending = null;
         saving.set(false);
-        error.set(null);
+        clearError();
       }
     },
 

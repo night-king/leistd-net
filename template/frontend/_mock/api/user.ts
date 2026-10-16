@@ -161,8 +161,11 @@ export function updateUser(id: string, value: any) {
     });
   }
 
-  // 改登录邮箱或改验证状态会影响对方怎么登录：先确认操作者本人
-  if (email !== user.email || value.isEmailVerified !== user.isEmailVerified) {
+  // 与后端一致：换邮箱（大小写不敏感）或标为已验证会影响对方怎么登录，先确认操作者本人；
+  // 只改大小写、取消验证不算——已验证的邮箱才是按邮箱关联外部登录的依据
+  const emailChanged = email.toLowerCase() !== String(user.email ?? '').toLowerCase();
+  const markedVerified = value.isEmailVerified === true && !user.isEmailVerified;
+  if (emailChanged || markedVerified) {
     ensureOperatorReauthenticated({ password: value.password, twoFactorCode: value.twoFactorCode });
   }
 

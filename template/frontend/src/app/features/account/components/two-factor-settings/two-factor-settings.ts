@@ -23,7 +23,11 @@ import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
 
-import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
+import {
+  ApplicationHttpError,
+  applicationErrorMessage,
+} from '../../../../core/errors/application-http-error';
 import { AuthService } from '../../../../core/services/auth-service';
 import { OtpCodeInput } from '../../../../shared/components/otp-code-input/otp-code-input';
 import { StatusDot } from '../../../../shared/directives/status-dot';
@@ -245,13 +249,24 @@ export class TwoFactorSettings {
     this.authService.loadUser().subscribe({ error: () => undefined });
   }
 
+  /**
+   * 停用与重发恢复码都要输入验证码：码被拒时补一句刚用过的码要等新码（同一个码只能用一次，
+   * 刚在登录或别处用过的会被拒）。
+   */
   private showError(error: unknown): void {
+    const message = applicationErrorMessage(error);
+    const codeRejected =
+      error instanceof ApplicationHttpError && error.code === API_ERROR_CODES.twoFactorCodeInvalid;
     //#if (IncludeLocalization)
+    const hint = codeRejected ? this.transloco.translate('common.twoFactorCodeReuseHint') : '';
     toast.error(this.transloco.translate('common.requestError'), {
-      description: applicationErrorMessage(error),
+      description: hint ? `${message} ${hint}` : message,
     });
     //#else
-    toast.error(this.t('common.requestError'), { description: applicationErrorMessage(error) });
+    const hint = codeRejected ? this.t('common.twoFactorCodeReuseHint') : '';
+    toast.error(this.t('common.requestError'), {
+      description: hint ? `${message} ${hint}` : message,
+    });
     //#endif
   }
 }
@@ -260,6 +275,7 @@ export class TwoFactorSettings {
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
   'common.requestError': 'Request error',
+  'common.twoFactorCodeReuseHint': 'If you just used this code, wait for a new one.',
   'common.retry': 'Retry',
   'common.cancel': 'Cancel',
   'account.twoFactor.header': 'Two-factor authentication',

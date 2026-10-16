@@ -5,6 +5,7 @@ import { ReauthenticateDialog, ReauthenticationProof } from './reauthenticate-di
 import {
   confirmWithCode,
   confirmWithPassword,
+  reauthenticateCodeReuseHint,
   reauthenticateErrorText,
   reauthenticateForm,
   reauthenticateMethod,
@@ -24,6 +25,7 @@ import { provideTranslocoTesting } from '../../i18n/transloco.testing';
       [(visible)]="visible"
       [saving]="saving()"
       [(error)]="error"
+      [codeRejected]="codeRejected()"
       [hasPassword]="hasPassword()"
       [twoFactorEnabled]="twoFactorEnabled()"
       (confirmed)="confirmed.push($event)"
@@ -35,6 +37,7 @@ class HostComponent {
   readonly visible = signal(true);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
+  readonly codeRejected = signal(false);
   readonly hasPassword = signal(true);
   readonly twoFactorEnabled = signal(false);
   readonly confirmed: ReauthenticationProof[] = [];
@@ -94,6 +97,16 @@ describe('ReauthenticateDialog', () => {
   });
 
   afterEach(() => fixture.destroy());
+
+  // 调用方常把它放在 gap 布局里（宿主为 contents 的组件会让它直接成为父级的弹性项）：宿主不能占位
+  it('takes no space where it is placed while the dialog itself shows', () => {
+    const element = (fixture.nativeElement as HTMLElement).querySelector(
+      'app-reauthenticate-dialog',
+    )!;
+
+    expect(getComputedStyle(element).display).toBe('none');
+    expect(reauthenticateForm()).not.toBeNull();
+  });
 
   describe('offers what the account can show', () => {
     it('asks only for the password when two-factor is off', async () => {
@@ -235,21 +248,30 @@ describe('ReauthenticateDialog', () => {
       expect(reauthenticateErrorText()).toBe('');
     });
 
-    // 验证码被拒后清空重输：说明不随清空消失，读屏能读到无效与原因，焦点回到输入框
+    // 验证码被拒后清空重输：说明不随清空消失，读屏能读到无效与原因，焦点回到输入框；
+    // 同一个码只能用一次，另提示刚用过的要等新码
     it('clears a rejected code but keeps the reason until a new code is typed', async () => {
       await render({ hasPassword: false, twoFactorEnabled: true });
       await confirmWithCode(fixture, '000000');
 
-      host.error.set('Wait for the next code.');
+      host.codeRejected.set(true);
+      host.error.set('The verification code is incorrect.');
       await settle();
 
       const input = codeInput()!;
       expect(input.value).toBe('');
-      expect(reauthenticateErrorText()).toBe('Wait for the next code.');
+      expect(reauthenticateErrorText()).toBe('The verification code is incorrect.');
+      //#if (IncludeLocalization)
+      expect(reauthenticateCodeReuseHint()).toBe('common.twoFactorCodeReuseHint');
+      //#else
+      expect(reauthenticateCodeReuseHint()).toBe('If you just used this code, wait for a new one.');
+      //#endif
       expect(input.getAttribute('aria-invalid')).toBe('true');
-      expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(
+      expect(input.getAttribute('aria-describedby')?.split(' ')).toEqual([
+        'reauthenticate-code-description',
         'reauthenticate-code-error',
-      );
+        'reauthenticate-code-reuse-hint',
+      ]);
       expect(document.activeElement).toBe(input);
 
       input.value = '1';
@@ -257,7 +279,23 @@ describe('ReauthenticateDialog', () => {
       await fixture.whenStable();
 
       expect(host.error()).toBeNull();
+      expect(reauthenticateCodeReuseHint()).toBe('');
       expect(input.hasAttribute('aria-invalid')).toBe(false);
+    });
+
+    // 被拒的原因与验证码本身无关（如再认证失败过多被锁定）：等新码也无济于事，不提示
+    it('does not suggest waiting for a new code when the rejection is not about the code', async () => {
+      await render({ hasPassword: false, twoFactorEnabled: true });
+      await confirmWithCode(fixture, '000000');
+
+      host.error.set('Too many failed attempts. Try again later.');
+      await settle();
+
+      expect(reauthenticateErrorText()).toBe('Too many failed attempts. Try again later.');
+      expect(reauthenticateCodeReuseHint()).toBe('');
+      expect(codeInput()!.getAttribute('aria-describedby')).not.toContain(
+        'reauthenticate-code-reuse-hint',
+      );
     });
 
     // 同一个码再次被拒：清空后重新输入同一个码仍会再交一次
