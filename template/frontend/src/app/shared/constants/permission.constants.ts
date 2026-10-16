@@ -48,8 +48,23 @@ export const PERMISSIONS = {
     resetSecret: 'App.OpenApplications.ResetSecret',
   },
   //#endif
+  // 父权限是系统设置页的入口；每个系统设置分组一条子权限，与后端 SettingGroupPermissions 一一对应
   settings: {
     default: 'App.Settings',
+    //#if (LocalIdentity)
+    registration: 'App.Settings.Registration',
+    security: 'App.Settings.Security',
+    //#if (ExternalLogin)
+    externalLogin: 'App.Settings.ExternalLogin',
+    //#endif
+    //#if (Email)
+    email: 'App.Settings.Email',
+    //#endif
+    //#endif
+    operations: 'App.Settings.Operations',
+    //#if (IncludeOperationRecords || IncludeNotifications)
+    retention: 'App.Settings.Retention',
+    //#endif
   },
 //#if (IncludeOperationRecords)
   operationRecords: {

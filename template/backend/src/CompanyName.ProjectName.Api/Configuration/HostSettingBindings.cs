@@ -7,6 +7,9 @@ using Leistd.Settings.Hosting;
 #if (Email)
 using Leistd.Email.Smtp.Options;
 #endif
+#if (IncludeNotifications)
+using Leistd.Notifications.EntityFrameworkCore.Options;
+#endif
 #if (ExternalLogin)
 using CompanyName.ProjectName.Infrastructure.Auth.OAuth.Options;
 using Leistd.Settings.Hosting.Options;
@@ -55,6 +58,14 @@ public static class HostSettingBindings
                 SettingConstant.Audit.RetentionEnabled, OperationRecordRetentionOptions.SectionName, nameof(OperationRecordRetentionOptions.Enabled));
             bindings.BindOption<OperationRecordRetentionOptions>(
                 SettingConstant.Audit.RetentionDays, OperationRecordRetentionOptions.SectionName, nameof(OperationRecordRetentionOptions.RetentionDays));
+#endif
+#if (IncludeNotifications)
+            bindings.BindOption<NotificationRetentionOptions>(
+                SettingConstant.NotificationRetention.Enabled, NotificationRetentionOptions.SectionName, nameof(NotificationRetentionOptions.Enabled));
+            bindings.BindOption<NotificationRetentionOptions>(
+                SettingConstant.NotificationRetention.ReadDays, NotificationRetentionOptions.SectionName, nameof(NotificationRetentionOptions.ReadRetentionDays));
+            bindings.BindOption<NotificationRetentionOptions>(
+                SettingConstant.NotificationRetention.UnreadDays, NotificationRetentionOptions.SectionName, nameof(NotificationRetentionOptions.UnreadRetentionDays));
 #endif
 #if (ExternalLogin)
             // 提供方是 ExternalAuth 下的嵌套节，BindOption 只映射顶层属性，这里直接列配置键。

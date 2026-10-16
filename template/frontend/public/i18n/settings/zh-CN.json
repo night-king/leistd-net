@@ -24,7 +24,9 @@
   },
   "system": {
     "title": "系统设置",
-    "description": "本租户（或宿主）下所有人的默认值与策略，个人偏好可以覆盖默认值"
+    "description": "本租户（或宿主）下所有人的默认值与策略，个人偏好可以覆盖默认值",
+    "empty": "没有可管理的设置",
+    "emptyHint": "每个设置分区需要单独的权限，请联系管理员授予你负责的分区"
   },
   "navigation": "设置导航",
   "openNavigation": "打开设置导航",
@@ -57,8 +59,8 @@
     "Email": "系统发信使用的 SMTP 服务器与发件人",
     //#endif
     //#endif
-    //#if (IncludeOperationRecords)
-    "Audit": "操作记录的到期归档",
+    //#if (IncludeOperationRecords || IncludeNotifications)
+    "Retention": "过期数据保留多久、何时清理",
     //#endif
     "Operations": "日志记录的详细程度"
   },

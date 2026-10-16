@@ -20,6 +20,12 @@
           {{ t('common.retry') }}
         </button>
       </div>
+    } @else if (noPanels()) {
+      <!-- 只有入口权限、没有任何分组的管理子权限：页面进得来，但没有可管理的设置 -->
+      <div class="flex flex-col items-start gap-1" data-testid="settings-empty">
+        <p class="text-sm font-medium">{{ t('settings.system.empty') }}</p>
+        <p class="text-muted-foreground text-sm">{{ t('settings.system.emptyHint') }}</p>
+      </div>
     }
   </app-settings-shell>
 </ng-container>

@@ -115,7 +115,7 @@ public sealed class EmailSettingsTests(ProjectWebApplicationFactory factory) : I
             // 授权已通过的业务失败同样留痕，依据是端点上的权限策略
             var failures = await OperationRecordQueries.GetFailuresAsync(
                 factory, admin.Client, OperationRecordActions.SettingTestEmailSent, NoTarget);
-            Assert.Contains((AppSettingErrorCodes.TestEmailFailed, PermissionConstant.Settings.Default), failures);
+            Assert.Contains((AppSettingErrorCodes.TestEmailFailed, PermissionConstant.Settings.Email), failures);
             Assert.Equal(0, await OperationRecordQueries.CountSucceededAsync(
                 factory, admin.Client, OperationRecordActions.SettingTestEmailSent, NoTarget));
         }
@@ -147,7 +147,7 @@ public sealed class EmailSettingsTests(ProjectWebApplicationFactory factory) : I
         }
 
         bool IsDenial((string? FailureCode, string? AuthorizationBasis) failure) =>
-            failure == (OperationFailureCodes.Forbidden, PermissionConstant.Settings.Default);
+            failure == (OperationFailureCodes.Forbidden, PermissionConstant.Settings.Email);
         var deniedBefore = (await OperationRecordQueries.GetFailuresAsync(
             factory, admin.Client, OperationRecordActions.SettingTestEmailSent, NoTarget)).Count(IsDenial);
 
@@ -162,9 +162,9 @@ public sealed class EmailSettingsTests(ProjectWebApplicationFactory factory) : I
     }
 #if (IncludeMultiTenancy)
 
-    /// <summary>租户管理员持有设置权限、通过了授权，仍因发信参数只属于宿主而被业务规则拒绝。</summary>
+    /// <summary>邮件发送设置的子权限只在宿主侧：租户管理员即使拿到系统设置入口，也被授权管道拒绝。</summary>
     [Fact]
-    public async Task Test_email_from_a_tenant_is_rejected_as_host_only()
+    public async Task Test_email_from_a_tenant_is_rejected_by_the_host_side_permission()
     {
         using var admin = await LoginAdminAsync();
         var name = $"mail-{Guid.NewGuid():N}"[..16];
@@ -194,9 +194,8 @@ public sealed class EmailSettingsTests(ProjectWebApplicationFactory factory) : I
 
         using var response = await tenantAdmin.PostAsJsonAsync("/api/v1/settings/email/test", new { To = "someone@example.test" });
 
+        // 该分组的子权限侧别是 Host：租户上下文下权限检查本身就拒绝，请求到不了用例
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        Assert.Equal(AppSettingErrorCodes.TestEmailHostOnly, body.RootElement.GetProperty("code").GetString());
     }
 #endif
 

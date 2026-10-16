@@ -12,6 +12,7 @@ using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Application.Initialization;
 using CompanyName.ProjectName.Application.Permissions.Provider;
 using CompanyName.ProjectName.Application.Roles.Dtos;
+using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Application.Users.Dtos;
 using CompanyName.ProjectName.Domain.Users.Constants;
 using CompanyName.ProjectName.Domain.Users.Entities;
@@ -20,6 +21,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Leistd.Authorization.Definitions;
+using Leistd.Settings.Definitions;
 using Leistd.Authorization.Errors;
 using Leistd.Authorization.Grants;
 using Leistd.Lock.Abstractions;
@@ -241,6 +243,63 @@ public sealed class AuthorizationAndAuditingTests(ProjectWebApplicationFactory f
             (await session.Client.GetAsync("/api/v1/permissions/definitions")).StatusCode);
     }
 
+
+    /// <summary>
+    /// 系统设置按分组授权：只有某个分组的子权限时，读不到也写不了别的分组；只有父权限时只能进页面，没有可管理的设置。
+    /// </summary>
+    [Fact]
+    public async Task System_settings_are_managed_per_group()
+    {
+        using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+
+        var entryOnly = await CreateUserAsync(superAdmin.Client);
+        await GrantAsync(PermissionGrantProviderNames.User, entryOnly.Id, PermissionConstant.Settings.Default);
+        using (var session = await Factory.LoginAsync(entryOnly.Username, TestPassword))
+        {
+            var listed = await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/settings");
+            Assert.DoesNotContain(listed.EnumerateArray(), setting => setting.GetProperty("canManage").GetBoolean());
+            Assert.DoesNotContain(listed.EnumerateArray(), setting => setting.GetProperty("name").GetString() == SettingConstant.Logging.MinimumLevel);
+        }
+
+        // 授子权限会补齐父权限
+        var operatorUser = await CreateUserAsync(superAdmin.Client);
+        await GrantAsync(PermissionGrantProviderNames.User, operatorUser.Id, PermissionConstant.Settings.Operations);
+        using var operations = await Factory.LoginAsync(operatorUser.Username, TestPassword);
+
+        var visible = (await operations.Client.GetFromJsonAsync<JsonElement>("/api/v1/settings"))
+            .EnumerateArray()
+            .Where(setting => setting.GetProperty("canManage").GetBoolean())
+            .Select(setting => setting.GetProperty("group").GetString())
+            .ToHashSet();
+        Assert.Equal([SettingConstant.Groups.Operations], visible);
+
+        using (var denied = await operations.Client.PutAsJsonAsync(
+                   "/api/v1/settings/current-tenant",
+                   new { Name = SettingConstant.Security.RequireTwoFactor, Value = "true" }))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        }
+
+        // 操作记录的"凭什么"是该分组的子权限，不是入口权限
+        var target = $"{SettingScopes.Host}/{SettingConstant.Logging.RequestLevel}";
+        Task<int> RecordedAsync() => OperationRecordQueries.CountSucceededAsync(
+            Factory, superAdmin.Client, OperationRecordActions.SettingChanged, target,
+            authorizationBasis: PermissionConstant.Settings.Operations);
+        var recordedBefore = await RecordedAsync();
+
+        using (var accepted = await operations.Client.PutAsJsonAsync(
+                   "/api/v1/settings/current-tenant",
+                   new { Name = SettingConstant.Logging.RequestLevel, Value = "Warning" }))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, accepted.StatusCode);
+        }
+
+        using var cleared = await operations.Client.PutAsJsonAsync(
+            "/api/v1/settings/current-tenant",
+            new { Name = SettingConstant.Logging.RequestLevel, Value = (string?)null });
+        Assert.Equal(HttpStatusCode.NoContent, cleared.StatusCode);
+        Assert.Equal(recordedBefore + 2, await RecordedAsync());
+    }
 
     [Fact]
     public async Task Revoking_an_admin_permission_survives_re_initialization()

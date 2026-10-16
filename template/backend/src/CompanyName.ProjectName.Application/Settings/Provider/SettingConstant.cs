@@ -13,8 +13,10 @@ public static class SettingConstant
 {
     /// <summary>设置分组标识。</summary>
     /// <remarks>
-    /// 分组决定设置页左侧的分类，词条键按 <c>SettingGroup:{标识}</c> 推导。
-    /// 与设置名一样是跨前后端的字符串契约：界面按标识选中分类，因此它不能随文案改动。
+    /// <para>分组决定设置页左侧的分类，词条键按 <c>SettingGroup:{标识}</c> 推导。
+    /// 与设置名一样是跨前后端的字符串契约：界面按标识选中分类，因此它不能随文案改动。</para>
+    /// <para>按管理员要完成的事归组，不按组件归组：新设置先归入已有分组。系统设置的每个分组对应一条管理子权限，
+    /// 见 <see cref="SettingGroupPermissions"/>。</para>
     /// </remarks>
     public static class Groups
     {
@@ -24,16 +26,16 @@ public static class SettingConstant
         /// <summary>运维：进程怎么跑的开关（日志级别等），多为进程级。</summary>
         public const string Operations = "Operations";
 
-        /// <summary>审计：操作记录保留多久，进程级。</summary>
-#if (IncludeOperationRecords)
-        public const string Audit = "Audit";
+#if (IncludeOperationRecords || IncludeNotifications)
+        /// <summary>数据保留：过期数据（操作记录、通知）保留多久、是否清理，进程级。</summary>
+        public const string Retention = "Retention";
 #endif
 
 #if (LocalIdentity)
         /// <summary>注册与验证：租户各自的注册策略。</summary>
         public const string Registration = "Registration";
 
-        /// <summary>登录安全：租户各自的登录失败锁定等策略。</summary>
+        /// <summary>登录与会话：租户各自的登录失败锁定、两步验证与会话策略。</summary>
         public const string Security = "Security";
 
 #if (Email)
@@ -110,6 +112,25 @@ public static class SettingConstant
         /// <summary>保留天数：早于"当前时刻减去该天数"的记录会被搬入归档表。</summary>
         public const string RetentionDays = "Audit.RetentionDays";
 
+    }
+#endif
+#if (IncludeNotifications)
+    /// <summary>通知保留期。</summary>
+    /// <remarks>
+    /// <b>进程级</b>：清理由一个后台任务逐库统一执行。设置值经宿主级设置配置源覆盖 <c>appsettings</c> 的
+    /// <c>Leistd:Notifications:Retention</c> 节，代码默认值就是该节的部署基线；清理任务每轮取 Options 的当前值。
+    /// 未读的保留天数不得短于已读的——否则未读通知先于已读被删。执行时刻与批大小是部署调优参数，仍只在配置里。
+    /// </remarks>
+    public static class NotificationRetention
+    {
+        /// <summary>是否清理超出保留期的通知。</summary>
+        public const string Enabled = "Notifications.RetentionEnabled";
+
+        /// <summary>已读通知保留天数。</summary>
+        public const string ReadDays = "Notifications.ReadRetentionDays";
+
+        /// <summary>未读通知保留天数，不短于已读的。</summary>
+        public const string UnreadDays = "Notifications.UnreadRetentionDays";
     }
 #endif
 

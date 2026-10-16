@@ -20,7 +20,7 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// 本地化项目按 <c>Setting:{name}</c> 查词条翻译，查不到才回落到这里的文案——
 /// 键由名称推导，不必在定义里再抄一遍。</para>
 /// <para>设置页的面板顺序取接口里各分组首次出现的先后，接口按这里的定义顺序返回；因此各段按管理员的使用频率排：
-/// 注册验证、登录安全、外部登录、邮件发送，运维与审计在最后。</para>
+/// 注册、登录与会话、外部登录、邮件发送，运维与数据保留在最后。</para>
 /// </remarks>
 /// <para>值域（布尔、整数区间、候选值）声明在定义上：设置组件在写入端据此校验，设置页据此渲染控件。
 /// 覆盖部署配置的宿主级设置（日志级别、审计、发信参数、外部登录）不写默认值——设置组件按绑定取部署基线
@@ -209,7 +209,7 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
             SettingConstant.Audit.RetentionEnabled,
             scopes: SettingScopes.Host,
             displayName: "Archive expired operation records",
-            group: SettingConstant.Groups.Audit)
+            group: SettingConstant.Groups.Retention)
             .AsBoolean()
             .IsVisibleToClients = true;
 
@@ -218,11 +218,37 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
             SettingConstant.Audit.RetentionDays,
             scopes: SettingScopes.Host,
             displayName: "Operation record retention (days)",
-            group: SettingConstant.Groups.Audit)
+            group: SettingConstant.Groups.Retention)
             .AsInteger(30, 3650)
             .IsVisibleToClients = true;
 #endif
 #if (IncludeNotifications)
+
+        // 通知保留期同样是进程级，与操作记录保留期同组。区间与通知组件保留期选项上的校验一致，
+        // "未读不短于已读"由 NotificationRetentionSettingValidator 把关
+        context.Add(
+            SettingConstant.NotificationRetention.Enabled,
+            scopes: SettingScopes.Host,
+            displayName: "Clean up expired notifications",
+            group: SettingConstant.Groups.Retention)
+            .AsBoolean()
+            .IsVisibleToClients = true;
+
+        context.Add(
+            SettingConstant.NotificationRetention.ReadDays,
+            scopes: SettingScopes.Host,
+            displayName: "Read notification retention (days)",
+            group: SettingConstant.Groups.Retention)
+            .AsInteger(1, 3650)
+            .IsVisibleToClients = true;
+
+        context.Add(
+            SettingConstant.NotificationRetention.UnreadDays,
+            scopes: SettingScopes.Host,
+            displayName: "Unread notification retention (days)",
+            group: SettingConstant.Groups.Retention)
+            .AsInteger(1, 3650)
+            .IsVisibleToClients = true;
 
         // 通知偏好是个人的：谁收什么由本人决定，不设租户默认值
 #if (Email)

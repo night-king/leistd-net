@@ -37,6 +37,7 @@ function row(overrides: Partial<SettingOutputDto> = {}): SettingOutputDto {
     allowsHostScope: false,
     minimum: null,
     maximum: null,
+    canManage: true,
     ...overrides,
   };
 }

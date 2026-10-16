@@ -6,7 +6,6 @@ using CompanyName.ProjectName.Application.Settings.Errors;
 using Leistd.Ddd.Application.AppServices;
 using Leistd.Email.Abstractions;
 using Leistd.ExceptionHandling;
-using Leistd.MultiTenancy.Context;
 using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Recording;
 using Microsoft.Extensions.Logging;
@@ -16,7 +15,6 @@ namespace CompanyName.ProjectName.Application.Settings.AppServices;
 
 /// <inheritdoc cref="IEmailSettingsAppService"/>
 public class EmailSettingsAppService(
-    ICurrentTenant currentTenant,
     IEmailSender emailSender,
     IOperationRecorder operationRecorder,
     ILogger<EmailSettingsAppService> logger) : BaseAppService, IEmailSettingsAppService
@@ -24,10 +22,6 @@ public class EmailSettingsAppService(
     /// <inheritdoc />
     public async Task SendTestEmailAsync(SendTestEmailInputDto input, CancellationToken cancellationToken = default)
     {
-        // 发信参数是进程级的，只有宿主能改，也只有宿主来试
-        if (currentTenant.Id is not null)
-            throw new BusinessException(AppSettingErrorCodes.TestEmailHostOnly, "The email settings can only be tested on the host.");
-
         try
         {
             await emailSender.SendAsync(
@@ -49,7 +43,7 @@ public class EmailSettingsAppService(
         await operationRecorder.RecordSucceededAsync(
             OperationRecordActions.SettingTestEmailSent,
             OperationTarget.None,
-            PermissionConstant.Settings.Default,
+            PermissionConstant.Settings.Email,
             cancellationToken);
     }
 }

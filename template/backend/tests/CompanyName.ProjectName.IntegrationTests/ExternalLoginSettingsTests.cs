@@ -6,7 +6,6 @@ using CompanyName.ProjectName.Api.Auth.Authentication;
 using CompanyName.ProjectName.Api.Options;
 using CompanyName.ProjectName.Application.Settings.Provider;
 #if (IncludeMultiTenancy)
-using CompanyName.ProjectName.Application.Settings.Errors;
 using Leistd.MultiTenancy.AspNetCore.Options;
 #endif
 using Microsoft.AspNetCore.TestHost;
@@ -315,9 +314,9 @@ public sealed class ExternalLoginSettingsTests
     }
 #if (IncludeMultiTenancy)
 
-    /// <summary>租户管理员持有设置权限、通过了授权，仍因外部登录只属于宿主而被业务规则拒绝。</summary>
+    /// <summary>外部登录设置的子权限只在宿主侧：租户管理员即使拿到系统设置入口，也被授权管道拒绝。</summary>
     [Fact]
-    public async Task Status_from_a_tenant_is_rejected_as_host_only()
+    public async Task Status_from_a_tenant_is_rejected_by_the_host_side_permission()
     {
         using var factory = new ProjectWebApplicationFactory();
         using var admin = await ProjectWebApplicationFactory.LoginAsync(factory, "admin", ProjectWebApplicationFactory.TestAdminPassword);
@@ -348,9 +347,8 @@ public sealed class ExternalLoginSettingsTests
 
         using var response = await tenantAdmin.GetAsync("/api/v1/settings/external-login/status");
 
+        // 该分组的子权限侧别是 Host：租户上下文下权限检查本身就拒绝，请求到不了用例
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        Assert.Equal(AppSettingErrorCodes.ExternalLoginStatusHostOnly, body.RootElement.GetProperty("code").GetString());
     }
 #endif
 

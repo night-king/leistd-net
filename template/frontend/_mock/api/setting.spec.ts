@@ -35,6 +35,7 @@ interface SettingRow {
   tenantValue: string | null;
   allowsTenantScope: boolean;
   allowsHostScope: boolean;
+  canManage: boolean;
 }
 
 /** Mock 契约：除路由外还断言身份、权限、错误状态与主体隔离，与真实 API 的差异会在联调时才暴露。 */
@@ -270,6 +271,47 @@ describe('settings mock', () => {
     ).toBe(400);
   });
 
+  // 系统设置按分组授权：运维角色（演示账号 zihang）只管运维与数据保留，别的分组读不到管理值、写入被拒
+  it('lets a partial settings role manage only its own groups', () => {
+    signIn('user_zihang');
+    const managed = (api[get](request()) as SettingRow[])
+      .filter((row) => row.canManage)
+      .map((row) => row.group);
+
+    // prettier-ignore
+    expect([...new Set(managed)]).toEqual([
+      'Operations',
+      //#if (IncludeOperationRecords || IncludeNotifications)
+      'Retention',
+      //#endif
+    ]);
+    expect(
+      statusOf(() => api[putTenant](request({ name: 'Logging.MinimumLevel', value: 'Debug' }))),
+    ).toBe(200);
+    //#if (LocalIdentity)
+    expect(
+      statusOf(() => api[putTenant](request({ name: 'Security.RequireTwoFactor', value: 'true' }))),
+    ).toBe(403);
+    //#endif
+  });
+
+  //#if (IncludeNotifications)
+  // 未读通知不得先于已读被删：分开写入与清除回落都按另一项的当前值判，与后端校验器一致
+  it('keeps unread notifications at least as long as read ones', () => {
+    signIn('user_admin');
+    const set = (name: string, value: string | null) =>
+      statusOf(() => api[putTenant](request({ name, value })));
+
+    expect(set('Notifications.UnreadRetentionDays', '500')).toBe(200);
+    expect(set('Notifications.ReadRetentionDays', '400')).toBe(200);
+    expect(set('Notifications.ReadRetentionDays', '600')).toBe(400);
+    // 清除未读会回落到默认的 365 天，比已读的 400 天短
+    expect(set('Notifications.UnreadRetentionDays', null)).toBe(400);
+    expect(set('Notifications.ReadRetentionDays', null)).toBe(200);
+    expect(set('Notifications.UnreadRetentionDays', null)).toBe(200);
+  });
+
+  //#endif
   // 显示名按后端 `Setting:{name}` / `SettingGroup:{group}` 词条返回，不回显分组标识。
   function minimumLevel(headers: Record<string, string> = {}): SettingRow {
     signIn('user_admin');
@@ -287,7 +329,7 @@ describe('settings mock', () => {
     expect(row.groupDisplayName).toBe('Operations');
   });
 
-  // 系统设置的面板顺序取分组首次出现的先后：与后端定义同序，按管理员的使用频率排，运维与审计在最后
+  // 系统设置的面板顺序取分组首次出现的先后：与后端定义同序，按管理员的使用频率排，运维与数据保留在最后
   it('lists the system groups in the backend order', () => {
     signIn('user_admin');
     const groups = (api[get](request()) as SettingRow[])
@@ -307,8 +349,8 @@ describe('settings mock', () => {
       //#endif
       //#endif
       'Operations',
-      //#if (IncludeOperationRecords)
-      'Audit',
+      //#if (IncludeOperationRecords || IncludeNotifications)
+      'Retention',
       //#endif
     ]);
   });
@@ -480,7 +522,8 @@ describe('external login settings mock', () => {
   });
   //#if (IncludeMultiTenancy)
 
-  // 进程级设置只有宿主一份：租户看不到、写不进，状态端点在租户上下文下同样拒绝
+  // 进程级设置只有宿主一份：租户看不到、写不进，状态端点在租户上下文下同样拒绝。
+  // 外部登录分组的子权限侧别是 Host，拒绝来自权限检查，不带业务码
   it('keeps the external login settings and status on the host', () => {
     setMockSessionTenantKey('tenant_acme');
 
@@ -489,12 +532,12 @@ describe('external login settings mock', () => {
 
     const write = rejectionOf(() => set('ExternalLogin.Github.Enabled', 'false'));
     expect(write.status).toBe(403);
-    expect(write.error.code).toBe('Setting:HostOnly');
+    expect(write.error.code).toBeUndefined();
     expect(TENANT_SETTING_VALUES.size).toBe(0);
 
     const read = rejectionOf(status);
     expect(read.status).toBe(403);
-    expect(read.error.code).toBe('AppSetting:ExternalLoginStatusHostOnly');
+    expect(read.error.code).toBeUndefined();
   });
   //#endif
 });

@@ -120,13 +120,40 @@ public static class PermissionConstant
 #endif
     /// <summary>设置管理权限。</summary>
     /// <remarks>
-    /// 只约束"改租户默认值"，因此是一个扁平权限而非"资源 + 动作"：查看设置不需要权限
-    /// （个人偏好是个人数据），没有可作为资源层的读权限，硬造一个就没人检查。
+    /// <para>父权限是系统设置页的入口；每个系统设置分组一条子权限，管理（读、写）该分组的租户层或进程级值。
+    /// 分组与子权限的对应见 <c>SettingGroupPermissions</c>。</para>
+    /// <para>个人偏好是个人数据，读写不需要权限。</para>
     /// </remarks>
     public static class Settings
     {
-        /// <summary>修改当前租户的设置默认值。</summary>
+        /// <summary>进入系统设置页。</summary>
         public const string Default = Prefix + ".Settings";
+
+#if (LocalIdentity)
+        /// <summary>注册：是否开放自助注册、验证方式与验证码时效。</summary>
+        public const string Registration = Default + ".Registration";
+
+        /// <summary>登录与会话：登录锁定、两步验证与会话策略。</summary>
+        public const string Security = Default + ".Security";
+
+#if (ExternalLogin)
+        /// <summary>外部登录：第三方登录开关与客户端凭据（进程级）。</summary>
+        public const string ExternalLogin = Default + ".ExternalLogin";
+
+#endif
+#if (Email)
+        /// <summary>邮件发送：SMTP 参数与发送测试邮件（进程级）。</summary>
+        public const string Email = Default + ".Email";
+
+#endif
+#endif
+        /// <summary>运维：日志级别等进程怎么跑的开关（进程级）。</summary>
+        public const string Operations = Default + ".Operations";
+#if (IncludeOperationRecords || IncludeNotifications)
+
+        /// <summary>数据保留：过期操作记录与通知的清理（进程级）。</summary>
+        public const string Retention = Default + ".Retention";
+#endif
     }
 
 #if (IncludeOperationRecords)

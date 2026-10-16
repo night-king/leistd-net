@@ -142,6 +142,9 @@ public static class DependencyInjection
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISettingDefinitionProvider, SettingDefinitionProvider>());
         // 设置值的业务校验：值域（布尔、区间、候选）写在定义上，这里只放定义表达不了的规则
         services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, TimeZoneSettingValidator>());
+#if (IncludeNotifications)
+        services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, NotificationRetentionSettingValidator>());
+#endif
 #if (Email)
         services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, EmailSettingValidator>());
         services.TryAddTransient<IEmailSettingsAppService, EmailSettingsAppService>();

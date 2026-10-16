@@ -8,6 +8,7 @@ using Leistd.MultiTenancy.AspNetCore.Endpoints;
 #endif
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Permissions.Provider;
+using CompanyName.ProjectName.Application.Settings.Provider;
 using Leistd.Authorization.AspNetCore.Endpoints;
 using Leistd.Authorization.Constants;
 #if (IncludeNotifications)
@@ -40,6 +41,10 @@ public static class ComponentEndpoints
             {
                 options.AccessPolicy = ApiPolicies.CurrentUser;
                 options.TenantWritePolicy = PermissionConstant.Settings.Default;
+                foreach (var (group, permission) in SettingGroupPermissions.All)
+                {
+                    options.GroupPolicies[group] = permission;
+                }
             })
 #if (LocalIdentity)
             // 界面启动就要读：受限会话（要求两步验证而本人未启用）也得能渲染出两步验证设置页

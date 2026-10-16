@@ -25,11 +25,11 @@ export function settingsInScope(
   settings: readonly SettingOutputDto[],
   scope: SettingScope,
 ): SettingOutputDto[] {
-  // 进程级设置（日志级别之类）两个层级标记都是 false，只按 allowsTenantScope 过滤会把它们全漏掉——
-  // 后端只在宿主上下文下发它们，所以能看到就代表能改。
+  // 系统页：允许租户级或进程级（后者两个层级标记都是 false，只看 allowsTenantScope 会漏掉），
+  // 且当前用户有该分组的管理权限；正确性以服务端算出的 canManage 为准
   return scope === 'account'
     ? settings.filter((s) => s.allowsUserScope)
-    : settings.filter((s) => s.allowsTenantScope || s.allowsHostScope);
+    : settings.filter((s) => (s.allowsTenantScope || s.allowsHostScope) && s.canManage);
 }
 
 /** 按分组切分，分组标识与顺序来自后端（未分组的已归入 `Other`），前端不另列清单。 */

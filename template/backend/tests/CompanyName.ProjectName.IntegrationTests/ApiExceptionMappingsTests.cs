@@ -90,7 +90,6 @@ public sealed class ApiExceptionMappingsTests(ProjectWebApplicationFactory facto
     [InlineData(MultiTenancyErrorCodes.ConnectionChangeRequiresInactiveTenant, StatusCodes.Status409Conflict)]
 #endif
 #if (Email)
-    [InlineData(AppSettingErrorCodes.TestEmailHostOnly, StatusCodes.Status403Forbidden)]
     [InlineData(AppSettingErrorCodes.EmailVerificationKeyMissing, StatusCodes.Status409Conflict)]
     [InlineData(AuthErrorCodes.EmailCodeSendTooFrequent, StatusCodes.Status429TooManyRequests)]
     [InlineData(AuthErrorCodes.EmailVerificationUnavailable, StatusCodes.Status503ServiceUnavailable)]

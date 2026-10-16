@@ -24,6 +24,16 @@ export const ROLES: MockRole[] = [
     creationTime: '2025-01-01T00:00:00Z',
   },
   {
+    id: 'role_operator',
+    name: 'Operator',
+    displayName: 'Operator',
+    description: 'Looks after logging and data retention; no access to sign-in or mail settings',
+    isStatic: false,
+    isDefault: false,
+    sort: 50,
+    creationTime: '2025-01-01T00:00:00Z',
+  },
+  {
     id: 'role_member',
     name: 'Member',
     displayName: 'Member',
@@ -146,7 +156,27 @@ export const PERMISSION_DEFINITIONS = [
         name: PERMISSIONS.settings.default,
         displayName: 'System settings',
         parentName: undefined,
-        children: [],
+        // 每个系统设置分组一条子权限，与后端 SettingGroupPermissions 一一对应
+        children: [
+          //#if (LocalIdentity)
+          leaf(PERMISSIONS.settings.registration, 'Registration', PERMISSIONS.settings.default),
+          leaf(PERMISSIONS.settings.security, 'Sign-in & sessions', PERMISSIONS.settings.default),
+          //#if (ExternalLogin)
+          leaf(
+            PERMISSIONS.settings.externalLogin,
+            'External sign-in',
+            PERMISSIONS.settings.default,
+          ),
+          //#endif
+          //#if (Email)
+          leaf(PERMISSIONS.settings.email, 'Email', PERMISSIONS.settings.default),
+          //#endif
+          //#endif
+          leaf(PERMISSIONS.settings.operations, 'Operations', PERMISSIONS.settings.default),
+          //#if (IncludeOperationRecords || IncludeNotifications)
+          leaf(PERMISSIONS.settings.retention, 'Data retention', PERMISSIONS.settings.default),
+          //#endif
+        ],
       },
     ],
   },
@@ -168,10 +198,22 @@ function leaf(name: string, displayName: string, parentName: string) {
  * 每个主体的固定授予集合与版本。
  *
  * 演示账号各自代表一种典型场景：`role_admin` 全权，`role_member` 只读用户列表，
- * 用于演示"有效权限是各来源授予的并集"。
+ * 用于演示"有效权限是各来源授予的并集"；`role_operator` 只管运维与数据保留两个设置分组
+ * （演示账号 zihang），用于演示系统设置按分组授权。
  */
 export const PERMISSION_GRANTS: Record<string, { version: number; permissionNames: string[] }> = {
   'Role/role_admin': { version: 1, permissionNames: [...ALL_PERMISSIONS] },
+  'Role/role_operator': {
+    version: 1,
+    // prettier-ignore
+    permissionNames: [
+      PERMISSIONS.settings.default,
+      PERMISSIONS.settings.operations,
+      //#if (IncludeOperationRecords || IncludeNotifications)
+      PERMISSIONS.settings.retention,
+      //#endif
+    ],
+  },
   'Role/role_member': { version: 1, permissionNames: [PERMISSIONS.users.default] },
 };
 
