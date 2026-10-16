@@ -91,7 +91,12 @@
         <div class="@container/panel flex w-full max-w-3xl min-w-0 flex-auto flex-col gap-6">
           @if (activePanel(); as panel) {
             <header class="flex flex-col gap-1 border-b pb-4">
-              <h3 class="text-base leading-none font-medium">{{ panel.label }}</h3>
+              <div class="flex items-center gap-1">
+                <h3 class="text-base leading-none font-medium">{{ panel.label }}</h3>
+                @if (panel.hint) {
+                  <app-info-hint data-testid="settings-panel-hint" [text]="panel.hint" />
+                }
+              </div>
               @if (panel.description) {
                 <p class="text-muted-foreground text-sm">{{ panel.description }}</p>
               }

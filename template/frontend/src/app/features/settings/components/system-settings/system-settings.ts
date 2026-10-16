@@ -92,6 +92,12 @@ export class SystemSettings {
     {},
     { scope: 'settings' },
   );
+  /** 整组都是进程级设置时的说明：生效范围接在面板说明后，延迟放进标题旁的提示。 */
+  private readonly hostScopeTexts = translateObjectSignal(
+    'settings.hostScope',
+    {},
+    { scope: 'settings' },
+  );
   //#else
   protected readonly t = englishText(ENGLISH);
   //#endif
@@ -99,15 +105,32 @@ export class SystemSettings {
   protected readonly panels = computed<SettingsPanelLink[]>(() => {
     //#if (IncludeLocalization)
     const descriptions: Readonly<Record<string, string>> = this.groupDescriptions();
+    const hostScope: Readonly<Record<string, string>> = this.hostScopeTexts();
     //#else
     const descriptions = GROUP_DESCRIPTIONS;
+    const hostScope = HOST_SCOPE;
     //#endif
-    return groupSettings(settingsInScope(this.pageState.settings(), 'system')).map((group) => ({
-      path: groupPath(group.key),
-      label: group.label,
-      icon: GROUP_ICONS[group.key] ?? 'lucideSettings',
-      description: descriptions[group.key] ?? '',
-    }));
+    return groupSettings(settingsInScope(this.pageState.settings(), 'system')).map((group) => {
+      // 进程级设置整个系统共用一份：说清影响谁、多久在所有服务器生效
+      const hostOnly = group.settings.every((setting) => setting.allowsHostScope);
+      const description = descriptions[group.key] ?? '';
+      return {
+        path: groupPath(group.key),
+        label: group.label,
+        icon: GROUP_ICONS[group.key] ?? 'lucideSettings',
+        //#if (IncludeMultiTenancy)
+        // 生效范围接在说明后（句首标点由词条给出）；分组没有专属说明时单独成句
+        description: hostOnly
+          ? description
+            ? description + (hostScope['note'] ?? '')
+            : (hostScope['standalone'] ?? '')
+          : description,
+        //#else
+        description,
+        //#endif
+        hint: hostOnly ? hostScope['hint'] : undefined,
+      };
+    });
   });
 
   private readonly url = toSignal(
@@ -198,6 +221,15 @@ const GROUP_DESCRIPTIONS: Readonly<Record<string, string>> = {
   Retention: 'How long expired data is kept before it is cleaned up',
   //#endif
   Operations: 'How much detail the logs record',
+};
+
+/** 不含本地化时进程级设置的说明，与 `en.json` 的 `hostScope` 同步。 */
+const HOST_SCOPE: Readonly<Record<string, string>> = {
+  //#if (IncludeMultiTenancy)
+  note: '. Applies to all tenants',
+  standalone: 'Applies to all tenants',
+  //#endif
+  hint: 'One value for the whole system; changes reach every server within about 30 seconds',
 };
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */

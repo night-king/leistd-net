@@ -14,21 +14,11 @@
         data-testid="settings-group-section"
         [attr.data-group]="group.key"
       >
-        <!-- 分区不套卡片。一页里有多个分组时才出分组标题（标题下一条实线）：单组面板的标题已经由外壳给出，
-             再写一遍是重复；整组都是进程级设置时生效范围在分组顶部说一次，混有其他层级的分组仍按行标注。 -->
-        @if (groups().length > 1 || group.hostScopeOnce) {
-          <div
-            class="flex flex-wrap items-center justify-between gap-2"
-            [class]="groups().length > 1 ? 'border-b pb-3' : ''"
-          >
-            @if (groups().length > 1) {
-              <h4 class="text-sm leading-none font-semibold">{{ group.label }}</h4>
-            }
-            @if (group.hostScopeOnce) {
-              <span hlmBadge variant="secondary" data-testid="settings-group-host-scope-hint">
-                {{ t('settings.hostScopeHint') }}
-              </span>
-            }
+        <!-- 分区不套卡片。一页里有多个分组时才出分组标题（标题下一条实线）：单组面板的标题已经由外壳给出，再写一遍是重复。
+             整组都是进程级设置时，生效范围与延迟由外壳在面板标题旁说明；混有其他层级的分组在行内标注。 -->
+        @if (groups().length > 1) {
+          <div class="border-b pb-3">
+            <h4 class="text-sm leading-none font-semibold">{{ group.label }}</h4>
           </div>
         }
         <!--#if (ExternalLogin)-->
@@ -103,17 +93,17 @@
           "
         >
           <label hlmFieldLabel [for]="setting.name">{{ setting.displayName }}</label>
+          @if (showsRowHostScope(setting)) {
+            <!-- 混有其他层级的分组里，进程级的那几项在标签旁说明生效范围与延迟 -->
+            <app-info-hint
+              data-testid="setting-host-scope-hint"
+              [text]="t('settings.hostScope.hint')"
+            />
+          }
           <hlm-field-description
             class="inline-flex flex-wrap items-center gap-x-2 text-xs leading-4"
             [id]="descriptionIdOf(setting)"
           >
-            @if (showsRowHostScope(setting)) {
-              <!-- 进程级设置的生效范围与延迟不写出来的话，改完在别的实例上没变会被当成 bug；
-                   整组都是进程级时分组顶部已说过一次，这里不再重复 -->
-              <span hlmBadge variant="secondary" data-testid="setting-host-scope-hint">
-                {{ t('settings.hostScopeHint') }}
-              </span>
-            }
             <!-- 写入状态接在标签后面，与刚操作的控件同一行。 -->
             @if (stateOf(setting, scope()); as state) {
               @switch (state.status) {
@@ -127,7 +117,10 @@
                   <!-- 成功用语义色 success：主色在别处表示可点。 -->
                   <span class="text-success inline-flex items-center gap-1" role="status">
                     <ng-icon name="lucideCircleCheck" size="12" />
-                    {{ t('settings.saved') }}
+                    <!-- 进程级设置：保存成功时说明多久在所有服务器生效，这是唯一需要知道延迟的时刻 -->
+                    {{
+                      setting.allowsHostScope ? t('settings.savedEverywhere') : t('settings.saved')
+                    }}
                   </span>
                 }
                 @case ('error') {

@@ -11,7 +11,14 @@
   "timeZoneToggle": "Show time zones",
   "browserTimeZone": "browser",
   "followSystem": "Follows your system",
-  "hostScopeHint": "Applies to all instances (~30s)",
+  "hostScope": {
+    //#if (IncludeMultiTenancy)
+    "note": ". Applies to all tenants",
+    "standalone": "Applies to all tenants",
+    //#endif
+    "hint": "One value for the whole system; changes reach every server within about 30 seconds"
+  },
+  "savedEverywhere": "Saved; reaches every server within about 30 seconds",
   "saved": "Saved",
   "saving": "Saving…",
   "logLevelHints": {

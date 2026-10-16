@@ -8,6 +8,8 @@ import { HlmSeparator } from '@spartan-ng/helm/separator';
 import { HlmSheetImports } from '@spartan-ng/helm/sheet';
 import { filter, map } from 'rxjs';
 
+import { InfoHint } from '../../../../shared/components/info-hint/info-hint';
+
 /** 设置页左侧的一个面板入口。 */
 export interface SettingsPanelLink {
   /** 子路由段，同时是 URL 里的面板名。 */
@@ -15,6 +17,8 @@ export interface SettingsPanelLink {
   label: string;
   icon: string;
   description?: string;
+  /** 标题旁信息图标的说明（悬停或点按按钮时展开），例如整组设置的生效范围与延迟；没有时不出图标。 */
+  hint?: string;
 }
 
 /**
@@ -23,7 +27,15 @@ export interface SettingsPanelLink {
  */
 @Component({
   selector: 'app-settings-shell',
-  imports: [RouterLink, RouterOutlet, NgIcon, HlmButton, HlmSeparator, ...HlmSheetImports],
+  imports: [
+    RouterLink,
+    RouterOutlet,
+    NgIcon,
+    HlmButton,
+    HlmSeparator,
+    ...HlmSheetImports,
+    InfoHint,
+  ],
   providers: [provideIcons({ lucideChevronDown })],
   templateUrl: './settings-shell.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
