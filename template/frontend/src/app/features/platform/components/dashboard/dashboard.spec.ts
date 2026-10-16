@@ -4,6 +4,9 @@ import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { Observable, Subject, of, throwError } from 'rxjs';
+//#if (IncludeOperationRecords && LocalIdentity)
+import { page } from 'vitest/browser';
+//#endif
 
 import { Dashboard } from './dashboard';
 //#if (IncludeLocalization)
@@ -13,6 +16,9 @@ import { AuthorizationService } from '../../../../core/services/authorization-se
 import { StartupService } from '../../../../core/services/startup-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
+//#if (IncludeOperationRecords && LocalIdentity)
+import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
+//#endif
 import {
   expectTouchTarget,
   setCoarsePointer,
@@ -434,6 +440,55 @@ describe('Dashboard', () => {
 
     await navigate('/?startDate=2026-10-13&endDate=2026-10-13');
     expect([dashboard.trendView(), dashboard.canChooseTrendView()]).toEqual(['hour', false]);
+  });
+
+  /** 实际渲染出来的横轴标签：最下面一行的文字，按从左到右的顺序。 */
+  async function axisLabels(): Promise<SVGTextElement[]> {
+    const chart = query('dashboard-trend')!;
+    let labels: SVGTextElement[] = [];
+    await vi.waitFor(() => {
+      const texts = Array.from(chart.querySelectorAll<SVGTextElement>('svg text'));
+      // 横轴标签在最下面一行
+      const bottom = Math.max(...texts.map((text) => text.getBoundingClientRect().top));
+      labels = texts.filter((text) => Math.abs(text.getBoundingClientRect().top - bottom) < 1);
+      expect(labels.length).toBeGreaterThan(2);
+    });
+    return labels;
+  }
+
+  function expectEvenlySpaced(labels: readonly SVGTextElement[]): void {
+    const centers = labels.map((label) => {
+      const box = label.getBoundingClientRect();
+      return box.left + box.width / 2;
+    });
+    const gaps = centers.slice(1).map((center, index) => center - centers[index]);
+    for (const gap of gaps) {
+      expect(gap).toBeCloseTo(gaps[0], 0);
+    }
+  }
+
+  // 横轴刻度等间隔、最近一个时段必有标签：类目轴把每天都当刻度候选，图表库的碰撞去重只防重叠、不保证等间隔
+  it('spaces the trend axis labels evenly and labels the latest day', async () => {
+    await setup([PERMISSIONS.dashboard.default]);
+    await navigate('/?startDate=2026-09-14&endDate=2026-10-13');
+    fixture.detectChanges();
+
+    const labels = await axisLabels();
+    expectEvenlySpaced(labels);
+    const lastBucket = formatAppDate('2026-10-13T00:00:00.000Z', 'monthDay', 'UTC', 'en');
+    expect(labels.at(-1)!.textContent?.trim()).toBe(lastBucket);
+  });
+
+  // 一年按日、手机宽度：点距不到 1px 时刻度照样等间隔
+  it('keeps the axis labels evenly spaced for a year of days on a narrow screen', async () => {
+    await page.viewport(390, 844);
+    onTestFinished(() => page.viewport(1280, 800));
+    const dashboard = await setup([PERMISSIONS.dashboard.default]);
+    await navigate('/?startDate=2025-10-14&endDate=2026-10-13');
+    dashboard.chosenTrendView.set('day');
+    fixture.detectChanges();
+
+    expectEvenlySpaced(await axisLabels());
   });
   //#endif
   //#if (LocalIdentity)
