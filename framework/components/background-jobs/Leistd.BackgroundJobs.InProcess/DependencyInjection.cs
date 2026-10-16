@@ -71,6 +71,9 @@ public static class DependencyInjection
         }
 
         services.AddSingleton<RecurringJobRunner>();
+        services.AddSingleton<RecurringJobPlan>();
+        // 可替换的单实现：宿主先登记或之后 Replace 都能覆盖
+        services.TryAddSingleton<IRecurringJobStatusReader, RecurringJobStatusReader>();
         services.AddHostedService<RecurringJobScheduler>();
         services.TryAddSingleton<RecurringJobSchedulerMarker>();
 

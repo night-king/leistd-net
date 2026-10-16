@@ -10,6 +10,7 @@ using Leistd.TestBase.Assertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -64,6 +65,24 @@ public class RecurringJobRegistrationTests
         var services = new ServiceCollection().AddInProcessBackgroundJobs().AddInProcessBackgroundJobs();
         Assert.Single(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(RecurringJobScheduler));
         services.AssertSingle<IBackgroundTaskQueue>(ServiceLifetime.Singleton);
+    }
+
+    /// <summary>状态读取是可替换的单实现：重复调用只留一条，宿主先登记的不被覆盖，之后 Replace 也能换掉。</summary>
+    [Fact]
+    public void The_status_reader_is_a_replaceable_singleton()
+    {
+        var services = new ServiceCollection().AddInProcessBackgroundJobs().AddInProcessBackgroundJobs();
+        services.AssertSingle<IRecurringJobStatusReader>(ServiceLifetime.Singleton);
+        services.AssertImplementedBy<IRecurringJobStatusReader, RecurringJobStatusReader>();
+
+        var hostFirst = new ServiceCollection().AddSingleton<IRecurringJobStatusReader, HostStatusReader>().AddInProcessBackgroundJobs();
+        hostFirst.AssertSingle<IRecurringJobStatusReader>(ServiceLifetime.Singleton);
+        hostFirst.AssertImplementedBy<IRecurringJobStatusReader, HostStatusReader>();
+
+        var replaced = new ServiceCollection().AddInProcessBackgroundJobs()
+            .Replace(ServiceDescriptor.Singleton<IRecurringJobStatusReader, HostStatusReader>());
+        replaced.AssertSingle<IRecurringJobStatusReader>(ServiceLifetime.Singleton);
+        replaced.AssertImplementedBy<IRecurringJobStatusReader, HostStatusReader>();
     }
 
     /// <summary>EF 水位存储总是替换进程内默认实现，与调度器注册的先后无关。</summary>
@@ -140,6 +159,12 @@ public class RecurringJobRegistrationTests
     }
 
     private sealed class OtherDbContext(DbContextOptions<OtherDbContext> options) : DbContext(options);
+
+    private sealed class HostStatusReader : IRecurringJobStatusReader
+    {
+        public Task<IReadOnlyList<RecurringJobStatus>> GetStatusesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<RecurringJobStatus>>([]);
+    }
 
     private sealed class HostStateStore : IRecurringJobStateStore
     {

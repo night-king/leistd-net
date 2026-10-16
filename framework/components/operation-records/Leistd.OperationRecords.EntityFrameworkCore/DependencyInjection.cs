@@ -112,7 +112,8 @@ public static class DependencyInjection
             OperationRecordArchiveJob.Name,
             sp => RecurringJobSchedule.DailyAt(new TimeOnly(
                 sp.GetRequiredService<IOptions<OperationRecordRetentionOptions>>().Value.DailyRunHourUtc, 0)),
-            RecurringJobScope.Cluster);
+            RecurringJobScope.Cluster,
+            isEnabled: sp => sp.GetRequiredService<IOptionsSnapshot<OperationRecordRetentionOptions>>().Value.Enabled);
         return services;
     }
 

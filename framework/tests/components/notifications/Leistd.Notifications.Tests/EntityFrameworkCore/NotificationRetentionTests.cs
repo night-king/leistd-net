@@ -141,6 +141,30 @@ public sealed class NotificationRetentionTests : IAsyncLifetime
         Assert.NotNull(scope.ServiceProvider.GetRequiredService(definition.JobType));
     }
 
+    /// <summary>
+    /// 开关登记给调度器而不是在任务里提前返回：这里只证明真实登记入口带上了开关、且按新作用域里的配置求值；
+    /// 关闭时到点跳过、不记完成由后台作业组件的调度测试保证。
+    /// </summary>
+    [Fact]
+    public void The_registered_switch_follows_the_retention_setting_each_round()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Leistd:Notifications:Retention:Enabled"] = "false" })
+            .Build();
+        using var provider = new ServiceCollection()
+            .AddSingleton<IConfiguration>(configuration)
+            .AddNotificationRetention<RetentionDbContext>()
+            .BuildServiceProvider();
+        var definition = provider.GetServices<RecurringJobDefinition>().Single(d => d.Name == "notifications.retention");
+
+        using (var off = provider.CreateScope())
+            Assert.False(definition.IsEnabled!(off.ServiceProvider));
+
+        configuration["Leistd:Notifications:Retention:Enabled"] = "true";
+        using var on = provider.CreateScope();
+        Assert.True(definition.IsEnabled!(on.ServiceProvider));
+    }
+
     /// <summary>未读比已读先删就本末倒置：用户还没看到的通知反而先消失。</summary>
     [Fact]
     public void An_unread_retention_shorter_than_read_is_rejected()

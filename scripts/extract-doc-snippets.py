@@ -145,16 +145,22 @@ public class OrderService
 '''),
     'background-jobs': dict(
         vars={'redisConnectionString': 'string', 'queue': 'IBackgroundTaskQueue', 'userId': 'string',
-              'logger': 'global::Microsoft.Extensions.Logging.ILogger'},
+              'logger': 'global::Microsoft.Extensions.Logging.ILogger', 'statusReader': 'IRecurringJobStatusReader'},
         stubs=EF_CONTEXT + '''
 public class LeadService
 {
     public Task RecycleStaleAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task ArchiveClosedAsync(TimeSpan closedFor, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public class LeadOptions
 {
     public TimeOnly RecycleAt { get; set; }
+
+    public bool ArchiveEnabled { get; set; }
+
+    public TimeSpan ArchiveAfter { get; set; }
 }
 
 public class WelcomeMailer

@@ -99,7 +99,8 @@ public static class DependencyInjection
             NotificationRetentionJob<TDbContext>.Name,
             sp => RecurringJobSchedule.DailyAt(new TimeOnly(
                 sp.GetRequiredService<IOptions<NotificationRetentionOptions>>().Value.DailyRunHourUtc, 0)),
-            RecurringJobScope.Cluster);
+            RecurringJobScope.Cluster,
+            isEnabled: sp => sp.GetRequiredService<IOptionsSnapshot<NotificationRetentionOptions>>().Value.Enabled);
         return services;
     }
 
