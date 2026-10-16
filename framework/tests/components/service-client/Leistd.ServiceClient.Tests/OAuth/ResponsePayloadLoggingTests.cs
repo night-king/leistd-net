@@ -53,12 +53,12 @@ public sealed class ResponsePayloadLoggingTests : IAsyncLifetime
 
     public Task DisposeAsync() => host.DisposeAsync().AsTask();
 
-    private (ServiceProvider Provider, FakeLogCollector Logs) Caller(CancellationTokenSource? cancelAfterResponse = null)
+    private (ServiceProvider Provider, FakeLogCollector Logs) Caller(Func<DelegatingHandler>? transport = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(logging => logging.AddFakeLogging().SetMinimumLevel(LogLevel.Trace));
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
-        services.AddSingleton<IHttpMessageHandlerBuilderFilter>(new ProtocolTransport(host.GetTestServer(), cancelAfterResponse));
+        services.AddSingleton<IHttpMessageHandlerBuilderFilter>(new ProtocolTransport(host.GetTestServer(), transport));
         services.AddServiceAuthentication(value =>
         {
             value.Authority = "http://localhost/"; value.ClientId = "orders-api"; value.ClientSecret = "test-secret";
@@ -90,13 +90,66 @@ public sealed class ResponsePayloadLoggingTests : IAsyncLifetime
     {
         token = _ => Results.Json(new { access_token = Sentinel, token_type = "Bearer", expires_in = 600 });
         using var cancellation = new CancellationTokenSource();
-        var (provider, logs) = Caller(cancellation);
+        var (provider, logs) = Caller(() => new CancelAfterTokenResponse(cancellation));
         await using var _ = provider;
 
         var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RequestAsync(provider, cancellation.Token));
 
         AssertNoSentinel(logs, exception);
         Assert.DoesNotContain(logs.GetSnapshot(), record => record.Level >= LogLevel.Error);
+    }
+
+    // 官方 6182 会把调用方取消记成网络故障并拒绝为 server_error；这里应照常抛出取消且不留错误日志
+    [Fact]
+    public async Task Cancellation_while_the_request_is_in_flight_propagates_without_an_error()
+    {
+        token = _ => Results.Json(new { access_token = "machine-1", token_type = "Bearer", expires_in = 600 });
+        using var cancellation = new CancellationTokenSource();
+        var (provider, logs) = Caller(() => new CancelBeforeTokenRequest(cancellation));
+        await using var _ = provider;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RequestAsync(provider, cancellation.Token));
+
+        Assert.DoesNotContain(logs.GetSnapshot(), record => record.Level >= LogLevel.Error);
+    }
+
+    // 调用方令牌有效时的传输故障（含超时，也是 OperationCanceledException）仍是远端故障：与官方一样记 6182 并以同样详情拒绝
+    public static TheoryData<string, Func<Exception>> TransportFailures => new()
+    {
+        { "connection-refused", () => new HttpRequestException("Connection refused") },
+        { "timeout", () => new TaskCanceledException("The request timed out.", new TimeoutException()) },
+        // 官方 IsFatal 不把 InsufficientMemoryException 算作致命
+        { "insufficient-memory", () => new HttpRequestException("Allocation failed", new InsufficientMemoryException()) }
+    };
+
+    [Theory]
+    [MemberData(nameof(TransportFailures))]
+    public async Task Transport_failures_with_a_live_caller_token_are_still_rejected_and_logged(string scenario, Func<Exception> failure)
+    {
+        var (provider, logs) = Caller(() => new FailTokenRequest(failure));
+        await using var _ = provider;
+
+        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ProtocolException>(() => RequestAsync(provider));
+
+        Assert.True(OpenIddictConstants.Errors.ServerError == exception.Error, $"{scenario}: got {exception.Error}");
+        Assert.Equal("An error occurred while communicating with the remote HTTP server.", exception.ErrorDescription);
+        Assert.Equal("https://documentation.openiddict.com/errors/ID2136", exception.ErrorUri);
+        Assert.Contains(logs.GetSnapshot(), record => record.Level == LogLevel.Error && record.Id.Id == 6182 && record.Exception is not null);
+    }
+
+    // 内层是内存耗尽时与官方一样不转写成协议失败，照常向外抛
+    [Fact]
+    public async Task A_fatal_inner_exception_is_not_turned_into_a_protocol_failure()
+    {
+        // 有意构造运行时保留的异常类型，模拟传输层包装的内存耗尽
+#pragma warning disable CA2201
+        var (provider, _) = Caller(() => new FailTokenRequest(() => new HttpRequestException("Allocation failed", new OutOfMemoryException())));
+#pragma warning restore CA2201
+        await using var _ = provider;
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => RequestAsync(provider));
+
+        Assert.IsType<OutOfMemoryException>(exception.InnerException);
     }
 
     [Fact]
@@ -189,8 +242,8 @@ public sealed class ResponsePayloadLoggingTests : IAsyncLifetime
         }
     }
 
-    // 把 OpenIddict 的 HTTP 客户端指向 TestServer；可选地在响应到达后取消调用方令牌，模拟入站请求中途被放弃。
-    private sealed class ProtocolTransport(TestServer server, CancellationTokenSource? cancelAfterResponse) : IHttpMessageHandlerBuilderFilter
+    // 把 OpenIddict 的 HTTP 客户端指向 TestServer；可选地在传输链上插入一个处理器，模拟取消或传输故障。
+    private sealed class ProtocolTransport(TestServer server, Func<DelegatingHandler>? transport) : IHttpMessageHandlerBuilderFilter
     {
         public Action<HttpMessageHandlerBuilder> Configure(Action<HttpMessageHandlerBuilder> next) => builder =>
         {
@@ -198,8 +251,28 @@ public sealed class ResponsePayloadLoggingTests : IAsyncLifetime
             if (!builder.Name!.StartsWith(typeof(OpenIddictClientSystemNetHttpOptions).Assembly.GetName().Name!, StringComparison.Ordinal)) return;
             builder.PrimaryHandler.Dispose();
             builder.PrimaryHandler = server.CreateHandler();
-            if (cancelAfterResponse is not null) builder.AdditionalHandlers.Add(new CancelAfterTokenResponse(cancelAfterResponse));
+            if (transport is not null) builder.AdditionalHandlers.Add(transport());
         };
+    }
+
+    // 令牌请求发出前取消调用方令牌：请求在途中被放弃，发送阶段收到的是调用方自己的取消
+    private sealed class CancelBeforeTokenRequest(CancellationTokenSource cancellation) : DelegatingHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/connect/token", StringComparison.Ordinal))
+                await cancellation.CancelAsync();
+            return await base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    // 令牌请求在传输层失败，调用方令牌始终有效
+    private sealed class FailTokenRequest(Func<Exception> failure) : DelegatingHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            request.RequestUri!.AbsolutePath.EndsWith("/connect/token", StringComparison.Ordinal)
+                ? Task.FromException<HttpResponseMessage>(failure())
+                : base.SendAsync(request, cancellationToken);
     }
 
     private sealed class CancelAfterTokenResponse(CancellationTokenSource cancellation) : DelegatingHandler

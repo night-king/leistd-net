@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using OpenIddict.Abstractions;
 using OpenIddict.Client;
@@ -25,6 +26,23 @@ internal static class ResponsePayloadLoggingGuard
         ValidateStatus<ExtractJsonWebKeySetResponseContext>.Descriptor,
         ValidateStatus<ExtractTokenResponseContext>.Descriptor
     ];
+
+    // 与官方 OpenIddictHelpers.IsFatal（7.7.2）同一判据，取反：致命异常照常向外抛，不能被转写成一次普通的协议失败。
+    // 内层异常与聚合异常逐个检查，包在 HttpRequestException 里的内存耗尽同样算致命。
+    internal static bool IsRecoverable(Exception exception) => !IsFatal(exception);
+
+    private static bool IsFatal(Exception exception)
+    {
+        RuntimeHelpers.EnsureSufficientExecutionStack();
+        return exception switch
+        {
+            ThreadAbortException => true,
+            OutOfMemoryException and not InsufficientMemoryException => true,
+            AggregateException { InnerExceptions: var exceptions } => exceptions.Any(IsFatal),
+            { InnerException: { } inner } => IsFatal(inner),
+            _ => false
+        };
+    }
 
     internal sealed class ExtractJson<TContext> : IOpenIddictClientHandler<TContext> where TContext : BaseExternalContext
     {
@@ -67,9 +85,6 @@ internal static class ResponsePayloadLoggingGuard
             (string.Equals(type, "application/json", StringComparison.OrdinalIgnoreCase) ||
              type.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
 
-        // 与官方一样不接管致命异常：它们照常向外抛，不能被转写成一次普通的协议失败
-        private static bool IsRecoverable(Exception exception) =>
-            exception is not (OutOfMemoryException or StackOverflowException or AccessViolationException or ThreadInterruptedException);
     }
 
     internal sealed class ValidateStatus<TContext> : IOpenIddictClientHandler<TContext> where TContext : BaseExternalContext
