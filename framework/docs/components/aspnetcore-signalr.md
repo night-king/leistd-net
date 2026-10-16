@@ -128,15 +128,42 @@ options.DefaultPolicy = new AuthorizationPolicyBuilder()
 
 ## 多实例部署
 
-没有背板时，`Clients.Group(...)` 与 `Clients.User(...)` 只到达连在本节点的客户端，跨节点的消息静默丢失。跑多副本必须配置背板：
+没有背板时，`Clients.Group(...)` 与 `Clients.User(...)` 只到达连在本节点的客户端，跨节点的消息静默丢失。跑多副本必须配置背板；自托管时用官方 Redis 背板：
 
 ```csharp
-builder.Services.AddSignalR().AddStackExchangeRedis(redisConnectionString);
+using StackExchange.Redis;
+
+builder.Services.AddSignalR().AddStackExchangeRedis(redisConnectionString, options =>
+    options.Configuration.ChannelPrefix = RedisChannel.Literal("my-app:production:"));
 ```
 
 宿主自行安装 `Microsoft.AspNetCore.SignalR.StackExchangeRedis`；本包不带背板 Provider，也不代为注册。背板与本包的注册顺序无关。
 
+- **通道前缀按“应用 + 环境”区分**：Redis 的发布订阅不受数据库编号隔离，共用同一个 Redis 的应用或环境前缀相同就会互相收到消息。同一应用的所有进程（各 API 副本与下文的非 Hub 进程）必须用同一个前缀。
+- **负载均衡要会话粘滞**：协商与后续请求必须落在同一个节点。只有全部客户端都只用 WebSocket 并在客户端选项里跳过协商时才可省略。亲和要配在实际选择节点的那一层（反向代理的 upstream、Ingress 控制器），经过 Kubernetes Service 的 ClientIP 亲和只在流量确实经过该 Service 且源地址稳定时有效。
+- **Redis 不可用**：期间的消息丢失、不缓冲，恢复后自动重连，不补发。连接串带 `abortConnect=false`，背板的连接初始化不因 Redis 暂时不可达直接中止，之后由客户端自行重连；这只针对背板，缓存、锁等其他 Redis 依赖的调用照样可能失败。不要把推送成功当作业务提交的前提。
+- Redis Cluster 在连接串里列出各节点即可，不需要改代码。
+
 背板只解决跨节点路由。共享在线状态需宿主自建注册表；断线后的消息补拉需持久化，可使用[通知组件](./notifications.md)。
+
+## 非 Hub 进程发布
+
+只发消息、不接客户端连接的进程（如独立的后台作业 Worker）经同一背板发到连在其他节点上的客户端：注册 SignalR 与同一背板、同一前缀，不映射 Hub，用官方 `IHubContext<THub>` 发送。`THub` 必须与持有连接的节点映射的是同一个 Hub 类型：背板按 Hub 类型名划分通道。
+
+```csharp
+using Microsoft.AspNetCore.SignalR;
+using StackExchange.Redis;
+
+// Worker：通用宿主，不映射任何 Hub
+builder.Services.AddSignalR().AddStackExchangeRedis(redisConnectionString, options =>
+    options.Configuration.ChannelPrefix = RedisChannel.Literal("my-app:production:"));
+
+// 发送方注入 IHubContext<OrderHub>，与 API 节点映射的 OrderHub 是同一类型
+await hubContext.Clients.User(userId).SendAsync("OrderShipped", payload, ct);
+```
+
+推送是尽力而为的：没有在线连接、背板不可用时消息丢失。Worker 不需要本包的身份解析与 Hub 过滤器：那些只作用于客户端调用 Hub 方法。
+实时通信与通知各自的 Worker 接线见[实时通信](./realtime.md#非-hub-进程发布)与[通知](./notifications.md#非-hub-进程发布)。
 
 ## 注意事项
 

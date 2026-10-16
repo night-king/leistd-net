@@ -118,7 +118,11 @@ docker build --build-arg APP_VERSION=1.4.0 --build-arg APP_REVISION="$(git rev-p
   Data Protection 密钥默认保存在 Redis 中；各副本还须使用一致的应用名。
 <!--#endif-->
 <!--#if (IncludeRealTime || IncludeNotifications)-->
-  实时推送多副本须配置 SignalR 背板（模板未内置），否则只有连在发布方节点的客户端收到推送。
+  实时推送随 Redis 一起启用 SignalR 官方背板（`backend/src/CompanyName.ProjectName.Api/Hosting/SignalRBackplaneExtensions.cs`），不需要另配开关：
+  - **会话粘滞**：协商与后续请求必须落在同一个 API 副本。亲和要配在实际选副本的那一层：自建 Nginx 在 upstream 配 `ip_hash` 或 cookie 亲和；经 Ingress 时按所用控制器配置 cookie 亲和并覆盖 Hub 路径。Service 的 `sessionAffinity: ClientIP` 只在流量确实经过该 Service 且源地址稳定时有效，不能代替 Ingress 上的亲和。
+  - **前缀**：背板通道前缀取锁前缀 `Leistd:Lock:Redis:KeyPrefix`（默认按项目名）。Redis 的发布订阅不按数据库编号隔离，共用一个 Redis 的不同环境要覆盖成不同的值，同一环境的所有副本与 Worker 用同一个值。
+  - **Redis 不可用**：期间的推送丢失、不补发，恢复后自动重连；连接串保留 `abortConnect=false`。推送只用于提示刷新，客户端重连、回到前台与下次请求会收敛到最新状态。
+  - 另起的 Worker 进程要推送时，按框架实时通信与通知文档的“非 Hub 进程发布”接线：同一 Redis、同一前缀，不映射 Hub。
 <!--#endif-->
 - **云平台（容器服务、应用服务）**：配置写应用设置，机密放托管密钥库并以托管身份读取（如 Key Vault 引用）。这类接入与平台绑定，确定平台后再加，不预置在模板里。
 

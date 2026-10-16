@@ -85,6 +85,21 @@ public class ProductProfileService(IBusinessEventPublisher eventPublisher)
 - `Subscribe` 无条件经过 `IRealTimeSubscriptionAuthorizer`，被拒绝时抛出 `HubException`；`Unsubscribe` 始终允许。
 - 资源组名为 `resource:{resourceKey}`，不会自动拼租户；租户隔离必须由 `IRealTimeSubscriptionAuthorizer` 判定。推送失败只记录错误。
 
+## 非 Hub 进程发布
+
+独立的 Worker 也能经 `IBusinessEventPublisher` 推资源事件，送到连在 API 节点上的订阅者：注册 `AddRealTimeSignalR()` 与同一背板、同一通道前缀，不调用 `MapRealTimeHub()`，也不需要订阅授权器（订阅只发生在映射了 Hub 的节点上）。
+
+```csharp
+using StackExchange.Redis;
+
+// Worker
+builder.Services.AddRealTimeSignalR();
+builder.Services.AddSignalR().AddStackExchangeRedis(redisConnectionString, options =>
+    options.Configuration.ChannelPrefix = RedisChannel.Literal("my-app:production:"));
+```
+
+发布代码与在 API 里相同。背板、前缀、会话粘滞与失败语义见 [SignalR 基座](./aspnetcore-signalr.md#多实例部署)。
+
 ## 配置项
 
 本组件没有自己的配置项：业务事件 Hub 路径在 `MapRealTimeHub(pattern)` 给出，默认 `/hubs/realtime`。
@@ -93,7 +108,7 @@ SignalR 传输层的配置不在本组件：心跳、超时、详细错误是 Si
 
 ## 注意事项
 
-- 多副本部署必须配置 SignalR 背板，否则发布方所在节点之外的订阅者收不到事件，见 [SignalR 基座](./aspnetcore-signalr.md#多实例部署)。
+- 多副本部署或在 Worker 里发布必须配置 SignalR 背板，否则发布方所在节点之外的订阅者收不到事件，见 [SignalR 基座](./aspnetcore-signalr.md#多实例部署)与[非 Hub 进程发布](#非-hub-进程发布)。
 - 用 Bearer 认证时，浏览器客户端只能把令牌放进查询串，宿主须在认证之前接入 SignalR 基座的 `UseHubAccessToken()`，见 [SignalR 基座](./aspnetcore-signalr.md#注册)。
 - 本组件不提供在线状态查询；多实例在线状态需要宿主维护共享连接注册表。
 - 订阅授权没有开关；`AddAllowAllRealTimeSubscriptions()` 是公共资源场景的显式选择。

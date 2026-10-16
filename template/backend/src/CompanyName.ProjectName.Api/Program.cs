@@ -132,10 +132,11 @@ try
 
 #if (IncludeNotifications || IncludeRealTime)
     // 心跳、超时、详细错误是 SignalR 自身的选项，由宿主直接配置。
+    // 配了 Redis 时接上跨副本背板，多副本与 Worker 的推送经它路由
     builder.Services.AddSignalR(options =>
     {
         options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-    });
+    }).AddMyProjectBackplane(builder.Configuration);
 #endif
 #if (IncludeRealTime)
 

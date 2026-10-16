@@ -213,6 +213,25 @@ public class MessageCenter(INotificationStore notificationStore)
 - `MarkAllAsReadAsync` 只批量标记未读记录；没有未读时不保存。
 - 索引：`(UserId, CreationTime)`（通知列表）、`(UserId, IsRead)`（未读数）、单列 `CreationTime`（保留期清理整库按时间扫）。表名沿用 EF Core 默认约定。
 
+## 非 Hub 进程发布
+
+独立的 Worker 经 `INotificationPublisher` 发通知时，历史照常写入，站内推送经背板送到连在 API 节点上的收件人。Worker 的组合与 API 相同，只是不映射 Hub：
+
+- 发布器的前提照旧：`IClock` 与唯一的 `INotificationStore`（用 EF 存储时连同它的数据库、工作单元与租户组合，见[注册](#注册)）；投递偏好、邮件等渠道按 API 的组合注册。
+- `AddNotificationsSignalR<THub>()` 选与 API **同一个** Hub：API 让通知与实时通信共用实时通信的 Hub 时，Worker 也要以那个 Hub 为类型参数。
+- 注册同一背板与同一通道前缀，不调用 `MapNotificationHub()`。
+
+```csharp
+using StackExchange.Redis;
+
+// Worker：与 API 选同一个 Hub（这里 API 用的是通知自己的 Hub）
+builder.Services.AddNotificationsSignalR();
+builder.Services.AddSignalR().AddStackExchangeRedis(redisConnectionString, options =>
+    options.Configuration.ChannelPrefix = RedisChannel.Literal("my-app:production:"));
+```
+
+背板、前缀、会话粘滞与失败语义见 [SignalR 基座](./aspnetcore-signalr.md#多实例部署)；推送失败按渠道隔离，不影响历史写入。
+
 ## 注意事项
 
 - 本组件只面向人：每条通知都有归属用户、写入历史、计入未读数。推给订阅了某资源的连接（无历史）用[实时通信](./realtime.md)的 `IBusinessEventPublisher`。
