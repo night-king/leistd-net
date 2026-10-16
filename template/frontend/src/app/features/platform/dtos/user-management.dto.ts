@@ -63,9 +63,14 @@ export interface UpdateUserInputDto {
   displayName?: string;
   avatar?: string;
   isEmailVerified: boolean;
+  /** 管理员本人的当前口令：改邮箱或标为已验证而会话不够新时带上。 */
+  password?: string;
 }
 export interface ResetUserPasswordInputDto {
+  /** 给对方设的新口令。 */
   password: string;
+  /** 管理员本人的当前口令：会话不够新时带上，不是对方的口令。 */
+  currentPassword?: string;
 }
 //#endif
 

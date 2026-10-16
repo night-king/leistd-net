@@ -5,6 +5,7 @@ import { toast } from '@spartan-ng/brain/sonner';
 import { of, throwError } from 'rxjs';
 
 import { ProfilePanel } from './profile-panel';
+import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
@@ -92,6 +93,44 @@ describe('ProfilePanel', () => {
     expect(setCurrentUser).toHaveBeenCalledExactlyOnceWith(saved);
     expect(panel.profileForm.displayName().value()).toBe('Alice Smith');
     expect(panel.saving()).toBe(false);
+  });
+
+  // 换邮箱而会话不够新：弹出确认身份，带上当前口令重试同一次保存
+  it('asks for the current password and retries the save with it when the session is not recent', async () => {
+    const saved = { ...initialUser, email: 'alice@new.example.com' };
+    account.updateCurrentUser
+      .mockReturnValueOnce(
+        throwError(() =>
+          ApplicationHttpError.from(
+            new HttpErrorResponse({
+              status: 400,
+              error: { code: 'Auth:ReauthenticationRequired' },
+            }),
+          ),
+        ),
+      )
+      .mockReturnValueOnce(of(saved));
+    const panel = fixture.componentInstance;
+    panel.profileForm.email().value.set('alice@new.example.com');
+
+    panel.onSubmit();
+    await fixture.whenStable();
+
+    expect(panel.reauthVisible()).toBe(true);
+    expect(setCurrentUser).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+
+    panel.onSubmit('current-password');
+    await fixture.whenStable();
+
+    expect(account.updateCurrentUser).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        email: 'alice@new.example.com',
+        currentPassword: 'current-password',
+      }),
+    );
+    expect(setCurrentUser).toHaveBeenCalledExactlyOnceWith(saved);
+    expect(panel.reauthVisible()).toBe(false);
   });
 
   it('leaves the current user untouched when saving the profile fails', async () => {

@@ -25,4 +25,9 @@ public record UpdateCurrentUserInputDto
     [MaxLength(20, ErrorMessage = "{0} cannot exceed {1} characters.")]
     [RegularExpression(@"^[0-9+\-()\s]{0,20}$", ErrorMessage = "{0} has an invalid format.")]
     public string? PhoneNumber { get; init; }
+
+    /// <summary>本人的当前口令：换邮箱而会话不够新时带上，其余修改不用。</summary>
+    [Display(Name = "Current password")]
+    [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
+    public string? CurrentPassword { get; init; }
 }

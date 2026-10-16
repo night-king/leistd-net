@@ -192,10 +192,13 @@ export class AccountService {
     return `/api/v1/external-auth/${encodeURIComponent(provider)}/link/challenge`;
   }
 
-  /** 外部授权回来后完成绑定。 */
-  linkExternalLogin(provider: string): Observable<void> {
+  /**
+   * 外部授权回来后完成绑定。会话不够新时服务端以 `Auth:ReauthenticationRequired` 拒绝且不消费票据，
+   * 带上本人的当前口令（`password`）重试同一个请求即可。
+   */
+  linkExternalLogin(provider: string, password?: string): Observable<void> {
     return this.http
-      .post(`/api/v1/external-auth/${provider}/link/complete`, {})
+      .post(`/api/v1/external-auth/${provider}/link/complete`, password ? { password } : {})
       .pipe(map(() => undefined));
   }
 

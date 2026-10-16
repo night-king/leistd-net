@@ -3,10 +3,10 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { ReauthenticateDialog } from './reauthenticate-dialog';
 //#if (IncludeLocalization)
-import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
+import { provideTranslocoTesting } from '../../i18n/transloco.testing';
 //#endif
 
-/** 管理员确认身份：只收口令交给调用方重试；空口令不交出去，并说明原因。 */
+/** 确认是本人：只收口令交给调用方重试；空口令不交出去，并说明原因。 */
 @Component({
   imports: [ReauthenticateDialog],
   template: `

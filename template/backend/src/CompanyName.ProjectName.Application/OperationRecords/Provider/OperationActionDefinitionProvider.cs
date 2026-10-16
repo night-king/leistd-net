@@ -209,11 +209,18 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
             OperationVisibility.Actor,
             OperationSeverity.Notice,
             targetIsActor: true);
-        // 本人资料上的两件事，只本人（与上层）可见，与改密码同一口径。
+        // 本人资料上的这几件事，只本人（与上层）可见，与改密码同一口径。
         context.Add(
             OperationRecordActions.AuthAvatarChanged,
             OperationRecordCategories.Account,
             OperationVisibility.Actor);
+        // 邮箱是安全提醒的去处，也是按邮箱关联外部登录的依据：按认证类、提示级别记，与改密码同一口径
+        context.Add(
+            OperationRecordActions.AuthEmailChanged,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor,
+            OperationSeverity.Notice,
+            targetIsActor: true);
 #if (Email)
         context.Add(
             OperationRecordActions.AuthEmailVerified,

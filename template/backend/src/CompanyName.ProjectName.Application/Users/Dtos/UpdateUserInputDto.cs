@@ -29,4 +29,9 @@ public record UpdateUserInputDto
     public string? Avatar { get; init; }
 
     public bool IsEmailVerified { get; init; }
+
+    /// <summary>管理员本人的当前口令：改邮箱或把邮箱标为已验证而会话不够新时带上，其余修改不用。</summary>
+    [Display(Name = "Password")]
+    [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
+    public string? Password { get; init; }
 }

@@ -59,6 +59,7 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'auth.locked-out': (t) => `Account ${t} was locked after repeated failed sign-ins`,
   'auth.password.changed': () => 'Changed their own password',
   'auth.avatar.changed': () => 'Changed their avatar',
+  'auth.email.changed': () => 'Changed their email address',
   'auth.email.verified': () => 'Verified their email address',
   'auth.session.revoked': (t) => `Signed out a device (${t})`,
   'auth.sessions.others-revoked': () => 'Signed out all other devices',

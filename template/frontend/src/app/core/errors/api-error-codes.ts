@@ -19,6 +19,9 @@ export const API_ERROR_CODES = {
   /** 会话不够新，要当场出示当前口令。 */
   reauthenticationRequired: 'Auth:ReauthenticationRequired',
 
+  /** 再认证时出示的当前口令不正确：留在输入口令的地方重输。 */
+  currentPasswordIncorrect: 'Security:CurrentPasswordIncorrect',
+
   /** 会话不够新又没有本地口令可出示：重新登录才能继续。 */
   signInAgainRequired: 'Auth:SignInAgainRequired',
 

@@ -193,6 +193,60 @@ describe('ExternalAuthCallback', () => {
     expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/workspace/settings/security']);
   });
 
+  // 绑定时会话不够新：票据没被消费，留在回调页请本人出示口令，带上它重试同一次绑定
+  it('asks for the current password and retries the link with it', async () => {
+    returnWith({ intent: 'link' });
+    accountService.linkExternalLogin
+      .mockReturnValueOnce(
+        throwError(() =>
+          ApplicationHttpError.from(
+            new HttpErrorResponse({
+              status: 400,
+              error: { code: 'Auth:ReauthenticationRequired' },
+            }),
+          ),
+        ),
+      )
+      .mockReturnValueOnce(of(undefined));
+    const navigate = TestBed.inject(Router).navigate;
+
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(accountService.linkExternalLogin).toHaveBeenCalledWith('github', undefined);
+    expect(navigate).not.toHaveBeenCalled();
+
+    (
+      fixture.componentInstance as unknown as { onReauthenticated(p: string): void }
+    ).onReauthenticated('current-password');
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(accountService.linkExternalLogin).toHaveBeenLastCalledWith('github', 'current-password');
+    expect(navigate).toHaveBeenCalledWith(['/workspace/settings/security']);
+  });
+
+  // 不出示口令、关掉对话框：放弃这次绑定，回到账户与安全
+  it('returns to the security settings when the password prompt is dismissed', async () => {
+    returnWith({ intent: 'link' });
+    accountService.linkExternalLogin.mockReturnValueOnce(
+      throwError(() =>
+        ApplicationHttpError.from(
+          new HttpErrorResponse({ status: 400, error: { code: 'Auth:ReauthenticationRequired' } }),
+        ),
+      ),
+    );
+
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+    (
+      fixture.componentInstance as unknown as { onReauthVisibleChange(v: boolean): void }
+    ).onReauthVisibleChange(false);
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(accountService.linkExternalLogin).toHaveBeenCalledOnce();
+    expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/workspace/settings/security']);
+  });
+
   // 后退键重放旧回调：会话仍在时直接回到应用，而不是对已登录用户显示"登录失败"。
   it('enters the application when a replayed callback fails but the session is still valid', async () => {
     returnWith({ intent: 'login', error: 'failed' });

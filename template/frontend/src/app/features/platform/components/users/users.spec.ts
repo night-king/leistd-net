@@ -45,6 +45,8 @@ describe('Users page query round trip', () => {
     | 'batchDisableUsers'
     //#if (LocalIdentity)
     | 'resetTwoFactor'
+    | 'resetPassword'
+    | 'updateUser'
     //#endif
   >;
 
@@ -69,6 +71,8 @@ describe('Users page query round trip', () => {
       batchDisableUsers: vi.fn().mockName('UserManagementService.batchDisableUsers'),
       //#if (LocalIdentity)
       resetTwoFactor: vi.fn().mockName('UserManagementService.resetTwoFactor'),
+      resetPassword: vi.fn().mockName('UserManagementService.resetPassword'),
+      updateUser: vi.fn().mockName('UserManagementService.updateUser'),
       //#endif
     };
     service.getUsers.mockReturnValue(of({ items: [], totalCount: 0 }) as never);
@@ -131,6 +135,61 @@ describe('Users page query round trip', () => {
     expect(service.resetTwoFactor).toHaveBeenLastCalledWith('user-2', 'admin-password');
     expect(component.reauthDialogVisible()).toBe(false);
   });
+
+  // 重置口令同理：带的是管理员自己的当前口令（currentPassword），新口令（password）原样不变
+  it('asks the administrator for their password and retries the password reset with it', async () => {
+    service.resetPassword.mockReturnValueOnce(throwError(() => reauthenticationRequired()));
+    service.resetPassword.mockReturnValueOnce(of(undefined));
+
+    component.openResetPasswordDialog('user-2');
+    component.handleResetPassword({ password: 'New!Passw0rd' });
+    await fixture.whenStable();
+
+    expect(service.resetPassword).toHaveBeenCalledWith('user-2', {
+      password: 'New!Passw0rd',
+      currentPassword: undefined,
+    });
+    expect(component.reauthDialogVisible()).toBe(true);
+
+    component.onReauthenticated('admin-password');
+    await fixture.whenStable();
+
+    expect(service.resetPassword).toHaveBeenLastCalledWith('user-2', {
+      password: 'New!Passw0rd',
+      currentPassword: 'admin-password',
+    });
+    expect(component.reauthDialogVisible()).toBe(false);
+    expect(component.resetPasswordDialogVisible()).toBe(false);
+  });
+
+  // 改邮箱或标为已验证时服务端要管理员刚认证过：带上口令重试同一次保存
+  it('asks the administrator for their password and retries the user update with it', async () => {
+    const update = { email: 'bob@example.test', isEmailVerified: true };
+    service.updateUser.mockReturnValueOnce(throwError(() => reauthenticationRequired()));
+    service.updateUser.mockReturnValueOnce(of(undefined) as never);
+    component.selectedUser.set({ id: 'user-2', username: 'bob' } as never);
+
+    component.handleSave(update);
+    await fixture.whenStable();
+
+    expect(service.updateUser).toHaveBeenCalledWith('user-2', { ...update, password: undefined });
+    expect(component.reauthDialogVisible()).toBe(true);
+
+    component.onReauthenticated('admin-password');
+    await fixture.whenStable();
+
+    expect(service.updateUser).toHaveBeenLastCalledWith('user-2', {
+      ...update,
+      password: 'admin-password',
+    });
+    expect(component.reauthDialogVisible()).toBe(false);
+  });
+
+  function reauthenticationRequired(): ApplicationHttpError {
+    return ApplicationHttpError.from(
+      new HttpErrorResponse({ status: 400, error: { code: 'Auth:ReauthenticationRequired' } }),
+    );
+  }
 
   //#endif
   it('writes paging to the URL and refetches the new page', async () => {

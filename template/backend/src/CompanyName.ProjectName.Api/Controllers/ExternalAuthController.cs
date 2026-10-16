@@ -86,14 +86,23 @@ public sealed class ExternalAuthController(
         }, cancellationToken);
 
     /// <summary>把外部账号绑定到当前用户，成功时为空响应。</summary>
+    /// <remarks>
+    /// 会话不够新时以 <c>Auth:ReauthenticationRequired</c> 拒绝且<b>不消费票据</b>：本人输入当前口令后带上它重试即可。
+    /// </remarks>
     [Authorize]
     [HttpPost("{provider}/link/complete")]
-    public Task CompleteLinkAsync(string provider, CancellationToken cancellationToken) =>
-        ConsumeTicketAsync(provider, "link", async (user, _, operationToken) =>
+    public async Task CompleteLinkAsync(
+        string provider,
+        [FromBody] CompleteExternalLinkInputDto? input,
+        CancellationToken cancellationToken)
+    {
+        await externalAuthAppService.EnsureLinkAllowedAsync(input?.Password, cancellationToken);
+        await ConsumeTicketAsync(provider, "link", async (user, _, operationToken) =>
         {
             await externalAuthAppService.LinkCurrentUserAsync(provider, user, operationToken);
             return true;
         }, cancellationToken);
+    }
 
     /// <summary>核对外部票据的提供商、意图、绑定发起者与租户，先一次消费票据，再在票据记录的租户作用域内执行账号政策。</summary>
     private async Task<TResult> ConsumeTicketAsync<TResult>(

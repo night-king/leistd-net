@@ -294,4 +294,10 @@
       </button>
     </div>
   </form>
+
+  <app-reauthenticate-dialog
+    [(visible)]="reauthVisible"
+    [(saving)]="reauthSaving"
+    (confirmed)="onSubmit($event)"
+  />
 </ng-container>

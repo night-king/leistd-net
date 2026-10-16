@@ -10,13 +10,13 @@ import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 
-import { PASSWORD_MAX_LENGTH } from '../../../../../../core/validation/password-rule';
 //#if (!IncludeLocalization)
-import { englishText } from '../../../../../../shared/utils/english-text';
+import { englishText } from '../../../shared/utils/english-text';
 //#endif
+import { PASSWORD_MAX_LENGTH } from '../../validation/password-rule';
 
 /**
- * 管理员确认身份：高风险的管理操作（如重置他人的两步验证）在会话不够新时，服务端要求出示管理员自己的当前口令。
+ * 确认是本人：改邮箱、绑定外部登录、重置他人的口令或两步验证这类操作在会话不够新时，服务端要求出示本人的当前口令。
  * 只收口令并交给调用方重试原操作；口令对不对由服务端判定，失败按再认证计数。
  */
 @Component({
@@ -78,11 +78,11 @@ export class ReauthenticateDialog {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'users.reauthDialog.header': 'Confirm it is you',
-  'users.reauthDialog.description':
-    'This action changes how someone signs in. Enter your own current password to continue.',
-  'users.reauthDialog.passwordLabel': 'Your current password',
-  'users.reauthDialog.confirm': 'Confirm',
+  'common.reauthenticate.header': 'Confirm it is you',
+  'common.reauthenticate.description':
+    'This change affects how you or someone else signs in. Enter your current password to continue.',
+  'common.reauthenticate.passwordLabel': 'Your current password',
+  'common.reauthenticate.confirm': 'Confirm',
   'common.cancel': 'Cancel',
 };
 //#endif

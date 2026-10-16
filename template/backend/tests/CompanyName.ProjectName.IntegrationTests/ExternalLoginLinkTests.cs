@@ -3,14 +3,19 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CompanyName.ProjectName.Domain.Auth.Abstractions;
+using CompanyName.ProjectName.Domain.Auth.Entities;
 using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Domain.Users.Constants;
 using CompanyName.ProjectName.Domain.Users.DomainServices;
 using CompanyName.ProjectName.Domain.Users.Entities;
 using Leistd.Ddd.Domain.Repositories;
+using Leistd.Security.OneTimeCodes;
 using Leistd.UnitOfWork;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Time.Testing;
 #if (OpenIddictServer)
 using CompanyName.ProjectName.Application.Auth.Options;
 #endif
@@ -577,6 +582,187 @@ public sealed class ExternalLoginLinkTests
         Assert.Equal(HttpStatusCode.Forbidden, complete.StatusCode);
     }
 #endif
+
+    // 绑定等于给账号加一种登录方式：开久了的会话要出示当前口令。要口令时票据不消费，带口令重试同一张票据即可；用过之后不能重放
+    [Fact]
+    public async Task Linking_from_an_older_session_requires_the_current_password_without_burning_the_ticket()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var host = CreateHost(factory, provider).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        }));
+        var username = await CreateUserAsync(host, "link_reauth");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        clock.Advance(TimeSpan.FromMinutes(16));
+
+        provider.User = External("gh-link-reauth");
+        var (_, stateCookie) = await StartAsync(session.Client, "link");
+        var cookies = $"{session.Cookie}; {stateCookie}";
+        const string url = "/api/v1/external-auth/github/link/complete";
+        using (var bare = await PostWithCookiesAsync(host, cookies, url, new { }))
+            Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(bare));
+        using (var wrong = await PostWithCookiesAsync(host, cookies, url, new { Password = Password + "x" }))
+            Assert.Equal("Security:CurrentPasswordIncorrect", await ErrorCodeAsync(wrong));
+        Assert.Equal(default, GithubLink(await ReadLinksAsync(session.Client)).ValueKind);
+
+        using (var linked = await PostWithCookiesAsync(host, cookies, url, new { Password }))
+            Assert.True(linked.StatusCode == HttpStatusCode.OK, await linked.Content.ReadAsStringAsync());
+        Assert.Equal("gh-link-reauth", GithubLink(await ReadLinksAsync(session.Client)).GetProperty("providerAccountLabel").GetString());
+        using (var replay = await PostWithCookiesAsync(host, cookies, url, new { Password }))
+            Assert.Equal("ExternalAuth:InvalidState", await ErrorCodeAsync(replay));
+    }
+
+    // 外部登录认出账号、还没取到凭据锁时本人启用了两步验证：锁内按最新状态决定，这次要走第二步，不能凭旧状态直接拿到会话
+    [Fact]
+    public async Task An_external_sign_in_racing_two_factor_enablement_still_requires_the_second_step()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        var gate = new InterleavingGate();
+        var userId = Guid.Empty;
+        using var host = CreateHost(factory, provider).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            gate.GateLock(services, key => key.EndsWith(userId.ToString("N"), StringComparison.Ordinal))));
+        var username = await CreateUserAsync(host, "link_2fa_race");
+        userId = await UserIdOfAsync(host, username);
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        provider.User = External("gh-2fa-race");
+        using (var link = await LinkAsync(host, session))
+            Assert.Equal(HttpStatusCode.OK, link.StatusCode);
+
+        gate.Arm();
+        var signIn = SignInExternallyAsync(host);
+        await gate.Entered;
+        using (var setupResponse = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/setup", new { }))
+        {
+            Assert.Equal(HttpStatusCode.OK, setupResponse.StatusCode);
+            using var setup = JsonDocument.Parse(await setupResponse.Content.ReadAsStringAsync());
+            var secret = setup.RootElement.GetProperty("secret").GetString()!;
+            var code = Totp.ComputeCode(Totp.ParseSecret(secret)!, Totp.TimeStepAt(DateTimeOffset.UtcNow));
+            using var enable = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/enable",
+                new { SetupId = setup.RootElement.GetProperty("setupId").GetGuid(), Code = code });
+            Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
+        }
+        gate.Release();
+
+        using var signedIn = await signIn;
+        Assert.Equal(HttpStatusCode.OK, signedIn.StatusCode);
+        using var body = JsonDocument.Parse(await signedIn.Content.ReadAsStringAsync());
+        Assert.True(body.RootElement.GetProperty("requiresTwoFactor").GetBoolean());
+    }
+
+    // 绑定的近期认证只在消费票据前判一次：判过之后在凭据锁前等到超出窗口，也照常绑定，不会在票据作废后才要口令
+    [Fact]
+    public async Task A_link_that_passed_the_check_completes_even_if_the_window_closes_while_it_waits()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var gate = new InterleavingGate();
+        var userId = Guid.Empty;
+        using var host = CreateHost(factory, provider).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+            gate.GateLock(services, key => key.EndsWith(userId.ToString("N"), StringComparison.Ordinal));
+        }));
+        var username = await CreateUserAsync(host, "link_window");
+        userId = await UserIdOfAsync(host, username);
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        clock.Advance(TimeSpan.FromMinutes(14));
+
+        provider.User = External("gh-link-window");
+        var (_, stateCookie) = await StartAsync(session.Client, "link");
+        gate.Arm();
+        var link = PostWithCookiesAsync(host, $"{session.Cookie}; {stateCookie}", "/api/v1/external-auth/github/link/complete", new { });
+        await gate.Entered;
+        clock.Advance(TimeSpan.FromMinutes(2));
+        gate.Release();
+
+        using var linked = await link;
+        Assert.True(linked.StatusCode == HttpStatusCode.OK, await linked.Content.ReadAsStringAsync());
+    }
+
+    // 已验证邮箱命中一个已停用的账号：登录被拒，自动关联随之回滚，不留下一种登录方式
+    [Fact]
+    public async Task A_rejected_external_sign_in_leaves_no_automatic_link_behind()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        using var host = CreateHost(factory, provider);
+        var (username, userId) = await CreateVerifiedUserAsync(host, "link_disabled");
+        using (var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword))
+        using (var disable = await admin.Client.PatchAsync($"/api/v1/users/{userId}/disable", null))
+            Assert.True(disable.IsSuccessStatusCode, await disable.Content.ReadAsStringAsync());
+
+        provider.User = External("gh-disabled") with { Email = $"{username}@example.test", EmailVerified = true };
+        using var signIn = await SignInExternallyAsync(host);
+        Assert.False(signIn.IsSuccessStatusCode);
+        Assert.Equal(0L, await LinkCountAsync(host, userId));
+    }
+
+    // 按已验证邮箱认出账号、还没取到凭据锁时本人换了邮箱：锁内按最新邮箱重新判定，不能凭旧地址把外部账号关联上去
+    [Fact]
+    public async Task An_automatic_link_racing_an_email_change_is_rejected_without_linking()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        var gate = new InterleavingGate();
+        var userId = Guid.Empty;
+        using var host = CreateHost(factory, provider).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            gate.GateLock(services, key => key.EndsWith(userId.ToString("N"), StringComparison.Ordinal))));
+        (var username, userId) = await CreateVerifiedUserAsync(host, "link_mail_race");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        provider.User = External("gh-mail-race") with { Email = $"{username}@example.test", EmailVerified = true };
+
+        gate.Arm();
+        var signIn = SignInExternallyAsync(host);
+        await gate.Entered;
+        using (var changed = await session.Client.PutAsJsonAsync("/api/v1/auth/me",
+                   new { Username = username, Email = $"moved-{username}@example.test" }))
+            Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        gate.Release();
+
+        using var rejected = await signIn;
+        Assert.Equal("ExternalAuth:InvalidState", await ErrorCodeAsync(rejected));
+        Assert.Equal(0L, await LinkCountAsync(host, userId));
+    }
+
+    private static async Task<(string Username, Guid Id)> CreateVerifiedUserAsync(WebApplicationFactory<Program> host, string prefix)
+    {
+        var username = $"{prefix}_{Guid.NewGuid():N}"[..30];
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        using var create = await admin.Client.PostAsJsonAsync("/api/v1/users", new
+        {
+            Username = username,
+            Email = $"{username}@example.test",
+            Password,
+            IsActive = true,
+            IsEmailVerified = true
+        });
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        using var body = JsonDocument.Parse(await create.Content.ReadAsStringAsync());
+        return (username, body.RootElement.GetProperty("id").GetGuid());
+    }
+
+    private static async Task<long> LinkCountAsync(WebApplicationFactory<Program> host, Guid userId)
+    {
+        using var scope = host.Services.CreateScope();
+        using var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWorkManager>().Begin(requiresNew: true);
+        return await scope.ServiceProvider.GetRequiredService<IRepository<ExternalLoginConnection, Guid>>()
+            .CountAsync(c => c.UserId == userId);
+    }
+
+    private static async Task<Guid> UserIdOfAsync(WebApplicationFactory<Program> host, string username)
+    {
+        using var scope = host.Services.CreateScope();
+        using var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWorkManager>().Begin(requiresNew: true);
+        var user = await scope.ServiceProvider.GetRequiredService<IRepository<User, Guid>>().GetOneAsync(u => u.Username == username);
+        return user!.Id;
+    }
 
     private static async Task SetPasswordAsync(WebApplicationFactory<Program> host, string username)
     {

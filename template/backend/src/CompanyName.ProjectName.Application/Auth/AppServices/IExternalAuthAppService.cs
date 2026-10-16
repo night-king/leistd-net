@@ -18,7 +18,17 @@ public interface IExternalAuthAppService : IAppService
     /// <summary>本人的外部账号绑定情况。</summary>
     Task<ExternalLoginsOutputDto> GetCurrentUserExternalLoginsAsync(IEnumerable<string> availableProviders, CancellationToken cancellationToken = default);
 
+    /// <summary>确认当前会话可以绑定外部账号：刚认证过，或出示了正确的当前口令。</summary>
+    /// <remarks>
+    /// 绑定回调在消费外部票据之前调用：要求出示口令时票据还在，本人输入口令后用同一张票据重试即可，
+    /// 不必再走一遍外部授权。口令错误按再认证失败计数与锁定。
+    /// </remarks>
+    /// <param name="password">本人的当前口令；会话刚认证过时为 null。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    Task EnsureLinkAllowedAsync(string? password, CancellationToken cancellationToken = default);
+
     /// <summary>把外部身份绑定到当前用户；该外部账号已绑在别人名下时拒绝。</summary>
+    /// <remarks>调用方必须先经 <see cref="EnsureLinkAllowedAsync"/> 确认近期认证，再消费外部票据、调用本方法。</remarks>
     Task LinkCurrentUserAsync(
         string provider,
         ExternalUserInfo externalUserInfo,

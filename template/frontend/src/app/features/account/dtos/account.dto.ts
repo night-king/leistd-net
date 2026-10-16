@@ -83,6 +83,8 @@ export interface UpdateCurrentUserInputDto {
   email: string;
   displayName?: string;
   phoneNumber?: string;
+  /** 本人的当前口令：换邮箱而会话不够新时带上。 */
+  currentPassword?: string;
 }
 
 /** 设置自己的头像：图片的 data URL（浏览器端已裁剪缩放）；`null` 清除。 */

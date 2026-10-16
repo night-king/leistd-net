@@ -102,7 +102,7 @@ internal sealed class SessionIssuer(
     /// <param name="cancellationToken">取消令牌。</param>
     /// <param name="authenticatedAt">
     /// 这次会话对应的实际认证时刻，写进 <c>auth_time</c>。只有真正出示了凭据的那一刻（登录、第二步通过）才是"现在"，
-    /// 此时不传；只是换发会话的调用方（进入或退出模拟、受限会话转正）传入原会话的认证时刻，
+    /// 此时不传；只是换发会话的调用方（进入或退出模拟）传入原会话的认证时刻，
     /// 读不出时传 <see cref="DateTimeOffset.UnixEpoch"/>——宁可让依赖它的判据（近期认证、OIDC <c>max_age</c>）要求重新认证，
     /// 也不能把一次会话切换当成刚认证过。
     /// </param>
@@ -140,11 +140,42 @@ internal sealed class SessionIssuer(
                 cancellationToken);
         }
 
-        var identity = new ClaimsIdentity(AuthenticationSchemeNames.SessionCookie, ClaimTypes.Name, RoleClaimType);
-        identity.AddClaim(new Claim(claimTypes.Value.UserIds[0], user.Id.ToString()));
-        identity.AddClaim(new Claim(CustomClaimTypes.SessionId, session.Id.ToString()));
         // 真正认证时记录，Cookie 滑动续期与会话换发都不能更新 OIDC max_age 与近期认证的基准。
         var authenticationTime = authenticatedAt ?? new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc));
+        return await BuildPrincipalAsync(user, session.Id, authenticationTime, roleNames, extraClaims, cancellationToken);
+    }
+
+    /// <summary>在原服务端会话上换发主体：沿用会话 Id 与认证时刻，不登记新会话、不记登录。</summary>
+    /// <remarks>
+    /// 受限会话完成两步验证设置后用它换掉带限制声明的主体。不登记新会话是关键：
+    /// 这个会话若已被撤销（例如设置完成的同时管理员重置了口令），换发出的 Cookie 仍指向那条已撤销的记录，
+    /// 会话校验照样拒绝；新登记一个会话则会在撤销之后让访问复活。
+    /// </remarks>
+    /// <param name="user">会话所属用户，按最新状态组装声明。</param>
+    /// <param name="sessionId">当前服务端会话 Id。</param>
+    /// <param name="authenticatedAt">原会话的认证时刻。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public Task<ClaimsPrincipal> ReissueAsync(
+        User user,
+        Guid sessionId,
+        DateTimeOffset authenticatedAt,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAllowed(user, clock.Now);
+        return BuildPrincipalAsync(user, sessionId, authenticatedAt, roleNames: null, extraClaims: [], cancellationToken);
+    }
+
+    private async Task<ClaimsPrincipal> BuildPrincipalAsync(
+        User user,
+        Guid sessionId,
+        DateTimeOffset authenticationTime,
+        List<string>? roleNames,
+        List<Claim> extraClaims,
+        CancellationToken cancellationToken)
+    {
+        var identity = new ClaimsIdentity(AuthenticationSchemeNames.SessionCookie, ClaimTypes.Name, RoleClaimType);
+        identity.AddClaim(new Claim(claimTypes.Value.UserIds[0], user.Id.ToString()));
+        identity.AddClaim(new Claim(CustomClaimTypes.SessionId, sessionId.ToString()));
         identity.AddClaim(new Claim(AuthenticationTimeClaimType,
             authenticationTime.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64));
         identity.AddClaim(new Claim(ClaimTypes.Name, user.Username));

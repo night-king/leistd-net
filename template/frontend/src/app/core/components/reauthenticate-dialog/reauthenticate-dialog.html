@@ -10,8 +10,8 @@
   >
     <hlm-dialog-content *hlmDialogPortal class="sm:max-w-md" [showCloseButton]="!saving()">
       <hlm-dialog-header>
-        <h2 hlmDialogTitle>{{ t('users.reauthDialog.header') }}</h2>
-        <p hlmDialogDescription>{{ t('users.reauthDialog.description') }}</p>
+        <h2 hlmDialogTitle>{{ t('common.reauthenticate.header') }}</h2>
+        <p hlmDialogDescription>{{ t('common.reauthenticate.description') }}</p>
       </hlm-dialog-header>
 
       <form
@@ -22,7 +22,7 @@
       >
         <div hlmField>
           <label hlmFieldLabel for="reauthenticate-password">{{
-            t('users.reauthDialog.passwordLabel')
+            t('common.reauthenticate.passwordLabel')
           }}</label>
           <input
             hlmInput
@@ -45,7 +45,7 @@
             @if (saving()) {
               <hlm-spinner class="text-base" data-icon="inline-start" />
             }
-            {{ t('users.reauthDialog.confirm') }}
+            {{ t('common.reauthenticate.confirm') }}
           </button>
         </hlm-dialog-footer>
       </form>

@@ -46,10 +46,7 @@ public class ExternalAuthDomainService(
         CancellationToken cancellationToken = default)
     {
         // 先按外部连接查找，再用邮箱关联已有用户（两边都已验证才关联）。
-        var connection = await externalLoginConnectionRepository.GetFirstAsync(
-            c => c.Provider == provider && c.ProviderUserId == externalUserInfo.ProviderId,
-            q => q.OrderBy(c => c.Id),
-            cancellationToken);
+        var connection = await FindConnectionAsync(provider, externalUserInfo, cancellationToken);
 
         if (connection != null)
         {
@@ -65,39 +62,7 @@ public class ExternalAuthDomainService(
         }
 
         var created = false;
-        User? user = null;
-        if (!string.IsNullOrEmpty(externalUserInfo.Email))
-        {
-            // 查找要看见被软删除的行：Email 的唯一索引没有排除 IsDeleted，被删用户仍然占着地址。
-            // 只按未删除的行查，这里会判定"没人用过"，随后带着同一个地址建号，落库撞唯一索引返回 500
-            using (dataFilter.Disable<ISoftDelete>())
-            {
-                user = await userRepository.GetFirstAsync(
-                    u => u.Email == externalUserInfo.Email,
-                    q => q.OrderBy(u => u.Id),
-                    cancellationToken);
-            }
-
-            // 被删用户不参与自动关联：登不进去的账号接不了这个外部身份，
-            // 但它的地址还占着，也不能拿同一个地址另建一个
-            if (user is { IsDeleted: true })
-            {
-                // 用专用错误码而不是 UserErrorCodes.EmailTaken：本地化形态下词条会整条替换这里的消息，
-                // 而 EmailTaken 的词条只说"已被使用"，既丢掉"账号已删除"这层信息，又带一个要回显地址的占位符
-                throw new BusinessException(
-                        ExternalAuthErrorCodes.EmailOwnedByDeletedAccount,
-                        "This email belongs to a deleted account. Ask an administrator to restore it, or use another address.")
-                    .WithData("Provider", ProviderName(provider, externalUserInfo));
-            }
-
-            if (user != null && !(externalUserInfo.EmailVerified && user.EmailConfirmed))
-            {
-                throw new BusinessException(
-                        ExternalAuthErrorCodes.AccountExistsSignInToLink,
-                        $"An account with this email already exists. Sign in to it and link {ProviderName(provider, externalUserInfo)} from account settings.")
-                    .WithData("Provider", ProviderName(provider, externalUserInfo));
-            }
-        }
+        var user = await FindByVerifiedEmailAsync(provider, externalUserInfo, cancellationToken);
 
         if (user == null)
         {
@@ -133,6 +98,70 @@ public class ExternalAuthDomainService(
         logger.LogInformation("Linked user {Username} to a {Provider} login connection", user.Username, provider);
 
         return (user, created);
+    }
+
+    /// <summary>只读地找出这次外部登录对应的已有用户：已绑定的连接，或两边都已验证的同一邮箱；都没有时返回 null。</summary>
+    /// <remarks>
+    /// 不写任何东西：应用层先用它认出账号，再在该用户的凭据锁内调用 <see cref="FindOrCreateUserAsync"/>
+    /// 按最新状态重新判定并写入关联。邮箱命中被删用户或未双方验证时与 <see cref="FindOrCreateUserAsync"/> 同样拒绝。
+    /// </remarks>
+    public async Task<Guid?> LocateUserAsync(
+        string provider,
+        ExternalUserInfo externalUserInfo,
+        CancellationToken cancellationToken = default)
+    {
+        if (await FindConnectionAsync(provider, externalUserInfo, cancellationToken) is { } connection)
+            return connection.UserId;
+
+        return (await FindByVerifiedEmailAsync(provider, externalUserInfo, cancellationToken))?.Id;
+    }
+
+    private Task<ExternalLoginConnection?> FindConnectionAsync(
+        string provider, ExternalUserInfo externalUserInfo, CancellationToken cancellationToken) =>
+        externalLoginConnectionRepository.GetFirstAsync(
+            c => c.Provider == provider && c.ProviderUserId == externalUserInfo.ProviderId,
+            q => q.OrderBy(c => c.Id),
+            cancellationToken);
+
+    // 按邮箱找可以自动关联的已有用户：被删用户与未双方验证时拒绝，没有同邮箱用户时返回 null
+    private async Task<User?> FindByVerifiedEmailAsync(
+        string provider, ExternalUserInfo externalUserInfo, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(externalUserInfo.Email))
+            return null;
+
+        User? user;
+        // 查找要看见被软删除的行：Email 的唯一索引没有排除 IsDeleted，被删用户仍然占着地址。
+        // 只按未删除的行查，这里会判定"没人用过"，随后带着同一个地址建号，落库撞唯一索引返回 500
+        using (dataFilter.Disable<ISoftDelete>())
+        {
+            user = await userRepository.GetFirstAsync(
+                u => u.Email == externalUserInfo.Email,
+                q => q.OrderBy(u => u.Id),
+                cancellationToken);
+        }
+
+        // 被删用户不参与自动关联：登不进去的账号接不了这个外部身份，
+        // 但它的地址还占着，也不能拿同一个地址另建一个
+        if (user is { IsDeleted: true })
+        {
+            // 用专用错误码而不是 UserErrorCodes.EmailTaken：本地化形态下词条会整条替换这里的消息，
+            // 而 EmailTaken 的词条只说"已被使用"，既丢掉"账号已删除"这层信息，又带一个要回显地址的占位符
+            throw new BusinessException(
+                    ExternalAuthErrorCodes.EmailOwnedByDeletedAccount,
+                    "This email belongs to a deleted account. Ask an administrator to restore it, or use another address.")
+                .WithData("Provider", ProviderName(provider, externalUserInfo));
+        }
+
+        if (user != null && !(externalUserInfo.EmailVerified && user.EmailConfirmed))
+        {
+            throw new BusinessException(
+                    ExternalAuthErrorCodes.AccountExistsSignInToLink,
+                    $"An account with this email already exists. Sign in to it and link {ProviderName(provider, externalUserInfo)} from account settings.")
+                .WithData("Provider", ProviderName(provider, externalUserInfo));
+        }
+
+        return user;
     }
 
     /// <summary>把一个外部身份绑定到已登录的用户（"绑定"模式，而不是登录或建号）。</summary>
