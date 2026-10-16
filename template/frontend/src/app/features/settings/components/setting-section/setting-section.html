@@ -41,6 +41,9 @@
           />
         }
         <!--#endif-->
+        @if (showAppearanceIn(group)) {
+          <app-appearance-setting />
+        }
         @if (group.rows.length > 0) {
           <ng-container *ngTemplateOutlet="rowList; context: { $implicit: group.rows }" />
         }

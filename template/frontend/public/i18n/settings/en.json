@@ -1,4 +1,8 @@
 {
+  "appearance": {
+    "label": "Appearance",
+    "hint": "Applies to this device only"
+  },
   "reset": "Reset to default",
   "empty": "No configurable items in this section",
   "loadFailed": "Couldn't load settings",
@@ -45,7 +49,7 @@
     },
     "preferences": {
       "title": "Preferences",
-      "description": "Language and time zone. Applies to you only; leave blank to follow your system"
+      "description": "Language, time zone and appearance. Language and time zone apply to you only; leave blank to follow your system"
     }
   },
   "groupDescriptions": {
