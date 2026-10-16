@@ -90,6 +90,7 @@ public sealed class NotificationSecurityAlertPublisher(
             SecurityAlertKind.TwoFactorDisabled => ("Two-factor authentication turned off", "If you didn't do this, turn it back on and change your password."),
             SecurityAlertKind.TwoFactorReset => ("Two-factor authentication was reset by an administrator", "Set it up again from your security settings."),
             SecurityAlertKind.LockedOut => ("Your account was locked", "There were too many failed sign-in attempts. It unlocks at {Until} (UTC)."),
+            SecurityAlertKind.EmailChanged => ("Your account email address was changed", "If you didn't do this, contact your administrator right away."),
             _ => (alert.Kind.ToString(), null)
         };
         return Task.FromResult((title, content is null ? null : Fill(content, alert)));

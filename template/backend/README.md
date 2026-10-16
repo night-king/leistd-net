@@ -84,6 +84,8 @@ dotnet user-secrets set "Leistd:ServiceAuth:ClientSecret" "<机器客户端密�
 ### 邮件
 
 `Leistd:Email:Smtp` 默认指向开发 compose 里的本机邮件捕获器，收件箱在 `http://localhost:8025`。邮箱验证默认关闭（`UserRegistration:EnableEmailVerification`）；开启后没有可达的 SMTP 会**发信失败并向调用方报错**，不会静默跳过，注册流程据此撤回已占用的限流槽位；注册时通过了发往该地址的验证码，账号邮箱即为已验证，关闭时注册只过图形验证码、邮箱保持未验证。宿主管理员可以在「系统设置 → 邮件发送」里在运行期覆盖配置文件的发信参数（口令加密落库、界面只写不读）并发送测试邮件；清除覆盖值即回到配置文件里的值。部署时的必填项见 [部署说明](../docs/deploy/README.md#配置与机密的分层)。
+
+账号邮箱被本人或管理员换掉时，修改提交之后向**旧的已验证地址**直接发送一封账号安全邮件（`EmailChangedEventHandler` 经 `IEmailSender` 发送）：不受普通通知偏好影响，未验证的旧地址不发；投递尽力而为，发送失败只记日志、不让已提交的修改报错。规则见 [换邮箱的提醒](../docs/standards/auth.md#换邮箱的提醒)。
 <!--#endif-->
 
 ## 启动与验证

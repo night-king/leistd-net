@@ -284,6 +284,7 @@ internal sealed class UserAppService(
     /// <para>确认身份在操作者自己的凭据锁内独立提交并释放，之后才取目标用户的凭据锁读、改并提交：两位管理员互相操作时不交叉持锁，
     /// 改的是自己时同一把锁先后取两次。是否敏感按锁内最新的目标行复核：锁前判定不敏感而此刻已敏感时，
     /// 只认会话刚认证过，否则要求客户端带上凭证重试。与本人同时进行的改邮箱、确认邮箱互不覆盖。</para>
+    /// <para>换了邮箱时提交之后提醒本人（<see cref="EmailChangedEvent"/>）：旧地址取自锁内读到的行。</para>
     /// </remarks>
     public async Task<UserManagementOutputDto> UpdateAsync(Guid id, UpdateUserInputDto input, CancellationToken cancellationToken = default)
     {
@@ -316,6 +317,10 @@ internal sealed class UserAppService(
                 ReauthenticationProof.None, OperationRecordActions.UserUpdated, cancellationToken);
         }
 
+        // 换掉之前的地址与验证状态取自锁内读到的这一行：提醒发给被换掉的地址，不取请求里的任何值
+        var previousEmail = user.Email;
+        var previousEmailConfirmed = user.EmailConfirmed;
+
         // 编辑表单会把读到的头像地址原样送回，那表示"没改"，换回存储的原值再校验。
         await userDomainService.UpdateManagementAsync(
             user,
@@ -328,6 +333,14 @@ internal sealed class UserAppService(
         await userRepository.UpdateAsync(user, cancellationToken);
 
         logger.LogInformation("User updated (ID: {Id})", user.Id);
+
+        // 与领域判定"换了邮箱"同一口径（大小写不敏感）：只改大小写不算换地址
+        if (!string.Equals(previousEmail, user.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            await localEventBus.PublishAsync(
+                new EmailChangedEvent(user.Id, previousEmail, previousEmailConfirmed, currentUser.Id, clock.Now),
+                cancellationToken);
+        }
 
         // 补齐成功路径：此前只有 UserController 上的 [OperationRecordAction] 记被拒的更新，
         // 成功反而不留痕——而注解自己的文档写着"与成功路径使用的值逐字一致"，它预设了这里存在。

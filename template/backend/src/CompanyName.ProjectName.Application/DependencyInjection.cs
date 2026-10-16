@@ -103,6 +103,8 @@ public static class DependencyInjection
         services.TryAddTransient<ISecurityAlertPublisher, NullSecurityAlertPublisher>();
         // 改密、重置与两步验证变更的提醒，以及设置密钥的清理，都在提交之后执行
         services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<SecurityAlertRequestedEvent>, SecurityAlertRequestedEventHandler>());
+        // 换邮箱的提醒：旧的已验证地址直接收一封账号安全邮件（启用邮件时），另发一条普通安全提醒
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<EmailChangedEvent>, EmailChangedEventHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<TwoFactorSetupCompletedEvent>, TwoFactorSetupCompletedEventHandler>());
         services.TryAddTransient<TwoFactorChallengeStore>();
         // 不再登录的用户没有"登录时顺手清理"的时机，过期会话与其中的原始 IP 由这个作业每天清掉

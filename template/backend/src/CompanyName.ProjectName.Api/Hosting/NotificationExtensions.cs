@@ -51,7 +51,7 @@ public static class NotificationExtensions
         services.TryAddTransient<INotificationRecipientResolver, UserEmailRecipientResolver>();
 #endif
 #if (LocalIdentity)
-        // 安全提醒（新设备登录、密码与两步验证变更、账号锁定）经通知组件发给本人：
+        // 安全提醒（新设备登录、密码、邮箱与两步验证变更、账号锁定）经通知组件发给本人：
         // 有意替换应用层默认不发的实现，Replace 与 AddApplicationServices 的先后无关
         services.Replace(ServiceDescriptor.Transient<ISecurityAlertPublisher, NotificationSecurityAlertPublisher>());
 #endif

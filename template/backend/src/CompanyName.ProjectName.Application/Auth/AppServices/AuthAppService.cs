@@ -463,6 +463,7 @@ internal sealed class AuthAppService(
     /// 再用同一邮箱的外部账号登录，就得到一个不依赖这个会话、改口令也撤不掉的登录方式。用户名、显示名与电话不受此限。</para>
     /// <para>在本人的凭据锁内先确认身份（独立提交，验证码用掉不退回），再另开工作单元重读、改并提交：
     /// 与邮箱确认串行，确认的只能是此刻账号上的那个地址。</para>
+    /// <para>换了邮箱时提交之后提醒本人（<see cref="EmailChangedEvent"/>）：旧地址取自这次重读的行。</para>
     /// </remarks>
     public async Task<UserOutputDto> UpdateCurrentUserAsync(UpdateCurrentUserInputDto input, CancellationToken cancellationToken = default)
     {
@@ -486,6 +487,9 @@ internal sealed class AuthAppService(
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         logger.LogInformation("Updating current user profile (ID: {UserId})", user.Id);
+        // 换掉之前的地址与验证状态取自库里的这一行：提醒发给被换掉的地址，不取请求里的任何值
+        var previousEmail = user.Email;
+        var previousEmailConfirmed = user.EmailConfirmed;
 
         await userDomainService.UpdateProfileAsync(
             user,
@@ -498,6 +502,9 @@ internal sealed class AuthAppService(
         await userRepository.UpdateAsync(user, cancellationToken);
         if (emailChanged)
         {
+            await localEventBus.PublishAsync(
+                new EmailChangedEvent(user.Id, previousEmail, previousEmailConfirmed, user.Id, clock.Now),
+                cancellationToken);
             await operationRecorder.RecordSucceededAsync(
                 OperationRecordActions.AuthEmailChanged,
                 OperationTarget.For(user.Id, user.DisplayName ?? user.Username),

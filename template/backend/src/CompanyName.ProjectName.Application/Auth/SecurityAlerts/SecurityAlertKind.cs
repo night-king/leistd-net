@@ -26,6 +26,9 @@ public enum SecurityAlertKind
     TwoFactorReset,
 
     /// <summary>连续登录失败，账号被临时锁定。</summary>
-    LockedOut
+    LockedOut,
+
+    /// <summary>账号的邮箱换成了另一个地址（本人或管理员修改）。</summary>
+    EmailChanged
 }
 #endif
