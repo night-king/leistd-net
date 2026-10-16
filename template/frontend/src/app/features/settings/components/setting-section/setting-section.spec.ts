@@ -510,7 +510,9 @@ describe('SettingSection groups', () => {
   });
 });
 
-/** 进程级设置的生效范围：整组都是时在分组顶部说一次，混有其他层级时按行标注。 */
+/**
+ * 进程级设置的生效范围：整组都是时由外壳在面板标题旁说明，分区里不再重复；混有其他层级时在那几行的标签旁标注。
+ */
 describe('SettingSection host scope hint', () => {
   const hostRow = (name: string, group: string) =>
     row({
@@ -540,26 +542,21 @@ describe('SettingSection host scope hint', () => {
     host.querySelector<HTMLElement>(
       `[data-testid="settings-group-section"][data-group="${group}"]`,
     )!;
-  const groupHints = (section: HTMLElement) =>
-    section.querySelectorAll('[data-testid="settings-group-host-scope-hint"]').length;
   const rowHints = (section: HTMLElement) =>
     section.querySelectorAll('[data-testid="setting-host-scope-hint"]').length;
 
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
-  it('says it once under the group when every setting in the group is process-wide', async () => {
+  it('adds nothing inside the group when every setting in it is process-wide', async () => {
     const host = await render([
       hostRow('Logging.ProbeA', 'Operations'),
       hostRow('Logging.ProbeB', 'Operations'),
       row({ name: 'Display.Probe', group: 'Display', groupDisplayName: 'Display' }),
     ]);
 
-    const operations = sectionOf(host, 'Operations');
-    expect(groupHints(operations)).toBe(1);
-    expect(rowHints(operations)).toBe(0);
-    // 没有进程级设置的分组两处都不出
-    expect(groupHints(sectionOf(host, 'Display'))).toBe(0);
+    expect(rowHints(sectionOf(host, 'Operations'))).toBe(0);
     expect(rowHints(sectionOf(host, 'Display'))).toBe(0);
+    expect(host.querySelector('[hlmBadge]')).toBeNull();
   });
 
   it('marks each process-wide row when the group mixes scopes', async () => {
@@ -569,18 +566,50 @@ describe('SettingSection host scope hint', () => {
       hostRow('Logging.ProbeB', 'Operations'),
     ]);
 
-    const operations = sectionOf(host, 'Operations');
-    expect(groupHints(operations)).toBe(0);
-    expect(rowHints(operations)).toBe(2);
+    expect(rowHints(sectionOf(host, 'Operations'))).toBe(2);
   });
 
-  // 单组面板没有分组标题，说明照样出在分组顶部
-  it('keeps the group hint on a single-group panel without a heading', async () => {
-    const host = await render([hostRow('Logging.ProbeA', 'Operations')]);
+  // 延迟只在刚改完时有意义：进程级的行保存成功时说明多久在所有服务器生效，其他层级只说已保存
+  it('tells when a process-wide change reaches every server, only for process-wide rows', async () => {
+    const settings = [
+      hostRow('Logging.ProbeA', 'Operations'),
+      row({ name: 'Logging.TenantProbe', group: 'Operations', groupDisplayName: 'Operations' }),
+    ];
+    TestBed.configureTestingModule({ imports: [SettingSection], providers: [...pageProviders()] });
+    const fixture = TestBed.createComponent(SettingSection);
+    const http = TestBed.inject(HttpTestingController);
+    fixture.componentRef.setInput('scope', 'system');
+    fixture.detectChanges();
+    http.expectOne('/api/v1/settings').flush(settings);
+    await fixture.whenStable();
+    fixture.detectChanges();
 
-    expect(host.querySelector('h4')).toBeNull();
-    expect(groupHints(sectionOf(host, 'Operations'))).toBe(1);
-    expect(rowHints(sectionOf(host, 'Operations'))).toBe(0);
+    const statusAfterReset = async (name: string) => {
+      const host = fixture.nativeElement as HTMLElement;
+      const reset = host.querySelector<HTMLButtonElement>(`[data-testid="setting-reset-${name}"]`)!;
+      const field = reset.closest('hlm-field')!;
+      reset.click();
+      await fixture.whenStable();
+      http.expectOne('/api/v1/settings/current-tenant').flush(null);
+      await fixture.whenStable();
+      http.expectOne('/api/v1/settings').flush(settings);
+      await vi.waitFor(
+        () => {
+          fixture.detectChanges();
+          // 等到成功的末态：保存中（saving / Saving…）不算
+          expect(field.querySelector('[role="status"]')?.textContent?.trim()).toMatch(
+            /^(settings\.saved|settings\.savedEverywhere|Saved.*)$/,
+          );
+        },
+        { timeout: 3000 },
+      );
+      return field.querySelector('[role="status"]')!.textContent!.trim();
+    };
+
+    // 本地化形态的单测词条为空、文案回落成键名；不含本地化时是英文原文
+    const everywhere = /savedEverywhere|every server/;
+    expect(await statusAfterReset('Logging.ProbeA')).toMatch(everywhere);
+    expect(await statusAfterReset('Logging.TenantProbe')).toMatch(/^(settings\.saved|Saved)$/);
   });
 });
 

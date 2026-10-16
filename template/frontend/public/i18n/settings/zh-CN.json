@@ -11,7 +11,14 @@
   "timeZoneToggle": "展开时区列表",
   "browserTimeZone": "浏览器",
   "followSystem": "跟随系统",
-  "hostScopeHint": "全实例生效（约 30 秒）",
+  "hostScope": {
+    //#if (IncludeMultiTenancy)
+    "note": "。对所有租户生效",
+    "standalone": "对所有租户生效",
+    //#endif
+    "hint": "整个系统共用一份；修改后约 30 秒内在所有服务器生效"
+  },
+  "savedEverywhere": "已保存，约 30 秒内在所有服务器生效",
   "saved": "已保存",
   "saving": "保存中…",
   "logLevelHints": {

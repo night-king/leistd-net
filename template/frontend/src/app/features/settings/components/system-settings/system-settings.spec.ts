@@ -15,7 +15,7 @@ import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing
 import { AuthService } from '../../../../core/services/auth-service';
 import { SettingOutputDto } from '../../../../core/settings/setting.dto';
 
-function row(name: string, group: string, canManage = true): SettingOutputDto {
+function row(name: string, group: string, canManage = true, hostScope = false): SettingOutputDto {
   return {
     name,
     displayName: name,
@@ -24,9 +24,9 @@ function row(name: string, group: string, canManage = true): SettingOutputDto {
     userValue: null,
     tenantValue: null,
     defaultValue: null,
-    allowsTenantScope: true,
+    allowsTenantScope: !hostScope,
     allowsUserScope: false,
-    allowsHostScope: false,
+    allowsHostScope: hostScope,
     minimum: null,
     maximum: null,
     canManage,
@@ -68,7 +68,14 @@ describe('SystemSettings panels', () => {
         // 设置页的词条在 settings 作用域里；只给本用例要断言的那一条
         ...provideTranslocoTesting(['en'], {
           getTranslation: (lang: string) =>
-            of(lang === 'settings/en' ? { groupDescriptions: { Operations: description } } : {}),
+            of(
+              lang === 'settings/en'
+                ? {
+                    groupDescriptions: { Operations: description },
+                    hostScope: { hint: 'One value for the whole system' },
+                  }
+                : {},
+            ),
         }),
         //#endif
       ],
@@ -80,7 +87,7 @@ describe('SystemSettings panels', () => {
   }
 
   const panelDescription = (host: HTMLElement) =>
-    host.querySelector('h3')?.parentElement?.querySelector('p')?.textContent?.trim() ?? null;
+    host.querySelector('h3')?.closest('header')?.querySelector('p')?.textContent?.trim() ?? null;
 
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
@@ -130,5 +137,21 @@ describe('SystemSettings panels', () => {
     );
     expect(host.textContent).not.toContain('Security');
     expect(host.querySelector('[data-testid="settings-empty"]')).toBeNull();
+  });
+
+  // 整组都是进程级设置：标题旁给信息图标，提示影响范围与多久在所有服务器生效；其余面板没有
+  it('puts a hint beside the title of a panel whose settings are all process-wide', async () => {
+    const host = await render([
+      row('Logging.MinimumLevel', 'Operations', true, true),
+      row('Security.Probe', 'Security'),
+    ]);
+
+    await vi.waitFor(() =>
+      expect(host.querySelector('h3')?.textContent?.trim()).toBe('Operations'),
+    );
+    expect(host.querySelector('[data-testid="settings-panel-hint"]')).not.toBeNull();
+
+    await harness.navigateByUrl('/settings/security');
+    expect(host.querySelector('[data-testid="settings-panel-hint"]')).toBeNull();
   });
 });

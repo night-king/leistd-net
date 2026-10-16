@@ -37,6 +37,7 @@ import { SessionContextService } from '../../../../core/services/session-context
 import { SettingService } from '../../../../core/settings/setting-service';
 import { SETTINGS } from '../../../../core/settings/setting.constants';
 import { SettingOutputDto } from '../../../../core/settings/setting.dto';
+import { InfoHint } from '../../../../shared/components/info-hint/info-hint';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
@@ -113,6 +114,7 @@ export const SAVING_MIN_MS = 400;
     ...HlmTooltipImports,
     TranslocoDirective,
     AppearanceSetting,
+    InfoHint,
     //#if (Email)
     EmailTest,
     //#endif
@@ -134,6 +136,7 @@ export const SAVING_MIN_MS = 400;
     ...HlmSwitchImports,
     ...HlmTooltipImports,
     AppearanceSetting,
+    InfoHint,
     //#if (Email)
     EmailTest,
     //#endif
@@ -556,7 +559,9 @@ const ENGLISH: Record<string, string> = {
   'settings.secretSet': 'Set (type a new value to replace it)',
   'settings.secretUnset': 'Not set',
   'settings.reset': 'Reset to default',
-  'settings.hostScopeHint': 'Applies to all instances (~30s)',
+  'settings.hostScope.hint':
+    'One value for the whole system; changes reach every server within about 30 seconds',
+  'settings.savedEverywhere': 'Saved; reaches every server within about 30 seconds',
   'settings.saving': 'Saving…',
   'settings.saved': 'Saved',
   'settings.empty': 'No configurable items in this section',
