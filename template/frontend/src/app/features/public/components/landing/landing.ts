@@ -23,6 +23,9 @@ import { HlmCardImports } from '@spartan-ng/helm/card';
 import { LanguageSwitcher } from '../../../../core/components/language-switcher/language-switcher';
 //#endif
 import { ThemeModeToggle } from '../../../../core/components/theme-mode-toggle/theme-mode-toggle';
+//#if (LocalIdentity)
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
+//#endif
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { Logo } from '../../../../shared/components/logo/logo';
 import { AppNumber } from '../../../../shared/pipes/app-number-pipe';
@@ -74,6 +77,16 @@ export class Landing {
   //#endif
   protected readonly year = new Date().getFullYear();
   protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  //#if (LocalIdentity)
+  /** 租户关闭自助注册时不给注册入口。 */
+  private readonly securityConfig = inject(SecurityConfigService);
+  protected readonly registrationOpen = this.securityConfig.registrationOpen;
+
+  constructor() {
+    // 进入首页时取当前注册策略，决定是否给出注册入口
+    this.securityConfig.refresh();
+  }
+  //#endif
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#endif

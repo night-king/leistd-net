@@ -6,6 +6,9 @@ namespace CompanyName.ProjectName.Application.Users.Options;
 public class UserRegistrationOptions
 {
     public const string SectionName = "UserRegistration";
+
+    /// <summary>是否开放自助注册；不影响管理员建号，也不影响外部登录首次登录自动建号。</summary>
+    public bool Enabled { get; set; } = true;
 #if (Email)
 
     /// <summary>是否开启邮箱验证（若不开启则只验证图形验证码）。</summary>

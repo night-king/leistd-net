@@ -6,6 +6,8 @@ using CompanyName.ProjectName.Domain.Auth.Errors;
 #endif
 #if (Email)
 using CompanyName.ProjectName.Application.Auth.EmailVerification;
+using Leistd.Security.OneTimeCodes.VerificationCodes;
+using Microsoft.Extensions.Options;
 #endif
 using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Application.Auth.TwoFactor;
@@ -61,8 +63,9 @@ internal sealed class AuthAppService(
     IOperationRecorder operationRecorder,
     IDistributedCache distributedCache,
     IObjectMapper objectMapper,
-#if (Email)
     IUserRegistrationPolicyProvider registrationPolicy,
+#if (Email)
+    IOptions<VerificationCodeOptions> verificationCodeOptions,
 #endif
     IReauthenticationGuard reauthenticationGuard,
     IAccessFailureCounter accessFailureCounter,
@@ -345,19 +348,40 @@ internal sealed class AuthAppService(
         return currentTenant.ScopeKey($"auth:login-failures:{Convert.ToHexString(hash)}");
     }
 
+    public async Task<SecurityConfigOutputDto> GetSecurityConfigAsync(CancellationToken cancellationToken = default)
+    {
+        // 按租户解析：同一套部署下，不同租户的注册门槛可以不同，
+        // 而登录页拿到的必须是它所在那个租户的那一份
+        var policy = await registrationPolicy.GetAsync(cancellationToken);
+
+        return new SecurityConfigOutputDto
+        {
+            RegistrationEnabled = policy.Enabled,
+#if (Email)
+            EnableEmailVerification = policy.EnableEmailVerification,
+            EmailVerificationAvailable = verificationCodeOptions.Value.IsKeyUsable
+#endif
+        };
+    }
+
     /// <remarks>建用户与分配默认角色必须同生共死：拆开后注册失败会留下没有任何角色的用户。</remarks>
     [UnitOfWork]
     public async Task<UserOutputDto> RegisterAsync(RegisterInputDto input, CancellationToken cancellationToken = default)
     {
+        // 关闭自助注册只挡住自己建号；管理员建号与外部登录首次登录不受影响
+        var policy = await registrationPolicy.GetAsync(cancellationToken);
+        if (!policy.Enabled)
+        {
+            throw new BusinessException(AuthErrorCodes.RegistrationDisabled, "Self sign-up is not open.");
+        }
+
         // 不与用户名同行记邮箱（哪怕已脱敏）：用户名常常就是邮箱本地部
         // （本地注册时用户自己这么取，外部登录更是按本地部生成），
         // 同一行给出本地部与域名等于把脱敏拼回去。要查地址用操作记录或按用户查库。
         logger.LogInformation("Registering user {Username}", input.Username);
 
 #if (Email)
-        var options = await registrationPolicy.GetAsync(cancellationToken);
-
-        if (options.EnableEmailVerification)
+        if (policy.EnableEmailVerification)
         {
             if (input.EmailVerification?.ChallengeId is null || input.EmailVerification.ChallengeId == Guid.Empty)
             {

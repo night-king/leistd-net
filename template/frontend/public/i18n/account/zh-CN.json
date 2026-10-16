@@ -235,6 +235,7 @@
     "submit": "注册账号",
     "haveAccount": "已有账号？",
     "loginNow": "直接登录",
+    "closed": "这里未开放自助注册，请联系管理员开通账号。",
     "or": "或使用邮箱注册",
     "emailRequired": "请先输入有效的邮箱",
     "captchaRequired": "请先输入图形验证码",

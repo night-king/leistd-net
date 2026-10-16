@@ -111,14 +111,12 @@ public sealed class AuthController(
     }
 
 #endif
-#if (Email)
     [AllowAnonymous]
     [AllowDuringTwoFactorSetup]
     [HttpGet("security-config")]
     public Task<SecurityConfigOutputDto> GetSecurityConfigAsync(CancellationToken cancellationToken)
-        => emailVerificationAppService.GetSecurityConfigAsync(cancellationToken);
+        => authService.GetSecurityConfigAsync(cancellationToken);
 
-#endif
     [AllowAnonymous]
     [HttpGet("captcha")]
     public async Task<CaptchaOutputDto> GetCaptchaAsync(CancellationToken cancellationToken)

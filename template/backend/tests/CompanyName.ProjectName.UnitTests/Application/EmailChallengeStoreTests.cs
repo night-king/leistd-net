@@ -383,6 +383,7 @@ public sealed partial class EmailChallengeStoreTests
     {
         public static readonly UserRegistrationPolicy Policy = new()
         {
+            Enabled = true,
             CaptchaExpiryMinutes = 5,
             EnableEmailVerification = true,
             EmailCodeExpiryMinutes = 5,

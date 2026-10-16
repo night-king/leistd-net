@@ -74,6 +74,15 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
         // 默认值取自 appsettings 的 UserRegistration 段，配置仍是部署基线。
         var registration = registrationOptions.Value;
 
+        context.Add(
+            SettingConstant.Registration.Enabled,
+            defaultValue: registration.Enabled ? "true" : "false",
+            scopes: SettingScopes.Tenant,
+            displayName: "Allow self sign-up",
+            group: SettingConstant.Groups.Registration)
+            .AsBoolean()
+            .IsVisibleToClients = true;
+
 #if (Email)
         context.Add(
             SettingConstant.Registration.EnableEmailVerification,

@@ -41,6 +41,7 @@ import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { lastValueFrom } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -48,11 +49,7 @@ import {
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
-//#if (Email)
-import { CaptchaOutputDto, SecurityConfigOutputDto } from '../../dtos/account.dto';
-//#else
 import { CaptchaOutputDto } from '../../dtos/account.dto';
-//#endif
 import { AccountService } from '../../services/account-service';
 //#if (ExternalLogin)
 import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
@@ -112,8 +109,11 @@ export class Register implements OnInit {
 
   protected readonly showPassword = signal(false);
 
+  /** 当前租户的注册摘要（登录入口选定的租户）；关闭自助注册时不给表单，只给说明。 */
+  private readonly securityConfigService = inject(SecurityConfigService);
+  protected readonly registrationOpen = this.securityConfigService.registrationOpen;
 //#if (Email)
-  public securityConfig = signal<SecurityConfigOutputDto | null>(null);
+  protected readonly securityConfig = this.securityConfigService.config;
 //#endif
   public captchaData = signal<CaptchaOutputDto | null>(null);
 
@@ -219,22 +219,10 @@ export class Register implements OnInit {
   }
 
   ngOnInit() {
-//#if (Email)
-    this.loadSecurityConfig();
-//#endif
+    // 进入注册页时取当前策略：开关与验证方式可能在别的页面读过之后被管理员改过
+    this.securityConfigService.refresh();
     this.refreshCaptcha();
   }
-  //#if (Email)
-
-  async loadSecurityConfig() {
-    try {
-      const config = await lastValueFrom(this.accountService.getSecurityConfig());
-      this.securityConfig.set(config);
-    } catch (err) {
-      this.showRequestError(err);
-    }
-  }
-  //#endif
 
   async refreshCaptcha() {
     try {
@@ -444,6 +432,7 @@ const ENGLISH: Record<string, string> = {
   'account.register.submit': 'Sign Up',
   'account.register.haveAccount': 'Already have an account?',
   'account.register.loginNow': 'Sign in',
+  'account.register.closed': 'Self sign-up is not open here. Ask an administrator for an account.',
   //#if (ExternalLogin)
   'account.register.or': 'Or sign up with email',
   //#endif

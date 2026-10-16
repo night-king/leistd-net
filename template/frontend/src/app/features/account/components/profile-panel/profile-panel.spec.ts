@@ -10,6 +10,9 @@ import { ApplicationHttpError } from '../../../../core/errors/application-http-e
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
+//#if (Email)
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
+//#endif
 import { AccountService } from '../../services/account-service';
 
 import type { Mock } from 'vitest';
@@ -34,7 +37,6 @@ describe('ProfilePanel', () => {
     updateCurrentUser: Mock;
     setAvatar: Mock;
     //#if (Email)
-    getSecurityConfig: Mock;
     confirmCurrentEmail: Mock;
     //#endif
   };
@@ -46,9 +48,6 @@ describe('ProfilePanel', () => {
       updateCurrentUser: vi.fn(),
       setAvatar: vi.fn(),
       //#if (Email)
-      getSecurityConfig: vi
-        .fn()
-        .mockReturnValue(of({ enableEmailVerification: true, emailVerificationAvailable: true })),
       confirmCurrentEmail: vi.fn(),
       //#endif
     };
@@ -63,6 +62,19 @@ describe('ProfilePanel', () => {
         //#endif
         { provide: AuthService, useValue: { currentUser, setCurrentUser } },
         { provide: AccountService, useValue: account },
+        //#if (Email)
+        {
+          provide: SecurityConfigService,
+          useValue: {
+            config: signal({
+              registrationEnabled: true,
+              enableEmailVerification: true,
+              emailVerificationAvailable: true,
+            }),
+            refresh: vi.fn(),
+          },
+        },
+        //#endif
       ],
     });
     fixture = TestBed.createComponent(ProfilePanel);

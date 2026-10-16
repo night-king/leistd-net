@@ -216,6 +216,30 @@ public sealed class ExternalLoginLinkTests
         Assert.Equal(JsonValueKind.Undefined, link.ValueKind);
     }
 
+    /// <summary>关闭自助注册只挡住自己填表建号：外部登录首次登录照常自动建号。</summary>
+    [Fact]
+    public async Task External_first_sign_in_creates_an_account_even_when_self_sign_up_is_closed()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        using var host = CreateHost(factory, provider);
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        using (var closed = await admin.Client.PutAsJsonAsync(
+                   "/api/v1/settings/current-tenant",
+                   new { Name = SettingConstant.Registration.Enabled, Value = "false" }))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, closed.StatusCode);
+        }
+
+        provider.User = External("gh-closed-sign-up");
+        using var callback = await SignInExternallyAsync(host);
+
+        Assert.Equal(HttpStatusCode.OK, callback.StatusCode);
+        using var signedIn = ProjectWebApplicationFactory.CreateProjectClient(host);
+        signedIn.DefaultRequestHeaders.Add("Cookie", CookieOf(callback));
+        Assert.Equal(HttpStatusCode.OK, (await signedIn.GetAsync("/api/v1/auth/me")).StatusCode);
+    }
+
     /// <summary>未验证的外部邮箱不写进新账号：否则就占用了别人的地址，本人随后注册会被挡、找回时接手的是对方建的号。</summary>
     [Fact]
     public async Task Unverified_external_email_is_not_taken_by_a_new_account()

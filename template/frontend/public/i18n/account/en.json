@@ -235,6 +235,7 @@
     "submit": "Sign Up",
     "haveAccount": "Already have an account?",
     "loginNow": "Sign in",
+    "closed": "Self sign-up is not open here. Ask an administrator for an account.",
     "or": "Or sign up with email",
     "emailRequired": "Please enter a valid email first",
     "captchaRequired": "Please enter the captcha first",

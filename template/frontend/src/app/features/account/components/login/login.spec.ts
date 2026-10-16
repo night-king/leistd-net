@@ -3,7 +3,7 @@ import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 //#else
 import { provideHttpClient } from '@angular/common/http';
 //#endif
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { WritableSignal, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
@@ -32,6 +32,7 @@ import { AuthorizationService } from '../../../../core/services/authorization-se
 //#if (IncludeLocalization)
 import { LanguageService } from '../../../../core/services/language-service';
 //#endif
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
 import { SessionContextService } from '../../../../core/services/session-context-service';
 import { StartupService } from '../../../../core/services/startup-service';
 //#if (IncludeMultiTenancy)
@@ -174,6 +175,23 @@ describe('Login', () => {
   //#if (IncludeMultiTenancy)
   afterEach(() => localStorage.clear());
   //#endif
+
+  // 每次进入登录页都取当前注册策略：管理员可能在上次读取之后重新开放了注册
+  it('reads the registration policy again each time the page is entered', async () => {
+    await setUp();
+    const http = TestBed.inject(HttpTestingController);
+    TestBed.tick();
+    http
+      .match('/api/v1/auth/security-config')
+      .forEach((request) => request.flush({ registrationEnabled: false }));
+    expect(TestBed.inject(SecurityConfigService).registrationOpen()).toBe(false);
+
+    fixture.destroy();
+    TestBed.createComponent(Login);
+    TestBed.tick();
+
+    expect(http.match('/api/v1/auth/security-config')).toHaveLength(1);
+  });
 
   it('clears the previous subject on init rather than on construction, exactly once', async () => {
     await setUp(false);

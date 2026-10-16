@@ -14,12 +14,15 @@
     } @else {
       <div class="flex flex-col gap-2">
         <h1 class="text-2xl font-semibold tracking-tight">{{ t('account.login.title') }}</h1>
-        <p class="text-muted-foreground text-sm">
-          {{ t('account.login.noAccount') }}
-          <a [routerLink]="['/auth/register']" class="text-primary font-medium hover:underline">{{
-            t('account.login.registerNow')
-          }}</a>
-        </p>
+        <!-- 租户关闭自助注册时不给注册入口；外部登录首次登录仍可建号，按钮照常在下方 -->
+        @if (registrationOpen()) {
+          <p class="text-muted-foreground text-sm">
+            {{ t('account.login.noAccount') }}
+            <a [routerLink]="['/auth/register']" class="text-primary font-medium hover:underline">{{
+              t('account.login.registerNow')
+            }}</a>
+          </p>
+        }
       </div>
       <!--#if (ExternalLogin)-->
       <app-external-login-buttons

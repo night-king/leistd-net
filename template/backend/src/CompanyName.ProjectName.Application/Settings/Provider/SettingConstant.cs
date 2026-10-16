@@ -143,6 +143,9 @@ public static class SettingConstant
     /// </remarks>
     public static class Registration
     {
+        /// <summary>是否开放自助注册；不影响外部登录首次登录自动建号。</summary>
+        public const string Enabled = "Registration.Enabled";
+
 #if (Email)
         /// <summary>是否要求邮箱验证。</summary>
         public const string EnableEmailVerification = "Registration.EnableEmailVerification";

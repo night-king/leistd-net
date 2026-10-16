@@ -10,6 +10,9 @@ namespace CompanyName.ProjectName.Application.Auth.Policies;
 /// </remarks>
 public sealed record UserRegistrationPolicy
 {
+    /// <summary>是否开放自助注册。</summary>
+    public required bool Enabled { get; init; }
+
     /// <summary>图形验证码有效期（分钟）。</summary>
     public required int CaptchaExpiryMinutes { get; init; }
 #if (Email)
@@ -61,6 +64,8 @@ public sealed class UserRegistrationPolicyProvider(
     public async Task<UserRegistrationPolicy> GetAsync(CancellationToken cancellationToken = default)
         => new()
         {
+            Enabled = await settingProvider.GetAsync<bool>(
+                SettingConstant.Registration.Enabled, cancellationToken),
             CaptchaExpiryMinutes = await settingProvider.GetAsync<int>(
                 SettingConstant.Registration.CaptchaExpiryMinutes, cancellationToken),
 #if (Email)

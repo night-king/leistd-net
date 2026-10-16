@@ -8,9 +8,6 @@ import {
   ChangePasswordInputDto,
   UpdateCurrentUserInputDto,
   RegisterInputDto,
-  //#if (Email)
-  SecurityConfigOutputDto,
-  //#endif
   CaptchaOutputDto,
   //#if (Email)
   SendEmailCodeInputDto,
@@ -30,6 +27,7 @@ import {
   //#endif
 } from '../../src/app/features/account/dtos/account.dto';
 import {
+  SecurityConfigOutputDto,
   TwoFactorStatusOutputDto,
   UserSessionOutputDto,
 } from '../../src/app/shared/dtos/account-security.dto';
@@ -37,7 +35,9 @@ import { SessionLoginOutputDto, UserOutputDto } from '../../src/app/shared/dtos/
 import { MockException, MockRequest } from '../core/models';
 import { ensureAcceptablePassword } from '../data/password-policy';
 //#if (ExternalLogin)
-import { availableExternalProviders } from '../data/settings';
+import { availableExternalProviders, TENANT_SETTING_VALUES } from '../data/settings';
+//#else
+import { TENANT_SETTING_VALUES } from '../data/settings';
 //#endif
 //#if (IncludeMultiTenancy)
 import { TENANTS } from '../data/tenant';
@@ -47,7 +47,9 @@ import {
   getCurrentUser as getSessionMockUser,
   //#if (Impersonation)
   getMockImpersonator,
+  //#endif
   getMockSessionTenantKey,
+  //#if (Impersonation)
   setMockImpersonator,
   //#endif
   setMockSessionTenantKey,
@@ -572,12 +574,35 @@ function getLogoutConfirmation(req: MockRequest): LogoutConfirmationOutputDto {
     : { isValid: false };
 }
 //#endif
-//#if (Email)
 
-function getSecurityConfig(): SecurityConfigOutputDto {
-  return { enableEmailVerification: EMAIL_VERIFICATION_ENABLED, emailVerificationAvailable: true };
+/**
+ * 请求所在租户是否开放自助注册：租户（或宿主）覆盖值，没有就是默认开放。与后端的租户解析一致，
+ * 已登录时以会话的租户为准（提示头改写不了），匿名时才看提示头。
+ */
+function isRegistrationOpen(req: MockRequest): boolean {
+  const scope = getSessionMockUser() ? getMockSessionTenantKey() : getRequestScope(req);
+  return TENANT_SETTING_VALUES.get(`${scope}:Registration.Enabled`) !== 'false';
 }
-//#endif
+
+/** 与后端一致：关闭自助注册时注册与注册验证码都拒绝；外部登录首次登录不经过这里。 */
+function ensureRegistrationOpen(req: MockRequest): void {
+  if (!isRegistrationOpen(req)) {
+    throw new MockException(403, {
+      code: 'Auth:RegistrationDisabled',
+      message: 'Self sign-up is not open. Ask an administrator for an account.',
+    });
+  }
+}
+
+function getSecurityConfig(req: MockRequest): SecurityConfigOutputDto {
+  return {
+    registrationEnabled: isRegistrationOpen(req),
+    //#if (Email)
+    enableEmailVerification: EMAIL_VERIFICATION_ENABLED,
+    emailVerificationAvailable: true,
+    //#endif
+  };
+}
 
 function getCaptcha(): CaptchaOutputDto {
   const bgColors = ['#f0fdf4', '#f8fafc', '#fffbeb', '#fef2f2', '#f0f9ff'];
@@ -631,6 +656,7 @@ function validateCaptcha(captchaToken: string | undefined, captchaCode: string |
 //#if (Email)
 
 function sendEmailCode(req: MockRequest): EmailVerificationChallengeOutputDto {
+  ensureRegistrationOpen(req);
   const body = req.body as SendEmailCodeInputDto;
   validateCaptcha(body.captchaToken, body.captchaCode);
 
@@ -667,6 +693,7 @@ function sendEmailCode(req: MockRequest): EmailVerificationChallengeOutputDto {
 //#endif
 
 function register(req: MockRequest): 'ok' {
+  ensureRegistrationOpen(req);
   const body = req.body as RegisterInputDto;
 
   const username = body.username.trim();
@@ -831,9 +858,7 @@ function unlinkExternalLogin(req: MockRequest): 'ok' {
 
 export const AUTH_API = {
   'POST /api/v1/auth/register': (req: MockRequest) => register(req),
-  //#if (Email)
-  'GET /api/v1/auth/security-config': () => getSecurityConfig(),
-  //#endif
+  'GET /api/v1/auth/security-config': (req: MockRequest) => getSecurityConfig(req),
   //#if (OpenIddictServer)
   'GET /api/v1/auth/logout-confirmation': (req: MockRequest) => getLogoutConfirmation(req),
   //#endif

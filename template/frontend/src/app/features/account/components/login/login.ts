@@ -29,6 +29,7 @@ import { applicationErrorMessage } from '../../../../core/errors/application-htt
 import { MOCKED_URL } from '../../../../core/mock/mocked-url';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
 import { SessionContextService } from '../../../../core/services/session-context-service';
 //#if (IncludeMultiTenancy)
 import { TenantContextService } from '../../../../core/services/tenant-context-service';
@@ -87,6 +88,9 @@ export class Login implements OnInit {
   private authService = inject(AuthService);
   private readonly authorizationService = inject(AuthorizationService);
   private readonly sessionContext = inject(SessionContextService);
+  /** 租户关闭自助注册时不给注册入口。 */
+  private readonly securityConfig = inject(SecurityConfigService);
+  protected readonly registrationOpen = this.securityConfig.registrationOpen;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   //#if (IncludeLocalization)
@@ -138,13 +142,15 @@ export class Login implements OnInit {
       ?.twoFactorToken ?? null,
   );
 
-//#if (IncludeMultiTenancy)
   constructor() {
+    // 进入登录页时取当前注册策略，决定是否给出注册入口
+    this.securityConfig.refresh();
+//#if (IncludeMultiTenancy)
     // 子域名部署下按主机名把租户定住，用户完全不必填；未命中则保持原状（上次记住的或空白）。
     void this.resolveTenantFromHost();
+//#endif
   }
 
-//#endif
   ngOnInit(): void {
     // 普通登录清理旧主体；重新认证保留当前上下文并始终显示表单，凭据成功后再替换。
     // 清理会话属于改变会话状态的流程，不放构造函数。

@@ -20,10 +20,15 @@
           <!--#endif-->
           <app-theme-mode-toggle />
           <!--#if (LocalIdentity)-->
-          <a hlmBtn variant="ghost" class="hidden sm:inline-flex" routerLink="/auth/login">
-            {{ t('landing.hero.signIn') }}
-          </a>
-          <a hlmBtn routerLink="/auth/register">{{ t('landing.hero.getStarted') }}</a>
+          <!-- 租户关闭自助注册时不给注册入口，登录升为主按钮 -->
+          @if (registrationOpen()) {
+            <a hlmBtn variant="ghost" class="hidden sm:inline-flex" routerLink="/auth/login">
+              {{ t('landing.hero.signIn') }}
+            </a>
+            <a hlmBtn routerLink="/auth/register">{{ t('landing.hero.getStarted') }}</a>
+          } @else {
+            <a hlmBtn routerLink="/auth/login">{{ t('landing.hero.signIn') }}</a>
+          }
           <!--#else-->
           <!-- 登录在签发令牌的身份服务上：进入工作台时由守卫发起 OIDC 登录 -->
           <a hlmBtn routerLink="/workspace">{{ t('landing.hero.signIn') }}</a>
@@ -90,13 +95,20 @@
           </p>
           <div class="flex flex-wrap items-center justify-center gap-3">
             <!--#if (LocalIdentity)-->
-            <a hlmBtn size="lg" routerLink="/auth/register">
-              {{ t('landing.hero.getStarted') }}
-              <ng-icon name="lucideArrowRight" data-icon="inline-end" />
-            </a>
-            <a hlmBtn size="lg" variant="outline" routerLink="/auth/login">
-              {{ t('landing.hero.signIn') }}
-            </a>
+            @if (registrationOpen()) {
+              <a hlmBtn size="lg" routerLink="/auth/register">
+                {{ t('landing.hero.getStarted') }}
+                <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+              </a>
+              <a hlmBtn size="lg" variant="outline" routerLink="/auth/login">
+                {{ t('landing.hero.signIn') }}
+              </a>
+            } @else {
+              <a hlmBtn size="lg" routerLink="/auth/login">
+                {{ t('landing.hero.signIn') }}
+                <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+              </a>
+            }
             <!--#else-->
             <a hlmBtn size="lg" routerLink="/workspace">
               {{ t('landing.hero.signIn') }}
@@ -278,13 +290,20 @@ grant_type=client_credentials  <span class="text-success">200</span></pre>
           </div>
           <!--#if (LocalIdentity)-->
           <div class="relative flex flex-wrap gap-3">
-            <a hlmBtn size="lg" routerLink="/auth/register">
-              {{ t('landing.hero.getStarted') }}
-              <ng-icon name="lucideArrowRight" data-icon="inline-end" />
-            </a>
-            <a hlmBtn size="lg" variant="outline" routerLink="/auth/login">
-              {{ t('landing.hero.signIn') }}
-            </a>
+            @if (registrationOpen()) {
+              <a hlmBtn size="lg" routerLink="/auth/register">
+                {{ t('landing.hero.getStarted') }}
+                <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+              </a>
+              <a hlmBtn size="lg" variant="outline" routerLink="/auth/login">
+                {{ t('landing.hero.signIn') }}
+              </a>
+            } @else {
+              <a hlmBtn size="lg" routerLink="/auth/login">
+                {{ t('landing.hero.signIn') }}
+                <ng-icon name="lucideArrowRight" data-icon="inline-end" />
+              </a>
+            }
           </div>
           <!--#else-->
           <a hlmBtn size="lg" class="relative" routerLink="/workspace">

@@ -15,6 +15,7 @@ public static class AuthErrorCodes
 #endif
     public const string InvalidCredentials = "Auth:InvalidCredentials";
     public const string ReauthenticationRequired = "Auth:ReauthenticationRequired";
+    public const string RegistrationDisabled = "Auth:RegistrationDisabled";
     public const string SignInAgainRequired = "Auth:SignInAgainRequired";
     public const string TwoFactorAlreadyEnabled = "Auth:TwoFactorAlreadyEnabled";
     public const string TwoFactorChallengeExpired = "Auth:TwoFactorChallengeExpired";

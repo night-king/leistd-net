@@ -1,4 +1,16 @@
-// 账户安全的只读契约：个人设置的安全面板与工作台的安全检查、登录设备共用。
+// 账户安全的只读契约：个人设置的安全面板与工作台的安全检查、登录设备共用；注册摘要由登录页、注册页与首页共用。
+
+/** 当前租户的注册摘要（匿名可读）。 */
+export interface SecurityConfigOutputDto {
+  /** 是否开放自助注册；关闭时隐藏注册入口，注册页给出说明。 */
+  registrationEnabled: boolean;
+  //#if (Email)
+  /** 注册时是否要求邮箱验证。 */
+  enableEmailVerification: boolean;
+  /** 部署具备发邮箱验证码的前提；为 false 时"验证我的邮箱"只说明暂不可用，不给发送按钮。 */
+  emailVerificationAvailable: boolean;
+  //#endif
+}
 
 export interface TwoFactorStatusOutputDto {
   enabled: boolean;
