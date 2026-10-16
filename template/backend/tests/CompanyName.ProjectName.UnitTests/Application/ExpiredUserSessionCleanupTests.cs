@@ -1,13 +1,11 @@
 #if (LocalIdentity)
 using CompanyName.ProjectName.Application.Auth.BackgroundJobs;
 using CompanyName.ProjectName.Domain.Auth.Entities;
-using CompanyName.ProjectName.Domain.Auth.Options;
 using Leistd.BackgroundJobs.Recurring;
 using Leistd.Data.Connections;
 using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.Timing;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
 namespace CompanyName.ProjectName.UnitTests.Application;
@@ -70,8 +68,11 @@ public sealed class ExpiredUserSessionCleanupTests
     {
         var clock = new UtcClockProvider(new FakeTimeProvider(DateTimeOffset.UnixEpoch));
         // 这里只处理执行器返回的汇总，不进入数据库回调；SQL 与工作单元由集成测试验证。
-        return new ExpiredUserSessionCleanupJob(runner, null!, null!, null!,
-            Options.Create(new UserSessionOptions()), clock, NullLogger<ExpiredUserSessionCleanupJob>.Instance);
+        return new ExpiredUserSessionCleanupJob(runner, null!, null!, null!, null!, null!,
+#if (IncludeMultiTenancy)
+            null!,
+#endif
+            null!, clock, NullLogger<ExpiredUserSessionCleanupJob>.Instance);
     }
 
     private sealed class ResultRunner(TenantDatabaseRunResult result) : ITenantDatabaseRunner

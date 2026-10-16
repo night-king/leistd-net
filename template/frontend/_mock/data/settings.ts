@@ -152,6 +152,16 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     allowsUserScope: false,
     isBoolean: true,
   },
+  {
+    name: 'Security.SessionIdleTimeoutDays',
+    displayName: 'Sign out after this many idle days',
+    group: 'Security',
+    defaultValue: '7',
+    allowsTenantScope: true,
+    allowsUserScope: false,
+    minimum: 1,
+    maximum: 365,
+  },
   //#endif
   //#if (ExternalLogin)
   externalLoginSetting('ExternalLogin.Github.Enabled', 'Enable GitHub sign-in', 'boolean'),
@@ -420,6 +430,7 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   //#endif
   //#if (LocalIdentity)
   'Setting:Security.RequireTwoFactor': '要求所有人启用两步验证',
+  'Setting:Security.SessionIdleTimeoutDays': '会话空闲多少天后退出',
   //#endif
   //#if (Email)
   'Setting:Email.SmtpHost': 'SMTP 主机',

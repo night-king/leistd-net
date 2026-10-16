@@ -3,11 +3,11 @@ using Leistd.Data.Querying;
 using CompanyName.ProjectName.Domain.Auth.Errors;
 using CompanyName.ProjectName.Application.Auth.Dtos;
 using CompanyName.ProjectName.Application.Auth.Mappings;
+using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.Sessions;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Domain.Auth.Entities;
-using CompanyName.ProjectName.Domain.Auth.Options;
 using Leistd.Ddd.Application.AppServices;
 using Leistd.Ddd.Domain.Repositories;
 using Leistd.ExceptionHandling;
@@ -17,7 +17,6 @@ using Leistd.OperationRecords.Recording;
 using Leistd.Security.Users;
 using Leistd.Timing;
 using Leistd.UnitOfWork;
-using Microsoft.Extensions.Options;
 
 namespace CompanyName.ProjectName.Application.Auth.AppServices;
 
@@ -29,7 +28,7 @@ internal sealed class UserSessionAppService(
     ICurrentUser currentUser,
     IUnitOfWorkManager unitOfWorkManager,
     IOperationRecorder operationRecorder,
-    IOptions<UserSessionOptions> sessionOptions,
+    ILoginSecurityPolicyProvider loginSecurityPolicy,
     IClock clock,
     IObjectMapper objectMapper,
     CurrentSessionTerminator currentSessionTerminator) : BaseAppService, IUserSessionAppService
@@ -39,10 +38,11 @@ internal sealed class UserSessionAppService(
     {
         var userId = currentUser.Id!.Value;
         var currentSessionId = currentUser.GetSessionId();
+        var idleTimeout = (await loginSecurityPolicy.GetAsync(cancellationToken)).SessionIdleTimeout;
         var sessions = await asyncExecuter.ToListAsync(
             (await userSessionRepository.GetQueryableAsync(cancellationToken))
                 .Where(s => s.UserId == userId)
-                .Where(UserSession.ActiveAt(clock.Now, sessionOptions.Value.IdleTimeout)),
+                .Where(UserSession.ActiveAt(clock.Now, idleTimeout)),
             cancellationToken);
 
         var context = new Dictionary<string, object>();
@@ -80,10 +80,14 @@ internal sealed class UserSessionAppService(
     /// <inheritdoc />
     public async Task<int> RevokeOtherCurrentUserSessionsAsync(CancellationToken cancellationToken = default)
     {
-        var count = await userSessionDomainService.RevokeAllAsync(
+        var idleTimeout = (await loginSecurityPolicy.GetAsync(cancellationToken)).SessionIdleTimeout;
+        var revoked = await userSessionDomainService.RevokeAllAsync(
             currentUser.Id!.Value,
             currentUser.GetSessionId(),
             cancellationToken);
+        // 只数仍有效的设备：与设备列表同一条规则，已过期的会话顺手删掉但不算"退出了几台"
+        var now = clock.Now;
+        var count = revoked.Count(session => !session.IsExpired(now, idleTimeout));
 
         if (count > 0)
         {

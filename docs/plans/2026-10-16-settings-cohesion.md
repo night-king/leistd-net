@@ -122,7 +122,7 @@ PR 划分：PR1 = 阶段 1–3；PR2 = 阶段 4；PR3 = 阶段 5；PR4 = 阶段 
 ### 阶段 5：租户级会话空闲超时
 
 - 设置 `Security.SessionIdleTimeoutDays`（Tenant，1–365，基线取自 `SessionCookie:ExpireDays`），`Security` 分组。
-- `ILoginSecurityPolicyProvider`/`LoginSecurityPolicy` 加 `SessionIdleTimeout`（同型扩展，不另立 provider）；领域服务 `UserSessionDomainService` 不依赖应用层，改由调用方传入时长；`UserSessionOptions` 删除（终局不留两份真相）。部署基线的装配留在组合根，Application 不反向引用 `Api.Options`；`SessionCookie:ExpireDays` 校验改为 1–365，与设置值域一致。
+- `ILoginSecurityPolicyProvider`/`LoginSecurityPolicy` 加 `SessionIdleTimeout`（同型扩展，不另立 provider）；领域服务 `UserSessionDomainService` 不依赖应用层，改由调用方传入时长；`UserSessionOptions` 保留为部署基线（组合根按 `SessionCookie:ExpireDays` 配置，只作设置的代码默认值，与 `UserRegistrationOptions` 之于注册策略同型），消费方一律读租户策略。部署基线的装配留在组合根，Application 不反向引用 `Api.Options`；`SessionCookie:ExpireDays` 校验改为 1–365，与设置值域一致。
 - **按哪个主体、在哪个租户上下文读策略**（逐点登记）：
 
   | 消费点 | 主体 / 租户 | 读取边界 |
@@ -139,6 +139,7 @@ PR 划分：PR1 = 阶段 1–3；PR2 = 阶段 4；PR3 = 阶段 5；PR4 = 阶段 
 - Cookie：在本地会话方案的官方 `OnSigningIn` 事件里按待签发 principal 的租户策略统一设置 `IssuedUtc = now`、`ExpiresUtc = now + 时长`，覆盖普通登录、模拟开始 / 结束与换发，调用点不各写一遍。`OnValidatePrincipal` 校验通过后若票据跨度（`ExpiresUtc - IssuedUtc`）与当前策略不一致，同时改写 `IssuedUtc = now`、`ExpiresUtc = now + 新时长` 并 `ShouldRenew = true`，交官方处理器续发（续发只改票据时序，不改 `auth_time` 等认证时间 claim）。`ExpireTimeSpan` 仍取部署基线作兜底。
 - 清理任务：保留 `ITenantDatabaseRunner` 逐库；每库先在该库的固定上下文内用一个工作单元查出会话表里出现的 `TenantId`（宿主库项的 `TenantIds` 为空，共享宿主库里的租户只能从数据取）并结束它；再对每个 `TenantId`（含宿主 null）在其租户上下文内开独立 `requiresNew` 工作单元读策略、按 `TenantId` 删除。不在已绑定某租户的工作单元里逐个 `Change`。批量化留到有性能证据时。
 - 验证器的 1 分钟缓存保持不变（策略最短一天，远大于缓存窗口）。
+- 实施取舍（PR 3 审查认可）：跨度收敛只在校验器实际查会话时做——`IUserSessionValidator` 返回 `UserSessionValidation(IsValid, IdleTimeout?)`，由它带出按主体租户读到的时长，缓存命中期间不另读策略，收敛最迟一个缓存周期；签发时由 `ISessionIdleTimeoutReader` 按待签发主体的租户读。租户可用性在读取前检查，"检查之后、连接解析之前租户恰好被删除"的窄窗口不另做异常兜底。
 - 失效租户恢复不能被抢先：`UserSessionValidator` 对不存在 / 停用的租户特意返回 true，交给 `UseTenantSessionRecovery` 注销并下发 `X-Tenant-Invalid`；认证事件在该中间件之前，其异常不会被恢复。跨度收敛因此只对可用租户执行——租户不存在或停用时跳过策略读取与跨度改写；读取期间出现明确的租户失效异常（`TenantNotFoundException` 等）同样跳过，交后续管道恢复。不吞任意数据库异常、不以宿主策略替代、不移动恢复中间件。
 - 远程令牌形态不出现此设置，`SessionCookie` 仍为部署配置。
 - 测试：调短后在途会话下一请求失效；旧票据已存在数天后调长 / 调短，续发的 Cookie 跨度等于新时长；宿主与目标租户时长不同时模拟开始 / 结束各按目标主体；认证前无环境租户时的 Cookie 校验按主体租户；带 sid 的令牌续期按主体租户拒绝过期会话且不更新 `LastSeenTime`；租户与宿主时长不同时正常 Cookie 首次及后续请求都不被宿主策略覆盖、跨度已等于租户策略时不重复续发（覆盖校验缓存命中与未命中）；真实 EF 存储下同一外层 scope 内宿主与两个共享库租户、宿主与独立库租户分别读策略与清理成功；本地身份 + 多租户下保留有效 Cookie 后删除 / 停用租户（校验缓存命中与未命中），API 仍注销并返回 401 + `X-Tenant-Invalid`、HTML 导航仍注销并重定向（在 `TenancyTests.Deactivated_tenant_rejects_existing_sessions_and_new_sign_ins` 基础上补删除租户场景）。

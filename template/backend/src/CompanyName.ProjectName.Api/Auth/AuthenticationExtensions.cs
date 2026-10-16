@@ -39,13 +39,14 @@ public static class AuthenticationExtensions
             options => options.KeyPrefix = "CompanyName.ProjectName:AuthTicket:");
         builder.Services.AddOptions<SessionCookieOptions>()
             .BindConfiguration(SessionCookieOptions.SectionName)
-            .Validate(options => options.ExpireDays >= 1,
-                $"{SessionCookieOptions.SectionName}:ExpireDays must be at least 1.")
+            .Validate(options => options.ExpireDays is >= 1 and <= 365,
+                $"{SessionCookieOptions.SectionName}:ExpireDays must be between 1 and 365.")
             .ValidateOnStart();
         builder.Services.AddOptions<CookieAuthenticationOptions>(AuthenticationSchemeNames.SessionCookie)
             .Configure<IOptions<SessionCookieOptions>>((cookie, sessionCookie) =>
             {
-                // 滑动过期取会话时长；本地身份的服务端会话空闲时限取同一个值
+                // 滑动过期取会话时长。本地身份签发时改按租户的会话空闲时限（见 LocalSessionAuthenticationExtensions），
+                // 这里是部署基线与资源服务形态的值
                 cookie.ExpireTimeSpan = sessionCookie.Value.Lifetime;
                 cookie.SlidingExpiration = true;
                 // 默认 Lax；放宽前先看部署文档的 SameSite 说明（协议端点的跨站进入不需要放宽）。

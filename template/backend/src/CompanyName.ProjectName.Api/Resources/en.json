@@ -204,6 +204,7 @@
     "Setting:Security.LockoutDurationMinutes": "Lockout duration (minutes)",
     "Setting:Security.LockoutMaxFailedAttempts": "Lock the account after this many failed sign-ins (0 = never)",
     "Setting:Security.RequireTwoFactor": "Require two-factor authentication for everyone",
+    "Setting:Security.SessionIdleTimeoutDays": "Sign out after this many idle days",
     "AppSetting:NotificationRetentionOrder": "Unread notifications must be kept at least as long as read ones ({Unread} < {Read} days).",
     "AppSetting:TestEmailFailed": "The test email could not be sent. Check the email settings and server logs.",
     "AppSetting:TimeZoneInvalid": "'{Value}' is not a valid IANA time zone id.",

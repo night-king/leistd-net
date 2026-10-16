@@ -95,6 +95,7 @@ public static class DependencyInjection
 #endif
         services.TryAddTransient<SessionIssuer>();
         services.TryAddTransient<IUserSessionValidator, UserSessionValidator>();
+        services.TryAddTransient<ISessionIdleTimeoutReader, SessionIdleTimeoutReader>();
         services.AddUserSessionCacheEviction();
         services.TryAddTransient<CurrentSessionTerminator>();
         services.TryAddTransient<IUserSessionAppService, UserSessionAppService>();

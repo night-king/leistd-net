@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 using System.Security.Claims;
 using CompanyName.ProjectName.Application.Auth.OAuth;
 using CompanyName.ProjectName.Domain.Auth.Entities;
-using CompanyName.ProjectName.Domain.Auth.Options;
+using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.Options;
 using CompanyName.ProjectName.Domain.Users.Repositories;
 using CompanyName.ProjectName.Domain.Users.Policies;
@@ -27,7 +27,7 @@ namespace CompanyName.ProjectName.Application.Auth.SignIn;
 public class AuthPrincipalFactory(
     IUserRepository userRepository,
     IRepository<UserSession, Guid> userSessionRepository,
-    IOptions<UserSessionOptions> sessionOptions,
+    ILoginSecurityPolicyProvider loginSecurityPolicy,
     IClock clock,
     IOptions<OAuthResourceOptions> oauthOptions,
     IOptions<ClaimTypeOptions> claimTypes,
@@ -191,11 +191,12 @@ public class AuthPrincipalFactory(
 
     private sealed record TokenTenant(Guid? Id, string? Name);
 
+    // 在令牌所属租户的上下文与工作单元里调用：空闲时限按那个租户的策略
     private async Task<bool> IsSessionActiveAsync(string sessionClaim, Guid userId, CancellationToken cancellationToken) =>
         Guid.TryParse(sessionClaim, out var sessionId) &&
         await userSessionRepository.GetByIdAsync(sessionId, cancellationToken) is { } session &&
         session.UserId == userId &&
-        !session.IsExpired(clock.Now, sessionOptions.Value.IdleTimeout);
+        !session.IsExpired(clock.Now, (await loginSecurityPolicy.GetAsync(cancellationToken)).SessionIdleTimeout);
 
     private IEnumerable<string> GetDestinations(Claim claim)
     {

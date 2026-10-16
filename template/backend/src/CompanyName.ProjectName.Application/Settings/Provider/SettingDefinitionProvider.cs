@@ -2,6 +2,7 @@ using Leistd.Settings.Definitions;
 #if (LocalIdentity)
 using System.Globalization;
 using CompanyName.ProjectName.Application.Users.Options;
+using CompanyName.ProjectName.Domain.Auth.Options;
 using Microsoft.Extensions.Options;
 #endif
 
@@ -30,7 +31,10 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// 注册策略的部署基线：注册类设置的代码默认值取自它，因此 <c>appsettings</c> 仍是
 /// 部署期唯一的真相，设置表只承载租户级覆盖。
 /// </param>
-public class SettingDefinitionProvider(IOptions<UserRegistrationOptions> registrationOptions) : ISettingDefinitionProvider
+/// <param name="sessionOptions">会话空闲时限的部署基线（组合根按会话 Cookie 的有效期配置）。</param>
+public class SettingDefinitionProvider(
+    IOptions<UserRegistrationOptions> registrationOptions,
+    IOptions<UserSessionOptions> sessionOptions) : ISettingDefinitionProvider
 {
 #else
 public class SettingDefinitionProvider : ISettingDefinitionProvider
@@ -161,6 +165,17 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
             displayName: "Require two-factor authentication for everyone",
             group: SettingConstant.Groups.Security)
             .AsBoolean()
+            .IsVisibleToClients = true;
+
+        // 会话空闲多久失效：租户各自的安全策略。基线取自部署的会话 Cookie 有效期；
+        // 调短后在途会话下一次实际校验（最多隔一个校验缓存周期）按新时长判定，调长后续发的 Cookie 跟上新时长
+        context.Add(
+            SettingConstant.Security.SessionIdleTimeoutDays,
+            defaultValue: ((int)sessionOptions.Value.IdleTimeout.TotalDays).ToString(CultureInfo.InvariantCulture),
+            scopes: SettingScopes.Tenant,
+            displayName: "Sign out after this many idle days",
+            group: SettingConstant.Groups.Security)
+            .AsInteger(1, 365)
             .IsVisibleToClients = true;
 
 #if (ExternalLogin)
