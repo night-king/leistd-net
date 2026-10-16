@@ -85,8 +85,8 @@
           }
         </nav>
 
-        <!-- 面板列：宽度上限与两列判断只在这里定一处。面板内的两列一律按这个命名容器判断
-             （@2xl/panel:grid-cols-2），不按视口：同一视口下面板宽度还受侧栏与左侧导航影响。 -->
+        <!-- 面板列：宽度上限与命名容器只在这里定一处。面板级的排版切换按这个命名容器判断（如 @md/panel），
+             不按视口：同一视口下面板宽度还受侧栏与左侧导航影响；字段的左右排跟随 Spartan FieldGroup 自己的容器。 -->
         <!-- 面板与其中的分区不套卡片：标题下一条实线划界，分区内的行只靠留白分隔。 -->
         <div class="@container/panel flex w-full max-w-3xl min-w-0 flex-auto flex-col gap-6">
           @if (activePanel(); as panel) {

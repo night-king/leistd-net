@@ -120,6 +120,26 @@ describe('SecurityPanel', () => {
     }
   });
 
+  // 横排时规则说明在左侧标签下、错误在输入框下：二者仍归同一个 Field，输入框的描述关联同时指向它们
+  it('describes the new password by its rules and, while shown, by its error', async () => {
+    const field = input('new-password').closest('[data-slot="field"]')!;
+    const rules = field.querySelector<HTMLElement>('[data-slot="field-description"]')!;
+    const describedBy = () =>
+      (input('new-password').getAttribute('aria-describedby') ?? '').split(/\s+/);
+    expect(describedBy()).toContain(rules.id);
+
+    submitButton().click();
+    await fixture.whenStable();
+    const error = Array.from(field.querySelectorAll<HTMLElement>('hlm-field-error')).find(
+      (element) => !element.hidden,
+    )!;
+    expect(describedBy()).toEqual(expect.arrayContaining([rules.id, error.id]));
+
+    await fill(valid);
+    expect(describedBy()).toContain(rules.id);
+    expect(describedBy()).not.toContain(error.id);
+  });
+
   it('does not send an empty form and reveals the errors on submit', async () => {
     expect(shownErrorCount()).toBe(0);
 
