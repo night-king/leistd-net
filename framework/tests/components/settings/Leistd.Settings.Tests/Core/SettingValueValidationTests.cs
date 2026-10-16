@@ -8,6 +8,7 @@ using Leistd.Settings.Resolution;
 using Leistd.Settings.Events;
 using Leistd.Settings.Validation;
 using Leistd.TestBase.Doubles;
+using Microsoft.AspNetCore.DataProtection;
 using Xunit;
 using Leistd.Settings.Tests.TestDoubles;
 
@@ -64,9 +65,70 @@ public class SettingValueValidationTests
         Assert.Empty(store.Writes);
     }
 
-    // 清除只校验名称与层级：否则"恢复默认"会被一个已经不合法的历史值卡住
+    // 清除以回落后的值经过业务校验器：跨设置的约束（如"未读保留不短于已读"）不能被一次清除绕过
     [Fact]
-    public async Task Clearing_skips_value_validation()
+    public async Task Clearing_validates_the_value_that_takes_effect_afterwards()
+    {
+        var validator = new RejectingValidator("Security.LockoutDurationMinutes", "15");
+        var (manager, store, _) = Build(validator);
+        store.Tenant["Security.LockoutDurationMinutes"] = "30";
+
+        var error = await Assert.ThrowsAsync<BusinessException>(
+            () => manager.SetAsync("Security.LockoutDurationMinutes", null, SettingScopes.Tenant));
+
+        Assert.Equal("AppSetting:TimeZoneInvalid", error.Code);
+        Assert.Equal("15", validator.Seen!.Value);
+        Assert.Empty(store.Writes);
+    }
+
+    [Fact]
+    public async Task Clearing_a_user_override_validates_the_tenant_value_beneath_it()
+    {
+        var validator = new RejectingValidator("Display.TimeZone", "never");
+        var (manager, store, _) = Build(validator);
+        store.Tenant["Display.TimeZone"] = "Asia/Tokyo";
+        store.User["Display.TimeZone"] = "Europe/Paris";
+
+        await manager.SetAsync("Display.TimeZone", null, SettingScopes.User, "u1");
+
+        // 被清除的用户覆盖本身不参与判定
+        Assert.Equal("Asia/Tokyo", validator.Seen!.Value);
+        Assert.Equal(SettingScopes.User, validator.Seen.Scope);
+        Assert.Null(Assert.Single(store.Writes).Value);
+    }
+
+    [Fact]
+    public async Task Clearing_a_user_override_ignores_tenant_rows_the_definition_does_not_allow()
+    {
+        var validator = new RejectingValidator("Display.Density", "never");
+        var (manager, store, _) = Build(validator);
+        store.Tenant["Display.Density"] = "tenant-row";
+
+        await manager.SetAsync("Display.Density", null, SettingScopes.User, "u1");
+
+        Assert.Equal("comfortable", validator.Seen!.Value);
+    }
+
+    [Fact]
+    public async Task Clearing_hands_validators_the_decrypted_tenant_value()
+    {
+        var dataProtection = new EphemeralDataProtectionProvider();
+        var validator = new RejectingValidator("Api.Token", "never");
+        var (manager, store, _) = Build(dataProtection, validator);
+        await manager.SetAsync("Api.Token", "tenant-secret", SettingScopes.Tenant);
+        // 存储里落的是密文
+        var cipher = Assert.Single(store.Writes).Value!;
+        Assert.NotEqual("tenant-secret", cipher);
+        store.Tenant["Api.Token"] = cipher;
+
+        await manager.SetAsync("Api.Token", null, SettingScopes.User, "u1");
+
+        Assert.Equal("tenant-secret", validator.Seen!.Value);
+        Assert.Equal(SettingScopes.User, validator.Seen.Scope);
+    }
+
+    [Fact]
+    public async Task Clearing_to_nothing_skips_the_validators()
     {
         var validator = new RejectingValidator("Display.TimeZone", "anything");
         var (manager, store, _) = Build(validator);
@@ -109,6 +171,11 @@ public class SettingValueValidationTests
 
     private static (ISettingManager Manager, FakeSettingStore Store, RecordingEventBus Events) Build(
         params ISettingValueValidator[] validators)
+        => Build(dataProtection: null, validators);
+
+    private static (ISettingManager Manager, FakeSettingStore Store, RecordingEventBus Events) Build(
+        IDataProtectionProvider? dataProtection,
+        params ISettingValueValidator[] validators)
     {
         var store = new FakeSettingStore();
         var events = new RecordingEventBus();
@@ -116,9 +183,10 @@ public class SettingValueValidationTests
         var manager = new DefaultSettingManager(
             definitions,
             store,
-            new DefaultSettingProvider(definitions, store, new FakeCurrentUser(Guid.NewGuid())),
+            new DefaultSettingProvider(definitions, store, new FakeCurrentUser(Guid.NewGuid()), dataProtection),
             validators,
-            events);
+            events,
+            dataProtection);
         return (manager, store, events);
     }
 
@@ -130,6 +198,8 @@ public class SettingValueValidationTests
             context.Add("Security.LockoutDurationMinutes", "15").AsInteger(1, 1440);
             context.Add("Logging.MinimumLevel", "Information", SettingScopes.Host).WithAllowedValues("Debug", "Information");
             context.Add("Display.TimeZone", scopes: SettingScopes.All);
+            context.Add("Display.Density", "comfortable", SettingScopes.User);
+            context.Add("Api.Token", scopes: SettingScopes.All).IsEncrypted = true;
         }
     }
 

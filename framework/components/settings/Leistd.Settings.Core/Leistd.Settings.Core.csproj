@@ -12,6 +12,8 @@
     <ProjectReference Include="..\..\event-bus\Leistd.EventBus.Core\Leistd.EventBus.Core.csproj" />
     <!-- 错误码的默认译文随包分发；设置页的显示名按宿主资源翻译 -->
     <ProjectReference Include="..\..\localization\Leistd.Localization.Core\Leistd.Localization.Core.csproj" />
+    <!-- 读取器的缓存按当前租户分键；只用上下文契约，未注册多租户时按宿主一份 -->
+    <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

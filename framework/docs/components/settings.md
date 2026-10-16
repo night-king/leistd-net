@@ -62,6 +62,8 @@ app.MapGroup("/api/v1/settings").MapSettings(options =>
     options.AccessPolicy = "App.CurrentUser";
     // 改租户（宿主上下文下为进程级）设置
     options.TenantWritePolicy = "App.Settings";
+    // 可选：某个分组的管理权另交给持有该策略的人（同时还要满足 TenantWritePolicy）
+    options.GroupPolicies["Email"] = "App.Settings.Email";
 });
 ```
 
@@ -195,7 +197,7 @@ public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : I
 | `ISettingDefinitionContext.Add(name, defaultValue?, scopes?, displayName?)` | 添加定义；名称全局唯一 |
 | `ISettingDefinition` | `Name`、`DisplayName`、`DefaultValue`、`Scopes`、`Group`、`IsVisibleToClients`、`IsEncrypted`，值元数据 `ValueType`、`Minimum`、`Maximum`、`AllowedValues`；`DisplayName` 与 `Group` 都原样返回不翻译 |
 | `AsBoolean()` / `AsInteger(min, max)` / `WithAllowedValues(...)` | 声明值元数据的链式写法 |
-| `ISettingValueValidator.ValidateAsync(context, ct)` | 业务取值校验，写入前调用，清除不经过它 |
+| `ISettingValueValidator.ValidateAsync(context, ct)` | 业务取值校验，写入前调用；清除时以清除后会生效的值调用 |
 | `SettingChangedEvent` | 写入或清除后发布：`Name`、`Scope`、`UserId`，不带值 |
 | `SettingScopes` | `Tenant`、`User`、`All`、`Host`、`None`；代码默认值不在其中 |
 | `ISettingDefinitionManager` | 汇总全部定义并提供查询 |
@@ -212,7 +214,7 @@ public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : I
 | `AddSettingsCore(services, configure?)` | 注册定义管理器、解析器、写入入口与设置页用例；`SettingManagementOptions` 给翻译资源与默认分组 |
 | `AddSettingsEfCore<TDbContext>(services)` | 注册 EF Core 存储；内部调用 `AddSettingsCore()` |
 | `ConfigureSettings(modelBuilder)` | 映射 `SettingRecord` 实体 |
-| `MapSettings(configure)` | AspNetCore 包：`GET /`、`PUT /current-user`、`PUT /current-tenant`；`AccessPolicy` 与 `TenantWritePolicy` 均必填（组件不套宿主默认策略），端点名前缀 `SettingEndpoints.NamePrefix` |
+| `MapSettings(configure)` | AspNetCore 包：`GET /`、`PUT /current-user`、`PUT /current-tenant`；`AccessPolicy` 与 `TenantWritePolicy` 均必填（组件不套宿主默认策略），`GroupPolicies` 可选（分组 → 策略名），端点名前缀 `SettingEndpoints.NamePrefix` |
 | `AddHostSettings(bind, configSectionPath?)` / `UseHostSettings()` | Hosting 包：声明绑定并注册应用与刷新，刷新周期绑定 `configSectionPath`（默认 `Leistd:Settings:Hosting`），重复调用时不同设置的绑定累加、完全相同的绑定不重复生效，同一设置名绑定不同（含只换兜底值或键的顺序）或换用另一配置节时在该次调用抛出；构建后挂配置源 |
 | `HostSettingBindingBuilder.Bind(name, keys, fallback?)` / `BindOption<TOptions>(name, section, property)` | 设置 → 配置键；后者兜底值取选项类型上的属性默认值，并参与整组校验 |
 
@@ -231,12 +233,19 @@ public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : I
   `GetAllAsync` 不包含它，不返回代码默认值。存储由 `ISettingStore.CanAccessHostScope` 回答可达性。
 - 同一作用域先写后读读到新值：经 `ISettingManager` 写入后，同一作用域 `ISettingProvider` 的记忆化结果即作废。
 - 写入校验顺序：空串（`Setting:EmptyValueRejected`，清除只用 `null`）→ 值类型与区间（`BooleanRequired`、`IntegerRequired`、`ValueOutOfRange`）→
-  候选值（`ValueNotAllowed`，按序号比较）→ 宿主注册的 `ISettingValueValidator`；任何一步不过都不落库、不发事件。清除只校验名称与层级。
+  候选值（`ValueNotAllowed`，按序号比较）→ 宿主注册的 `ISettingValueValidator`；任何一步不过都不落库、不发事件。
+  清除不做值元数据校验，但以清除后会生效的明文值调用 `ISettingValueValidator`：用户层回落到当前租户的租户层值（定义允许时），否则为代码默认值；
+  租户层与宿主层为代码默认值（被绑定的宿主级设置即部署基线）。跨设置的约束因此不会被一次清除绕过；清除后没有任何值时不调用校验器。
+  宿主机密设置的部署配置回落在消费端完成，校验器拿不到它。
   错误提示的 `{Name}` 按 `Setting:{设置名}` 查 `LocalizationResource`，查不到用定义上的 `DisplayName`，再没有才用设置名；`Setting:Undefined`、`Setting:NotAvailable` 回显调用方传入的名字。
 - 写入后发布 `SettingChangedEvent`（注册了本地事件总线时），事件不带值。没有事件总线时，宿主级设置写入后要等下一轮周期刷新才在本进程生效。
 - 设置页用例按层给出原始覆盖值，不给回落后的生效值。只处理 `IsVisibleToClients` 的设置（不可见的读不到、写入 404）；租户上下文不下发进程级设置，
   写入它返回 403（`Setting:HostOnly`）；进程级设置的值放在 `TenantValue`；机密设置不下发任何值，只给 `HasSecretValue`。
-  显示名按 `Setting:{设置名}`、分组按 `SettingGroup:{分组}` 查 `LocalizationResource`，查不到回落到定义文案；未分组归入 `DefaultGroup`。用例不查权限，由端点策略决定。
+- 管理授权由端点判定：`CanManage = 定义允许租户或进程级 && TenantWritePolicy 通过 && (分组未登记策略 || 分组策略通过)`，一次请求内按分组复用授权结果。
+  `PUT /current-tenant` 按同一判据。策略经官方策略评估器评估：策略自带的认证方案照常生效，资源与端点授权一样是当前 `HttpContext`；
+  分组策略不满足时按该策略的方案质询（401）或拒绝（403）。未定义或不可见的设置先按 404 处理，不因所在分组的策略变成 403。`GET /` 只下发能管理的设置与允许用户覆盖的设置：`IsVisibleToClients` 是进入设置页的必要条件，
+  不再代表所有已登录用户都读得到租户层与进程级的管理值。直接调用 `ISettingManagementService` 时 `CanManage` 恒为 `false`。
+  显示名按 `Setting:{设置名}`、分组按 `SettingGroup:{分组}` 查 `LocalizationResource`，查不到回落到定义文案；未分组归入 `DefaultGroup`。用例不查权限，由端点按上一条判定。
 - 宿主级设置经配置源进入 Options（Hosting 包）：设过的宿主级设置作为优先级最高的配置源覆盖绑定的配置键，没设的回落到部署配置；
   机密设置在进程内解密后进配置。三处推进：宿主开始接收请求之前一次、写入宿主级设置的事务提交后本进程立即一次、每个副本上的 `EveryInstance` 周期任务 `settings.host-refresh`。
 - 整组原子生效：推进后按 `BindOption<TOptions>` 涉及的选项类型逐个校验，任何一个不合规就整组退回上一组；与当前一组或上次被拒的一组相同时不做任何事。
@@ -249,7 +258,9 @@ public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : I
   未注册 Data Protection 或密文无法解密时抛 `InvalidOperationException`（API 边界为 500），不回落默认值。
   `Leistd.Settings.Core` 因此引用 `Microsoft.AspNetCore.DataProtection.Abstractions`，这是纯抽象包，非 Web 宿主同样可用；架构门禁可按 `*.Abstractions` 放行。
 - 匿名调用只回落到租户级，不查用户级。
-- `ISettingProvider` 为 Scoped，一次请求内每个层级只查一次库并复用结果；`ISettingDefinitionManager` 为 Singleton。
+- `ISettingProvider` 为 Scoped，一次请求内每个租户、每个用户的每个层级只查一次库并复用结果：缓存按 `ICurrentTenant`（未注册多租户时按宿主一份）与当前用户分键，
+  同一作用域里 `CurrentTenant.Change` 后读到目标租户的值。它只选对快照；持久化连到哪个租户的库仍由工作单元决定（一个工作单元不能改变连接归属）。
+  `ISettingDefinitionManager` 为 Singleton。
 - 设置名重复在首次访问定义时失败。读写未定义名称抛 `UndefinedSettingException`；写入未允许层级抛 `SettingScopeNotAllowedException`。
 - 层级由 `SettingRecord` 的 `TenantId`（多租户查询过滤器隔离）与 `UserId`（`null` 即租户级）共同表达，没有独立的 Scope 列。
 - 唯一索引为 `(ScopeKey, Name)`；`ScopeKey` 由租户和层级派生，可空的 `TenantId`/`UserId` 因此不影响唯一约束。

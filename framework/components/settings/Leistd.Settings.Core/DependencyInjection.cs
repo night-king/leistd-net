@@ -18,7 +18,7 @@ public static class DependencyInjection
     /// <summary>注册设置定义管理器、解析器、写入入口与设置页用例。</summary>
     /// <remarks>
     /// <para><see cref="ISettingDefinitionManager"/> 为 Singleton——定义在进程生命周期内不变；
-    /// <see cref="ISettingProvider"/> 为 Scoped，一次请求内只查一次库并复用结果。</para>
+    /// <see cref="ISettingProvider"/> 为 Scoped，按当前租户与当前用户缓存，同一作用域里每个租户、每个用户只查一次库。</para>
     /// <para>还需要一个 <see cref="ISettingStore"/> 实现（如 <c>AddSettingsEfCore&lt;TDbContext&gt;()</c>），
     /// 缺失时解析 <see cref="ISettingProvider"/> 失败。</para>
     /// <para>机密设置（<see cref="ISettingDefinition.IsEncrypted"/>）用宿主的 Data Protection 加解密：

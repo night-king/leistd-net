@@ -8,6 +8,7 @@ namespace Leistd.Settings.Management;
 public interface ISettingManager
 {
     /// <summary>写入设置值；<paramref name="value"/> 为 <see langword="null"/> 时清除该层级的值。</summary>
+    /// <remarks>清除同样经过业务校验器（以清除后会生效的值），可能因此被拒绝。</remarks>
     /// <param name="name">设置名称。</param>
     /// <param name="value">设置值；<see langword="null"/> 表示清除，使其回落到下一层。</param>
     /// <param name="scope">写入的层级，必须在定义允许的范围内。</param>

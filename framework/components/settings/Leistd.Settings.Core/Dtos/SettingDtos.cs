@@ -21,6 +21,8 @@ namespace Leistd.Settings.Dtos;
 /// <param name="IsSecret">机密设置：各层的值与默认值一律不下发，界面渲染成只写的输入框。</param>
 /// <param name="HasSecretValue">机密设置在可写的那一层是否已经设过值；非机密设置恒为 <see langword="false"/>。</param>
 /// <param name="AllowedValues">候选值；不限时为 <see langword="null"/>。</param>
+/// <param name="CanManage">调用方能否写入租户层（宿主上下文下为进程级）的值，由 HTTP 端点按授权策略计算；
+/// 直接调用 <see cref="Management.ISettingManagementService"/> 时恒为 <see langword="false"/>。</param>
 public record SettingOutputDto(
     string Name,
     string DisplayName,
@@ -37,7 +39,8 @@ public record SettingOutputDto(
     bool IsBoolean = false,
     bool IsSecret = false,
     bool HasSecretValue = false,
-    IReadOnlyList<string>? AllowedValues = null);
+    IReadOnlyList<string>? AllowedValues = null,
+    bool CanManage = false);
 
 /// <summary>写入一项设置。</summary>
 /// <param name="Name">设置名称。</param>
