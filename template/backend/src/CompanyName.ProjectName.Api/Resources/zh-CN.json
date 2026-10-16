@@ -204,6 +204,7 @@
     "Setting:Security.LockoutDurationMinutes": "锁定时长（分钟）",
     "Setting:Security.LockoutMaxFailedAttempts": "连续登录失败多少次后锁定（0 为不锁定）",
     "Setting:Security.RequireTwoFactor": "要求所有人启用两步验证",
+    "Setting:Security.SessionIdleTimeoutDays": "会话空闲多少天后退出",
     "AppSetting:NotificationRetentionOrder": "未读通知的保留天数不能短于已读通知（{Unread} 天 < {Read} 天）。",
     "AppSetting:TestEmailFailed": "测试邮件发送失败，请检查邮件设置和服务端日志。",
     "AppSetting:TimeZoneInvalid": "「{Value}」不是合法的 IANA 时区标识。",

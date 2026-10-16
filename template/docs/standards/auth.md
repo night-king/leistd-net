@@ -89,9 +89,9 @@
 
 会话 Cookie 在部署环境名为 `__Host-Http-CompanyName.ProjectName.Auth`，Secure、HttpOnly、`Path=/`、不带 Domain；浏览器只接受经 HTTPS 写入的这个名字，因此对外源必须是 HTTPS，站点不能挂在子路径下。Development 环境为了支持 HTTP 同源调试，名字不带前缀，Secure 跟随请求协议。
 
-`SessionCookie:ExpireDays` 是会话时长（天，至少 1，启动期校验），会话 Cookie 的滑动过期取它。
+`SessionCookie:ExpireDays` 是会话时长（天，1–365，启动期校验），会话 Cookie 的滑动过期取它。
 <!--#if (LocalIdentity)-->
-服务端会话（登录设备）的空闲时限从同一份选项派生，两者不会不一致。
+本地身份下它只是部署基线：会话空闲时限是租户策略（`Security.SessionIdleTimeoutDays`，登录与会话分组），服务端会话（登录设备、令牌续期、过期清理）与会话 Cookie 都按会话所属租户的值。签发时在 `OnSigningIn` 按待签发主体的租户写入有效期（进出模拟登录时环境租户与主体不同）；策略变更后，校验器实际查会话的那次请求把票据跨度收敛到新时长并续发，因此最迟一个校验缓存周期（1 分钟）跟上。调短后，空闲已超过新时长的会话下一次实际校验即失效。租户不存在或已停用时不读它的策略，交给租户会话自恢复。
 <!--#endif-->
 
 `SessionCookie:SameSite` 只控制应用会话 Cookie；默认 Lax，放宽到 None 也不会让跨源浏览器认证导航成立。OAuth correlation 与 OIDC nonce Cookie 保持官方 SameSite=None、Secure=Always，HTTPS 回调不可省略。开发回调在 `/api/**` 下，由开发代理转发。

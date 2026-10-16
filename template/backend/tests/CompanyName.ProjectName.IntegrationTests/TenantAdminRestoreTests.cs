@@ -213,7 +213,7 @@ public sealed class TenantAdminRestoreTests
             admin.EnableTwoFactor("unused-for-restore", [], 0);
             admin.Disable();
             await services.GetRequiredService<IUserRepository>().UpdateAsync(admin);
-            Assert.Equal(1, await services.GetRequiredService<UserSessionDomainService>().RevokeAllAsync(admin.Id, null));
+            Assert.Single(await services.GetRequiredService<UserSessionDomainService>().RevokeAllAsync(admin.Id, null));
         });
         Assert.Equal(HttpStatusCode.Unauthorized, await UsersStatusAsync(earlier));
 

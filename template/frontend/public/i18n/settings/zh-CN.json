@@ -55,7 +55,7 @@
     //#else
     "Registration": "是否开放自助注册、新用户的验证要求与验证码时效",
     //#endif
-    "Security": "登录失败锁定与两步验证要求",
+    "Security": "登录失败锁定、两步验证要求与会话空闲时限",
     //#if (ExternalLogin)
     "ExternalLogin": "用 GitHub、Google 等第三方账号登录：各渠道的开关与客户端凭据",
     //#endif

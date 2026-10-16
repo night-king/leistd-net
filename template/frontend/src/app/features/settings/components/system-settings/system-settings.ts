@@ -185,7 +185,7 @@ const GROUP_DESCRIPTIONS: Readonly<Record<string, string>> = {
   Registration:
     'Whether self sign-up is open, how new accounts are verified and how long codes stay valid',
   //#endif
-  Security: 'Sign-in lockout and two-factor requirements',
+  Security: 'Sign-in lockout, two-factor requirements and how long idle sessions last',
   //#if (ExternalLogin)
   ExternalLogin:
     'Sign-in with GitHub, Google and other providers: a switch and client credentials for each',

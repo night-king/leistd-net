@@ -32,7 +32,7 @@ internal static class LocalSessionAuthenticationExtensions
     {
         AddAccountOptions(builder.Services, builder.Configuration);
 
-        // 会话 Cookie 的滑动过期与服务端会话的空闲时限是同一个值，取自同一份会话 Cookie 选项
+        // 会话空闲时限的部署基线取自会话 Cookie 有效期；租户可在设置里各自调整（Security.SessionIdleTimeoutDays）
         builder.Services.AddOptions<UserSessionOptions>()
             .Configure<IOptions<SessionCookieOptions>>((options, sessionCookie) => options.IdleTimeout = sessionCookie.Value.Lifetime);
         builder.Services.AddRequestClientInfo();
@@ -88,13 +88,45 @@ internal static class LocalSessionAuthenticationExtensions
                 }
 #endif
                 var validator = context.HttpContext.RequestServices.GetRequiredService<IUserSessionValidator>();
-                if (context.Principal is null ||
-                    !await validator.ValidateAsync(context.Principal, context.HttpContext.RequestAborted))
+                var validation = context.Principal is null
+                    ? UserSessionValidation.Invalid
+                    : await validator.ValidateAsync(context.Principal, context.HttpContext.RequestAborted);
+                if (!validation.IsValid)
                 {
                     context.RejectPrincipal();
                     await context.HttpContext.SignOutAsync(AuthenticationSchemeNames.SessionCookie);
+                    return;
+                }
+
+                // 租户调整了会话空闲时限：把票据有效期收敛到新时长再续发（官方滑动续期按签发与到期之差续期）。
+                // 只在校验器这次实际查过会话时比对，用的是它按主体租户读到的值；缓存命中期间不另查
+                if (validation.IdleTimeout is { } idleTimeout
+                    && context.Properties.ExpiresUtc - context.Properties.IssuedUtc != idleTimeout)
+                {
+                    SetLifetime(context.Properties, idleTimeout, context.Options.TimeProvider ?? TimeProvider.System);
+                    context.ShouldRenew = true;
                 }
             };
+
+            // 会话 Cookie 的有效期取主体所在租户的空闲时限（模拟登录进出时环境租户与主体不同，按主体读）；
+            // 租户不可用时沿用部署基线 ExpireTimeSpan，交给租户会话自恢复处理
+            options.Events.OnSigningIn = async context =>
+            {
+                var reader = context.HttpContext.RequestServices.GetRequiredService<ISessionIdleTimeoutReader>();
+                if (context.Principal is not null
+                    && await reader.ReadAsync(context.Principal, context.HttpContext.RequestAborted) is { } idleTimeout)
+                {
+                    SetLifetime(context.Properties, idleTimeout, context.Options.TimeProvider ?? TimeProvider.System);
+                }
+            };
+
+            // 只改票据时序，不动 auth_time 等认证时间声明
+            static void SetLifetime(AuthenticationProperties properties, TimeSpan idleTimeout, TimeProvider time)
+            {
+                var now = time.GetUtcNow();
+                properties.IssuedUtc = now;
+                properties.ExpiresUtc = now + idleTimeout;
+            }
 
             // API 拒绝必须返回 401/403，不能被 Cookie 重定向和 SPA 回退转换为 HTML 200。
             options.Events.OnRedirectToLogin = context => WriteStatusAsync(context, StatusCodes.Status401Unauthorized);

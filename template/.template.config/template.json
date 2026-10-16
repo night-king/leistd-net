@@ -347,6 +347,7 @@
             "frontend/_mock/api/auth.ts",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/AuthorizationAndAuditingTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/RegistrationSwitchTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SessionIdleTimeoutTests.cs",
             "backend/src/CompanyName.ProjectName.Application/Tenants/**",
             "backend/src/CompanyName.ProjectName.Application/TenantConnections/**",
             "backend/src/CompanyName.ProjectName.Api/Controllers/TenantController.cs",

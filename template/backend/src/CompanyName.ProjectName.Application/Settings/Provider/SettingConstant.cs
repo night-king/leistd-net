@@ -180,6 +180,9 @@ public static class SettingConstant
         /// <summary>是否要求所有人启用两步验证。</summary>
         public const string RequireTwoFactor = "Security.RequireTwoFactor";
 
+        /// <summary>会话空闲多少天后失效。</summary>
+        public const string SessionIdleTimeoutDays = "Security.SessionIdleTimeoutDays";
+
         /// <summary>连续失败次数的默认阈值。</summary>
         public const int DefaultLockoutMaxFailedAttempts = 5;
 

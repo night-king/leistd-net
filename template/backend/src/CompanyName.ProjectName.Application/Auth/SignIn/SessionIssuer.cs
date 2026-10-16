@@ -5,7 +5,6 @@ using CompanyName.ProjectName.Domain.Auth.Errors;
 #endif
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Domain.Auth.Entities;
-using CompanyName.ProjectName.Domain.Auth.Options;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
 using CompanyName.ProjectName.Application.Auth.Policies;
@@ -30,7 +29,6 @@ internal sealed class SessionIssuer(
     UserSessionDomainService userSessionDomainService,
     IRepository<UserSession, Guid> userSessionRepository,
     IQueryableAsyncExecuter asyncExecuter,
-    IOptions<UserSessionOptions> sessionOptions,
     TwoFactorChallengeStore twoFactorChallengeStore,
     ILoginSecurityPolicyProvider loginSecurityPolicy,
     ISecurityAlertPublisher securityAlerts,
@@ -129,9 +127,11 @@ internal sealed class SessionIssuer(
 
         var extraClaims = additionalClaims?.ToList() ?? [];
         var impersonatorName = ReadImpersonatorName(extraClaims);
-        var newDevice = await IsNewDeviceAsync(user.Id, previousIp, impersonatorName, cancellationToken);
+        // 空闲时限按会话所在的租户（模拟登录时是目标租户）
+        var idleTimeout = (await loginSecurityPolicy.GetAsync(cancellationToken)).SessionIdleTimeout;
+        var newDevice = await IsNewDeviceAsync(user.Id, previousIp, impersonatorName, idleTimeout, cancellationToken);
         var session = await userSessionDomainService.StartAsync(
-            user.Id, clientInfo.IpAddress, clientInfo.UserAgent, impersonatorName, cancellationToken);
+            user.Id, clientInfo.IpAddress, clientInfo.UserAgent, impersonatorName, idleTimeout, cancellationToken);
         if (newDevice)
         {
             await securityAlerts.PublishAsync(
@@ -216,6 +216,7 @@ internal sealed class SessionIssuer(
         Guid userId,
         string? previousIp,
         string? impersonatorName,
+        TimeSpan idleTimeout,
         CancellationToken cancellationToken)
     {
         if (impersonatorName is not null || previousIp is null || previousIp == clientInfo.IpAddress)
@@ -224,7 +225,7 @@ internal sealed class SessionIssuer(
         return !await asyncExecuter.AnyAsync(
             (await userSessionRepository.GetQueryableAsync(cancellationToken))
                 .Where(s => s.UserId == userId && s.UserAgent == clientInfo.UserAgent)
-                .Where(UserSession.ActiveAt(clock.Now, sessionOptions.Value.IdleTimeout)),
+                .Where(UserSession.ActiveAt(clock.Now, idleTimeout)),
             cancellationToken);
     }
 
