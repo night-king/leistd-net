@@ -7,10 +7,9 @@ public static class AppSettingErrorCodes
     public const string EmailAddressInvalid = "AppSetting:EmailAddressInvalid";
     public const string EmailVerificationKeyMissing = "AppSetting:EmailVerificationKeyMissing";
     public const string TestEmailFailed = "AppSetting:TestEmailFailed";
-    public const string TestEmailHostOnly = "AppSetting:TestEmailHostOnly";
 #endif
-#if (ExternalLogin)
-    public const string ExternalLoginStatusHostOnly = "AppSetting:ExternalLoginStatusHostOnly";
+#if (IncludeNotifications)
+    public const string NotificationRetentionOrder = "AppSetting:NotificationRetentionOrder";
 #endif
     public const string TimeZoneInvalid = "AppSetting:TimeZoneInvalid";
 }

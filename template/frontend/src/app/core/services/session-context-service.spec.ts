@@ -30,6 +30,7 @@ function timeZoneSetting(userValue: string | null): SettingOutputDto {
     allowsHostScope: false,
     minimum: null,
     maximum: null,
+    canManage: false,
   };
 }
 //#if (IncludeLocalization)
@@ -48,6 +49,7 @@ function languageSetting(userValue: string | null): SettingOutputDto {
     allowsHostScope: false,
     minimum: null,
     maximum: null,
+    canManage: false,
   };
 }
 //#endif

@@ -33,6 +33,7 @@ function setting(name: string): SettingOutputDto {
     allowsTenantScope: false,
     allowsUserScope: false,
     allowsHostScope: true,
+    canManage: true,
   };
 }
 

@@ -82,7 +82,7 @@ export const USERS: MockUser[] = [
     isEmailVerified: true,
     creationTime: '2025-04-18T00:00:00Z',
     lastLoginTime: '2026-06-12T00:15:00Z',
-    roles: ['Member'],
+    roles: ['Operator', 'Member'],
   },
   {
     id: 'user_siyuan',

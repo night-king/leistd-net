@@ -19,7 +19,8 @@ namespace Leistd.Settings.Management;
 /// <remarks>
 /// <para>取值校验依次是：空串拒绝、<see cref="ISettingDefinition.ValueType"/> 与区间、
 /// <see cref="ISettingDefinition.AllowedValues"/>、宿主注册的 <see cref="ISettingValueValidator"/>。
-/// 清除（值为 <see langword="null"/>）只校验名称与层级。</para>
+/// 清除（值为 <see langword="null"/>）不做值元数据校验，但以清除后会生效的值（下一层或代码默认值）经过业务校验器，
+/// 跨设置的约束因此不会被一次清除绕过；清除后没有任何值时不调用校验器。</para>
 /// <para>写入后作废同一作用域 <see cref="ISettingProvider"/> 的记忆化结果，同一请求里先写后读能读到新值。</para>
 /// </remarks>
 /// <param name="definitionManager">设置定义。</param>
@@ -27,7 +28,8 @@ namespace Leistd.Settings.Management;
 /// <param name="settingProvider">同一作用域的设置读取器，写入后作废它的记忆化结果。</param>
 /// <param name="validators">业务取值校验器。</param>
 /// <param name="eventBus">发布变更事件；未注册本地事件总线时不发布。</param>
-/// <param name="dataProtectionProvider">机密设置的加密用宿主的 Data Protection；为 <see langword="null"/> 时只有写入机密设置会失败。</param>
+/// <param name="dataProtectionProvider">机密设置的加解密用宿主的 Data Protection；为 <see langword="null"/> 时写入机密设置、
+/// 以及清除用户覆盖而需要解密租户层回落值时会失败。</param>
 /// <param name="localizerFactory">校验失败时按请求语言取设置显示名；未启用本地化时用定义上的显示名。</param>
 /// <param name="managementOptions">提供显示名词条所在的资源类型。</param>
 public sealed class DefaultSettingManager(
@@ -73,7 +75,13 @@ public sealed class DefaultSettingManager(
         if (value is not null)
         {
             EnsureWellFormed(definition, value);
-            var context = new SettingValueValidationContext(definition, value, scope, userId);
+        }
+
+        // 回落值来自定义或下一层，不再跑值元数据校验；业务规则（常常牵涉另一项设置）仍按它判定
+        var candidate = value ?? await FallbackAfterClearAsync(definition, scope, cancellationToken);
+        if (candidate is not null)
+        {
+            var context = new SettingValueValidationContext(definition, candidate, scope, userId);
             foreach (var validator in validators)
             {
                 await validator.ValidateAsync(context, cancellationToken);
@@ -93,6 +101,28 @@ public sealed class DefaultSettingManager(
         {
             await eventBus.PublishAsync(new SettingChangedEvent(name, scope, userId), cancellationToken);
         }
+    }
+
+    // 移除本层覆盖后会生效的明文值：用户层回落到租户层存储值（定义允许时），再回落到代码默认值；
+    // 租户层与宿主层回落到代码默认值（被绑定的宿主级设置即部署基线）。直接读存储而不是 ISettingProvider，
+    // 后者会返回本层尚未清除的覆盖值。
+    private async Task<string?> FallbackAfterClearAsync(
+        ISettingDefinition definition,
+        SettingScopes scope,
+        CancellationToken cancellationToken)
+    {
+        if (scope == SettingScopes.User && definition.Scopes.HasFlag(SettingScopes.Tenant))
+        {
+            var tenantValues = await store.GetAllAsync(SettingScopes.Tenant, userId: null, cancellationToken);
+            if (tenantValues.TryGetValue(definition.Name, out var tenantValue))
+            {
+                return definition.IsEncrypted
+                    ? DefaultSettingProvider.Decrypt(_protector, definition.Name, tenantValue)
+                    : tenantValue;
+            }
+        }
+
+        return definition.DefaultValue;
     }
 
     // 报错用界面上的显示名，只在失败路径上按当前请求语言解析

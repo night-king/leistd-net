@@ -1,4 +1,4 @@
-import { requirePermission } from './authorization';
+import { hasPermission, requirePermission } from './authorization';
 //#if (ExternalLogin)
 import { ExternalLoginStatusOutputDto } from '../../src/app/core/settings/setting.dto';
 //#endif
@@ -50,6 +50,74 @@ function requireSubjectId(): string {
     throw new MockException(401, { message: 'Not authenticated' });
   }
   return subjectId;
+}
+
+/** 系统设置分组 → 管理它所需的子权限，与后端 SettingGroupPermissions 一致。 */
+const GROUP_PERMISSIONS: Readonly<Record<string, string>> = {
+  //#if (LocalIdentity)
+  Registration: PERMISSIONS.settings.registration,
+  Security: PERMISSIONS.settings.security,
+  //#if (ExternalLogin)
+  ExternalLogin: PERMISSIONS.settings.externalLogin,
+  //#endif
+  //#if (Email)
+  Email: PERMISSIONS.settings.email,
+  //#endif
+  //#endif
+  Operations: PERMISSIONS.settings.operations,
+  //#if (IncludeOperationRecords || IncludeNotifications)
+  Retention: PERMISSIONS.settings.retention,
+  //#endif
+};
+
+/**
+ * 侧别为 Host 的子权限（只含进程级设置的分组）：租户上下文下权限检查本身就拒绝，与授予无关。
+ * Mock 的授予不分侧别，这里补上这一层。
+ */
+// prettier-ignore
+const HOST_SIDE_PERMISSIONS: ReadonlySet<string> = new Set([
+  //#if (ExternalLogin)
+  PERMISSIONS.settings.externalLogin,
+  //#endif
+  //#if (Email)
+  PERMISSIONS.settings.email,
+  //#endif
+  PERMISSIONS.settings.operations,
+  //#if (IncludeOperationRecords || IncludeNotifications)
+  PERMISSIONS.settings.retention,
+  //#endif
+]);
+
+function holds(permission: string): boolean {
+  return (
+    (!HOST_SIDE_PERMISSIONS.has(permission) || getMockSessionTenantKey() === 'host') &&
+    hasPermission(permission)
+  );
+}
+
+/** 端点级 403（未登录为 401）：分组子权限缺失，或 Host 侧子权限在租户上下文下；与授权管道一致，不带业务码。 */
+function requireHeld(permission: string): void {
+  if (!holds(permission)) {
+    throw new MockException(403, { message: `Missing permission: ${permission}` });
+  }
+}
+
+/** 与后端端点同一判据：能写租户级或进程级、持有入口权限，且持有该分组登记的子权限。 */
+function canManage(definition: MockSettingDefinition): boolean {
+  const groupPermission = GROUP_PERMISSIONS[definition.group];
+  return (
+    (definition.allowsTenantScope || (definition.allowsHostScope ?? false)) &&
+    hasPermission(PERMISSIONS.settings.default) &&
+    (groupPermission === undefined || holds(groupPermission))
+  );
+}
+
+/** 写租户级或进程级值前的授权：入口权限之外，再要该分组的子权限。 */
+function requireManage(definition: MockSettingDefinition): void {
+  const groupPermission = GROUP_PERMISSIONS[definition.group];
+  if (groupPermission !== undefined) {
+    requireHeld(groupPermission);
+  }
 }
 
 /** 本会话能看到的设置：与真实后端一样，进程级设置只在宿主上下文下发。 */
@@ -116,6 +184,37 @@ function assertValidValue(definition: MockSettingDefinition, value: string | nul
   }
 }
 
+//#if (IncludeNotifications)
+const READ_RETENTION = 'Notifications.ReadRetentionDays';
+const UNREAD_RETENTION = 'Notifications.UnreadRetentionDays';
+
+/**
+ * 未读通知的保留天数不得短于已读的，与后端校验器一致：写入与清除（候选值是回落后的默认值）都判，
+ * 另一项取库里的覆盖值，没有就是默认值。
+ */
+function assertRetentionOrder(tenantKey: string, name: string, value: string | null): void {
+  if (name !== READ_RETENTION && name !== UNREAD_RETENTION) {
+    return;
+  }
+  // 本次写入的那一项取候选值（清除即默认值），另一项取库里的覆盖值，没有就是默认值
+  const effective = (setting: string) =>
+    Number(
+      setting === name
+        ? (value ?? requireDefinition(setting).defaultValue)
+        : (TENANT_SETTING_VALUES.get(`${tenantKey}:${setting}`) ??
+            requireDefinition(setting).defaultValue),
+    );
+  const read = effective(READ_RETENTION);
+  const unread = effective(UNREAD_RETENTION);
+  if (unread < read) {
+    throw new MockException(400, {
+      code: 'AppSetting:NotificationRetentionOrder',
+      message: `Unread notifications must be kept at least as long as read ones (${unread} < ${read} days).`,
+    });
+  }
+}
+
+//#endif
 function readBody(req: MockRequest): { name: string; value: string | null } {
   const { name, value } = (req.body ?? {}) as { name?: string; value?: string | null };
   if (typeof name !== 'string') {
@@ -140,14 +239,8 @@ function write(map: StoredMap, key: string, value: string | null): null {
  * Mock 没有多实例，"本实例已生效"即可用。
  */
 function getExternalLoginStatus(): ExternalLoginStatusOutputDto {
-  requirePermission(PERMISSIONS.settings.default);
-  // 外部登录是进程级配置，只有宿主能改，也只有宿主来看
-  if (getMockSessionTenantKey() !== 'host') {
-    throw new MockException(403, {
-      code: 'AppSetting:ExternalLoginStatusHostOnly',
-      message: 'The external sign-in status is only available on the host.',
-    });
-  }
+  // 子权限侧别是 Host：租户上下文下由权限检查拒绝
+  requireHeld(PERMISSIONS.settings.externalLogin);
 
   return {
     providers: externalLoginConfigs().map((config) => ({
@@ -171,40 +264,45 @@ export const SETTING_API = {
   //#endif
     const subjectId = requireSubjectId();
     const tenantKey = getMockSessionTenantKey();
-    return visibleDefinitions(tenantKey).map((definition) => ({
-      name: definition.name,
-      //#if (IncludeLocalization)
-      displayName: localizedText(req, `Setting:${definition.name}`, definition.displayName),
-      group: definition.group,
-      groupDisplayName: localizedText(
-        req,
-        `SettingGroup:${definition.group}`,
-        SETTING_GROUP_NAMES[definition.group] ?? definition.group,
-      ),
-      //#else
-      displayName: definition.displayName,
-      group: definition.group,
-      groupDisplayName: SETTING_GROUP_NAMES[definition.group] ?? definition.group,
-      //#endif
-      // 机密设置与真实后端一致：一个值都不下发，只报告是否设过
-      userValue: definition.isSecret
-        ? null
-        : (USER_SETTING_VALUES.get(`${tenantKey}:${subjectId}:${definition.name}`) ?? null),
-      tenantValue: definition.isSecret
-        ? null
-        : (TENANT_SETTING_VALUES.get(`${tenantKey}:${definition.name}`) ?? null),
-      defaultValue: definition.isSecret ? null : definition.defaultValue,
-      allowsTenantScope: definition.allowsTenantScope,
-      allowsUserScope: definition.allowsUserScope,
-      allowsHostScope: definition.allowsHostScope ?? false,
-      // 与真实后端一致：值为 null 的属性不下发，没有区间的设置不带这两个字段
-      ...(definition.minimum === undefined ? {} : { minimum: definition.minimum }),
-      ...(definition.maximum === undefined ? {} : { maximum: definition.maximum }),
-      isBoolean: definition.isBoolean ?? false,
-      isSecret: definition.isSecret ?? false,
-      hasSecretValue:
-        !!definition.isSecret && TENANT_SETTING_VALUES.has(`${tenantKey}:${definition.name}`),
-    }));
+    // 管理值只给管理者：不能管理、又不允许用户覆盖的设置不下发
+    return visibleDefinitions(tenantKey)
+      .map((definition) => ({ definition, manageable: canManage(definition) }))
+      .filter(({ definition, manageable }) => manageable || definition.allowsUserScope)
+      .map(({ definition, manageable }) => ({
+        name: definition.name,
+        //#if (IncludeLocalization)
+        displayName: localizedText(req, `Setting:${definition.name}`, definition.displayName),
+        group: definition.group,
+        groupDisplayName: localizedText(
+          req,
+          `SettingGroup:${definition.group}`,
+          SETTING_GROUP_NAMES[definition.group] ?? definition.group,
+        ),
+        //#else
+        displayName: definition.displayName,
+        group: definition.group,
+        groupDisplayName: SETTING_GROUP_NAMES[definition.group] ?? definition.group,
+        //#endif
+        // 机密设置与真实后端一致：一个值都不下发，只报告是否设过
+        userValue: definition.isSecret
+          ? null
+          : (USER_SETTING_VALUES.get(`${tenantKey}:${subjectId}:${definition.name}`) ?? null),
+        tenantValue: definition.isSecret
+          ? null
+          : (TENANT_SETTING_VALUES.get(`${tenantKey}:${definition.name}`) ?? null),
+        defaultValue: definition.isSecret ? null : definition.defaultValue,
+        allowsTenantScope: definition.allowsTenantScope,
+        allowsUserScope: definition.allowsUserScope,
+        allowsHostScope: definition.allowsHostScope ?? false,
+        // 与真实后端一致：值为 null 的属性不下发，没有区间的设置不带这两个字段
+        ...(definition.minimum === undefined ? {} : { minimum: definition.minimum }),
+        ...(definition.maximum === undefined ? {} : { maximum: definition.maximum }),
+        isBoolean: definition.isBoolean ?? false,
+        isSecret: definition.isSecret ?? false,
+        hasSecretValue:
+          !!definition.isSecret && TENANT_SETTING_VALUES.has(`${tenantKey}:${definition.name}`),
+        canManage: manageable,
+      }));
   },
 
   'PUT /api/v1/settings/current-user': (req: MockRequest) => {
@@ -216,10 +314,11 @@ export const SETTING_API = {
   },
 
   'PUT /api/v1/settings/current-tenant': (req: MockRequest) => {
-    // 改系统默认值需要管理权限；改自己的偏好只要登录。这层差异是两个端点存在的理由。
+    // 改系统默认值需要管理权限（入口 + 分组子权限）；改自己的偏好只要登录。这层差异是两个端点存在的理由。
     requirePermission(PERMISSIONS.settings.default);
     const { name, value } = readBody(req);
     const definition = requireDefinition(name);
+    requireManage(definition);
     const tenantKey = getMockSessionTenantKey();
     // 进程级设置只有宿主那一行：租户写不进去，否则会存成该租户自己的覆盖
     if (definition.allowsHostScope && tenantKey !== 'host') {
@@ -229,13 +328,16 @@ export const SETTING_API = {
       });
     }
     assertValidValue(definition, value);
+    //#if (IncludeNotifications)
+    assertRetentionOrder(tenantKey, name, value);
+    //#endif
     return write(TENANT_SETTING_VALUES, `${tenantKey}:${name}`, value);
   },
   //#if (Email)
 
   // mock 下不真的发信，只演示界面
   'POST /api/v1/settings/email/test': () => {
-    requirePermission(PERMISSIONS.settings.default);
+    requireHeld(PERMISSIONS.settings.email);
     return 'ok';
   },
   //#endif

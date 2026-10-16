@@ -5,8 +5,9 @@ namespace Leistd.Settings.Validation;
 
 /// <summary>业务取值校验：定义上的值元数据表达不了的规则（时区标识、邮箱地址、开启前提）。</summary>
 /// <remarks>
-/// <para>在 <see cref="ISettingManager"/> 写入前、通过类型、区间与候选校验之后依次调用，
-/// 清除（值为 <see langword="null"/>）不经过它。每个校验器自己按设置名判断是否适用。</para>
+/// <para>在 <see cref="ISettingManager"/> 写入前、通过类型、区间与候选校验之后依次调用，每个校验器自己按设置名判断是否适用。</para>
+/// <para>清除（值为 <see langword="null"/>）也调用它，<see cref="SettingValueValidationContext.Value"/> 是清除后会生效的明文值
+/// （用户层回落到租户层值，否则为代码默认值），跨设置的约束因此不会被一次清除绕过；清除后没有任何值时不调用。</para>
 /// <para>不合法时抛带码的 <c>BusinessException</c>，写入随之中止。</para>
 /// </remarks>
 /// <example>
@@ -35,7 +36,7 @@ public interface ISettingValueValidator
 
 /// <summary>一次待校验的写入。</summary>
 /// <param name="Definition">设置定义。</param>
-/// <param name="Value">要写入的值，非空。</param>
+/// <param name="Value">要写入的值，非空；清除时为清除后会生效的值。</param>
 /// <param name="Scope">写入层级。</param>
 /// <param name="UserId">用户级时的用户标识。</param>
 public sealed record SettingValueValidationContext(

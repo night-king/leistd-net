@@ -1,4 +1,7 @@
+using Leistd.MultiTenancy.Context;
+using Leistd.Security.Users;
 using Leistd.Settings.Definitions;
+using Leistd.Settings.Management;
 using Leistd.Settings.Resolution;
 using Leistd.Settings.Stores;
 using Leistd.Settings.Exceptions;
@@ -180,11 +183,186 @@ public class SettingResolutionTests
         Assert.Equal("ja-JP", await provider.GetOrNullAsync("Display.Language"));
     }
 
+    // 同一作用域里切换租户（模拟登录、后台逐租户处理）要读到目标租户的值：存储按调用时的租户读，缓存键也得带租户
+    [Fact]
+    public async Task Switching_tenants_in_one_scope_reads_each_tenant_once()
+    {
+        var tenantA = Guid.NewGuid();
+        var currentTenant = new CurrentTenant(AsyncLocalCurrentTenantAccessor.Instance);
+        var store = new TenantAwareStore(currentTenant);
+        store.Rows[(null, SettingScopes.Tenant, null)] = new() { ["Display.Language"] = "en-US" };
+        store.Rows[(tenantA, SettingScopes.Tenant, null)] = new() { ["Display.Language"] = "ja-JP" };
+        store.Rows[(null, SettingScopes.Host, null)] = new() { ["Logging.MinimumLevel"] = "Debug" };
+        var provider = new DefaultSettingProvider(
+            new SettingDefinitionManager([new TestSettingDefinitionProvider()]),
+            store,
+            new FakeCurrentUser(UserId),
+            currentTenant: currentTenant);
+
+        Assert.Equal("en-US", await provider.GetOrNullAsync("Display.Language"));
+        using (currentTenant.Change(tenantA))
+        {
+            Assert.Equal("ja-JP", await provider.GetOrNullAsync("Display.Language"));
+            Assert.Equal("ja-JP", await provider.GetOrNullAsync("Display.Language"));
+            // 宿主层在租户键下不可达，不复用宿主那份快照
+            await Assert.ThrowsAsync<HostScopeUnavailableException>(
+                () => provider.GetOrNullAsync("Logging.MinimumLevel"));
+        }
+
+        Assert.Equal("en-US", await provider.GetOrNullAsync("Display.Language"));
+        Assert.Equal("Debug", await provider.GetOrNullAsync("Logging.MinimumLevel"));
+        Assert.Equal(1, store.Reads[(null, SettingScopes.Tenant, null)]);
+        Assert.Equal(1, store.Reads[(tenantA, SettingScopes.Tenant, null)]);
+    }
+
+    // 两个已登录用户各有覆盖：A → B → A 各读到自己的值，且回到 A 时复用 A 的快照
+    [Fact]
+    public async Task Switching_users_in_one_scope_keeps_each_users_overrides_apart()
+    {
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+        var currentTenant = new CurrentTenant(AsyncLocalCurrentTenantAccessor.Instance);
+        var store = new TenantAwareStore(currentTenant);
+        store.Rows[(null, SettingScopes.User, userA.ToString())] = new() { ["Display.Language"] = "ja-JP" };
+        store.Rows[(null, SettingScopes.User, userB.ToString())] = new() { ["Display.Language"] = "fr-FR" };
+        var currentUser = new SwitchableCurrentUser(userA);
+        var provider = new DefaultSettingProvider(
+            new SettingDefinitionManager([new TestSettingDefinitionProvider()]), store, currentUser, currentTenant: currentTenant);
+
+        Assert.Equal("ja-JP", await provider.GetOrNullAsync("Display.Language"));
+        currentUser.Id = userB;
+        Assert.Equal("fr-FR", await provider.GetOrNullAsync("Display.Language"));
+        currentUser.Id = userA;
+        Assert.Equal("ja-JP", await provider.GetOrNullAsync("Display.Language"));
+        Assert.Equal(1, store.Reads[(null, SettingScopes.User, userA.ToString())]);
+    }
+
+    // 写入作废全部快照：先后加载过宿主与租户两份，写后回到任一上下文都重新读库
+    [Fact]
+    public async Task A_write_invalidates_every_snapshot_in_the_scope()
+    {
+        var tenantA = Guid.NewGuid();
+        var currentTenant = new CurrentTenant(AsyncLocalCurrentTenantAccessor.Instance);
+        var store = new TenantAwareStore(currentTenant);
+        var definitions = new SettingDefinitionManager([new TestSettingDefinitionProvider()]);
+        var provider = new DefaultSettingProvider(definitions, store, new FakeCurrentUser(UserId), currentTenant: currentTenant);
+        var manager = new DefaultSettingManager(definitions, store, provider, []);
+
+        await provider.GetOrNullAsync("Display.Language");
+        using (currentTenant.Change(tenantA))
+        {
+            await provider.GetOrNullAsync("Display.Language");
+        }
+
+        await manager.SetAsync("Display.Language", "en-US", SettingScopes.Tenant);
+        await provider.GetOrNullAsync("Display.Language");
+        using (currentTenant.Change(tenantA))
+        {
+            await provider.GetOrNullAsync("Display.Language");
+        }
+
+        Assert.Equal(2, store.Reads[(null, SettingScopes.Tenant, null)]);
+        Assert.Equal(2, store.Reads[(tenantA, SettingScopes.Tenant, null)]);
+    }
+
+    // 替别人判断时按当前租户读目标用户：切到另一租户后读到的是该租户下的覆盖
+    [Fact]
+    public async Task Reading_for_another_user_follows_the_current_tenant()
+    {
+        var tenantA = Guid.NewGuid();
+        var recipient = Guid.NewGuid().ToString();
+        var currentTenant = new CurrentTenant(AsyncLocalCurrentTenantAccessor.Instance);
+        var store = new TenantAwareStore(currentTenant);
+        store.Rows[(null, SettingScopes.User, recipient)] = new() { ["Display.Language"] = "ja-JP" };
+        store.Rows[(tenantA, SettingScopes.User, recipient)] = new() { ["Display.Language"] = "fr-FR" };
+        var provider = new DefaultSettingProvider(
+            new SettingDefinitionManager([new TestSettingDefinitionProvider()]), store, new FakeCurrentUser(UserId), currentTenant: currentTenant);
+
+        Assert.Equal("ja-JP", await provider.GetOrNullForUserAsync("Display.Language", recipient));
+        using (currentTenant.Change(tenantA))
+        {
+            Assert.Equal("fr-FR", await provider.GetOrNullForUserAsync("Display.Language", recipient));
+        }
+    }
+
     private static ISettingProvider Build(ISettingStore store, FakeCurrentUser? currentUser = null)
         => new DefaultSettingProvider(
             new SettingDefinitionManager([new TestSettingDefinitionProvider()]),
             store,
             currentUser ?? new FakeCurrentUser(UserId));
+
+    // 按当前租户分开存放的存储，记录每个租户每层的读取次数
+    private sealed class TenantAwareStore(ICurrentTenant currentTenant) : ISettingStore
+    {
+        public Dictionary<(Guid?, SettingScopes, string?), Dictionary<string, string>> Rows { get; } = [];
+
+        public Dictionary<(Guid?, SettingScopes, string?), int> Reads { get; } = [];
+
+        public bool CanAccessHostScope => !currentTenant.IsAvailable;
+
+        public Task<IReadOnlyDictionary<string, string>> GetAllAsync(
+            SettingScopes scope, string? userId, CancellationToken cancellationToken = default)
+        {
+            if (scope == SettingScopes.Host && !CanAccessHostScope)
+            {
+                return Task.FromException<IReadOnlyDictionary<string, string>>(new HostScopeUnavailableException());
+            }
+
+            var key = (currentTenant.Id, scope, scope == SettingScopes.User ? userId : null);
+            Reads[key] = Reads.GetValueOrDefault(key) + 1;
+            return Task.FromResult<IReadOnlyDictionary<string, string>>(
+                Rows.TryGetValue(key, out var values) ? values : new Dictionary<string, string>());
+        }
+
+        public Task RemoveAllAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SetAsync(
+            string name, string? value, SettingScopes scope, string? userId, CancellationToken cancellationToken = default)
+        {
+            var key = (currentTenant.Id, scope, scope == SettingScopes.User ? userId : null);
+            if (!Rows.TryGetValue(key, out var values))
+            {
+                Rows[key] = values = new Dictionary<string, string>();
+            }
+
+            if (value is null)
+            {
+                values.Remove(name);
+            }
+            else
+            {
+                values[name] = value;
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    // 同一作用域里换主体（如结束模拟）；其余成员转给固定的 FakeCurrentUser
+    private sealed class SwitchableCurrentUser(Guid? id) : ICurrentUser
+    {
+        public Guid? Id { get; set; } = id;
+
+        private FakeCurrentUser Inner => new(Id);
+
+        public bool IsAuthenticated => Inner.IsAuthenticated;
+
+        public string? SubjectId => Inner.SubjectId;
+
+        public Guid? TenantId => Inner.TenantId;
+
+        public string? Username => Inner.Username;
+
+        public string? Name => Inner.Name;
+
+        public string? Email => Inner.Email;
+
+        public System.Security.Claims.Claim? FindClaim(string claimType) => Inner.FindClaim(claimType);
+
+        public IReadOnlyList<System.Security.Claims.Claim> FindClaims(string claimType) => Inner.FindClaims(claimType);
+
+        public bool IsInRole(string role) => Inner.IsInRole(role);
+    }
 
     private sealed class TestSettingDefinitionProvider : ISettingDefinitionProvider
     {

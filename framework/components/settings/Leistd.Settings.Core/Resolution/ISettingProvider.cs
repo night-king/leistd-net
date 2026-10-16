@@ -3,7 +3,8 @@ namespace Leistd.Settings.Resolution;
 /// <summary>按层级解析设置的当前生效值。</summary>
 /// <remarks>
 /// <para>回落顺序：用户级 → 租户级 → 代码默认值。宿主视角走租户级那一层（<c>TenantId</c> 为 <see langword="null"/> 的行）。</para>
-/// <para>实现为 Scoped，一次请求内只查一次库；其他请求写入的变更在下一请求可见。</para>
+/// <para>实现为 Scoped，按当前租户与当前用户缓存各层原始值：同一作用域里每个租户、每个用户只查一次库，切换租户读到目标租户的值；
+/// 写入后缓存作废，其他请求写入的变更在下一请求可见。同一实例不支持并行调用。</para>
 /// <para>进程级设置（<c>SettingScopes.Host</c>）不走回落链：宿主上下文下读宿主那一行，没有值才用代码默认值；
 /// 租户上下文下不可达，单项读取抛 <see cref="Exceptions.HostScopeUnavailableException"/>，不返回代码默认值。</para>
 /// </remarks>

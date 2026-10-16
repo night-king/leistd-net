@@ -253,7 +253,7 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
   {
     name: 'Audit.RetentionEnabled',
     displayName: 'Archive expired operation records',
-    group: 'Audit',
+    group: 'Retention',
     defaultValue: 'false',
     allowsTenantScope: false,
     allowsUserScope: false,
@@ -265,12 +265,46 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
   {
     name: 'Audit.RetentionDays',
     displayName: 'Operation record retention (days)',
-    group: 'Audit',
+    group: 'Retention',
     defaultValue: '365',
     allowsTenantScope: false,
     allowsUserScope: false,
     allowsHostScope: true,
     minimum: 30,
+    maximum: 3650,
+  },
+  //#endif
+  //#if (IncludeNotifications)
+  {
+    name: 'Notifications.RetentionEnabled',
+    displayName: 'Clean up expired notifications',
+    group: 'Retention',
+    defaultValue: 'true',
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+    isBoolean: true,
+  },
+  {
+    name: 'Notifications.ReadRetentionDays',
+    displayName: 'Read notification retention (days)',
+    group: 'Retention',
+    defaultValue: '90',
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+    minimum: 1,
+    maximum: 3650,
+  },
+  {
+    name: 'Notifications.UnreadRetentionDays',
+    displayName: 'Unread notification retention (days)',
+    group: 'Retention',
+    defaultValue: '365',
+    allowsTenantScope: false,
+    allowsUserScope: false,
+    allowsHostScope: true,
+    minimum: 1,
     maximum: 3650,
   },
   //#endif
@@ -311,19 +345,19 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
 
 /**
  * 分组显示名，与后端 `SettingGroup:{group}` 的英文词条一致（真实后端按它返回，不是回显分组标识：
- * 例如 `Security` 显示为 "Sign-in security"）。
+ * 例如 `Security` 显示为 "Sign-in & sessions"）。
  */
 export const SETTING_GROUP_NAMES: Readonly<Record<string, string>> = {
   Display: 'Display',
   Operations: 'Operations',
-  //#if (IncludeOperationRecords)
-  Audit: 'Audit',
+  //#if (IncludeOperationRecords || IncludeNotifications)
+  Retention: 'Data retention',
   //#endif
   //#if (LocalIdentity)
   Registration: 'Registration',
   //#endif
   //#if (LocalIdentity)
-  Security: 'Sign-in security',
+  Security: 'Sign-in & sessions',
   //#endif
   //#if (Email)
   Email: 'Email',
@@ -352,6 +386,11 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   //#endif
   //#if (IncludeOperationRecords)
   'Setting:Audit.RetentionDays': '操作记录保留天数',
+  //#endif
+  //#if (IncludeNotifications)
+  'Setting:Notifications.RetentionEnabled': '清理到期通知',
+  'Setting:Notifications.ReadRetentionDays': '已读通知保留天数',
+  'Setting:Notifications.UnreadRetentionDays': '未读通知保留天数',
   //#endif
   //#if (Email)
   'Setting:Registration.EnableEmailVerification': '要求邮箱验证',
@@ -408,14 +447,14 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   //#endif
   'SettingGroup:Display': '显示',
   'SettingGroup:Operations': '运维',
-  //#if (IncludeOperationRecords)
-  'SettingGroup:Audit': '审计',
+  //#if (IncludeOperationRecords || IncludeNotifications)
+  'SettingGroup:Retention': '数据保留',
   //#endif
   //#if (LocalIdentity)
-  'SettingGroup:Registration': '注册验证',
+  'SettingGroup:Registration': '注册',
   //#endif
   //#if (LocalIdentity)
-  'SettingGroup:Security': '登录安全',
+  'SettingGroup:Security': '登录与会话',
   //#endif
   //#if (Email)
   'SettingGroup:Email': '邮件发送',

@@ -61,6 +61,11 @@ function effectivePermissionsOf(username: string): { permissions: string[]; vers
   };
 }
 
+/** 当前用户是否持有某项权限；不持有时不抛错，供按权限裁剪响应的端点使用。 */
+export function hasPermission(permission: string): boolean {
+  return effectivePermissionsOf(requireUser().username).permissions.includes(permission);
+}
+
 /** 端点级 403：与后端的策略保护逐个对应。 */
 export function requirePermission(permission: string) {
   const user = requireUser();

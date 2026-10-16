@@ -24,7 +24,9 @@
   },
   "system": {
     "title": "System settings",
-    "description": "Defaults and policies for everyone here; each user may override their own preferences"
+    "description": "Defaults and policies for everyone here; each user may override their own preferences",
+    "empty": "No settings you can manage",
+    "emptyHint": "Each settings section needs its own permission. Ask an administrator to grant the sections you look after"
   },
   "navigation": "Settings navigation",
   "openNavigation": "Open settings navigation",
@@ -57,8 +59,8 @@
     "Email": "SMTP server and sender used for outgoing mail",
     //#endif
     //#endif
-    //#if (IncludeOperationRecords)
-    "Audit": "Archiving of expired operation records",
+    //#if (IncludeOperationRecords || IncludeNotifications)
+    "Retention": "How long expired data is kept before it is cleaned up",
     //#endif
     "Operations": "How much detail the logs record"
   },

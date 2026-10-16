@@ -44,7 +44,9 @@ const GROUP_ICONS: Readonly<Record<string, string>> = {
   ExternalLogin: 'lucideLogIn',
   //#endif
   Operations: 'lucideActivity',
-  Audit: 'lucideArchive',
+  //#if (IncludeOperationRecords || IncludeNotifications)
+  Retention: 'lucideArchive',
+  //#endif
 };
 
 /**
@@ -118,6 +120,11 @@ export class SystemSettings {
 
   protected readonly loading = this.pageState.loading;
 
+  /** 设置已取回、却没有一个可管理的分组（只有系统设置的入口权限）。 */
+  protected readonly noPanels = computed(
+    () => this.pageState.loaded() && !this.pageState.loadError() && this.panels().length === 0,
+  );
+
   /**
    * 首次加载失败的原因，仅在还没进入任何面板时由本页显示：
    * 带着面板地址进来时，面板自己会显示同一个错误态。
@@ -144,13 +151,21 @@ export class SystemSettings {
 
     // 没带面板（直接进 /platform/settings）或带了一个不存在的面板（旧链接、换了上下文）时，
     // 落到第一个面板。面板要等设置取回才知道，所以不能写成路由表里的静态重定向。
+    // 一个可管理的分组都没有时，带着面板地址进来（收藏的旧链接）也回到不带面板的地址，空态只由本页给出一份。
     effect(() => {
       const panels = this.panels();
-      if (!this.pageState.loaded() || panels.length === 0) {
+      if (!this.pageState.loaded()) {
         return;
       }
 
       const current = this.url().split(/[?#]/)[0].split('/').pop();
+      if (panels.length === 0) {
+        if (this.route.firstChild?.snapshot.paramMap.has('group')) {
+          void this.router.navigate(['.'], { relativeTo: this.route, replaceUrl: true });
+        }
+        return;
+      }
+
       if (!panels.some((panel) => panel.path === current)) {
         void this.router.navigate([panels[0].path], { relativeTo: this.route, replaceUrl: true });
       }
@@ -173,8 +188,8 @@ const GROUP_DESCRIPTIONS: Readonly<Record<string, string>> = {
   Email: 'SMTP server and sender used for outgoing mail',
   //#endif
   //#endif
-  //#if (IncludeOperationRecords)
-  Audit: 'Archiving of expired operation records',
+  //#if (IncludeOperationRecords || IncludeNotifications)
+  Retention: 'How long expired data is kept before it is cleaned up',
   //#endif
   Operations: 'How much detail the logs record',
 };
@@ -184,6 +199,9 @@ const ENGLISH: Record<string, string> = {
   'settings.system.title': 'System settings',
   'settings.system.description':
     'Defaults and policies for everyone here; each user may override their own preferences',
+  'settings.system.empty': 'No settings you can manage',
+  'settings.system.emptyHint':
+    'Each settings section needs its own permission. Ask an administrator to grant the sections you look after',
   'settings.navigation': 'Settings navigation',
   'settings.openNavigation': 'Open settings navigation',
   'settings.loadFailed': "Couldn't load settings",

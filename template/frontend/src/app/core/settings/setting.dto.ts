@@ -33,6 +33,11 @@ export interface SettingOutputDto {
   isSecret?: boolean;
   /** 机密设置在可写的那一层是否已经设过值。 */
   hasSecretValue?: boolean;
+  /**
+   * 当前用户能否管理（写入）这一项的租户级或进程级值，由服务端按分组权限算出。
+   * 不能管理、又不允许用户覆盖的设置服务端不下发。
+   */
+  canManage: boolean;
 }
 
 /** 写入一项设置；`value` 为 null 表示清除该层级，回落到下一层。 */

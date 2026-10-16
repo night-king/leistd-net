@@ -23,6 +23,7 @@ function setting(overrides: Partial<SettingOutputDto> = {}): SettingOutputDto {
     allowsHostScope: false,
     minimum: null,
     maximum: null,
+    canManage: false,
     ...overrides,
   };
 }

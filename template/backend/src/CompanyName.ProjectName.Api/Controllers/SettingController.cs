@@ -18,9 +18,9 @@ namespace CompanyName.ProjectName.Api.Controllers;
 [Route("api/v1/settings")]
 public sealed class SettingController(IEmailSettingsAppService emailSettingsAppService) : BaseController
 {
-    /// <summary>用当前生效的发信参数发一封测试邮件（宿主，需要设置管理权限）。</summary>
+    /// <summary>用当前生效的发信参数发一封测试邮件（宿主，需要邮件发送设置的管理权限）。</summary>
     [HttpPost("email/test")]
-    [Authorize(Policy = PermissionConstant.Settings.Default)]
+    [Authorize(Policy = PermissionConstant.Settings.Email)]
     [OperationRecordAction(OperationRecordActions.SettingTestEmailSent)]
     public Task SendTestEmailAsync(
         [FromBody] SendTestEmailInputDto input,

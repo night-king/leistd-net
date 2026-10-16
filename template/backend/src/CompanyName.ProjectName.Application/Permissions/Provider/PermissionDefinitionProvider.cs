@@ -108,12 +108,27 @@ public class PermissionDefinitionProvider : IPermissionDefinitionProvider
         operationRecordsPermission.AddChild(PermissionConstant.OperationRecords.Export, displayName: "Export");
 
 #endif
-        // 系统
+        // 系统：父权限是系统设置页的入口，每个分组一条子权限。
+        // 注册、登录与会话是租户各自的策略，侧别 Both；其余分组只有进程级设置，侧别 Host，租户管理员拿不到。
         var systemGroup = context.GetOrAddGroup(PermissionConstant.Groups.System, displayName: "System");
-        systemGroup.AddPermission(
+        var settingsPermission = systemGroup.AddPermission(
             PermissionConstant.Settings.Default,
             MultiTenancySides.Both,
             displayName: "System settings"
         );
+#if (LocalIdentity)
+        settingsPermission.AddChild(PermissionConstant.Settings.Registration, displayName: "Registration");
+        settingsPermission.AddChild(PermissionConstant.Settings.Security, displayName: "Sign-in & sessions");
+#if (ExternalLogin)
+        settingsPermission.AddChild(PermissionConstant.Settings.ExternalLogin, displayName: "External sign-in", side: MultiTenancySides.Host);
+#endif
+#if (Email)
+        settingsPermission.AddChild(PermissionConstant.Settings.Email, displayName: "Email", side: MultiTenancySides.Host);
+#endif
+#endif
+        settingsPermission.AddChild(PermissionConstant.Settings.Operations, displayName: "Operations", side: MultiTenancySides.Host);
+#if (IncludeOperationRecords || IncludeNotifications)
+        settingsPermission.AddChild(PermissionConstant.Settings.Retention, displayName: "Data retention", side: MultiTenancySides.Host);
+#endif
     }
 }

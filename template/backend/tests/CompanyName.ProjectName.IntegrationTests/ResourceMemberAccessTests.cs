@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Permissions.Provider;
+using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
 using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Infrastructure.Persistence;
@@ -133,8 +134,7 @@ public sealed class ResourceMemberAccessTests(ProjectWebApplicationFactory facto
             services.ConfigureDbContext<MyProjectDbContext>(options => options.AddInterceptors(failing))));
         using var session = ProjectWebApplicationFactory.CreateResourceSession(host, subjectId, ProjectWebApplicationFactory.NewTenantId());
 
-        // 读设置本身不查用户表：500 只可能来自授权阶段的状态读取
-        using var response = await session.Client.GetAsync("/api/v1/settings");
+        using var response = await PutOwnTimeZoneAsync(session.Client);
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         // 投影读两次（首次加一次重试）都失败，授权阶段又按主键读一次
@@ -150,12 +150,12 @@ public sealed class ResourceMemberAccessTests(ProjectWebApplicationFactory facto
         await using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             services.ConfigureDbContext<MyProjectDbContext>(options => options.AddInterceptors(counter))));
         using var session = ProjectWebApplicationFactory.CreateResourceSession(host, subjectId, tenantId);
-        using (var warmUp = await session.Client.GetAsync("/api/v1/settings"))
-            Assert.Equal(HttpStatusCode.OK, warmUp.StatusCode);
+        using (var warmUp = await PutOwnTimeZoneAsync(session.Client))
+            Assert.Equal(HttpStatusCode.NoContent, warmUp.StatusCode);
 
         counter.Reset();
-        using (var allowed = await session.Client.GetAsync("/api/v1/settings"))
-            Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        using (var allowed = await PutOwnTimeZoneAsync(session.Client))
+            Assert.Equal(HttpStatusCode.NoContent, allowed.StatusCode);
         // 只有投影那一次主键读：授权阶段用的是它的快照
         Assert.Equal(1, counter.Count);
 
@@ -257,6 +257,12 @@ public sealed class ResourceMemberAccessTests(ProjectWebApplicationFactory facto
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 #endif
+
+    // 计数的探针：只要求当前用户、处理本身不查用户表（读设置会按权限判定可管理项，RBAC 主体解析每请求查库），
+    // 计到的用户表读取因此只来自投影与授权阶段
+    private static Task<HttpResponseMessage> PutOwnTimeZoneAsync(HttpClient client)
+        => client.PutAsJsonAsync("/api/v1/settings/current-user",
+            new { Name = SettingConstant.Display.TimeZone, Value = "Asia/Tokyo" });
 
     private static async Task AssertRejectedAsync(HttpClient client, string path, string code, bool post = false)
     {

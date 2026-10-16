@@ -1,5 +1,6 @@
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Permissions.Provider;
+using CompanyName.ProjectName.Application.Settings.Provider;
 using Leistd.Authorization.Constants;
 using Leistd.Authorization.Events;
 using Leistd.EventBus.EventHandlers;
@@ -19,7 +20,9 @@ namespace CompanyName.ProjectName.Application.OperationRecords.EventHandlers;
 /// <para>个人偏好刻意不记：不改变能力边界也不改变共享数据，却是高频写入——审计表的价值来自密度。</para>
 /// <para>在写入提交之后执行（本地事件处理器的默认阶段），回滚了的写入不会留下"记了但没发生"的记录。</para>
 /// </remarks>
-internal sealed class SettingChangedAuditHandler(IOperationRecorder recorder) : IEventHandler<SettingChangedEvent>
+internal sealed class SettingChangedAuditHandler(
+    IOperationRecorder recorder,
+    ISettingDefinitionManager definitions) : IEventHandler<SettingChangedEvent>
 {
     public Task HandleAsync(SettingChangedEvent @event, CancellationToken cancellationToken = default)
         => @event.Scope == SettingScopes.User
@@ -27,7 +30,11 @@ internal sealed class SettingChangedAuditHandler(IOperationRecorder recorder) : 
             : recorder.RecordSucceededAsync(
                 OperationRecordActions.SettingChanged,
                 OperationTarget.For($"{@event.Scope}/{@event.Name}", @event.Name),
-                PermissionConstant.Settings.Default,
+                // 凭什么：该设置所在分组的管理子权限；未登记分组的只要求父权限
+                definitions.GetOrNull(@event.Name)?.Group is { } group
+                && SettingGroupPermissions.All.TryGetValue(group, out var permission)
+                    ? permission
+                    : PermissionConstant.Settings.Default,
                 cancellationToken);
 }
 

@@ -2,11 +2,8 @@
 using CompanyName.ProjectName.Api.Auth.Authentication;
 using CompanyName.ProjectName.Application.Permissions.Provider;
 using CompanyName.ProjectName.Application.Settings.Dtos;
-using CompanyName.ProjectName.Application.Settings.Errors;
 using CompanyName.ProjectName.Application.Shared;
 using CompanyName.ProjectName.Infrastructure.Auth.OAuth.Options;
-using Leistd.ExceptionHandling;
-using Leistd.MultiTenancy.Context;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,21 +16,16 @@ namespace CompanyName.ProjectName.Api.Controllers;
 /// 开关与凭据的读写走设置组件的通用端点；这里补通用设置读不出的两件事——机密不回显，密钥来自部署配置时
 /// 看不出已配置；回调地址要登记到提供方。放在 Api：它读的是认证方案目录与 Infrastructure 的选项。
 /// </remarks>
-[Authorize(Policy = PermissionConstant.Settings.Default)]
+[Authorize(Policy = PermissionConstant.Settings.ExternalLogin)]
 [Route("api/v1/settings/external-login")]
 public sealed class ExternalLoginSettingController(
     IAuthenticationSchemeProvider schemes,
-    IOptionsMonitor<ExternalAuthOptions> options,
-    ICurrentTenant currentTenant) : BaseController
+    IOptionsMonitor<ExternalAuthOptions> options) : BaseController
 {
-    /// <summary>各提供方的生效状态（宿主，需要设置管理权限）。</summary>
+    /// <summary>各提供方的生效状态（宿主，需要外部登录设置的管理权限）。</summary>
     [HttpGet("status")]
     public async Task<ExternalLoginStatusOutputDto> GetStatusAsync()
     {
-        // 外部登录是进程级配置，只有宿主能改，也只有宿主来看
-        if (currentTenant.Id is not null)
-            throw new BusinessException(AppSettingErrorCodes.ExternalLoginStatusHostOnly, "The external sign-in status is only available on the host.");
-
         var current = options.CurrentValue;
         return new ExternalLoginStatusOutputDto
         {
