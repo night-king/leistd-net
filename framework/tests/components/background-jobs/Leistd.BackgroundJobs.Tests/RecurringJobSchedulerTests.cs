@@ -4,6 +4,7 @@ using Leistd.BackgroundJobs.InProcess;
 using Leistd.BackgroundJobs.InProcess.Recurring;
 using Leistd.BackgroundJobs.Options;
 using Leistd.BackgroundJobs.Recurring;
+using Leistd.Lock.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -133,6 +134,35 @@ public sealed class RecurringJobSchedulerTests
         Assert.Single(host.Runs.All);
     }
 
+    // 到点时开关关闭：本轮跳过且不记完成；之后打开也不补跑这一轮，下一个到点才执行并记水位
+    [Fact]
+    public async Task A_round_due_while_switched_off_is_skipped_and_the_next_due_round_runs_after_switching_on()
+    {
+        var on = false;
+        await using var host = new SchedulerHost(services => services
+            .AddMemoryLocalLock()
+            .AddRecurringJob<ProbeJob>("switched", Daily, RecurringJobScope.Cluster, _ => Volatile.Read(ref on)));
+        await host.StartAsync();
+        var store = host.Services.GetRequiredService<IRecurringJobStateStore>();
+        await host.Time.NextTimerAsync();
+
+        host.Time.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(TimeSpan.FromDays(1), await host.Time.NextTimerAsync());
+        Assert.Empty(host.Runs.All);
+        Assert.Null(await store.GetLastCompletedSlotAsync("switched"));
+
+        Volatile.Write(ref on, true);
+        host.Time.Advance(TimeSpan.FromDays(1) - TimeSpan.FromSeconds(1));
+        Assert.Empty(host.Runs.All);
+
+        host.Time.Advance(TimeSpan.FromSeconds(1));
+        var run = await host.Runs.NextAsync();
+        var slot = new DateTimeOffset(2026, 10, 4, 10, 0, 0, TimeSpan.Zero);
+        Assert.Equal(slot, run.Slot);
+        await host.Time.NextTimerAsync();
+        Assert.Equal(slot, await store.GetLastCompletedSlotAsync("switched"));
+    }
+
     private static void AddJob(IServiceCollection services, string name)
         => services.AddRecurringJob<ProbeJob>(name, Daily, RecurringJobScope.EveryInstance);
 
@@ -143,6 +173,7 @@ public sealed class RecurringJobSchedulerTests
         public RunSignals Runs { get; } = new();
         public FakeLogger<RecurringJobScheduler> Logs { get; } = new();
         public RecurringJobScheduler Scheduler { get; }
+        public IServiceProvider Services => _provider;
 
         public SchedulerHost(Action<IServiceCollection> register, Action<BackgroundJobOptions>? configure = null)
         {

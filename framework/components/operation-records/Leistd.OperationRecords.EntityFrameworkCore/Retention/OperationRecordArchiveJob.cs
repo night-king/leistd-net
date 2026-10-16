@@ -6,9 +6,10 @@ using Microsoft.Extensions.Options;
 
 namespace Leistd.OperationRecords.EntityFrameworkCore.Retention;
 
-// 保留期归档的周期任务：关闭时照常排期、到点跳过，开关打开后下一轮即生效
+// 保留期归档的周期任务。开关在登记时交给调度器（关闭时到点跳过、不记完成，打开后下一轮即生效）；
+// 读 IOptionsSnapshot：与调度器判开关用的是本轮作用域里同一份配置，不会按“开启”放行后拿到热更新的“关闭”参数
 internal sealed class OperationRecordArchiveJob(
-    IOptionsMonitor<OperationRecordRetentionOptions> retention,
+    IOptionsSnapshot<OperationRecordRetentionOptions> retention,
     IOperationRecordArchiveService archiveService,
     IClock clock,
     ILogger<OperationRecordArchiveJob> logger) : IRecurringJob
@@ -17,15 +18,9 @@ internal sealed class OperationRecordArchiveJob(
 
     public async Task ExecuteAsync(RecurringJobContext context, CancellationToken cancellationToken)
     {
-        // 越界的设置值在这里抛校验异常，按本轮失败记日志，不搬任何记录
-        var current = retention.CurrentValue;
-        if (!current.Enabled)
-        {
-            logger.LogDebug("Operation record archiving is disabled; skipping this run.");
-            return;
-        }
-
-        // 启用时天数必填已由选项校验保证：缺失的话 CurrentValue 在上面就抛出了
+        // 越界的设置值在读取快照时抛校验异常（判开关时就会先抛），按本轮失败记日志，不搬任何记录。
+        // 走到这里时本轮快照是开启的：启用时天数必填已由选项校验保证
+        var current = retention.Value;
         var cutoff = clock.Now.AddDays(-current.RetentionDays!.Value);
         var result = await archiveService.ArchiveOlderThanAsync(cutoff, current.BatchSize, cancellationToken);
 

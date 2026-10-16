@@ -12,6 +12,7 @@ namespace Leistd.BackgroundJobs.InProcess.Recurring;
 internal sealed class RecurringJobScheduler(
     IEnumerable<RecurringJobDefinition> definitions,
     RecurringJobRunner runner,
+    RecurringJobPlan plan,
     IServiceProvider serviceProvider,
     IOptions<BackgroundJobOptions> options,
     TimeProvider timeProvider,
@@ -36,31 +37,52 @@ internal sealed class RecurringJobScheduler(
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // 总开关、停用名单与排期只在这里定一次，并登记给状态读取：监控看到的就是实际执行的这一套
+        var planned = new Dictionary<string, PlannedJob>(StringComparer.Ordinal);
         if (!options.Value.Enabled)
         {
             logger.LogInformation("Recurring jobs are disabled in this process.");
+            foreach (var definition in _definitions)
+            {
+                planned[definition.Name] = new PlannedJob(RecurringJobScheduleState.DisabledInProcess, null);
+            }
+
+            plan.Publish(planned);
             return Task.CompletedTask;
         }
 
         var disabled = new HashSet<string>(options.Value.DisabledJobs, StringComparer.Ordinal);
-        return Task.WhenAll(_definitions
-            .Where(definition => !disabled.Contains(definition.Name))
-            .Select(definition => RunLoopAsync(definition, stoppingToken)));
+        var loops = new List<Task>();
+        foreach (var definition in _definitions)
+        {
+            if (disabled.Contains(definition.Name))
+            {
+                planned[definition.Name] = new PlannedJob(RecurringJobScheduleState.DisabledByName, null);
+                continue;
+            }
+
+            RecurringJobSchedule schedule;
+            try
+            {
+                schedule = definition.ScheduleFactory(serviceProvider);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Recurring job {Job} has an invalid schedule and will not run.", definition.Name);
+                planned[definition.Name] = new PlannedJob(RecurringJobScheduleState.InvalidSchedule, null);
+                continue;
+            }
+
+            planned[definition.Name] = new PlannedJob(RecurringJobScheduleState.Active, schedule);
+            loops.Add(RunLoopAsync(definition, schedule, stoppingToken));
+        }
+
+        plan.Publish(planned);
+        return Task.WhenAll(loops);
     }
 
-    private async Task RunLoopAsync(RecurringJobDefinition definition, CancellationToken stoppingToken)
+    private async Task RunLoopAsync(RecurringJobDefinition definition, RecurringJobSchedule schedule, CancellationToken stoppingToken)
     {
-        RecurringJobSchedule schedule;
-        try
-        {
-            schedule = definition.ScheduleFactory(serviceProvider);
-        }
-        catch (Exception exception)
-        {
-            logger.LogError(exception, "Recurring job {Job} has an invalid schedule and will not run.", definition.Name);
-            return;
-        }
-
         logger.LogInformation(
             "Recurring job {Job} scheduled {Schedule} ({Scope}).", definition.Name, schedule, definition.Scope);
 

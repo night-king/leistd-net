@@ -134,15 +134,28 @@ public sealed class OperationRecordRetentionTests : IAsyncLifetime
         Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<OperationRecordRetentionOptions>>().Value);
     }
 
-    /// <summary>关着照常排期、到点跳过：开关可能被宿主设置随时打开，退出排期的话要重启才生效。</summary>
+    /// <summary>
+    /// 开关登记给调度器而不是在任务里提前返回：这里只证明真实登记入口带上了开关、且按新作用域里的配置求值；
+    /// 关闭时到点跳过、不记完成由后台作业组件的调度测试保证。
+    /// </summary>
     [Fact]
-    public async Task A_disabled_retention_skips_without_archiving()
+    public void The_registered_switch_follows_the_retention_setting_each_round()
     {
-        var archive = new CountingArchive(new OperationRecordArchiveResult(0, 1, 0));
+        var settings = new Dictionary<string, string?> { ["Leistd:OperationRecords:Retention:Enabled"] = "false" };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        using var provider = new ServiceCollection()
+            .AddSingleton<IConfiguration>(configuration)
+            .AddOperationRecordRetention<TestDbContext>()
+            .BuildServiceProvider();
+        var definition = provider.GetServices<RecurringJobDefinition>().Single(d => d.Name == "operation-records.archive");
 
-        await Job(enabled: false, archive).ExecuteAsync(new RecurringJobContext("operation-records.archive", DateTimeOffset.UtcNow), CancellationToken.None);
+        using (var off = provider.CreateScope())
+            Assert.False(definition.IsEnabled!(off.ServiceProvider));
 
-        Assert.Equal(0, archive.Calls);
+        configuration["Leistd:OperationRecords:Retention:Enabled"] = "true";
+        configuration["Leistd:OperationRecords:Retention:RetentionDays"] = "90";
+        using var on = provider.CreateScope();
+        Assert.True(definition.IsEnabled!(on.ServiceProvider));
     }
 
     /// <summary>有库失败、或有租户解析不出库时抛出，让调度器不记水位。</summary>
@@ -208,7 +221,7 @@ public sealed class OperationRecordRetentionTests : IAsyncLifetime
     }
 
     private static OperationRecordArchiveJob Job(bool enabled, IOperationRecordArchiveService archive, int? retentionDays = 365) => new(
-        new MutableOptionsMonitor<OperationRecordRetentionOptions>(
+        new FixedSnapshot<OperationRecordRetentionOptions>(
             new OperationRecordRetentionOptions { Enabled = enabled, RetentionDays = retentionDays }),
         archive,
         new UtcClockProvider(new FakeTimeProvider(new DateTimeOffset(Now))),
@@ -266,5 +279,12 @@ public sealed class OperationRecordRetentionTests : IAsyncLifetime
     {
         public Task<string> ResolveAsync(string connectionStringName, CancellationToken cancellationToken = default)
             => Task.FromResult(accessor.Current?.TenantId == DedicatedTenant ? tenant : host);
+    }
+
+    private sealed class FixedSnapshot<TOptions>(TOptions value) : IOptionsSnapshot<TOptions> where TOptions : class
+    {
+        public TOptions Value { get; } = value;
+
+        public TOptions Get(string? name) => Value;
     }
 }

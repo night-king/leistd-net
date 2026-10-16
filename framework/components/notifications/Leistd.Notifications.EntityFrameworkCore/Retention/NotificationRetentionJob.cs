@@ -14,9 +14,10 @@ using Microsoft.Extensions.Options;
 namespace Leistd.Notifications.EntityFrameworkCore.Retention;
 
 // 按物理库逐个清理：IgnoreQueryFilters 只能放开同一个库里的租户。
+// 开关在登记时交给调度器（关闭时到点跳过、不记完成）；读 IOptionsSnapshot，与判开关用的是本轮同一份配置。
 // 每批一个工作单元；有库失败时抛出，调度器不记水位，下一个调度时段按截止时间扫描重做。
 internal sealed class NotificationRetentionJob<TDbContext>(
-    IOptionsMonitor<NotificationRetentionOptions> retention,
+    IOptionsSnapshot<NotificationRetentionOptions> retention,
     ITenantDatabaseRunner databaseRunner,
     IUnitOfWorkManager unitOfWorkManager,
     IDbContextProvider<TDbContext> dbContextProvider,
@@ -31,13 +32,7 @@ internal sealed class NotificationRetentionJob<TDbContext>(
 
     public async Task ExecuteAsync(RecurringJobContext context, CancellationToken cancellationToken)
     {
-        var current = retention.CurrentValue;
-        if (!current.Enabled)
-        {
-            logger.LogDebug("Notification retention is disabled; skipping this run.");
-            return;
-        }
-
+        var current = retention.Value;
         var now = clock.Now;
         var readCutoff = now.AddDays(-current.ReadRetentionDays);
         var unreadCutoff = now.AddDays(-current.UnreadRetentionDays);

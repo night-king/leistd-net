@@ -89,7 +89,7 @@ app.MapGroup("/api/v1/operation-records").MapOperationRecords(options =>
 builder.Services.AddOperationRecordRetention<AppDbContext>();
 ```
 
-默认关闭；启用时必须同时给出保留天数，组件不提供默认天数：
+默认关闭；启用时必须同时给出保留天数，组件不提供默认天数。开关登记给调度器：关闭时任务照常排期、到点跳过且不记完成，作业状态显示为 `SwitchedOff`；经宿主设置打开后，下一次到点即生效：
 
 ```json
 {

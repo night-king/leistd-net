@@ -4,8 +4,8 @@ namespace Leistd.OperationRecords.EntityFrameworkCore.Options;
 /// <remarks>
 /// <para>默认关闭；启用时保留天数必填，组件不提供默认天数。</para>
 /// <para>到期记录搬去归档表，不是删除。</para>
-/// <para>归档任务每轮取 <c>IOptionsMonitor</c> 的当前值，<see cref="Enabled"/> 与 <see cref="RetentionDays"/> 改完下一轮生效；
-/// 执行时刻只在任务排期时取一次。</para>
+/// <para>每轮在本轮作用域里取一份 <c>IOptionsSnapshot</c>：<see cref="Enabled"/> 作为任务开关在执行前判断，
+/// 归档读同一份快照，改完下一轮生效，本轮中途改动不影响已开始的这一轮；执行时刻只在任务排期时取一次。</para>
 /// </remarks>
 public sealed class OperationRecordRetentionOptions
 {

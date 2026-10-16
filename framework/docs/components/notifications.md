@@ -92,7 +92,7 @@ app.MapRealTimeHub();
 app.MapGroup("/api/v1/notifications").MapNotifications(options => options.AccessPolicy = "App.CurrentUser");
 ```
 
-启用保留期清理（需要后台作业调度器与分布式锁，见[后台作业](./background-jobs.md)）：
+启用保留期清理（需要后台作业调度器与分布式锁，见[后台作业](./background-jobs.md)）。`Leistd:Notifications:Retention:Enabled` 关闭时任务照常排期、到点跳过且不记完成，作业状态显示为 `SwitchedOff`：
 
 ```csharp
 builder.Services.AddMultiTenancyCore();            // 提供逐库遍历；不分库时清单只有宿主库
