@@ -16,6 +16,7 @@ import { HlmSwitchImports } from '@spartan-ng/helm/switch';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { firstValueFrom } from 'rxjs';
 
+import { AppearanceSetting } from './widgets/appearance-setting/appearance-setting';
 //#if (Email)
 import { EmailTest } from './widgets/email-test/email-test';
 //#endif
@@ -111,6 +112,7 @@ export const SAVING_MIN_MS = 400;
     ...HlmSwitchImports,
     ...HlmTooltipImports,
     TranslocoDirective,
+    AppearanceSetting,
     //#if (Email)
     EmailTest,
     //#endif
@@ -131,6 +133,7 @@ export const SAVING_MIN_MS = 400;
     ...HlmSelectImports,
     ...HlmSwitchImports,
     ...HlmTooltipImports,
+    AppearanceSetting,
     //#if (Email)
     EmailTest,
     //#endif
@@ -181,6 +184,13 @@ export class SettingSection {
   protected readonly settings = this.pageState.settings;
   protected readonly drafts = signal<Record<string, string>>({});
   private readonly labelFns = new Map<string, (value: unknown) => string>();
+
+  /**
+   * 个人偏好的"显示"分组顶部给外观：外观存在本设备、不是账户设置，但用户在设置页里找偏好时应当找得到它，
+   * 页头的切换只是快捷入口。
+   */
+  protected readonly showAppearanceIn = (group: { key: string }) =>
+    this.scope() === 'account' && !this.group() && group.key === 'Display';
 
   /** 发信参数的面板底部给"发送测试邮件"：改完参数最想确认的就是能否收到。 */
   protected readonly showEmailTest = computed(

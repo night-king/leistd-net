@@ -120,7 +120,8 @@ export class PersonalSettings {
       path: 'preferences',
       icon: 'lucideSlidersHorizontal',
       label: 'Preferences',
-      description: 'Language and time zone. Applies to you only; leave blank to follow your system',
+      description:
+        'Language, time zone and appearance. Language and time zone apply to you only; leave blank to follow your system',
     },
   ]);
   //#endif

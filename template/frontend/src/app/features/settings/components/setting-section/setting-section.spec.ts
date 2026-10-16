@@ -492,6 +492,22 @@ describe('SettingSection groups', () => {
 
     expect(sectionsOf(host)).toEqual(['Display', 'Operations']);
   });
+
+  // 外观是设备偏好：只出现在个人偏好面板（个人作用域、不指定分组）的"显示"分组顶部
+  it('shows appearance only at the top of the personal display group', async () => {
+    const appearanceGroup = (host: HTMLElement) =>
+      host
+        .querySelector('[data-testid="appearance-setting"]')
+        ?.closest<HTMLElement>('[data-testid="settings-group-section"]')?.dataset['group'];
+
+    expect(appearanceGroup(await render({}))).toBe('Display');
+  });
+
+  it('leaves appearance out of system settings and single-group panels', async () => {
+    expect(
+      (await render({ scope: 'system' })).querySelector('[data-testid="appearance-setting"]'),
+    ).toBeNull();
+  });
 });
 
 /** 进程级设置的生效范围：整组都是时在分组顶部说一次，混有其他层级时按行标注。 */
