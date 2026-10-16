@@ -50,7 +50,11 @@
   },
   "groupDescriptions": {
     //#if (LocalIdentity)
-    "Registration": "新用户自助注册时的验证要求与验证码时效",
+    //#if (ExternalLogin)
+    "Registration": "是否开放自助注册（不影响外部登录首次登录建号）、新用户的验证要求与验证码时效",
+    //#else
+    "Registration": "是否开放自助注册、新用户的验证要求与验证码时效",
+    //#endif
     "Security": "登录失败锁定与两步验证要求",
     //#if (ExternalLogin)
     "ExternalLogin": "用 GitHub、Google 等第三方账号登录：各渠道的开关与客户端凭据",

@@ -178,7 +178,13 @@ export class SystemSettings {
 // prettier-ignore
 const GROUP_DESCRIPTIONS: Readonly<Record<string, string>> = {
   //#if (LocalIdentity)
-  Registration: 'Verification for self sign-up and how long codes stay valid',
+  //#if (ExternalLogin)
+  Registration:
+    'Whether self sign-up is open (external sign-in can still create accounts), how new accounts are verified and how long codes stay valid',
+  //#else
+  Registration:
+    'Whether self sign-up is open, how new accounts are verified and how long codes stay valid',
+  //#endif
   Security: 'Sign-in lockout and two-factor requirements',
   //#if (ExternalLogin)
   ExternalLogin:

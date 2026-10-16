@@ -36,6 +36,9 @@ import {
   applicationErrorMessage,
 } from '../../../../core/errors/application-http-error';
 import { AuthService } from '../../../../core/services/auth-service';
+//#if (Email)
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
+//#endif
 import {
   AvatarImageRejected,
   isAvatarImageUrl,
@@ -88,6 +91,9 @@ interface EmailChallenge {
 export class ProfilePanel {
   private readonly authService = inject(AuthService);
   private readonly accountService = inject(AccountService);
+//#if (Email)
+  private readonly securityConfig = inject(SecurityConfigService);
+//#endif
   private readonly destroyRef = inject(DestroyRef);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
@@ -136,7 +142,9 @@ export class ProfilePanel {
    * 多数部署都配了，先藏起按钮再冒出来反而闪一下；真不能时发送端也会给出明确原因。
    */
 //#if (Email)
-  readonly emailVerificationAvailable = signal(true);
+  readonly emailVerificationAvailable = computed(
+    () => this.securityConfig.config()?.emailVerificationAvailable ?? true,
+  );
 
   readonly emailChallenge = signal<EmailChallenge | null>(null);
   readonly emailCode = signal('');
@@ -159,6 +167,10 @@ export class ProfilePanel {
   });
 
   constructor() {
+//#if (Email)
+    // 进入面板时取当前的验证码发送前提
+    this.securityConfig.refresh();
+//#endif
     // 当前用户一变（首次取回、保存成功后写回）就按它重填；表单模型不参与追踪，
     // 否则每敲一个字都会触发重填，把输入抹掉。
     effect(() => {
@@ -167,11 +179,6 @@ export class ProfilePanel {
     });
 //#if (Email)
     this.destroyRef.onDestroy(() => clearInterval(this.resendTimer));
-    this.accountService
-      .getSecurityConfig()
-      .subscribe((config) =>
-        this.emailVerificationAvailable.set(config.emailVerificationAvailable),
-      );
 //#endif
   }
 

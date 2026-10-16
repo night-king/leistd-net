@@ -103,6 +103,8 @@
 
 账号密码与第二步验证走 `/api/v1/auth/session-login` 等现有会话接口。`GET /api/v1/auth/me` 读取已验证用户，退出撤销服务端会话。第二步完成前不签发最终会话，第二步凭据由 JSON 与前端导航状态传递。
 
+**自助注册**按租户开关（`Registration.Enabled`，基线 `UserRegistration:Enabled`）。关闭时注册与注册验证码以 `Auth:RegistrationDisabled`（403）拒绝，前端读匿名的 `GET /api/v1/auth/security-config` 隐藏注册入口、注册页只给说明；界面隐藏不代替后端拒绝。管理员建号与外部登录首次登录自动建号不受它限制。
+
 #### 敏感变更的近期认证
 
 改变“谁能登进这个账号”的操作假设会话可能被盗用：会话的认证时间（`auth_time`）要在 15 分钟内，否则当场出示操作者自己的当前口令（`Auth:ReauthenticationRequired`），口令错误与登录共用失败计数和锁定；没有本地口令的账号重新登录（`Auth:SignInAgainRequired`）。模拟登录的会话不算刚认证（那是发起人的认证时间）。覆盖的入口：

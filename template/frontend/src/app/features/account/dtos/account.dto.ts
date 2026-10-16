@@ -41,14 +41,6 @@ export interface DisableTwoFactorInputDto {
   password: string;
   code: string;
 }
-//#if (Email)
-
-export interface SecurityConfigOutputDto {
-  enableEmailVerification: boolean;
-  /** 部署具备发邮箱验证码的前提；为 false 时"验证我的邮箱"只说明暂不可用，不给发送按钮。 */
-  emailVerificationAvailable: boolean;
-}
-//#endif
 
 export interface CaptchaOutputDto {
   captchaToken: string;

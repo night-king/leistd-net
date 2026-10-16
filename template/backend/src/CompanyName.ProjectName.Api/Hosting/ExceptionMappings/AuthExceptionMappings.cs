@@ -15,6 +15,7 @@ internal static class AuthExceptionMappings
             AuthErrorCodes.UserLockedOut,
             AuthErrorCodes.UserTemporarilyLockedOut);
         ApiExceptionMappings.Map(options, StatusCodes.Status403Forbidden,
+            AuthErrorCodes.RegistrationDisabled,
             AuthErrorCodes.TwoFactorSetupRequired,
             AuthErrorCodes.TwoFactorRequiredByPolicy);
         ApiExceptionMappings.Map(options, StatusCodes.Status409Conflict,

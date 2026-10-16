@@ -84,6 +84,17 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
   },
   // 进程级：两个层级标记都是 false，只有 allowsHostScope。与真实后端一样，租户上下文下
   // 不下发这类设置，写入也被拒绝（见 api/setting.ts）。
+  //#if (LocalIdentity)
+  {
+    name: 'Registration.Enabled',
+    displayName: 'Allow self sign-up',
+    group: 'Registration',
+    defaultValue: 'true',
+    allowsTenantScope: true,
+    allowsUserScope: false,
+    isBoolean: true,
+  },
+  //#endif
   //#if (Email)
   {
     name: 'Registration.EnableEmailVerification',
@@ -391,6 +402,9 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   'Setting:Notifications.RetentionEnabled': '清理到期通知',
   'Setting:Notifications.ReadRetentionDays': '已读通知保留天数',
   'Setting:Notifications.UnreadRetentionDays': '未读通知保留天数',
+  //#endif
+  //#if (LocalIdentity)
+  'Setting:Registration.Enabled': '开放自助注册',
   //#endif
   //#if (Email)
   'Setting:Registration.EnableEmailVerification': '要求邮箱验证',

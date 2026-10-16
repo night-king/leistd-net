@@ -26,9 +26,6 @@ import {
 //#if (Email)
   EmailVerificationInputDto,
 //#endif
-//#if (Email)
-  SecurityConfigOutputDto,
-//#endif
   CaptchaOutputDto,
 //#if (Email)
   SendEmailCodeInputDto,
@@ -54,12 +51,6 @@ export class AccountService {
   private http = inject(HttpClient);
   //#if (ExternalLogin && IncludeMultiTenancy)
   private readonly tenantContext = inject(TenantContextService);
-  //#endif
-  //#if (Email)
-
-  getSecurityConfig(): Observable<SecurityConfigOutputDto> {
-    return this.http.get<SecurityConfigOutputDto>('/api/v1/auth/security-config');
-  }
   //#endif
   //#if (OpenIddictServer)
 

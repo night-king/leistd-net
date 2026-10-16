@@ -306,6 +306,7 @@ public class CaptchaConsumptionTests
         public Task<UserRegistrationPolicy> GetAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(new UserRegistrationPolicy
             {
+                Enabled = true,
                 CaptchaExpiryMinutes = 5,
 #if (Email)
                 EnableEmailVerification = false,

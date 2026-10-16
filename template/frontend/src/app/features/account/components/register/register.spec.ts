@@ -1,5 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
@@ -8,6 +9,7 @@ import { Register } from './register';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
 import { AccountService } from '../../services/account-service';
 
 import type { MockedObject } from 'vitest';
@@ -20,7 +22,7 @@ describe('Register', () => {
   //#if (Email)
   let accountService: Pick<
     MockedObject<AccountService>,
-    'register' | 'getCaptcha' | 'getSecurityConfig' | 'sendEmailCode'
+    'register' | 'getCaptcha' | 'sendEmailCode'
   >;
   //#else
   let accountService: Pick<MockedObject<AccountService>, 'register' | 'getCaptcha'>;
@@ -34,15 +36,14 @@ describe('Register', () => {
   let queryParams: Record<string, string>;
 
   //#if (Email)
-  async function setUp(enableEmailVerification = false): Promise<void> {
+  async function setUp(enableEmailVerification = false, registrationEnabled = true): Promise<void> {
   //#else
-  async function setUp(): Promise<void> {
+  async function setUp(registrationEnabled = true): Promise<void> {
   //#endif
     accountService = {
       register: vi.fn().mockName('AccountService.register'),
       getCaptcha: vi.fn().mockName('AccountService.getCaptcha'),
       //#if (Email)
-      getSecurityConfig: vi.fn().mockName('AccountService.getSecurityConfig'),
       sendEmailCode: vi.fn().mockName('AccountService.sendEmailCode'),
       //#endif
     };
@@ -51,7 +52,6 @@ describe('Register', () => {
       of({ captchaToken: 'token-1', captchaImage: 'data:image/png;base64,' }) as never,
     );
     //#if (Email)
-    accountService.getSecurityConfig.mockReturnValue(of({ enableEmailVerification }) as never);
     accountService.sendEmailCode.mockReturnValue(
       of({
         challengeId: '11111111-1111-1111-1111-111111111111',
@@ -81,6 +81,20 @@ describe('Register', () => {
         //#else
         { provide: AccountService, useValue: accountService },
         //#endif
+        {
+          provide: SecurityConfigService,
+          useValue: {
+            //#if (Email)
+            config: signal({
+              registrationEnabled,
+              enableEmailVerification,
+              emailVerificationAvailable: true,
+            }),
+            //#endif
+            registrationOpen: signal(registrationEnabled),
+            refresh: vi.fn(),
+          },
+        },
         {
           provide: ActivatedRoute,
           useValue: { snapshot: { queryParamMap: convertToParamMap(queryParams) } },
@@ -277,4 +291,17 @@ describe('Register', () => {
     expect(accountService.register).not.toHaveBeenCalled();
   });
   //#endif
+
+  // 租户关闭了自助注册：不给表单，只说明去处（提交也会被后端拒绝）
+  it('explains instead of showing the form when self sign-up is closed', async () => {
+    //#if (Email)
+    await setUp(false, false);
+    //#else
+    await setUp(false);
+    //#endif
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.querySelector('[data-testid="registration-closed"]')).not.toBeNull();
+    expect(host.querySelector('form')).toBeNull();
+  });
 });

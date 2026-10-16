@@ -2,7 +2,11 @@
 import { HttpHeaders } from '@angular/common/http';
 
 import { AUTH_API } from './auth';
+//#if (IncludeMultiTenancy)
+import { TENANT_HEADER } from '../../src/app/core/tenancy/tenant-protocol';
+//#endif
 import { MockException } from '../core/models';
+import { TENANT_SETTING_VALUES } from '../data/settings';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
 import {
   //#if (Impersonation)
@@ -12,6 +16,8 @@ import {
   getMockSessionUserId,
   //#if (Impersonation)
   setMockImpersonator,
+  //#endif
+  //#if (Impersonation || IncludeMultiTenancy)
   setMockSessionTenantKey,
   //#endif
   setMockSessionUserId,
@@ -126,8 +132,25 @@ describe('mock registration occupancy', () => {
     return { username, email, password: 'Spec@1234567890', ...solvedCaptcha() };
   }
 
+  // 租户关闭了自助注册：注册被拒（带码的 403），与后端一致
+  it('rejects registration when self sign-up is closed', () => {
+    TENANT_SETTING_VALUES.set('host:Registration.Enabled', 'false');
+    try {
+      const error = rejectionOf(() =>
+        register({
+          headers: new HttpHeaders(),
+          body: registration('spec-closed', 'closed@example.com'),
+        }),
+      );
+      expect(error.status).toBe(403);
+      expect(error.error.code).toBe('Auth:RegistrationDisabled');
+    } finally {
+      TENANT_SETTING_VALUES.delete('host:Registration.Enabled');
+    }
+  });
+
   it('registers an address that differs from a taken one only by case and keeps its case', () => {
-    register({ body: registration('spec-case', 'DEMO@Example.com') });
+    register({ headers: new HttpHeaders(), body: registration('spec-case', 'DEMO@Example.com') });
 
     expect(USERS.find((u) => u.username === 'spec-case')?.email).toBe('DEMO@Example.com');
   });
@@ -141,12 +164,14 @@ describe('mock registration occupancy', () => {
     });
 
     const username = rejectionOf(() =>
-      register({ body: registration('gone', 'fresh@example.com') }),
+      register({ headers: new HttpHeaders(), body: registration('gone', 'fresh@example.com') }),
     );
     expect(username.status).toBe(409);
     expect(username.error.code).toBe('User:UsernameTaken');
 
-    const email = rejectionOf(() => register({ body: registration('fresh', 'gone@example.com') }));
+    const email = rejectionOf(() =>
+      register({ headers: new HttpHeaders(), body: registration('fresh', 'gone@example.com') }),
+    );
     expect(email.status).toBe(409);
     expect(email.error.code).toBe('User:EmailTaken');
     expect(USERS).toEqual(users);
@@ -380,6 +405,43 @@ describe('mock impersonation session', () => {
     expect(getMockSessionTenantKey()).toBe('host');
     expect(getMockImpersonator()).toBeNull();
     expect(status()).toEqual({ isImpersonating: false });
+  });
+});
+//#endif
+//#if (IncludeMultiTenancy)
+
+/** 注册开关按租户：匿名看租户提示头，已登录以会话的租户为准（提示头改写不了），与后端租户解析一致。 */
+describe('mock registration switch tenancy', () => {
+  const summary = AUTH_API['GET /api/v1/auth/security-config'] as unknown as (req: {
+    headers: HttpHeaders;
+  }) => { registrationEnabled: boolean };
+  const open = (headers: Record<string, string> = {}) =>
+    summary({ headers: new HttpHeaders(headers) }).registrationEnabled;
+
+  afterEach(() => {
+    TENANT_SETTING_VALUES.clear();
+    setMockSessionUserId(null);
+  });
+
+  it('follows the tenant hint for anonymous visitors', () => {
+    TENANT_SETTING_VALUES.set('tenant_acme:Registration.Enabled', 'false');
+
+    expect(open({ [TENANT_HEADER]: 'tenant_acme' })).toBe(false);
+    expect(open()).toBe(true);
+  });
+
+  it('follows the session tenant once signed in, whatever the hint says', () => {
+    TENANT_SETTING_VALUES.set('host:Registration.Enabled', 'false');
+    setMockSessionUserId(USERS[0].id);
+    setMockSessionTenantKey('tenant_acme');
+
+    expect(open()).toBe(true);
+    TENANT_SETTING_VALUES.set('tenant_acme:Registration.Enabled', 'false');
+    expect(open({ [TENANT_HEADER]: 'tenant_globex' })).toBe(false);
+
+    setMockSessionTenantKey(null);
+    TENANT_SETTING_VALUES.delete('host:Registration.Enabled');
+    expect(open({ [TENANT_HEADER]: 'tenant_acme' })).toBe(true);
   });
 });
 //#endif
