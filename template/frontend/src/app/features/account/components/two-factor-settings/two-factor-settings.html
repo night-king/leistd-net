@@ -68,18 +68,24 @@
             (submit)="$event.preventDefault(); startReplace()"
           >
             <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.replaceHint') }}</p>
-            <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-wrap items-end gap-3">
               @if (useRecoveryCode()) {
-                <input
-                  hlmInput
-                  class="flex-1 basis-56"
-                  autocomplete="off"
-                  data-testid="two-factor-replace-recovery-code"
-                  [attr.aria-label]="t('account.twoFactor.recoveryCodeLabel')"
-                  [placeholder]="t('account.twoFactor.recoveryCodeLabel')"
-                  [value]="recoveryCode()"
-                  (input)="onRecoveryCodeInput($event)"
-                />
+                <div hlmField class="flex-1 basis-56">
+                  <label hlmFieldLabel for="two-factor-replace-recovery-code">{{
+                    t('account.twoFactor.recoveryCodeLabel')
+                  }}</label>
+                  <input
+                    hlmInput
+                    id="two-factor-replace-recovery-code"
+                    class="font-mono"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    data-testid="two-factor-replace-recovery-code"
+                    [value]="recoveryCode()"
+                    (input)="onRecoveryCodeInput($event)"
+                  />
+                </div>
               } @else {
                 <app-otp-code-input
                   inputId="two-factor-replace-code"
@@ -117,43 +123,79 @@
           <app-recovery-codes [codes]="codes()" (done)="finishCodes()" />
         }
         @case ('disable') {
+          <!-- 与修改密码同一版式：标签在左、输入在右；没有口令的账号只填验证码 -->
           <form
-            class="flex flex-col gap-3"
+            class="flex flex-col gap-5"
             novalidate
             data-testid="two-factor-disable-form"
             (submit)="$event.preventDefault(); disable()"
           >
-            <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.disableHint') }}</p>
-            <div class="flex flex-wrap items-center gap-3">
-              <input
-                hlmInput
-                type="password"
-                autocomplete="current-password"
-                [attr.aria-label]="t('account.twoFactor.passwordLabel')"
-                [placeholder]="t('account.twoFactor.passwordLabel')"
-                [value]="password()"
-                (input)="onPasswordInput($event)"
-              />
-              <app-otp-code-input
-                inputId="two-factor-disable-code"
-                [label]="t('account.twoFactor.codeLabel')"
-                [(value)]="code"
-              />
+            <p class="text-muted-foreground text-sm">
+              {{
+                hasPassword()
+                  ? t('account.twoFactor.disableHint')
+                  : t('account.twoFactor.disableHintNoPassword')
+              }}
+            </p>
+            <div hlmFieldGroup class="gap-5">
+              @if (hasPassword()) {
+                <div hlmField orientation="responsive">
+                  <div hlmFieldContent class="min-w-0 wrap-anywhere">
+                    <div
+                      class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+                    >
+                      <label hlmFieldLabel for="two-factor-disable-password">{{
+                        t('account.twoFactor.passwordLabel')
+                      }}</label>
+                    </div>
+                  </div>
+                  <div
+                    class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+                  >
+                    <input
+                      hlmInput
+                      id="two-factor-disable-password"
+                      type="password"
+                      autocomplete="current-password"
+                      data-testid="two-factor-disable-password"
+                      [value]="password()"
+                      (input)="onPasswordInput($event)"
+                    />
+                  </div>
+                </div>
+              }
+              <div hlmField orientation="responsive">
+                <div hlmFieldContent class="min-w-0 wrap-anywhere">
+                  <div
+                    class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+                  >
+                    <label hlmFieldLabel for="two-factor-disable-code">{{
+                      t('account.twoFactor.codeLabel')
+                    }}</label>
+                  </div>
+                </div>
+                <div
+                  class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+                >
+                  <app-otp-code-input inputId="two-factor-disable-code" [(value)]="code" />
+                </div>
+              </div>
             </div>
-            <div class="flex gap-2">
+            <div class="flex justify-end gap-2">
+              <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
+                {{ t('common.cancel') }}
+              </button>
               <button
                 hlmBtn
                 variant="destructive"
                 type="submit"
-                [disabled]="!password() || !codeValid() || busy()"
+                data-testid="two-factor-disable-submit"
+                [disabled]="!canDisable()"
               >
                 @if (busy()) {
                   <hlm-spinner class="text-base" data-icon="inline-start" />
                 }
                 {{ t('account.twoFactor.confirmDisable') }}
-              </button>
-              <button hlmBtn variant="ghost" type="button" (click)="setMode('idle')">
-                {{ t('common.cancel') }}
               </button>
             </div>
           </form>
@@ -189,6 +231,26 @@
           </form>
         }
         @default {
+          @if (recoveryCodesLow()) {
+            <!-- 恢复码不多：提醒与"重新生成"放在一起（仍要现有验证器上的验证码） -->
+            <div hlmAlert [attr.role]="'status'" data-testid="recovery-codes-low">
+              <ng-icon name="lucideTriangleAlert" class="text-warning" />
+              <div hlmAlertDescription class="flex flex-col items-start gap-3">
+                <span>{{
+                  t('account.twoFactor.recoveryCodesLow', { count: s.recoveryCodesLeft })
+                }}</span>
+                <button
+                  hlmBtn
+                  variant="outline"
+                  size="sm"
+                  data-testid="recovery-codes-low-regenerate"
+                  (click)="setMode('regenerate')"
+                >
+                  {{ t('account.twoFactor.regenerate') }}
+                </button>
+              </div>
+            </div>
+          }
           @if (s.enabled) {
             <div class="flex flex-wrap items-center justify-between gap-3">
               <span class="text-muted-foreground text-sm" data-testid="recovery-codes-left">{{
@@ -204,9 +266,17 @@
                 >
                   {{ t('account.twoFactor.replace') }}
                 </button>
-                <button hlmBtn variant="outline" size="sm" (click)="setMode('regenerate')">
-                  {{ t('account.twoFactor.regenerate') }}
-                </button>
+                @if (!recoveryCodesLow()) {
+                  <button
+                    hlmBtn
+                    variant="outline"
+                    size="sm"
+                    data-testid="two-factor-regenerate"
+                    (click)="setMode('regenerate')"
+                  >
+                    {{ t('account.twoFactor.regenerate') }}
+                  </button>
+                }
                 @if (!s.requiredByPolicy) {
                   <button
                     hlmBtn

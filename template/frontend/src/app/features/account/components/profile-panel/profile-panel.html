@@ -296,8 +296,14 @@
   </form>
 
   <app-reauthenticate-dialog
-    [(visible)]="reauthVisible"
-    [(saving)]="reauthSaving"
-    (confirmed)="onSubmit($event)"
+    [visible]="reauth.visible()"
+    (visibleChange)="reauth.setVisible($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.profile.reauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
   />
 </ng-container>

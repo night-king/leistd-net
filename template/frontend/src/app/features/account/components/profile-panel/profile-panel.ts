@@ -29,12 +29,12 @@ import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
 
-import { ReauthenticateDialog } from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
-import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
 import {
-  ApplicationHttpError,
-  applicationErrorMessage,
-} from '../../../../core/errors/application-http-error';
+  ReauthenticateDialog,
+  ReauthenticationProof,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
+import { injectReauthentication } from '../../../../core/components/reauthenticate-dialog/reauthentication';
+import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { AuthService } from '../../../../core/services/auth-service';
 //#if (Email)
 import { SecurityConfigService } from '../../../../core/services/security-config-service';
@@ -102,9 +102,8 @@ export class ProfilePanel {
   //#endif
 
   readonly saving = signal(false);
-  /** 换邮箱而会话不够新时，请本人出示当前口令后重试保存。 */
-  readonly reauthVisible = signal(false);
-  readonly reauthSaving = signal(false);
+  /** 换邮箱而会话不够新时，请本人确认身份后重试保存。 */
+  protected readonly reauth = injectReauthentication();
   readonly user = computed(() => this.authService.currentUser());
 
   /** 角色徽章直接展示后端返回的角色名。 */
@@ -329,17 +328,16 @@ export class ProfilePanel {
 
 //#endif
   /**
-   * 保存资料。换邮箱时服务端可能要求本人刚认证过（`Auth:ReauthenticationRequired`）：
-   * 弹出确认身份的对话框，带上当前口令重试；口令错误时留在对话框里重输，取消则不保存。
+   * 保存资料。先不带凭证提交；换邮箱而会话不够新时服务端要求确认身份，弹出对话框，带上本人交出的
+   * 口令或验证码重试同一份资料。凭证被拒时留在对话框里就地说明，取消则不保存。
    */
-  onSubmit(currentPassword?: string): void {
+  onSubmit(proof?: ReauthenticationProof): void {
     if (this.profileForm().invalid()) {
       this.profileForm().markAsTouched();
       return;
     }
 
     this.saving.set(true);
-    this.reauthSaving.set(currentPassword !== undefined);
     const { username, email, displayName, phoneNumber } = this.formModel();
 
     this.accountService
@@ -348,17 +346,13 @@ export class ProfilePanel {
         email: email.trim(),
         displayName: displayName.trim() || undefined,
         phoneNumber: phoneNumber.trim() || undefined,
-        currentPassword,
+        currentPassword: proof?.password,
+        twoFactorCode: proof?.twoFactorCode,
       })
-      .pipe(
-        finalize(() => {
-          this.saving.set(false);
-          this.reauthSaving.set(false);
-        }),
-      )
+      .pipe(finalize(() => this.saving.set(false)))
       .subscribe({
         next: (user) => {
-          this.reauthVisible.set(false);
+          this.reauth.complete();
           this.authService.setCurrentUser(user);
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
@@ -371,14 +365,9 @@ export class ProfilePanel {
           //#endif
         },
         error: (error) => {
-          if (
-            error instanceof ApplicationHttpError &&
-            error.code === API_ERROR_CODES.reauthenticationRequired
-          ) {
-            this.reauthVisible.set(true);
-            return;
+          if (!this.reauth.handleError(error, proof, (next) => this.onSubmit(next))) {
+            this.showRequestError(error);
           }
-          this.showRequestError(error);
         },
       });
   }
@@ -433,6 +422,7 @@ const ENGLISH: Record<string, string> = {
   'account.profile.phoneNumber': 'Phone Number',
   'account.profile.phoneNumberPlaceholder': 'Please enter a phone number',
   'account.profile.discardChanges': 'Discard changes',
+  'account.profile.reauthDescription': 'Confirm it is you before changing your sign-in email.',
   'common.save': 'Save',
 };
 //#endif

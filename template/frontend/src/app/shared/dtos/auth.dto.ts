@@ -35,6 +35,13 @@ export interface UserOutputDto {
   /** 当前邮箱是否已验证；改过邮箱后回到未验证。 */
   isEmailVerified: boolean;
   isTwoFactorEnabled?: boolean;
+  //#if (LocalIdentity)
+  /**
+   * 是否设有本地口令；只经外部登录建立的账号没有。与 `isTwoFactorEnabled` 一起决定确认身份时能出示哪种凭证，
+   * 是否需要确认仍由服务端判定。
+   */
+  hasPassword: boolean;
+  //#endif
   /** 受限会话：所在租户要求两步验证而本人尚未启用，必须先完成设置。 */
   twoFactorSetupRequired?: boolean;
   isSuperAdmin: boolean;

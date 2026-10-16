@@ -19,6 +19,17 @@
         <li class="bg-muted rounded-md px-3 py-1.5 text-center select-all">{{ code }}</li>
       }
     </ol>
+    <div hlmField orientation="horizontal">
+      <hlm-checkbox
+        inputId="recovery-codes-acknowledged"
+        data-testid="recovery-codes-acknowledged"
+        [checked]="acknowledged()"
+        (checkedChange)="acknowledged.set($event)"
+      />
+      <label hlmFieldLabel for="recovery-codes-acknowledged">{{
+        t('account.twoFactor.savedCodesConfirm')
+      }}</label>
+    </div>
     <div class="flex flex-wrap gap-2">
       <button hlmBtn variant="outline" size="sm" type="button" (click)="copy()">
         <ng-icon [name]="copied() ? 'lucideCheck' : 'lucideCopy'" data-icon="inline-start" />
@@ -34,6 +45,7 @@
         type="button"
         class="sm:ml-auto"
         data-testid="recovery-codes-done"
+        [disabled]="!acknowledged()"
         (click)="done.emit()"
       >
         {{ t('account.twoFactor.savedCodes') }}

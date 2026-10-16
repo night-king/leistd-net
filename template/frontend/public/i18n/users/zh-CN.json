@@ -138,5 +138,10 @@
     "rolesTitle": "为 {{count}} 位用户追加角色",
     "rolesDescription": "选中的角色会追加给这些用户，已有的角色保持不变。",
     "assign": "追加角色"
+  },
+  "reauth": {
+    "update": "修改他人的登录邮箱或验证状态，需要先确认是你本人。",
+    "resetPassword": "重置他人的密码，需要先确认是你本人。",
+    "resetTwoFactor": "重置他人的两步验证，需要先确认是你本人。"
   }
 }

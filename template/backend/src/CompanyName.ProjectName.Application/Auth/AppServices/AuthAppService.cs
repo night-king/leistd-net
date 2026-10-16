@@ -381,6 +381,9 @@ internal sealed class AuthAppService(
         logger.LogInformation("Registering user {Username}", input.Username);
 
 #if (Email)
+        // 本次注册当场验证过这个地址才算已确认；关闭邮箱验证时只有图形验证码，地址仍是未验证
+        var emailVerified = false;
+
         if (policy.EnableEmailVerification)
         {
             if (input.EmailVerification?.ChallengeId is null || input.EmailVerification.ChallengeId == Guid.Empty)
@@ -396,6 +399,8 @@ internal sealed class AuthAppService(
             {
                 throw new BusinessException(AuthErrorCodes.EmailCodeInvalid, "The email verification code is incorrect or has expired.");
             }
+
+            emailVerified = true;
         }
         else
         {
@@ -417,6 +422,14 @@ internal sealed class AuthAppService(
         var user = await userDomainService.CreateUserAsync(
             input.Username, input.Email, input.Password, input.DisplayName,
             cancellationToken: cancellationToken);
+#if (Email)
+        // 验证码发到的正是这个地址：与本人确认邮箱同一结论，同邮箱的外部登录与安全邮件据此生效
+        if (emailVerified)
+        {
+            user.ConfirmEmail();
+        }
+
+#endif
         var defaultRoles = await roleRepository.GetDefaultRolesAsync(cancellationToken);
         user.AssignRoles(defaultRoles.Select(role => role.Id));
         await userRepository.UpdateAsync(user, cancellationToken);
@@ -445,10 +458,11 @@ internal sealed class AuthAppService(
 
     /// <summary>更新个人信息。</summary>
     /// <remarks>
-    /// <para>换邮箱要会话刚认证过，否则出示当前口令（<see cref="IReauthenticationGuard.EnsureRecentlyAuthenticatedAsync"/>）：
+    /// <para>换邮箱要确认是本人（<see cref="IReauthenticationGuard.EnsureRecentAsync"/>）：会话刚认证过，或出示当前口令或验证码。
     /// 邮箱是安全提醒的去处，确认之后还是按邮箱关联外部登录的依据。拿到一个旧会话的人换成自己的地址、验证、
     /// 再用同一邮箱的外部账号登录，就得到一个不依赖这个会话、改口令也撤不掉的登录方式。用户名、显示名与电话不受此限。</para>
-    /// <para>在本人的凭据锁内读、改并提交：与邮箱确认串行，确认的只能是此刻账号上的那个地址。</para>
+    /// <para>在本人的凭据锁内先确认身份（独立提交，验证码用掉不退回），再另开工作单元重读、改并提交：
+    /// 与邮箱确认串行，确认的只能是此刻账号上的那个地址。</para>
     /// </remarks>
     public async Task<UserOutputDto> UpdateCurrentUserAsync(UpdateCurrentUserInputDto input, CancellationToken cancellationToken = default)
     {
@@ -456,18 +470,22 @@ internal sealed class AuthAppService(
         await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
-        using var unit = unitOfWorkManager.Begin(requiresNew: true);
 
-        var user = await GetCurrentUserEntityAsync(cancellationToken);
-        logger.LogInformation("Updating current user profile (ID: {UserId})", user.Id);
-
+        // 锁内读到的地址在释放前不会再变；只为决定要不要确认身份，业务阶段另行重读
+        var current = await GetCurrentUserEntityAsync(cancellationToken);
         // 与领域判定"换了邮箱"同一口径（大小写不敏感）
-        var emailChanged = !string.Equals(user.Email, input.Email, StringComparison.OrdinalIgnoreCase);
+        var emailChanged = !string.Equals(current.Email, input.Email, StringComparison.OrdinalIgnoreCase);
         if (emailChanged)
         {
-            await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
-                user, input.CurrentPassword, OperationRecordActions.AuthEmailChanged, cancellationToken);
+            await reauthenticationGuard.EnsureRecentAsync(
+                new ReauthenticationProof(input.CurrentPassword, input.TwoFactorCode),
+                OperationRecordActions.AuthEmailChanged,
+                cancellationToken);
         }
+
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
+        logger.LogInformation("Updating current user profile (ID: {UserId})", user.Id);
 
         await userDomainService.UpdateProfileAsync(
             user,
@@ -553,6 +571,47 @@ internal sealed class AuthAppService(
         await unit.CompleteAsync(cancellationToken);
     }
 
+#if (ExternalLogin)
+    /// <summary>给没有本地口令的账号设置第一个口令，并撤销除当前以外的全部会话。</summary>
+    /// <remarks>
+    /// <para>与改口令同样的会话去留：发起设置的这台保留，其他会话随之失效；安全版本轮换，待完成的登录挑战作废。</para>
+    /// <para>已有口令时先于确认身份拒绝，不消耗验证码。确认身份在本人的凭据锁内独立提交（验证码用掉不退回），
+    /// 之后另开工作单元重读用户、设置并提交；提醒在提交之后发出，复用"口令已修改"。</para>
+    /// </remarks>
+    public async Task SetPasswordAsync(SetPasswordInputDto input, CancellationToken cancellationToken = default)
+    {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+
+        (await GetCurrentUserEntityAsync(cancellationToken)).EnsureLocalPasswordNotSet();
+
+        await reauthenticationGuard.EnsureRecentAsync(
+            new ReauthenticationProof(null, input.TwoFactorCode),
+            OperationRecordActions.AuthPasswordSet,
+            cancellationToken);
+
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
+        userDomainService.SetInitialPassword(user, input.NewPassword);
+        await userRepository.UpdateAsync(user, cancellationToken);
+
+        await userSessionDomainService.RevokeAllAsync(user.Id, currentUser.GetSessionId(), cancellationToken);
+        await localEventBus.PublishAsync(
+            new SecurityAlertRequestedEvent(user.Id, new SecurityAlert(SecurityAlertKind.PasswordChanged), clock.Now),
+            cancellationToken);
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.AuthPasswordSet,
+            OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
+            OperationRecordAuthorizations.AuthenticatedSelf,
+            cancellationToken);
+
+        await unit.CompleteAsync(cancellationToken);
+        logger.LogInformation("Current user password set (ID: {UserId})", user.Id);
+    }
+
+#endif
     /// <summary>设置或清除自己的头像。</summary>
     /// <remarks>
     /// 本人只能上传图片，入参 DTO 已挡掉外部地址（它来自外部登录提供方，不由本人随手填）；

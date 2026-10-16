@@ -65,6 +65,7 @@
     "auth.two-factor.recovery-code-used": "Account {{target}} signed in with a recovery code",
     "auth.external-login.linked": "Linked external account {{target}}",
     "auth.external-login.unlinked": "Unlinked external account {{target}}",
+    "auth.password.set": "Set their own password",
     "auth.registered": "Registered account {{target}}",
     "impersonation.started": "Started acting as {{target}}",
     "impersonation.ended": "Ended impersonation",

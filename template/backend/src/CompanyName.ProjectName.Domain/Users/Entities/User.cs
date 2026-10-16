@@ -3,6 +3,9 @@ using System.Linq.Expressions;
 using CompanyName.ProjectName.Domain.Auth.Errors;
 using Leistd.ExceptionHandling;
 #endif
+#if (ExternalLogin)
+using CompanyName.ProjectName.Domain.Users.Errors;
+#endif
 using Leistd.Ddd.Domain.Entities;
 using Leistd.Ddd.Domain.Entities.Auditing;
 using CompanyName.ProjectName.Domain.Users.ValueObjects;
@@ -432,6 +435,17 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
         }
     }
 
+#if (ExternalLogin)
+    /// <summary>还没有本地口令（只经外部登录建立）；已有时以 <see cref="SecurityErrorCodes.PasswordAlreadySet"/> 拒绝，改口令另有入口。</summary>
+    public void EnsureLocalPasswordNotSet()
+    {
+        if (HasLocalPassword)
+        {
+            throw new BusinessException(SecurityErrorCodes.PasswordAlreadySet, "This account already has a password. Use change password instead.");
+        }
+    }
+
+#endif
     /// <summary>两步验证已启用；未启用时以 <see cref="AuthErrorCodes.TwoFactorNotEnabled"/> 拒绝。</summary>
     public void EnsureTwoFactorEnabled()
     {

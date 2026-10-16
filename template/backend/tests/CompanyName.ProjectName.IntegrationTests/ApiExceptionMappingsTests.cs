@@ -85,6 +85,7 @@ public sealed class ApiExceptionMappingsTests(ProjectWebApplicationFactory facto
     [InlineData(UserErrorCodes.EmailTaken, StatusCodes.Status409Conflict)]
 #if (ExternalLogin)
     [InlineData(ExternalAuthErrorCodes.UsernameAllocationFailed, StatusCodes.Status409Conflict)]
+    [InlineData(SecurityErrorCodes.PasswordAlreadySet, StatusCodes.Status409Conflict)]
 #endif
 #if (IncludeMultiTenancy)
     [InlineData(MultiTenancyErrorCodes.ConnectionChangeRequiresInactiveTenant, StatusCodes.Status409Conflict)]

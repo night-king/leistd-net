@@ -212,9 +212,21 @@
     (saved)="handleResetPassword($event)"
   />
   <app-reauthenticate-dialog
-    [(visible)]="reauthDialogVisible"
-    [(saving)]="reauthSaving"
-    (confirmed)="onReauthenticated($event)"
+    [visible]="reauth.visible()"
+    (visibleChange)="reauth.setVisible($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="
+      reauthAction() === 'resetPassword'
+        ? t('users.reauth.resetPassword')
+        : reauthAction() === 'resetTwoFactor'
+          ? t('users.reauth.resetTwoFactor')
+          : t('users.reauth.update')
+    "
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
   />
   <!--#endif-->
 </ng-container>

@@ -7,6 +7,10 @@ import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angul
 import { of, throwError } from 'rxjs';
 
 import { ExternalAuthCallback } from './external-auth-callback';
+import {
+  confirmWithCode,
+  reauthenticateForm,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog.testing';
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
@@ -23,7 +27,11 @@ describe('ExternalAuthCallback', () => {
     externalLoginCallback: ReturnType<typeof vi.fn>;
     linkExternalLogin: ReturnType<typeof vi.fn>;
   };
-  let authService: { loadUser: ReturnType<typeof vi.fn>; currentUser: never };
+  let authService: {
+    loadUser: ReturnType<typeof vi.fn>;
+    signInAgain: ReturnType<typeof vi.fn>;
+    currentUser: never;
+  };
 
   beforeEach(async () => {
     calls = [];
@@ -36,7 +44,9 @@ describe('ExternalAuthCallback', () => {
 
     authService = {
       loadUser: vi.fn().mockName('AuthService.loadUser'),
-      currentUser: signal(null) as never,
+      signInAgain: vi.fn().mockName('AuthService.signInAgain'),
+      // 只经外部登录建立、已开两步验证的账号：确认身份只能出示验证码
+      currentUser: signal({ hasPassword: false, isTwoFactorEnabled: true }) as never,
     };
     authService.loadUser.mockReturnValue(of(undefined) as never);
 
@@ -193,37 +203,58 @@ describe('ExternalAuthCallback', () => {
     expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/workspace/settings/security']);
   });
 
-  // 绑定时会话不够新：票据没被消费，留在回调页请本人出示口令，带上它重试同一次绑定
-  it('asks for the current password and retries the link with it', async () => {
+  // 绑定时会话不够新：票据没被消费，留在回调页请本人确认身份，带上验证码重试同一次绑定
+  it('asks to confirm identity and retries the link with the code', async () => {
     returnWith({ intent: 'link' });
     accountService.linkExternalLogin
-      .mockReturnValueOnce(
-        throwError(() =>
-          ApplicationHttpError.from(
-            new HttpErrorResponse({
-              status: 400,
-              error: { code: 'Auth:ReauthenticationRequired' },
-            }),
-          ),
-        ),
-      )
+      .mockReturnValueOnce(throwError(() => reauthenticationRequired()))
       .mockReturnValueOnce(of(undefined));
     const navigate = TestBed.inject(Router).navigate;
 
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
 
-    expect(accountService.linkExternalLogin).toHaveBeenCalledWith('github', undefined);
+    expect(accountService.linkExternalLogin).toHaveBeenCalledWith('github', {
+      password: undefined,
+      twoFactorCode: undefined,
+    });
     expect(navigate).not.toHaveBeenCalled();
 
-    (
-      fixture.componentInstance as unknown as { onReauthenticated(p: string): void }
-    ).onReauthenticated('current-password');
+    await confirmWithCode(fixture, '123456');
     await new Promise((resolve) => setTimeout(resolve));
 
-    expect(accountService.linkExternalLogin).toHaveBeenLastCalledWith('github', 'current-password');
+    expect(accountService.linkExternalLogin).toHaveBeenLastCalledWith('github', {
+      password: undefined,
+      twoFactorCode: '123456',
+    });
     expect(navigate).toHaveBeenCalledWith(['/workspace/settings/security']);
   });
+
+  // 用不了身份验证器：重新登录后回到账户与安全重新发起绑定，不回到这张票据的回调页
+  it('signs in again back to the security settings, not to the callback', async () => {
+    returnWith({ intent: 'link' });
+    accountService.linkExternalLogin.mockReturnValueOnce(
+      throwError(() => reauthenticationRequired()),
+    );
+
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
+    reauthenticateForm()!
+      .querySelector<HTMLButtonElement>('[data-testid="reauthenticate-sign-in-again-link"]')!
+      .click();
+    await fixture.whenStable();
+
+    expect(authService.signInAgain).toHaveBeenCalledExactlyOnceWith('/workspace/settings/security');
+    expect(accountService.linkExternalLogin).toHaveBeenCalledOnce();
+  });
+
+  function reauthenticationRequired(): ApplicationHttpError {
+    return ApplicationHttpError.from(
+      new HttpErrorResponse({ status: 400, error: { code: 'Auth:ReauthenticationRequired' } }),
+    );
+  }
 
   // 不出示口令、关掉对话框：放弃这次绑定，回到账户与安全
   it('returns to the security settings when the password prompt is dismissed', async () => {

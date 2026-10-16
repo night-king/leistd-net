@@ -16,6 +16,10 @@ public record UserOutputDto
     /// <summary>是否已启用两步验证。</summary>
     public bool IsTwoFactorEnabled { get; init; }
 
+    /// <summary>是否设有本地口令；只经外部登录建立的账号没有。</summary>
+    /// <remarks>与 <see cref="IsTwoFactorEnabled"/> 一起决定确认身份时能出示哪种凭证，是否需要确认仍由服务端判定。</remarks>
+    public bool HasPassword { get; init; }
+
     /// <summary>当前是受限会话：所在租户要求两步验证而本人尚未启用，必须先完成设置。</summary>
     /// <remarks>来自会话声明而不是账号字段，只在"获取当前用户"时有值。</remarks>
     public bool TwoFactorSetupRequired { get; init; }

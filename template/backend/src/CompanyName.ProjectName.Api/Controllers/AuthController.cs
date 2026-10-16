@@ -265,7 +265,7 @@ public sealed class AuthController(
         return result;
     }
 
-    /// <summary>停用两步验证（要密码与验证码）。</summary>
+    /// <summary>停用两步验证（有口令的账号要密码与验证码，没有口令的只要验证码）。</summary>
     [Authorize]
     [HttpPost("me/two-factor/disable")]
     public Task DisableTwoFactorAsync([FromBody] DisableTwoFactorInputDto input, CancellationToken cancellationToken)
@@ -286,5 +286,13 @@ public sealed class AuthController(
     {
         await authService.ChangePasswordAsync(input, cancellationToken);
     }
+#if (ExternalLogin)
+
+    /// <summary>给只经外部登录建立、没有口令的账号设置口令（其他设备随之退出登录）。</summary>
+    [Authorize]
+    [HttpPost("me/password")]
+    public Task SetPasswordAsync([FromBody] SetPasswordInputDto input, CancellationToken cancellationToken)
+        => authService.SetPasswordAsync(input, cancellationToken);
+#endif
 }
 #endif

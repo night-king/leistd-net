@@ -57,17 +57,27 @@ describe('RecoveryCodes', () => {
     }
   });
 
-  it('reports when the codes were saved', () => {
+  // "我已保存"之前要勾选"已保存到安全的地方"：只是提醒，不代表服务端确认过
+  it('reports the codes as saved only after the reminder is ticked', async () => {
     const fixture = TestBed.createComponent(RecoveryCodes);
     fixture.componentRef.setInput('codes', ['fixture-one']);
     fixture.detectChanges();
+    await fixture.whenStable();
     const done = vi.fn();
     fixture.componentInstance.done.subscribe(done);
+    const host = fixture.nativeElement as HTMLElement;
+    const button = host.querySelector<HTMLButtonElement>('[data-testid="recovery-codes-done"]')!;
 
-    (fixture.nativeElement as HTMLElement)
-      .querySelector<HTMLButtonElement>('[data-testid="recovery-codes-done"]')!
-      .click();
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(done).not.toHaveBeenCalled();
 
+    expect(host.querySelector('label[for="recovery-codes-acknowledged"]')).not.toBeNull();
+    host.querySelector<HTMLElement>('#recovery-codes-acknowledged')!.click();
+    await fixture.whenStable();
+
+    expect(button.disabled).toBe(false);
+    button.click();
     expect(done).toHaveBeenCalledTimes(1);
   });
 });

@@ -63,14 +63,23 @@ export interface UpdateUserInputDto {
   displayName?: string;
   avatar?: string;
   isEmailVerified: boolean;
-  /** 管理员本人的当前口令：改邮箱或标为已验证而会话不够新时带上。 */
+  /** 管理员本人的当前口令：改邮箱或标为已验证而会话不够新时带上，与 `twoFactorCode` 二选一。 */
   password?: string;
+  /** 管理员本人身份验证器上的 6 位验证码，与 `password` 二选一。 */
+  twoFactorCode?: string;
 }
 export interface ResetUserPasswordInputDto {
   /** 给对方设的新口令。 */
   password: string;
-  /** 管理员本人的当前口令：会话不够新时带上，不是对方的口令。 */
+  /** 管理员本人的当前口令：会话不够新时带上，不是对方的口令；与 `twoFactorCode` 二选一。 */
   currentPassword?: string;
+  /** 管理员本人身份验证器上的 6 位验证码，与 `currentPassword` 二选一。 */
+  twoFactorCode?: string;
+}
+/** 重置他人的两步验证：会话不够新时带上管理员本人的当前口令或验证码（二选一）。 */
+export interface ResetUserTwoFactorInputDto {
+  password?: string;
+  twoFactorCode?: string;
 }
 //#endif
 

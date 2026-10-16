@@ -1,5 +1,8 @@
 #if (LocalIdentity)
 using CompanyName.ProjectName.Domain.Auth.Errors;
+#if (ExternalLogin)
+using CompanyName.ProjectName.Domain.Users.Errors;
+#endif
 using Leistd.ExceptionHandling.Options;
 
 namespace CompanyName.ProjectName.Api.Hosting.ExceptionMappings;
@@ -36,7 +39,8 @@ internal static class AuthExceptionMappings
             ExternalAuthErrorCodes.EmailOwnedByDeletedAccount,
             ExternalAuthErrorCodes.LastSignInMethod,
             ExternalAuthErrorCodes.ProviderAlreadyLinked,
-            ExternalAuthErrorCodes.UsernameAllocationFailed);
+            ExternalAuthErrorCodes.UsernameAllocationFailed,
+            SecurityErrorCodes.PasswordAlreadySet);
         options.MapCode(ExternalAuthErrorCodes.ProviderNotConfigured, StatusCodes.Status503ServiceUnavailable);
 #endif
     }

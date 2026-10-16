@@ -1,7 +1,11 @@
-//#if (!IncludeMultiTenancy)
+//#if (LocalIdentity || !IncludeMultiTenancy)
 import { MockException } from '../core/models';
 //#endif
+//#if (LocalIdentity)
+import { MOCK_TWO_FACTOR_CODE, MockUser, USERS } from '../data/user';
+//#else
 import { MockUser, USERS } from '../data/user';
+//#endif
 
 // Mock 会话状态存在当前页面的 sessionStorage，刷新保持登录；业务数据在页面内存里，重新加载即回到初始数据。
 // 新页面的初始存储取决于浏览器：独立新开的页面为空（未登录），保留 opener 打开的页面会复制来源页的存储，
@@ -9,6 +13,8 @@ import { MockUser, USERS } from '../data/user';
 const MOCK_SESSION_STORAGE_KEY = 'mock_session_user_id';
 const MOCK_SESSION_TENANT_STORAGE_KEY = 'mock_session_tenant_key';
 const MOCK_SESSION_SUBJECT_STORAGE_KEY = 'mock_session_subject_id';
+/** 会话建立（登录）的时刻，对应真实会话的认证时间；确认身份按它判断"刚认证过"。 */
+const MOCK_SESSION_AUTH_TIME_STORAGE_KEY = 'mock_session_auth_time';
 //#if (Impersonation)
 const MOCK_SESSION_IMPERSONATOR_STORAGE_KEY = 'mock_session_impersonator';
 //#endif
@@ -16,8 +22,10 @@ const MOCK_SESSION_IMPERSONATOR_STORAGE_KEY = 'mock_session_impersonator';
 export function setMockSessionUserId(id: string | null) {
   if (id) {
     sessionStorage.setItem(MOCK_SESSION_STORAGE_KEY, id);
+    sessionStorage.setItem(MOCK_SESSION_AUTH_TIME_STORAGE_KEY, String(Date.now()));
   } else {
     sessionStorage.removeItem(MOCK_SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(MOCK_SESSION_AUTH_TIME_STORAGE_KEY);
     sessionStorage.removeItem(MOCK_SESSION_TENANT_STORAGE_KEY);
     sessionStorage.removeItem(MOCK_SESSION_SUBJECT_STORAGE_KEY);
     //#if (Impersonation)
@@ -114,3 +122,85 @@ export function setMockSessionIdentity(
   setMockSessionUserId(personaUserId);
   sessionStorage.setItem(MOCK_SESSION_SUBJECT_STORAGE_KEY, subjectId);
 }
+//#if (LocalIdentity)
+
+/** 与后端一致：认证后 15 分钟内算"刚认证过"，敏感操作不必再出示凭证。 */
+const MOCK_RECENT_AUTHENTICATION_MS = 15 * 60_000;
+
+/** 会话认证时间往前推，让下一次敏感操作要求确认身份（演示与测试用）；未登录时什么也不做。 */
+export function expireMockSessionAuthentication(): void {
+  if (getMockSessionUserId()) {
+    sessionStorage.setItem(MOCK_SESSION_AUTH_TIME_STORAGE_KEY, '0');
+  }
+}
+
+/** 确认身份时出示的凭证，一次只能一种；各接口的字段名不同，由调用处换成这两个名字。 */
+export interface MockReauthenticationProof {
+  password?: string;
+  twoFactorCode?: string;
+}
+
+/**
+ * 复刻后端确认身份的可观察规则（见 `ReauthenticationGuard`）：
+ * - 两种凭证同时出示：400 字段错误，不带业务码；
+ * - 出示了凭证就只按它判定，不回落到"刚认证过"：本账号不具备这种方式时
+ *   `Auth:ReauthenticationMethodUnavailable`，口令或验证码不对时各自的错误码；
+ * - 没有出示凭证：刚认证过即放行；否则既无口令又没开两步验证时 `Auth:SignInAgainRequired`，
+ *   其余 `Auth:ReauthenticationRequired`。
+ *
+ * 管理员操作他人时传入的是操作者本人。
+ */
+export function ensureMockReauthentication(user: MockUser, proof: MockReauthenticationProof): void {
+  const password = proof.password || undefined;
+  const twoFactorCode = proof.twoFactorCode?.replace(/\s/g, '') || undefined;
+
+  if (password !== undefined && twoFactorCode !== undefined) {
+    throw new MockException(400, {
+      errors: [
+        {
+          field: 'twoFactorCode',
+          detail: 'Provide either your current password or a verification code, not both.',
+        },
+      ],
+    });
+  }
+
+  if (password !== undefined || twoFactorCode !== undefined) {
+    const available = password !== undefined ? !!user.password : user.twoFactorEnabled === true;
+    if (!available) {
+      throw new MockException(400, {
+        code: 'Auth:ReauthenticationMethodUnavailable',
+        message: 'This way of confirming your identity is not available for your account.',
+      });
+    }
+    if (password !== undefined && password !== user.password) {
+      throw new MockException(400, {
+        code: 'Security:CurrentPasswordIncorrect',
+        message: 'The current password is incorrect.',
+      });
+    }
+    if (twoFactorCode !== undefined && twoFactorCode !== MOCK_TWO_FACTOR_CODE) {
+      throw new MockException(400, {
+        code: 'Auth:TwoFactorCodeInvalid',
+        message: `The verification code is incorrect (mock code: ${MOCK_TWO_FACTOR_CODE}).`,
+      });
+    }
+    return;
+  }
+
+  const authenticatedAt = Number(sessionStorage.getItem(MOCK_SESSION_AUTH_TIME_STORAGE_KEY) ?? 0);
+  if (Date.now() - authenticatedAt < MOCK_RECENT_AUTHENTICATION_MS) {
+    return;
+  }
+
+  throw !user.password && user.twoFactorEnabled !== true
+    ? new MockException(400, {
+        code: 'Auth:SignInAgainRequired',
+        message: 'Sign in again to continue.',
+      })
+    : new MockException(400, {
+        code: 'Auth:ReauthenticationRequired',
+        message: 'Confirm your identity to continue.',
+      });
+}
+//#endif

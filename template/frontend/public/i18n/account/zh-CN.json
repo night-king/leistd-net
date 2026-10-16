@@ -40,7 +40,7 @@
     "regenerateHint": "输入身份验证器应用上的验证码。重新生成后，旧的恢复码全部失效。",
     "passwordLabel": "当前密码",
     "codeLabel": "验证码",
-    "confirmDisable": "停用",
+    "confirmDisable": "停用两步验证",
     "confirmRegenerate": "重新生成",
     "enabledToast": "两步验证已启用，其他设备已退出登录。",
     "disabledToast": "两步验证已停用，其他设备已退出登录。",
@@ -60,16 +60,20 @@
     "savedCodes": "我已保存",
     "replace": "更换身份验证器",
     "replaceHint": "输入当前身份验证器上的验证码。验证器丢了？改用一个恢复码，它会被立即用掉。",
-    "useRecoveryCode": "验证器丢了？改用恢复码",
-    "useCode": "改用验证码",
+    "useRecoveryCode": "无法使用身份验证器？改用恢复码",
+    "useCode": "改用身份验证器验证码",
     "recoveryCodeLabel": "恢复码",
     "continue": "继续",
     "replaceConfirm": "验证并更换",
     "replacedToast": "身份验证器已更换。原来的验证器和旧恢复码都已失效，其他设备已退出登录。",
-    "reauthHint": "为了保护账号，请输入当前密码后继续。",
-    "signInAgainHint": "为了保护账号，请退出后重新登录，再立即进行设置。",
     "setupExpired": "这次设置已失效（已过期或在别处重新开始），上面的密钥已作废。",
-    "restart": "重新开始"
+    "restart": "重新开始",
+    "disableHintNoPassword": "输入身份验证器应用上的验证码以停用。",
+    "recoveryCodesLow": "恢复码只剩 {{count}} 个，用完后丢失手机将无法登录。",
+    "savedCodesConfirm": "我已把恢复码保存到安全的地方",
+    "reauthPending": "设置两步验证前，需要先确认是你本人。",
+    "reauthOpen": "确认身份",
+    "reauthDescription": "设置身份验证器会改变你的登录方式，请先确认是你本人。"
   },
   "twoFactorLogin": {
     "title": "两步验证",
@@ -78,8 +82,8 @@
     "codeLabel": "验证码",
     "recoveryLabel": "恢复码",
     "submit": "验证",
-    "useRecovery": "手机不在身边？改用恢复码",
-    "useCode": "改用验证码",
+    "useRecovery": "无法使用身份验证器？改用恢复码",
+    "useCode": "改用身份验证器验证码",
     "back": "返回登录"
   },
   "twoFactorRequired": {
@@ -110,7 +114,9 @@
     "unlinked": "已解绑",
     "linked": "外部账号已绑定",
     "lastMethod": "唯一的登录方式",
-    "loadFailed": "无法加载已绑定的外部账号。"
+    "loadFailed": "无法加载已绑定的外部账号。",
+    "unlinkReauthDescription": "解绑会少一种登录方式，请先确认是你本人。",
+    "linkReauthDescription": "绑定会多一种登录方式，请先确认是你本人。"
   },
   "profile": {
     "superAdminTag": "超级管理员",
@@ -147,7 +153,8 @@
     "confirmCode": "验证",
     "codeSent": "验证码已发送到 {{email}}",
     "emailVerifiedSuccess": "邮箱已验证",
-    "emailVerificationUnavailable": "当前部署还没有配置邮箱验证，暂时无法验证。"
+    "emailVerificationUnavailable": "当前部署还没有配置邮箱验证，暂时无法验证。",
+    "reauthDescription": "修改登录邮箱前，请先确认是你本人。"
   },
   "brand": {
     "title": "模板项目",
@@ -253,5 +260,12 @@
     "failed": "第三方登录失败，请返回重试",
     "cancelled": "已取消第三方登录。",
     "backToLogin": "返回登录"
+  },
+  "setPassword": {
+    "header": "设置密码",
+    "subtitle": "你目前只能通过第三方账号登录。设置密码后，也可以用用户名或邮箱加密码登录。",
+    "submit": "设置密码",
+    "success": "密码已设置，现在也可以用邮箱和密码登录。",
+    "reauthDescription": "设置密码前，请先确认是你本人。"
   }
 }

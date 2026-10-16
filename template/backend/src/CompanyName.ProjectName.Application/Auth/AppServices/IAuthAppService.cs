@@ -46,4 +46,10 @@ public interface IAuthAppService : IAppService
 
     /// <summary>修改密码。成功后撤销本人除当前会话以外的全部会话。</summary>
     Task ChangePasswordAsync(ChangePasswordInputDto input, CancellationToken cancellationToken = default);
+#if (ExternalLogin)
+
+    /// <summary>给没有本地口令的账号设置第一个口令。成功后撤销本人除当前会话以外的全部会话。</summary>
+    /// <remarks>已有口令时以 <c>Security:PasswordAlreadySet</c> 拒绝；会话不够新时要出示验证码，没开两步验证的要重新登录。</remarks>
+    Task SetPasswordAsync(SetPasswordInputDto input, CancellationToken cancellationToken = default);
+#endif
 }

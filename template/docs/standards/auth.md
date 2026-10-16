@@ -107,20 +107,21 @@
 
 #### 敏感变更的近期认证
 
-改变“谁能登进这个账号”的操作假设会话可能被盗用：会话的认证时间（`auth_time`）要在 15 分钟内，否则当场出示操作者自己的当前口令（`Auth:ReauthenticationRequired`），口令错误与登录共用失败计数和锁定；没有本地口令的账号重新登录（`Auth:SignInAgainRequired`）。模拟登录的会话不算刚认证（那是发起人的认证时间）。覆盖的入口：
+改变“谁能登进这个账号”的操作假设会话可能被盗用，要确认是本人：会话的认证时间（`auth_time`）在 15 分钟内即放行；否则出示操作者自己的一种凭证——当前口令或身份验证器上的验证码，二选一（`Auth:ReauthenticationRequired`，两种都给是字段错误）。出示了凭证就只按它判定，不回落到会话时间或另一种凭证：错误与登录共用失败计数和锁定；账号没有这种方式（没有口令却给口令、没开两步验证却给验证码）返回 `Auth:ReauthenticationMethodUnavailable`，不计数，客户端刷新当前用户（`hasPassword`、`isTwoFactorEnabled`）后换成可用的方式。既没有口令也没开两步验证的账号只能重新登录（`Auth:SignInAgainRequired`）。验证码同一步只认一次，与登录第二步共用（刚登录用过的码要等下一个），通过即用掉、不随之后的业务失败退回。确认只对当次操作有效，不改写会话的认证时间；模拟登录的会话不算刚认证（那是发起人的认证时间）。客户端先不带凭证提交，服务端要求时再请本人出示、带上重试。覆盖的入口（括号里是口令字段，验证码字段一律是 `twoFactorCode`）：
 
 - 本人换邮箱（`PUT /api/v1/auth/me` 的 `currentPassword`，只在邮箱变化时要求；用户名、显示名、电话不受此限）；
 <!--#if (ExternalLogin)-->
-- 本人绑定外部账号（`link/complete` 的 `password`）；
+- 本人绑定外部账号（`link/complete` 的 `password`）与解绑（`DELETE /api/v1/external-auth/links/{id}` 请求体的 `password`；不存在或不属于本人的绑定直接成功，不要求确认）；
+- 只经外部登录、没有口令的账号设置第一个口令（`POST /api/v1/auth/me/password`，只能出示验证码；已有口令时 `Security:PasswordAlreadySet`）；
 <!--#endif-->
-- 绑定、换绑两步验证（见后端 README）；
-- 管理员改他人邮箱或把邮箱标为已验证（`PUT /api/v1/users/{id}` 的 `password`）、重置他人口令（`reset-password` 的 `currentPassword`）、重置他人两步验证。经用户管理改自己同样要求。
+- 绑定、换绑两步验证（`setup` 的 `password`；换绑时现有验证器上的 `code` 同时算作确认，见后端 README）；
+- 管理员改他人邮箱或把邮箱标为已验证（`PUT /api/v1/users/{id}` 的 `password`）、重置他人口令（`reset-password` 的 `currentPassword`）、重置他人两步验证（`password`）。出示的是管理员自己的凭证；经用户管理改自己同样要求。
 
 受限会话（组织要求两步验证而本人未设置）是端点限制，与认证时间无关：它调不到资料与绑定接口，服务端以 `Auth:TwoFactorSetupRequired` 拒绝；它自己的首次设置照常按自己的认证时间判定。
 
 #### 凭据并发
 
-口令、安全版本、邮箱与两步验证凭据的改写，以及凭它们登记会话的路径（口令登录、登录第二步、已有账号的外部登录），都在同一把用户级凭据锁（`UserCredentialLock`）内读取最新的用户行、决定并提交。撤销会话只撤得掉当时已有的会话；串行之后，改口令、重置口令、启用两步验证、解绑之后不会再冒出凭旧状态登记的会话，邮箱确认也只确认得了此刻账号上的地址。受限会话完成两步验证设置后在原服务端会话上换发 Cookie，不登记新会话。
+口令、安全版本、邮箱与两步验证凭据的改写，以及凭它们登记会话的路径（口令登录、登录第二步、已有账号的外部登录），都在同一把用户级凭据锁（`UserCredentialLock`）内读取最新的用户行、决定并提交。撤销会话只撤得掉当时已有的会话；串行之后，改口令、重置口令、启用两步验证、解绑之后不会再冒出凭旧状态登记的会话，邮箱确认也只确认得了此刻账号上的地址。确认身份用掉验证码也在操作者自己的这把锁内独立提交：本人入口在同一把锁里先确认、再另开事务重读并改写；管理员入口与外部绑定的预检先在自己的锁里确认并释放，再取目标（或外部票据）的锁，同一把锁只先后获取、不嵌套，两位管理员互相操作时不交叉持锁。受限会话完成两步验证设置后在原服务端会话上换发 Cookie，不登记新会话。
 <!--#endif-->
 <!--#if (OpenIddictServer)-->
 ### 依赖方的登录与退出
@@ -147,16 +148,16 @@ Google 使用微软官方 AddGoogle（UserInfo v3）；GitHub 使用 aspnet-cont
 
 **启用与配置**：每个提供商有启用开关和 `ClientId`、`ClientSecret`（配置节 `ExternalAuth:{Github|Google}`），部署配置给基线（开关默认关闭），宿主管理员可在「系统设置 → 外部登录」运行期覆盖，密钥是机密设置、只写不回显。开关打开且两项凭据齐全时提供商才**可用**；凭据不全不拒绝写入、也不阻止启动，只是不提供该入口并记警告日志（列出缺失的键）。设置页的状态部件显示开关、凭据是否已配置（含部署配置提供的密钥）、本实例是否生效与回调地址（`GET /api/v1/settings/external-login/status`，仅宿主）。
 
-启动时始终调用 `AddGoogle`、`AddGitHub` 装配处理器与官方选项链；运行期的 scheme 目录由 `ExternalSchemeSynchronizer` 按可用性增删，并作废命名选项缓存，凭据每次重建选项时读 `IOptionsMonitor<ExternalAuthOptions>`；不能把不可用的 scheme 留在目录里，认证中间件每个请求都会初始化它并触发官方的必填校验。多实例经宿主级设置的周期刷新各自收敛。停用只关闭新的入口：再发起 challenge 返回 503（`ExternalAuth:ProviderNotConfigured`），已跳到提供商、停用后才回调的请求落到 `/api/**` 兜底返回 404，已签发的外部票据在五分钟有效期内仍可完成。停用前注意：只靠该提供商登录、又没有密码的用户将无法登录。模板没有自助找回密码，这类用户只能靠别的仍可用的外部绑定，或由管理员在用户管理里重置口令。
+启动时始终调用 `AddGoogle`、`AddGitHub` 装配处理器与官方选项链；运行期的 scheme 目录由 `ExternalSchemeSynchronizer` 按可用性增删，并作废命名选项缓存，凭据每次重建选项时读 `IOptionsMonitor<ExternalAuthOptions>`；不能把不可用的 scheme 留在目录里，认证中间件每个请求都会初始化它并触发官方的必填校验。多实例经宿主级设置的周期刷新各自收敛。停用只关闭新的入口：再发起 challenge 返回 503（`ExternalAuth:ProviderNotConfigured`），已跳到提供商、停用后才回调的请求落到 `/api/**` 兜底返回 404，已签发的外部票据在五分钟有效期内仍可完成。停用前注意：只靠该提供商登录、又没有密码的用户将无法登录。模板没有自助找回密码，这类用户事先可以在账户与安全里设置口令（保留当前会话、撤销其他会话并发“口令已修改”提醒），事后只能靠别的仍可用的外部绑定，或由管理员在用户管理里重置口令。
 
 新增提供商除了上面的 scheme 登记，还要补设置定义、`HostSettingBindings` 绑定行、`ExternalAuthOptions` 节、同步器与状态端点里的提供商、前端入口与 Mock。
 
 0. 登录页匿名读取 `GET /api/v1/external-auth/providers`，只为可用的提供商显示入口；列表为空时登录页、注册页不显示入口与分隔文案，账户与安全不显示外部账号区块；读取失败时单独提示并可重试（5xx 附追踪 ID），不当作"未配置"。登录页只内置 GitHub、Google 两个入口，新增提供商时要同时补前端入口和 `getExternalLoginUrl` 的提供商类型。
 1. 浏览器导航至 `GET /api/v1/external-auth/{provider}/challenge`，可带站内 `returnUrl`（外站地址返回 400）。绑定使用 `GET /api/v1/external-auth/{provider}/link/challenge`，要求通过自然人策略的非受限会话。
 2. 提供商回调至 `/api/v1/external-auth/{provider}/signin`，官方处理器完成 code/state/correlation/PKCE 与 UserInfo，签发五分钟外部票据引用，然后重定向前端 `/auth/external-callback/{provider}?intent=...`。用户在提供商处取消或协议校验失败（state、correlation 等）时，不签发外部票据，重定向前端 `/auth/external-callback/{provider}?intent=...&error=cancelled|failed`：登录意图显示原因并提供返回登录入口（会话仍有效时直接回到应用，例如后退键重放旧回调），绑定意图回到安全设置页并提示。业务提示中的提供商名使用官方 scheme 的显示名（`ExternalUserInfo.ProviderDisplayName`）。
-3. 前端 `POST /api/v1/external-auth/{provider}/complete` 或受保护的 `POST /api/v1/external-auth/{provider}/link/complete`。登录的请求体为空对象；绑定在会话不够新时带上本人当前口令（`{ "password": ... }`），见“敏感变更的近期认证”。后端匹配受保护的提供商、意图、绑定发起者与租户，先一次消费外部票据，再执行账号政策；登录返回最终会话结果或第二步凭据及受保护的 `returnUrl`，前端在登录或第二步成功后接续该地址；绑定成功为空响应（HTTP 200），结果以绑定列表为准。登录与第二步的会话 Cookie 统一由 `backend/src/CompanyName.ProjectName.Api/Auth/Sessions/SessionCookieIssuer.cs` 签发：先结束当前会话再签发，要求第二步时只返回凭据、不签发最终会话。
+3. 前端 `POST /api/v1/external-auth/{provider}/complete` 或受保护的 `POST /api/v1/external-auth/{provider}/link/complete`。登录的请求体为空对象；绑定在会话不够新时带上本人的当前口令或验证码（`{ "password": ... }` 或 `{ "twoFactorCode": ... }`），见“敏感变更的近期认证”。后端匹配受保护的提供商、意图、绑定发起者与租户，先一次消费外部票据，再执行账号政策；登录返回最终会话结果或第二步凭据及受保护的 `returnUrl`，前端在登录或第二步成功后接续该地址；绑定成功为空响应（HTTP 200），结果以绑定列表为准。登录与第二步的会话 Cookie 统一由 `backend/src/CompanyName.ProjectName.Api/Auth/Sessions/SessionCookieIssuer.cs` 签发：先结束当前会话再签发，要求第二步时只返回凭据、不签发最终会话。
 
-完成端点失败也不能重用票据，须重新 challenge；唯一的例外是绑定要求出示口令（`Auth:ReauthenticationRequired`、`Security:CurrentPasswordIncorrect`）：近期认证只在消费票据之前检查一次，带上口令重试同一个请求即可；票据消费之后不再因认证时间拒绝。查询参数不能改变保护过的登录/绑定意图。提供商后台需分别登记上述完整 HTTPS signin 地址。Google v3 使用 `sub/email_verified`。邮箱接口失败或未验证邮箱不允许按邮箱关联账号。
+完成端点失败也不能重用票据，须重新 challenge；唯一的例外是绑定要求确认身份（`Auth:ReauthenticationRequired`、`Security:CurrentPasswordIncorrect`、`Auth:TwoFactorCodeInvalid`、`Auth:ReauthenticationMethodUnavailable`）：确认只在消费票据之前进行一次，带上凭证重试同一个请求即可；票据消费之后不再因认证时间拒绝。查询参数不能改变保护过的登录/绑定意图。提供商后台需分别登记上述完整 HTTPS signin 地址。Google v3 使用 `sub/email_verified`。邮箱接口失败或未验证邮箱不允许按邮箱关联账号。
 
 按邮箱自动关联是模板的产品政策：提供商确认邮箱已验证、且本地账号的邮箱也已确认时，首次用该外部账号登录直接关联到这个本地账号。它信任的是“受信提供商 + 双方已验证的同一邮箱”，不是通用的账号同一性证明；因此本地邮箱的变更要求近期认证，确认要求发到该地址的验证码，两者与自动关联的判定和写入共用同一把凭据锁（见“本地账号”下的“敏感变更的近期认证”“凭据并发”）。不接受这一政策的项目，改为邮箱命中已有账号时返回 `ExternalAuth:AccountExistsSignInToLink`，由本人登录后在账号设置里绑定。
 <!--#endif-->

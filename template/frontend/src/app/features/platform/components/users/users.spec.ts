@@ -17,6 +17,13 @@ import { of, Subject, throwError } from 'rxjs';
 import { Users } from './users';
 import { UserTable } from './widgets/user-table/user-table';
 //#if (LocalIdentity)
+import {
+  confirmWithCode,
+  confirmWithPassword,
+  reauthenticateClosed,
+  reauthenticateErrorText,
+  reauthenticateForm,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog.testing';
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#endif
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
@@ -38,6 +45,8 @@ describe('Users page query round trip', () => {
   let fixture: ComponentFixture<Users>;
   let component: Users;
   let router: Router;
+  /** 当前用户：管理员操作他人时，确认身份按的是操作者本人的账号状态。 */
+  const currentUser = signal<unknown>(null);
   // prettier-ignore
   let service: Pick<
     MockedObject<UserManagementService>,
@@ -83,7 +92,10 @@ describe('Users page query round trip', () => {
         provideRouter([{ path: 'platform/users', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: AuthService, useValue: { currentUser: signal(null) } },
+        {
+          provide: AuthService,
+          useValue: { currentUser, loadUser: () => of(undefined), signInAgain: vi.fn() },
+        },
         //#if (IncludeLocalization)
         ...provideTranslocoTesting(['en']),
         //#endif
@@ -111,83 +123,97 @@ describe('Users page query round trip', () => {
   });
 
   //#if (LocalIdentity)
-  // 管理员会话不够新：服务端要口令，页面弹出确认身份，带上口令重试同一个重置
-  it('asks the administrator for their password and retries the two-factor reset with it', async () => {
-    const target = { id: 'user-2', username: 'bob' } as never;
-    service.resetTwoFactor.mockReturnValueOnce(
-      throwError(() =>
-        ApplicationHttpError.from(
-          new HttpErrorResponse({ status: 400, error: { code: 'Auth:ReauthenticationRequired' } }),
-        ),
-      ),
-    );
-    service.resetTwoFactor.mockReturnValueOnce(of(undefined));
+  describe('confirming the administrator', () => {
+    beforeEach(() => currentUser.set({ id: 'admin', hasPassword: true, isTwoFactorEnabled: true }));
+    afterEach(() => currentUser.set(null));
 
-    await component.handleResetTwoFactor(target);
-    await fixture.whenStable();
+    // 管理员会话不够新：服务端要求确认身份，页面弹出对话框，带上管理员本人的验证码重试同一个重置
+    it('retries the two-factor reset with the administrator code', async () => {
+      const target = { id: 'user-2', username: 'bob' } as never;
+      service.resetTwoFactor.mockReturnValueOnce(throwError(() => reauthenticationRequired()));
+      service.resetTwoFactor.mockReturnValueOnce(of(undefined));
 
-    expect(service.resetTwoFactor).toHaveBeenCalledWith('user-2', undefined);
-    expect(component.reauthDialogVisible()).toBe(true);
+      await component.handleResetTwoFactor(target);
+      await fixture.whenStable();
 
-    component.onReauthenticated('admin-password');
-    await fixture.whenStable();
+      expect(service.resetTwoFactor).toHaveBeenCalledWith('user-2', {
+        password: undefined,
+        twoFactorCode: undefined,
+      });
+      expect(reauthenticateForm()).not.toBeNull();
 
-    expect(service.resetTwoFactor).toHaveBeenLastCalledWith('user-2', 'admin-password');
-    expect(component.reauthDialogVisible()).toBe(false);
-  });
+      await confirmWithCode(fixture, '123456');
 
-  // 重置口令同理：带的是管理员自己的当前口令（currentPassword），新口令（password）原样不变
-  it('asks the administrator for their password and retries the password reset with it', async () => {
-    service.resetPassword.mockReturnValueOnce(throwError(() => reauthenticationRequired()));
-    service.resetPassword.mockReturnValueOnce(of(undefined));
-
-    component.openResetPasswordDialog('user-2');
-    component.handleResetPassword({ password: 'New!Passw0rd' });
-    await fixture.whenStable();
-
-    expect(service.resetPassword).toHaveBeenCalledWith('user-2', {
-      password: 'New!Passw0rd',
-      currentPassword: undefined,
+      expect(service.resetTwoFactor).toHaveBeenLastCalledWith('user-2', {
+        password: undefined,
+        twoFactorCode: '123456',
+      });
+      expect(await reauthenticateClosed(fixture)).toBe(true);
     });
-    expect(component.reauthDialogVisible()).toBe(true);
 
-    component.onReauthenticated('admin-password');
-    await fixture.whenStable();
+    // 重置口令同理：带的是管理员自己的当前口令（currentPassword），新口令（password）原样不变
+    it('retries the password reset with the administrator password', async () => {
+      service.resetPassword.mockReturnValueOnce(throwError(() => reauthenticationRequired()));
+      service.resetPassword.mockReturnValueOnce(of(undefined));
 
-    expect(service.resetPassword).toHaveBeenLastCalledWith('user-2', {
-      password: 'New!Passw0rd',
-      currentPassword: 'admin-password',
+      component.openResetPasswordDialog('user-2');
+      component.handleResetPassword({ password: 'New!Passw0rd' });
+      await fixture.whenStable();
+
+      expect(service.resetPassword).toHaveBeenCalledWith('user-2', {
+        password: 'New!Passw0rd',
+        currentPassword: undefined,
+        twoFactorCode: undefined,
+      });
+
+      await confirmWithPassword(fixture, 'admin-password');
+
+      expect(service.resetPassword).toHaveBeenLastCalledWith('user-2', {
+        password: 'New!Passw0rd',
+        currentPassword: 'admin-password',
+        twoFactorCode: undefined,
+      });
+      expect(component.resetPasswordDialogVisible()).toBe(false);
     });
-    expect(component.reauthDialogVisible()).toBe(false);
-    expect(component.resetPasswordDialogVisible()).toBe(false);
-  });
 
-  // 改邮箱或标为已验证时服务端要管理员刚认证过：带上口令重试同一次保存
-  it('asks the administrator for their password and retries the user update with it', async () => {
-    const update = { email: 'bob@example.test', isEmailVerified: true };
-    service.updateUser.mockReturnValueOnce(throwError(() => reauthenticationRequired()));
-    service.updateUser.mockReturnValueOnce(of(undefined) as never);
-    component.selectedUser.set({ id: 'user-2', username: 'bob' } as never);
+    // 改邮箱或标为已验证时服务端要管理员刚认证过：带上凭证重试同一次保存；凭证被拒就地说明
+    it('retries the user update and keeps a rejected code inside the dialog', async () => {
+      const update = { email: 'bob@example.test', isEmailVerified: true };
+      service.updateUser.mockReturnValueOnce(throwError(() => reauthenticationRequired()));
+      service.updateUser.mockReturnValueOnce(
+        throwError(() => rejection('Auth:TwoFactorCodeInvalid', 'Wait for the next code.')),
+      );
+      service.updateUser.mockReturnValueOnce(of(undefined) as never);
+      component.selectedUser.set({ id: 'user-2', username: 'bob' } as never);
 
-    component.handleSave(update);
-    await fixture.whenStable();
+      component.handleSave(update);
+      await fixture.whenStable();
+      await confirmWithCode(fixture, '000000');
 
-    expect(service.updateUser).toHaveBeenCalledWith('user-2', { ...update, password: undefined });
-    expect(component.reauthDialogVisible()).toBe(true);
+      expect(service.updateUser).toHaveBeenNthCalledWith(2, 'user-2', {
+        ...update,
+        password: undefined,
+        twoFactorCode: '000000',
+      });
+      expect(reauthenticateErrorText()).toBe('Wait for the next code.');
 
-    component.onReauthenticated('admin-password');
-    await fixture.whenStable();
+      await confirmWithCode(fixture, '123456');
 
-    expect(service.updateUser).toHaveBeenLastCalledWith('user-2', {
-      ...update,
-      password: 'admin-password',
+      expect(service.updateUser).toHaveBeenLastCalledWith('user-2', {
+        ...update,
+        password: undefined,
+        twoFactorCode: '123456',
+      });
     });
-    expect(component.reauthDialogVisible()).toBe(false);
   });
 
   function reauthenticationRequired(): ApplicationHttpError {
+    return rejection('Auth:ReauthenticationRequired');
+  }
+
+  function rejection(code: string, detail = code): ApplicationHttpError {
     return ApplicationHttpError.from(
-      new HttpErrorResponse({ status: 400, error: { code: 'Auth:ReauthenticationRequired' } }),
+      new HttpErrorResponse({ status: 400, error: { code, detail } }),
     );
   }
 

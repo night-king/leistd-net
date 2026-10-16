@@ -8,8 +8,11 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
-import { ReauthenticateDialog } from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
-import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
+import {
+  ReauthenticateDialog,
+  ReauthenticationProof,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
+import { injectReauthentication } from '../../../../core/components/reauthenticate-dialog/reauthentication';
 import {
   ApplicationHttpError,
   applicationErrorMessage,
@@ -60,10 +63,9 @@ export class ExternalAuthCallback implements OnInit {
    */
   protected readonly error = signal<{ key: string } | { text: string } | null>(null);
 
-  /** 绑定时会话不够新：请本人出示当前口令，再用同一张外部票据重试。 */
-  protected readonly reauthVisible = signal(false);
-  protected readonly reauthSaving = signal(false);
-  /** 正在等待口令重试的绑定；为 null 时对话框关闭不再触发离开。 */
+  /** 绑定时会话不够新：请本人确认身份，再用同一张外部票据重试。 */
+  protected readonly reauth = injectReauthentication();
+  /** 正在等待确认身份后重试的绑定；为 null 时对话框关闭不再触发离开。 */
   private pendingLinkProvider: string | null = null;
 
   ngOnInit(): void {
@@ -176,53 +178,50 @@ export class ExternalAuthCallback implements OnInit {
 
   /**
    * 完成绑定并回到「账户与安全」面板；失败也回去，由那里的列表反映实际状态。
-   * 会话不够新时服务端不消费外部票据：留在这里请本人出示当前口令，带上它重试；口令不对留在对话框里重输，
-   * 取消则回去。
+   * 会话不够新时服务端不消费外部票据：留在这里请本人确认身份，带上交出的凭证重试；凭证被拒时留在对话框里
+   * 就地说明，取消则回去。
    */
-  private async completeLink(provider: string, password?: string): Promise<void> {
+  private async completeLink(provider: string, proof?: ReauthenticationProof): Promise<void> {
     this.pendingLinkProvider = provider;
-    this.reauthSaving.set(password !== undefined);
     try {
-      await lastValueFrom(this.accountService.linkExternalLogin(provider, password));
+      await lastValueFrom(
+        this.accountService.linkExternalLogin(provider, {
+          password: proof?.password,
+          twoFactorCode: proof?.twoFactorCode,
+        }),
+      );
       //#if (IncludeLocalization)
       toast.success(this.transloco.translate('account.externalLogins.linked'));
       //#else
       toast.success('Account linked');
       //#endif
     } catch (error) {
-      if (error instanceof ApplicationHttpError) {
-        if (error.code === API_ERROR_CODES.reauthenticationRequired) {
-          this.reauthVisible.set(true);
-          return;
-        }
-        if (password !== undefined && error.code === API_ERROR_CODES.currentPasswordIncorrect) {
-          this.showLinkError(error);
-          return;
-        }
+      if (this.reauth.handleError(error, proof, (next) => void this.completeLink(provider, next))) {
+        return;
       }
       this.showLinkError(error);
-    } finally {
-      this.reauthSaving.set(false);
     }
     this.pendingLinkProvider = null;
-    this.reauthVisible.set(false);
+    this.reauth.complete();
     await this.returnToSecurity();
-  }
-
-  /** 在确认身份的对话框里出示了口令：带上它重试挂起的绑定。 */
-  protected onReauthenticated(password: string): void {
-    if (this.pendingLinkProvider) {
-      void this.completeLink(this.pendingLinkProvider, password);
-    }
   }
 
   /** 本人关掉了确认身份的对话框：放弃这次绑定，回到「账户与安全」面板。 */
   protected onReauthVisibleChange(visible: boolean): void {
-    this.reauthVisible.set(visible);
+    this.reauth.setVisible(visible);
     if (!visible && this.pendingLinkProvider) {
       this.pendingLinkProvider = null;
       void this.returnToSecurity();
     }
+  }
+
+  /**
+   * 本人选择重新登录：回来后落在「账户与安全」面板，从那里重新发起绑定。这张外部票据只属于这一次会话，
+   * 回到回调页无法再用。
+   */
+  protected onSignInAgain(): void {
+    this.pendingLinkProvider = null;
+    this.reauth.signInAgain('/workspace/settings/security');
   }
 
   private showLinkError(error: unknown): void {
@@ -258,5 +257,7 @@ const ENGLISH: Record<string, string> = {
   'account.externalCallback.failed': 'Third-party sign-in failed. Please go back and try again.',
   'account.externalCallback.cancelled': 'Third-party sign-in was cancelled.',
   'account.externalCallback.backToLogin': 'Back to sign in',
+  'account.externalLogins.linkReauthDescription':
+    'Linking another account adds a way to sign in. Confirm it is you to continue.',
 };
 //#endif

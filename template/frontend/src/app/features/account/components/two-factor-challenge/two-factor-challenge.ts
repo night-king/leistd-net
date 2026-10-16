@@ -1,11 +1,15 @@
+import { DOCUMENT } from '@angular/common';
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   inject,
+  Injector,
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 //#if (IncludeLocalization)
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
@@ -14,6 +18,7 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideArrowLeft, lucideShieldCheck } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
@@ -23,15 +28,22 @@ import {
   ApplicationHttpError,
   applicationErrorMessage,
 } from '../../../../core/errors/application-http-error';
+import { OtpCodeInput } from '../../../../shared/components/otp-code-input/otp-code-input';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 import { AccountService } from '../../services/account-service';
-import { OtpCodeInput } from '../otp-code-input/otp-code-input';
+
+const CODE_INPUT_ID = 'two-factor-code';
+const RECOVERY_INPUT_ID = 'two-factor-recovery-code';
+const ERROR_ID = 'two-factor-error';
 
 /**
  * 登录第二步：输入身份验证器验证码或恢复码；通过后由登录页建立会话上下文，凭据过期或次数用完时
  * 回到密码那一步。
+ *
+ * 码不对时就地说明（服务端给出的原因，例如同一个码刚用过、要等下一个），清空输入并把焦点放回去；
+ * 说明留到本人开始重输。输满 6 位自动提交，同一个码只交一次。
  */
 @Component({
   selector: 'app-two-factor-challenge',
@@ -39,6 +51,7 @@ import { OtpCodeInput } from '../otp-code-input/otp-code-input';
   imports: [
     NgIcon,
     HlmButton,
+    ...HlmFieldImports,
     HlmInput,
     HlmSpinner,
     OtpCodeInput,
@@ -52,6 +65,9 @@ import { OtpCodeInput } from '../otp-code-input/otp-code-input';
 })
 export class TwoFactorChallenge {
   private readonly accountService = inject(AccountService);
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
+  private readonly codeInput = viewChild(OtpCodeInput);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -68,6 +84,14 @@ export class TwoFactorChallenge {
   protected readonly useRecoveryCode = signal(false);
   protected readonly value = signal('');
   protected readonly submitting = signal(false);
+  /** 码被拒的原因（服务端已本地化），显示在输入框下方。 */
+  protected readonly error = signal<string | null>(null);
+  /** 最近提交过的值：输满自动提交与回车同时到达时只交一次，改动输入后才允许再交。 */
+  private submittedValue: string | null = null;
+
+  protected readonly codeInputId = CODE_INPUT_ID;
+  protected readonly recoveryInputId = RECOVERY_INPUT_ID;
+  protected readonly errorId = ERROR_ID;
 
   protected readonly canSubmit = computed(() => {
     const value = this.value().replace(/\s/g, '');
@@ -78,19 +102,30 @@ export class TwoFactorChallenge {
 
   protected toggleMode(): void {
     this.useRecoveryCode.update((v) => !v);
-    this.value.set('');
+    this.setValue('');
+    this.error.set(null);
+    this.focusInput();
   }
 
   protected onInput(event: Event): void {
-    this.value.set((event.target as HTMLInputElement).value);
+    this.onValueChange((event.target as HTMLInputElement).value);
+  }
+
+  protected onValueChange(value: string): void {
+    this.setValue(value);
+    // 清空不算改动：被拒后由本组件清空，说明要留到本人开始重输
+    if (value.length > 0) {
+      this.error.set(null);
+    }
   }
 
   protected async submit(): Promise<void> {
-    if (!this.canSubmit()) {
+    if (!this.canSubmit() || this.value() === this.submittedValue) {
       return;
     }
 
     this.submitting.set(true);
+    this.submittedValue = this.value();
     const value = this.value().trim();
     try {
       await lastValueFrom(
@@ -102,6 +137,14 @@ export class TwoFactorChallenge {
       );
       this.completed.emit();
     } catch (error) {
+      const code = error instanceof ApplicationHttpError ? error.code : undefined;
+      if (code === API_ERROR_CODES.twoFactorCodeInvalid) {
+        this.error.set(applicationErrorMessage(error));
+        this.setValue('');
+        this.focusInput();
+        return;
+      }
+      // 凭据过期、次数用完或账号被锁：这一步已经无法继续，回到密码那一步，原因随 toast 带过去
       //#if (IncludeLocalization)
       toast.error(this.transloco.translate('account.login.loginFailed'), {
         description: applicationErrorMessage(error),
@@ -111,16 +154,27 @@ export class TwoFactorChallenge {
         description: applicationErrorMessage(error),
       });
       //#endif
-      // 凭据过期、次数用完或账号被锁：这一步已经无法继续，回到密码那一步
-      const code = error instanceof ApplicationHttpError ? error.code : undefined;
-      if (code !== API_ERROR_CODES.twoFactorCodeInvalid) {
-        this.cancelled.emit();
-      } else {
-        this.value.set('');
-      }
+      this.cancelled.emit();
     } finally {
       this.submitting.set(false);
     }
+  }
+
+  private setValue(value: string): void {
+    this.value.set(value);
+    // 被拒可能与本次输入发生在同一轮变更检测之内：绑定看不出值变过，直接清空输入组件本身
+    if (value === '') {
+      this.codeInput()?.value.set('');
+    }
+    this.submittedValue = null;
+  }
+
+  // 切换方式或输错清空后，焦点回到当前的真实输入框
+  private focusInput(): void {
+    const id = this.useRecoveryCode() ? RECOVERY_INPUT_ID : CODE_INPUT_ID;
+    afterNextRender(() => this.document.getElementById(id)?.focus(), {
+      injector: this.injector,
+    });
   }
 }
 //#if (!IncludeLocalization)
@@ -134,8 +188,8 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactorLogin.codeLabel': 'Verification code',
   'account.twoFactorLogin.recoveryLabel': 'Recovery code',
   'account.twoFactorLogin.submit': 'Verify',
-  'account.twoFactorLogin.useRecovery': "Can't use your phone? Use a recovery code",
-  'account.twoFactorLogin.useCode': 'Use a verification code instead',
+  'account.twoFactorLogin.useRecovery': "Can't use your authenticator? Use a recovery code",
+  'account.twoFactorLogin.useCode': 'Use an authenticator code instead',
   'account.twoFactorLogin.back': 'Back to sign in',
 };
 //#endif

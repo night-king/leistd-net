@@ -1,12 +1,22 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Observable, of, Subject, throwError } from 'rxjs';
 
 import { ExternalLogins } from './external-logins';
+import {
+  confirmWithCode,
+  confirmWithPassword,
+  reauthenticateClosed,
+  reauthenticateErrorText,
+  reauthenticateForm,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog.testing';
+import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AuthService } from '../../../../core/services/auth-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { ExternalLoginsOutputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
@@ -19,6 +29,8 @@ describe('ExternalLogins', () => {
     MockedObject<AccountService>,
     'getExternalLogins' | 'unlinkExternalLogin' | 'getExternalLinkUrl'
   >;
+
+  const currentUser = signal({ hasPassword: true, isTwoFactorEnabled: true });
 
   const github = {
     provider: 'github',
@@ -47,6 +59,10 @@ describe('ExternalLogins', () => {
       providers: [
         { provide: AccountService, useValue: account },
         { provide: ConfirmService, useValue: { open: () => Promise.resolve(true) } },
+        {
+          provide: AuthService,
+          useValue: { currentUser, loadUser: () => of(undefined), signInAgain: vi.fn() },
+        },
         {
           provide: SettingContextService,
           useValue: { timeZone: signal<string | undefined>('UTC'), displayLocale: signal('en') },
@@ -114,4 +130,70 @@ describe('ExternalLogins', () => {
     expect(host.querySelector('[data-testid="external-logins-retry"]')).toBeNull();
     expect(host.querySelectorAll('[data-testid="external-login-row"]')).toHaveLength(1);
   });
+
+  // 解绑会少一种登录方式：先不带凭证解绑，服务端要求确认身份时才弹出对话框，带上凭证重试
+  it('confirms identity only when required and retries the unlink with the proof', async () => {
+    account.unlinkExternalLogin
+      .mockReturnValueOnce(throwError(() => rejection('Auth:ReauthenticationRequired')))
+      .mockReturnValueOnce(
+        throwError(() =>
+          rejection('Security:CurrentPasswordIncorrect', 'The current password is incorrect.'),
+        ),
+      )
+      .mockReturnValueOnce(of(undefined));
+    const host = await render({
+      hasPassword: true,
+      providers: [github, { provider: 'google', link: null }],
+    });
+
+    host.querySelector<HTMLButtonElement>('[data-testid="external-login-unlink"]')!.click();
+    await fixture.whenStable();
+
+    expect(account.unlinkExternalLogin).toHaveBeenCalledWith('l1', {
+      password: undefined,
+      twoFactorCode: undefined,
+    });
+    expect(reauthenticateForm()).not.toBeNull();
+
+    await confirmWithPassword(fixture, 'wrong-password');
+
+    expect(account.unlinkExternalLogin).toHaveBeenLastCalledWith('l1', {
+      password: 'wrong-password',
+      twoFactorCode: undefined,
+    });
+    expect(reauthenticateErrorText()).toBe('The current password is incorrect.');
+    expect(account.getExternalLogins).toHaveBeenCalledOnce();
+
+    await confirmWithCode(fixture, '123456');
+
+    expect(account.unlinkExternalLogin).toHaveBeenLastCalledWith('l1', {
+      password: undefined,
+      twoFactorCode: '123456',
+    });
+    expect(account.getExternalLogins).toHaveBeenCalledTimes(2);
+    expect(await reauthenticateClosed(fixture)).toBe(true);
+  });
+
+  // 关掉对话框即放弃解绑：不再重试，列表不变
+  it('drops the unlink when the identity prompt is dismissed', async () => {
+    account.unlinkExternalLogin.mockReturnValueOnce(
+      throwError(() => rejection('Auth:ReauthenticationRequired')),
+    );
+    const host = await render({ hasPassword: true, providers: [github] });
+
+    host.querySelector<HTMLButtonElement>('[data-testid="external-login-unlink"]')!.click();
+    await fixture.whenStable();
+    (reauthenticateForm()!.querySelector('button[variant="ghost"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+
+    expect(await reauthenticateClosed(fixture)).toBe(true);
+    expect(account.unlinkExternalLogin).toHaveBeenCalledOnce();
+    expect(account.getExternalLogins).toHaveBeenCalledOnce();
+  });
+
+  function rejection(code: string, detail = code): ApplicationHttpError {
+    return ApplicationHttpError.from(
+      new HttpErrorResponse({ status: 400, error: { code, detail } }),
+    );
+  }
 });

@@ -274,6 +274,13 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
             OperationRecordCategories.Authentication,
             OperationVisibility.Actor,
             OperationSeverity.Notice);
+        // 只经外部登录的账号添上口令这一扇门：与改密码同一口径
+        context.Add(
+            OperationRecordActions.AuthPasswordSet,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor,
+            OperationSeverity.Notice,
+            targetIsActor: true);
 #endif
         context.Add(
             OperationRecordActions.AuthRegistered,

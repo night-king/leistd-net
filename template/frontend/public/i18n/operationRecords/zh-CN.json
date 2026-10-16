@@ -65,6 +65,7 @@
     "auth.two-factor.recovery-code-used": "账号 {{target}} 用恢复码完成了登录",
     "auth.external-login.linked": "绑定了外部账号 {{target}}",
     "auth.external-login.unlinked": "解绑了外部账号 {{target}}",
+    "auth.password.set": "设置了自己的密码",
     "auth.registered": "注册了账号 {{target}}",
     "impersonation.started": "开始以 {{target}} 的身份操作",
     "impersonation.ended": "结束了模拟操作",

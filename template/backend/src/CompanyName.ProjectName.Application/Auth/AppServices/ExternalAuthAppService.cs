@@ -116,16 +116,19 @@ internal sealed class ExternalAuthAppService(
     }
 
     /// <inheritdoc />
-    public async Task EnsureLinkAllowedAsync(string? password, CancellationToken cancellationToken = default)
-    {
-        var user = await GetCurrentUserEntityAsync(cancellationToken);
-        await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
-            user, password, OperationRecordActions.AuthExternalLoginLinked, cancellationToken);
-    }
+    /// <remarks>
+    /// 预检本来不持本人锁：这里取本人的凭据锁完成确认身份并提交（验证码用掉不退回），随即释放，
+    /// 之后调用方才消费外部票据、进入"票据锁 → 本人锁"的绑定流程，不持本人锁跨入后半段。
+    /// </remarks>
+    public Task EnsureLinkAllowedAsync(CompleteExternalLinkInputDto? input, CancellationToken cancellationToken = default) =>
+        reauthenticationGuard.EnsureRecentInOwnLockAsync(
+            new ReauthenticationProof(input?.Password, input?.TwoFactorCode),
+            OperationRecordActions.AuthExternalLoginLinked,
+            cancellationToken);
 
     /// <summary>把外部身份绑定到当前用户（外部授权回来后调用）。</summary>
     /// <remarks>
-    /// 近期认证由调用方在消费外部票据之前经 <see cref="EnsureLinkAllowedAsync"/> 确认，这里不再判：
+    /// 确认身份由调用方在消费外部票据之前经 <see cref="EnsureLinkAllowedAsync"/> 完成，这里不再判：
     /// 票据已经消费，再拒绝一次就只能让本人重新走外部授权，而界面会误以为带上口令即可重试。
     /// 在本人的凭据锁内读、写并提交，与解绑、外部登录串行。
     /// </remarks>
@@ -155,17 +158,34 @@ internal sealed class ExternalAuthAppService(
     }
 
     /// <summary>解绑当前用户的一个外部账号。</summary>
-    /// <remarks>不存在或不属于本人时静默成功：解绑是幂等的，也不借此透露别人的绑定 Id 是否存在。</remarks>
-    // 删除绑定、轮换安全版本与成功记录同生共死：只删了绑定而版本没轮换，此前的登录挑战仍能完成。
-    // 在本人的凭据锁内提交：登录第二步在锁内核对安全版本后登记会话，不会夹在两者之间
-    public async Task UnlinkCurrentUserAsync(Guid id, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// <para>解绑改变"谁能登进这个账号"，与绑定同等敏感：真正删除之前确认是本人。解绑没有外部票据可保留，
+    /// 确认身份失败时什么都没改，带上凭证重试同一个请求即可。</para>
+    /// <para>不存在或不属于本人时静默成功、也不要求确认身份：解绑是幂等的，也不借此透露别人的绑定 Id 是否存在。
+    /// 解绑后不剩登录方式时先于确认身份拒绝。</para>
+    /// </remarks>
+    // 在本人的凭据锁内：确认身份独立提交（验证码用掉不退回），再另开工作单元删除绑定、轮换安全版本、记录成功，
+    // 三者同生共死——只删了绑定而版本没轮换，此前的登录挑战仍能完成；登录第二步在锁内核对安全版本后登记会话，不会夹在中间
+    public async Task UnlinkCurrentUserAsync(Guid id, UnlinkExternalLoginInputDto? input, CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
         await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
-        using var unit = unitOfWorkManager.Begin(requiresNew: true);
 
+        if (await externalLoginConnectionRepository.CountAsync(c => c.Id == id && c.UserId == userId, cancellationToken) == 0)
+            return;
+
+        // 注定被拒的解绑（最后一种登录方式）先于确认身份拒绝，不消耗验证码
+        await externalAuthDomainService.EnsureAnotherSignInMethodAsync(
+            await GetCurrentUserEntityAsync(cancellationToken), id, cancellationToken);
+
+        await reauthenticationGuard.EnsureRecentAsync(
+            new ReauthenticationProof(input?.Password, input?.TwoFactorCode),
+            OperationRecordActions.AuthExternalLoginUnlinked,
+            cancellationToken);
+
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         var removed = await externalAuthDomainService.UnlinkAsync(user, id, cancellationToken);
         if (removed is null)

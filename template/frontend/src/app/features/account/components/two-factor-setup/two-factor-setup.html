@@ -17,49 +17,19 @@
         <hlm-spinner class="text-muted-foreground text-xl" />
       </div>
     }
-    @case ('password') {
-      <form
-        class="flex flex-col gap-3"
-        novalidate
-        data-testid="two-factor-setup-password"
-        (submit)="$event.preventDefault(); submitPassword()"
-      >
-        <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.reauthHint') }}</p>
-        <div hlmField>
-          <label hlmFieldLabel for="two-factor-setup-password">{{
-            t('account.twoFactor.passwordLabel')
-          }}</label>
-          <input
-            hlmInput
-            id="two-factor-setup-password"
-            type="password"
-            autocomplete="current-password"
-            [formField]="passwordForm.password"
-          />
-          @for (error of passwordForm.password().errors(); track error.kind) {
-            <hlm-field-error [validator]="error.kind">{{
-              t('validation.' + error.kind, error)
-            }}</hlm-field-error>
-          }
-        </div>
-        <div class="flex gap-2">
-          <button hlmBtn type="submit">
-            {{ t('account.twoFactor.continue') }}
-          </button>
-          @if (cancellable()) {
-            <button hlmBtn variant="ghost" type="button" (click)="cancelled.emit()">
-              {{ t('common.cancel') }}
-            </button>
-          }
-        </div>
-      </form>
-    }
-    @case ('signInAgain') {
-      <div class="flex flex-col gap-3 text-sm" data-testid="two-factor-setup-sign-in-again">
-        <p class="text-muted-foreground">{{ t('account.twoFactor.signInAgainHint') }}</p>
-        @if (cancellable()) {
-          <button hlmBtn variant="ghost" size="sm" class="self-start" (click)="cancelled.emit()">
-            {{ t('common.cancel') }}
+    @case ('reauth') {
+      <!-- 确认身份在对话框里完成；强制设置页关掉对话框后留在这里，可以重新打开 -->
+      <div class="flex flex-col gap-3 text-sm" data-testid="two-factor-setup-reauth">
+        <p class="text-muted-foreground">{{ t('account.twoFactor.reauthPending') }}</p>
+        @if (!cancellable() && !reauth.visible()) {
+          <button
+            hlmBtn
+            size="sm"
+            class="self-start"
+            data-testid="two-factor-setup-reauth-open"
+            (click)="retryReauthentication()"
+          >
+            {{ t('account.twoFactor.reauthOpen') }}
           </button>
         }
       </div>
@@ -162,4 +132,16 @@
       </div>
     }
   }
+
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="onReauthVisibleChange($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.twoFactor.reauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
+  />
 </ng-container>

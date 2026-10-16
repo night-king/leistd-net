@@ -225,17 +225,23 @@ public class ExternalAuthDomainService(
         if (connection is null || connection.UserId != user.Id)
             return null;
 
+        await EnsureAnotherSignInMethodAsync(user, connectionId, cancellationToken);
+        await externalLoginConnectionRepository.DeleteAsync(connection, cancellationToken);
+        logger.LogInformation("User {Username} unlinked a {Provider} login connection", user.Username, connection.Provider);
+        return connection;
+    }
+
+    /// <summary>解绑这个连接之后还剩一种登录方式（设有密码，或还有别的绑定）；否则以 <see cref="ExternalAuthErrorCodes.LastSignInMethod"/> 拒绝。</summary>
+    /// <remarks>只读判定：应用层在确认身份之前先问一次，不为一个注定被拒的解绑消耗验证码；<see cref="UnlinkAsync"/> 在写入前再判一次。</remarks>
+    public async Task EnsureAnotherSignInMethodAsync(User user, Guid connectionId, CancellationToken cancellationToken = default)
+    {
         var otherLinks = await externalLoginConnectionRepository.CountAsync(
             c => c.UserId == user.Id && c.Id != connectionId,
             cancellationToken);
         if (!user.HasLocalPassword && otherLinks == 0)
         {
-            throw new BusinessException(ExternalAuthErrorCodes.LastSignInMethod, "This is your only way to sign in. Set a password or link another account first.");
+            throw new BusinessException(ExternalAuthErrorCodes.LastSignInMethod, "This is your only way to sign in. Set a password in your security settings or link another account first.");
         }
-
-        await externalLoginConnectionRepository.DeleteAsync(connection, cancellationToken);
-        logger.LogInformation("User {Username} unlinked a {Provider} login connection", user.Username, connection.Provider);
-        return connection;
     }
 
     // 邮箱在本地身份形态下必填且租户内唯一，但外部账号可能没有已验证邮箱，只能填占位地址。

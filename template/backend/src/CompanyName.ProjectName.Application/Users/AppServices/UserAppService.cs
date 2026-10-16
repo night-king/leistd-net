@@ -278,13 +278,29 @@ internal sealed class UserAppService(
     /// <remarks>
     /// <para>资源服务形态下没有这个入口：用户名、邮箱、显示名归签发方所有，本地改了没有回写通道，
     /// 只会与签发方漂移。那一侧的资料由 <c>ResourceUserProvisioningMiddleware</c> 每次访问按令牌刷新。</para>
-    /// <para>改邮箱或把邮箱标为已验证时，管理员的会话要刚认证过，否则出示自己的当前口令：
+    /// <para>改邮箱或把邮箱标为已验证时要确认是管理员本人（会话刚认证过，或出示自己的当前口令或验证码）：
     /// 已验证的邮箱是按邮箱关联外部登录的依据，被盗的管理员会话据此就能把别人的账号接到自己的外部账号上。
-    /// 改的是自己时同样要求。在目标用户的凭据锁内读、改并提交，与本人同时进行的改邮箱、确认邮箱互不覆盖。</para>
+    /// 改的是自己时同样要求；只改显示名、头像不要求。</para>
+    /// <para>确认身份在操作者自己的凭据锁内独立提交并释放，之后才取目标用户的凭据锁读、改并提交：两位管理员互相操作时不交叉持锁，
+    /// 改的是自己时同一把锁先后取两次。是否敏感按锁内最新的目标行复核：锁前判定不敏感而此刻已敏感时，
+    /// 只认会话刚认证过，否则要求客户端带上凭证重试。与本人同时进行的改邮箱、确认邮箱互不覆盖。</para>
     /// </remarks>
     public async Task<UserManagementOutputDto> UpdateAsync(Guid id, UpdateUserInputDto input, CancellationToken cancellationToken = default)
     {
         logger.LogInformation("Updating user {Id}", id);
+
+        // 拒绝先于确认身份：不为一个注定被拒的请求消耗验证码
+        var target = await GetUserOrThrowAsync(id, cancellationToken);
+        EnsureUpdatable(target);
+        var confirmed = false;
+        if (IsSensitiveManagementChange(target, input))
+        {
+            await reauthenticationGuard.EnsureRecentInOwnLockAsync(
+                new ReauthenticationProof(input.Password, input.TwoFactorCode),
+                OperationRecordActions.UserUpdated,
+                cancellationToken);
+            confirmed = true;
+        }
 
         await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(id), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
@@ -292,18 +308,12 @@ internal sealed class UserAppService(
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
 
         var user = await GetUserWithRolesOrThrowAsync(id, cancellationToken);
-        if (!user.CanBeManagedBy(currentUser.Id))
+        EnsureUpdatable(user);
+        if (!confirmed && IsSensitiveManagementChange(user, input))
         {
-            throw new BusinessException(UserErrorCodes.SuperAdminUpdateForbidden, "The built-in super administrator cannot be updated by other administrators.");
-        }
-
-        // 与领域判定"换了邮箱"同一口径（大小写不敏感）
-        if (!string.Equals(user.Email, input.Email.Trim(), StringComparison.OrdinalIgnoreCase) ||
-            (input.IsEmailVerified && !user.EmailConfirmed))
-        {
-            var actor = await GetUserOrThrowAsync(currentUser.Id!.Value, cancellationToken);
-            await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
-                actor, input.Password, OperationRecordActions.UserUpdated, cancellationToken);
+            // 不出示凭证的判定不消耗任何东西，不需要操作者的锁；改的是自己时也就不会嵌套取同一把锁
+            await reauthenticationGuard.EnsureRecentAsync(
+                ReauthenticationProof.None, OperationRecordActions.UserUpdated, cancellationToken);
         }
 
         // 编辑表单会把读到的头像地址原样送回，那表示"没改"，换回存储的原值再校验。
@@ -330,6 +340,19 @@ internal sealed class UserAppService(
 
         return await MapToOutputAsync(user, cancellationToken);
     }
+
+    private void EnsureUpdatable(User user)
+    {
+        if (!user.CanBeManagedBy(currentUser.Id))
+        {
+            throw new BusinessException(UserErrorCodes.SuperAdminUpdateForbidden, "The built-in super administrator cannot be updated by other administrators.");
+        }
+    }
+
+    // 与领域判定"换了邮箱"同一口径（大小写不敏感）；标为已验证也算：已验证的邮箱是按邮箱关联外部登录的依据
+    private static bool IsSensitiveManagementChange(User user, UpdateUserInputDto input) =>
+        !string.Equals(user.Email, input.Email.Trim(), StringComparison.OrdinalIgnoreCase) ||
+        (input.IsEmailVerified && !user.EmailConfirmed);
 
 #endif
     /// <summary>启用用户。</summary>
@@ -413,16 +436,17 @@ internal sealed class UserAppService(
 #if (LocalIdentity)
     /// <summary>重置用户密码，并撤销该用户的全部会话。</summary>
     /// <remarks>
-    /// <para>管理员的会话要刚认证过，否则出示自己的当前口令：被盗的管理员会话不能直接把别人的口令换成自己知道的。
-    /// 重置的是自己时同样要求。</para>
-    /// <para>在目标用户的凭据锁内读、改并提交：同时进行的口令登录要么先登记完会话、被这里一并撤掉，
-    /// 要么等这里提交后再按新口令判定。口令与撤销同生共死；提醒在提交之后发出。</para>
+    /// <para>要确认是管理员本人（会话刚认证过，或出示自己的当前口令或验证码）：被盗的管理员会话不能直接把别人的口令换成自己知道的。
+    /// 重置的是自己时同样要求，这条路径保留（本人经用户管理重置口令并保留当前会话）。</para>
+    /// <para>确认身份在操作者自己的凭据锁内独立提交并释放，之后才取目标用户的凭据锁读、改并提交：同时进行的口令登录要么先登记完会话、
+    /// 被这里一并撤掉，要么等这里提交后再按新口令判定。口令与撤销同生共死；提醒在提交之后发出。</para>
     /// </remarks>
     public async Task ResetPasswordAsync(Guid id, ResetUserPasswordInputDto input, CancellationToken cancellationToken = default)
     {
-        var actor = await GetUserOrThrowAsync(currentUser.Id!.Value, cancellationToken);
-        await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
-            actor, input.CurrentPassword, OperationRecordActions.UserPasswordReset, cancellationToken);
+        await reauthenticationGuard.EnsureRecentInOwnLockAsync(
+            new ReauthenticationProof(input.CurrentPassword, input.TwoFactorCode),
+            OperationRecordActions.UserPasswordReset,
+            cancellationToken);
 
         await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(id), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
@@ -488,16 +512,19 @@ internal sealed class UserAppService(
     /// <para>给丢了手机又没了恢复码的人用。会话一并作废：能走到这一步，说明账号的第二道门已经不在本人手里。
     /// 所在租户要求两步验证时，本人下次登录会被带去重新设置。</para>
     /// <para>不能重置自己（<see cref="User.CanTwoFactorBeResetBy"/>）：本人走个人安全设置的换绑或停用。
-    /// 管理员的会话要刚认证过，否则出示自己的当前口令——被盗的管理员会话不能直接拆掉别人的第二道门，
+    /// 要确认是管理员本人（会话刚认证过，或出示自己的当前口令或验证码）——被盗的管理员会话不能直接拆掉别人的第二道门，
     /// 单独重置口令对启用了两步验证的账号仍然登不进去，两步一起做才能接管。</para>
-    /// <para>在目标用户的凭据锁内读、改并提交，与本人同时进行的换绑、重发、登录第二步互不覆盖；提醒在提交之后发出。</para>
+    /// <para>拒绝（内置超管、重置自己）先于确认身份：不为一个注定被拒的请求消耗验证码。确认身份在操作者自己的凭据锁内独立提交并释放，
+    /// 之后才取目标用户的凭据锁读、改并提交，与本人同时进行的换绑、重发、登录第二步互不覆盖；提醒在提交之后发出。</para>
     /// </remarks>
     public async Task ResetTwoFactorAsync(Guid id, ResetUserTwoFactorInputDto input, CancellationToken cancellationToken = default)
     {
         var actorId = currentUser.Id!.Value;
-        var actor = await GetUserOrThrowAsync(actorId, cancellationToken);
-        await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(
-            actor, input.Password, OperationRecordActions.UserTwoFactorReset, cancellationToken);
+        EnsureTwoFactorResettable(await GetUserOrThrowAsync(id, cancellationToken), actorId);
+        await reauthenticationGuard.EnsureRecentInOwnLockAsync(
+            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            OperationRecordActions.UserTwoFactorReset,
+            cancellationToken);
 
         await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(id), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
@@ -505,16 +532,7 @@ internal sealed class UserAppService(
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
 
         var user = await GetUserOrThrowAsync(id, cancellationToken);
-        if (!user.CanBeManagedBy(actorId))
-        {
-            throw new BusinessException(UserErrorCodes.SuperAdminOperationForbidden, "The built-in super administrator cannot be operated on by other administrators.");
-        }
-
-        if (!user.CanTwoFactorBeResetBy(actorId))
-        {
-            throw new BusinessException(UserErrorCodes.SelfTwoFactorResetForbidden, "You can't reset your own two-factor authentication here. Use your security settings.");
-        }
-
+        EnsureTwoFactorResettable(user, actorId);
         if (!user.TwoFactorEnabled)
         {
             return;
@@ -534,6 +552,19 @@ internal sealed class UserAppService(
 
         await RevokeAllAccessAsync(user.Id, keepSessionId: null, cancellationToken);
         await unit.CompleteAsync(cancellationToken);
+    }
+
+    private static void EnsureTwoFactorResettable(User user, Guid actorId)
+    {
+        if (!user.CanBeManagedBy(actorId))
+        {
+            throw new BusinessException(UserErrorCodes.SuperAdminOperationForbidden, "The built-in super administrator cannot be operated on by other administrators.");
+        }
+
+        if (!user.CanTwoFactorBeResetBy(actorId))
+        {
+            throw new BusinessException(UserErrorCodes.SelfTwoFactorResetForbidden, "You can't reset your own two-factor authentication here. Use your security settings.");
+        }
     }
 #endif
 

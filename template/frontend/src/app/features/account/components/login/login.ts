@@ -12,8 +12,9 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 // prettier-ignore
-import { lucideBuilding2, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
+import { lucideBuilding2, lucideCircleAlert, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
+import { HlmAlertImports } from '@spartan-ng/helm/alert';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInput } from '@spartan-ng/helm/input';
@@ -25,7 +26,10 @@ import {
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
-import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+import {
+  ApplicationHttpError,
+  applicationErrorMessage,
+} from '../../../../core/errors/application-http-error';
 import { MOCKED_URL } from '../../../../core/mock/mocked-url';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
@@ -55,6 +59,7 @@ import { TwoFactorChallenge } from '../two-factor-challenge/two-factor-challenge
     FormField,
     RouterModule,
     NgIcon,
+    ...HlmAlertImports,
     HlmButton,
     HlmInput,
     HlmSpinner,
@@ -75,6 +80,7 @@ import { TwoFactorChallenge } from '../two-factor-challenge/two-factor-challenge
   providers: [
     provideIcons({
       lucideBuilding2,
+      lucideCircleAlert,
       lucideInfo,
       lucideEye,
       lucideEyeOff,
@@ -106,6 +112,12 @@ export class Login implements OnInit {
   public readonly isLoading = this._isLoading.asReadonly();
 
   protected readonly showPassword = signal(false);
+
+  /**
+   * 凭据被拒（用户名或密码不对、账号已锁定等）时服务端给出的原因，就地显示在"登录"按钮上方；
+   * 改动任一输入即清掉。连不上服务器这类全局问题仍用 toast。
+   */
+  protected readonly loginError = signal<string | null>(null);
 
   // 登录接口由 Mock 应答时才提示演示账号：只 Mock 了别的模块时，演示账号登不进真实后端
   public readonly isMockEnabled = signal(inject(MOCKED_URL)(AuthService.loginUrl));
@@ -172,6 +184,7 @@ export class Login implements OnInit {
     }
 
     this._isLoading.set(true);
+    this.loginError.set(null);
 
     try {
       const { usernameOrEmail, password } = this.model();
@@ -187,6 +200,10 @@ export class Login implements OnInit {
 
       await this.finishLogin(returnUrl);
     } catch (error) {
+      if (isRejection(error)) {
+        this.loginError.set(applicationErrorMessage(error));
+        return;
+      }
       //#if (IncludeLocalization)
       toast.error(this.transloco.translate('account.login.loginFailed'), {
         description: applicationErrorMessage(error),
@@ -264,6 +281,11 @@ export class Login implements OnInit {
     } else {
       this.router.navigate(['/workspace']);
     }
+  }
+
+  /** 改动任一输入：上一次被拒的原因不再对应当前填写的内容。 */
+  protected clearLoginError(): void {
+    this.loginError.set(null);
   }
 
   private isSafeLocalReturnUrl(returnUrl: string | null): returnUrl is string {
@@ -400,6 +422,10 @@ export class Login implements OnInit {
   //#else
   readonly authBlocked = signal(false);
   //#endif
+}
+/** 服务端按请求内容拒绝（4xx）：说明这次填写的问题，就地显示；断网与服务故障不在此列。 */
+function isRejection(error: unknown): error is ApplicationHttpError {
+  return error instanceof ApplicationHttpError && error.status >= 400 && error.status < 500;
 }
 //#if (!IncludeLocalization)
 

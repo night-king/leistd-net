@@ -18,7 +18,15 @@ import {
   //#endif
   toUserManagementOutput,
 } from '../data/user';
+//#if (LocalIdentity)
+import {
+  ensureMockReauthentication,
+  getCurrentUser,
+  MockReauthenticationProof,
+} from '../utils/current-user';
+//#else
 import { getCurrentUser } from '../utils/current-user';
+//#endif
 
 function getQueryValue(value: unknown) {
   const normalized = Array.isArray(value) ? value[0] : value;
@@ -153,6 +161,11 @@ export function updateUser(id: string, value: any) {
     });
   }
 
+  // 改登录邮箱或改验证状态会影响对方怎么登录：先确认操作者本人
+  if (email !== user.email || value.isEmailVerified !== user.isEmailVerified) {
+    ensureOperatorReauthenticated({ password: value.password, twoFactorCode: value.twoFactorCode });
+  }
+
   Object.assign(user, {
     email,
     displayName: value.displayName,
@@ -220,6 +233,10 @@ export function resetPassword(id: string, value: any) {
     });
   }
   ensureAcceptablePassword(value.password, 'Password');
+  ensureOperatorReauthenticated({
+    password: value.currentPassword,
+    twoFactorCode: value.twoFactorCode,
+  });
   user.password = value.password;
 }
 
@@ -238,7 +255,7 @@ export function unlockUser(id: string) {
  * 管理员重置两步验证。超级管理员只能由本人重置（403）；未启用时什么也不做，与后端一致。
  * 真实后端还会撤销该用户的全部会话，Mock 的会话列表只有当前用户自己的，这里不复刻。
  */
-export function resetTwoFactor(id: string) {
+export function resetTwoFactor(id: string, value: MockReauthenticationProof = {}) {
   const user = USERS.find((w) => w.id === id);
   if (!user) {
     throw new MockException(404, {
@@ -260,8 +277,20 @@ export function resetTwoFactor(id: string) {
         "You can't reset your own two-factor authentication here. Use your security settings.",
     });
   }
+  ensureOperatorReauthenticated(value);
   user.twoFactorEnabled = false;
   user.recoveryCodes = [];
+}
+
+/**
+ * 管理员改他人的登录凭据前确认的是操作者本人（出示自己的口令或验证码），不是目标用户。
+ * 未登录由权限层拒绝，这里不重复。
+ */
+function ensureOperatorReauthenticated(proof: MockReauthenticationProof): void {
+  const operator = getCurrentUser();
+  if (operator) {
+    ensureMockReauthentication(operator, proof);
+  }
 }
 
 /**
@@ -380,7 +409,8 @@ export const USER_API = {
     resetPassword(req.params.id, req.body),
   'POST /api/v1/users/:id/unlock': (req: MockRequest) => unlockUser(req.params.id),
   'POST /api/v1/users/batch/unlock': (req: MockRequest) => batchUnlockUsers(req.body),
-  'POST /api/v1/users/:id/reset-two-factor': (req: MockRequest) => resetTwoFactor(req.params.id),
+  'POST /api/v1/users/:id/reset-two-factor': (req: MockRequest) =>
+    resetTwoFactor(req.params.id, req.body ?? {}),
   'DELETE /api/v1/users/:id': (req: MockRequest) => deleteUser(req.params.id),
   //#endif
 };

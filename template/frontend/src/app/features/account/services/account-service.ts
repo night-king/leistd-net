@@ -17,8 +17,11 @@ import { UserOutputDto } from '../../../shared/dtos/auth.dto';
 import {
   ChangePasswordInputDto,
   //#if (ExternalLogin)
+  CompleteExternalLinkInputDto,
   ExternalLoginProvidersOutputDto,
   ExternalLoginsOutputDto,
+  SetPasswordInputDto,
+  UnlinkExternalLoginInputDto,
   //#endif
   RegisterInputDto,
   SetAvatarInputDto,
@@ -118,6 +121,13 @@ export class AccountService {
   changePassword(data: ChangePasswordInputDto): Observable<void> {
     return this.http.post('/api/v1/auth/change-password', data).pipe(map(() => undefined));
   }
+  //#if (ExternalLogin)
+
+  /** 没有本地口令的账号设置第一个口令；写回当前用户与外部绑定列表由调用方负责。 */
+  setPassword(data: SetPasswordInputDto): Observable<void> {
+    return this.http.post('/api/v1/auth/me/password', data).pipe(map(() => undefined));
+  }
+  //#endif
 
   /** 登录第二步：提交验证码或恢复码，通过后下发会话。 */
   completeTwoFactorLogin(data: TwoFactorLoginInputDto): Observable<void> {
@@ -185,16 +195,19 @@ export class AccountService {
 
   /**
    * 外部授权回来后完成绑定。会话不够新时服务端以 `Auth:ReauthenticationRequired` 拒绝且不消费票据，
-   * 带上本人的当前口令（`password`）重试同一个请求即可。
+   * 带上本人的当前口令或验证码重试同一个请求即可。
    */
-  linkExternalLogin(provider: string, password?: string): Observable<void> {
+  linkExternalLogin(provider: string, data: CompleteExternalLinkInputDto = {}): Observable<void> {
     return this.http
-      .post(`/api/v1/external-auth/${provider}/link/complete`, password ? { password } : {})
+      .post(`/api/v1/external-auth/${provider}/link/complete`, data)
       .pipe(map(() => undefined));
   }
 
-  unlinkExternalLogin(id: string): Observable<void> {
-    return this.http.delete(`/api/v1/external-auth/links/${id}`).pipe(map(() => undefined));
+  /** 解绑；会话不够新时服务端要求确认身份，凭证随请求体出示。 */
+  unlinkExternalLogin(id: string, data: UnlinkExternalLoginInputDto = {}): Observable<void> {
+    return this.http
+      .delete(`/api/v1/external-auth/links/${id}`, { body: data })
+      .pipe(map(() => undefined));
   }
 
   getExternalLoginUrl(provider: 'github' | 'google', returnUrl?: string | null): string {

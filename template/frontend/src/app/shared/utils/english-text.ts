@@ -32,4 +32,5 @@ const ENGLISH_VALIDATION: Record<string, string> = {
   'validation.connectionNameTaken':
     'This connection name is already registered; change its connection string instead.',
   'validation.pkceRequired': 'Native/Public clients must enable PKCE.',
+  'validation.credentialRejected': 'Not accepted. Check it and try again.',
 };

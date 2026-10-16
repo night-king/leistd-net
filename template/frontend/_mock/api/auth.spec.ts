@@ -9,6 +9,8 @@ import { MockException } from '../core/models';
 import { TENANT_SETTING_VALUES } from '../data/settings';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
 import {
+  ensureMockReauthentication,
+  expireMockSessionAuthentication,
   //#if (Impersonation)
   getMockImpersonator,
   //#endif
@@ -320,6 +322,112 @@ describe('mock two-factor sign-in', () => {
     expect(getMockSessionUserId()).toBeNull();
   });
 });
+
+/**
+ * 确认身份与后端同一组可观察规则：刚认证过放行；出示了凭证只按它判定（方式不具备、口令或验证码不对各有错误码，
+ * 两种同时出示是字段错误）；会话不够新时既无口令又没开两步验证要求重新登录，其余要求确认身份。
+ */
+describe('mock reauthentication', () => {
+  const profile = AUTH_API['PUT /api/v1/auth/me'] as Handler;
+  const beginSetup = AUTH_API['POST /api/v1/auth/me/two-factor/setup'] as Handler;
+  const disable = AUTH_API['POST /api/v1/auth/me/two-factor/disable'] as Handler;
+  const demo = USERS.find((u) => u.username === 'demo')!;
+  const admin = USERS.find((u) => u.username === 'admin')!;
+  const snapshot = { ...demo };
+
+  beforeEach(() => {
+    setMockSessionUserId(demo.id);
+    demo.twoFactorEnabled = true;
+    demo.recoveryCodes = ['mock-recovery-1'];
+  });
+
+  afterEach(() => {
+    setMockSessionUserId(null);
+    Object.assign(demo, snapshot, { recoveryCodes: [...(snapshot.recoveryCodes ?? [])] });
+  });
+
+  function emailChange(extra: Record<string, unknown> = {}) {
+    return { body: { username: demo.username, email: 'demo@new.example.com', ...extra } };
+  }
+
+  it('lets a recent session change the email without a proof', () => {
+    profile(emailChange());
+
+    expect(demo.email).toBe('demo@new.example.com');
+  });
+
+  it('asks a stale session to confirm and judges only the proof that was shown', () => {
+    expireMockSessionAuthentication();
+
+    expect(rejectionOf(() => profile(emailChange())).error.code).toBe(
+      'Auth:ReauthenticationRequired',
+    );
+    expect(rejectionOf(() => profile(emailChange({ currentPassword: 'wrong' }))).error.code).toBe(
+      'Security:CurrentPasswordIncorrect',
+    );
+    expect(rejectionOf(() => profile(emailChange({ twoFactorCode: '000000' }))).error.code).toBe(
+      'Auth:TwoFactorCodeInvalid',
+    );
+    expect(demo.email).toBe(snapshot.email);
+
+    profile(emailChange({ twoFactorCode: '123456' }));
+    expect(demo.email).toBe('demo@new.example.com');
+  });
+
+  it('rejects both proofs at once as a field error without a business code', () => {
+    const error = rejectionOf(() =>
+      profile(emailChange({ currentPassword: demo.password, twoFactorCode: '123456' })),
+    );
+
+    expect(error.status).toBe(400);
+    expect(error.error.code).toBeUndefined();
+    expect(error.error.errors[0].field).toBe('twoFactorCode');
+  });
+
+  // 出示了本账号不具备的方式：不回落到"刚认证过"，按方式不具备拒绝
+  it('rejects a method the account does not have even on a recent session', () => {
+    demo.twoFactorEnabled = false;
+
+    expect(rejectionOf(() => profile(emailChange({ twoFactorCode: '123456' }))).error.code).toBe(
+      'Auth:ReauthenticationMethodUnavailable',
+    );
+  });
+
+  it('asks an account without a password or two-factor to sign in again', () => {
+    expireMockSessionAuthentication();
+    const passwordless = { ...admin, password: undefined, twoFactorEnabled: false } as MockUser;
+
+    expect(rejectionOf(() => ensureMockReauthentication(passwordless, {})).error.code).toBe(
+      'Auth:SignInAgainRequired',
+    );
+    expect(
+      rejectionOf(() => ensureMockReauthentication(passwordless, { password: 'x' })).error.code,
+    ).toBe('Auth:ReauthenticationMethodUnavailable');
+  });
+
+  // 换绑：现有验证器上的码同时算确认身份；恢复码不算，会话不够新时先确认身份，确认不过不用掉恢复码
+  it('lets the current code replace on a stale session but not a recovery code alone', () => {
+    expireMockSessionAuthentication();
+
+    expect(beginSetup({ body: { code: '123456' } })).toHaveProperty('setupId');
+    expect(
+      rejectionOf(() => beginSetup({ body: { recoveryCode: 'mock-recovery-1' } })).error.code,
+    ).toBe('Auth:ReauthenticationRequired');
+    expect(demo.recoveryCodes).toEqual(['mock-recovery-1']);
+
+    beginSetup({ body: { recoveryCode: 'mock-recovery-1', password: demo.password } });
+    expect(demo.recoveryCodes).toEqual([]);
+  });
+
+  it('requires the password to turn off two-factor when the account has one', () => {
+    expect(rejectionOf(() => disable({ body: { code: '123456' } })).error.code).toBe(
+      'Security:PasswordRequired',
+    );
+
+    disable({ body: { password: demo.password, code: '123456' } });
+    expect(demo.twoFactorEnabled).toBe(false);
+  });
+});
 //#if (ExternalLogin)
 
 describe('mock external link completion', () => {
@@ -357,6 +465,92 @@ describe('mock external link completion', () => {
     const google = links().providers.find((item) => item.provider === 'google');
     expect(google?.link).not.toBeNull();
     unlink({ params: { id: google!.link!.id } });
+  });
+
+  it('asks a stale session to confirm before linking and links with the shown password', () => {
+    const admin = USERS.find((u) => u.id === 'user_admin')!;
+    setMockSessionUserId(admin.id);
+    expireMockSessionAuthentication();
+
+    expect(rejectionOf(() => complete({ params: { provider: 'google' } })).error.code).toBe(
+      'Auth:ReauthenticationRequired',
+    );
+    complete({ params: { provider: 'google' }, body: { password: admin.password } });
+
+    const google = links().providers.find((item) => item.provider === 'google');
+    expect(google?.link).not.toBeNull();
+    // 解绑同样先确认身份，确认之前绑定不变
+    expect(rejectionOf(() => unlink({ params: { id: google!.link!.id } })).error.code).toBe(
+      'Auth:ReauthenticationRequired',
+    );
+    unlink({ params: { id: google!.link!.id }, body: { password: admin.password } });
+    expect(links().providers.find((item) => item.provider === 'google')?.link).toBeNull();
+  });
+});
+
+/** 只经外部登录建立的账号（octo）：没有口令、已开两步验证。 */
+describe('mock passwordless account', () => {
+  const setPassword = AUTH_API['POST /api/v1/auth/me/password'] as Handler;
+  const unlink = AUTH_API['DELETE /api/v1/external-auth/links/:id'] as Handler;
+  const disable = AUTH_API['POST /api/v1/auth/me/two-factor/disable'] as Handler;
+  const callback = AUTH_API['POST /api/v1/external-auth/:provider/complete'] as Handler;
+  const me = AUTH_API['GET /api/v1/auth/me'] as Handler;
+  const octo = USERS.find((u) => u.id === 'user_octo')!;
+  const password = 'First!Passw0rd';
+
+  beforeEach(() => setMockSessionUserId(octo.id));
+
+  afterEach(() => {
+    setMockSessionUserId(null);
+    octo.password = undefined;
+    octo.twoFactorEnabled = true;
+  });
+
+  it('signs in from Google into the second step and reports no password', () => {
+    setMockSessionUserId(null);
+
+    const result = callback({ params: { provider: 'google' }, headers: new HttpHeaders() }) as {
+      requiresTwoFactor?: boolean;
+    };
+    expect(result.requiresTwoFactor).toBe(true);
+    expect(getMockSessionUserId()).toBeNull();
+
+    setMockSessionUserId(octo.id);
+    expect(me({})).toMatchObject({ hasPassword: false, isTwoFactorEnabled: true });
+  });
+
+  // 刚完成外部登录的会话可以直接设置；会话不够新时只能出示验证码
+  it('sets a first password on a recent session and asks a stale one for the code', () => {
+    expireMockSessionAuthentication();
+    const body = { newPassword: password, confirmPassword: password };
+
+    expect(rejectionOf(() => setPassword({ body })).error.code).toBe(
+      'Auth:ReauthenticationRequired',
+    );
+    setPassword({ body: { ...body, twoFactorCode: '123456' } });
+    expect(octo.password).toBe(password);
+
+    const again = rejectionOf(() => setPassword({ body }));
+    expect(again.status).toBe(409);
+    expect(again.error.code).toBe('Security:PasswordAlreadySet');
+  });
+
+  it('keeps the only sign-in method and confirms identity before unlinking', () => {
+    const only = rejectionOf(() => unlink({ params: { id: 'mock-link-github' } }));
+    expect(only.status).toBe(409);
+    expect(only.error.code).toBe('ExternalAuth:LastSignInMethod');
+
+    // 不存在或不属于本人的绑定幂等成功
+    expect(unlink({ params: { id: 'missing' } })).toBe('ok');
+  });
+
+  it('turns off two-factor with the code alone and rejects a password it does not have', () => {
+    expect(rejectionOf(() => disable({ body: { password: 'x', code: '123456' } })).error.code).toBe(
+      'Auth:ReauthenticationMethodUnavailable',
+    );
+
+    disable({ body: { code: '123456' } });
+    expect(octo.twoFactorEnabled).toBe(false);
   });
 });
 //#endif

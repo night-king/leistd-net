@@ -20,28 +20,49 @@
 
     <form class="flex flex-col gap-4" novalidate (submit)="$event.preventDefault(); submit()">
       @if (useRecoveryCode()) {
-        <input
-          hlmInput
-          class="font-mono"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-          maxlength="64"
-          data-testid="two-factor-recovery-input"
-          [attr.aria-label]="t('account.twoFactorLogin.recoveryLabel')"
-          [placeholder]="t('account.twoFactorLogin.recoveryLabel')"
-          [value]="value()"
-          (input)="onInput($event)"
-        />
+        <div hlmField>
+          <label hlmFieldLabel [for]="recoveryInputId">{{
+            t('account.twoFactorLogin.recoveryLabel')
+          }}</label>
+          <input
+            hlmInput
+            class="font-mono"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            maxlength="64"
+            data-testid="two-factor-recovery-input"
+            [id]="recoveryInputId"
+            [attr.aria-invalid]="error() ? 'true' : null"
+            [attr.aria-describedby]="error() ? errorId : null"
+            [value]="value()"
+            (input)="onInput($event)"
+          />
+          @if (error(); as message) {
+            <hlm-field-error forceShow data-testid="two-factor-error" [id]="errorId">{{
+              message
+            }}</hlm-field-error>
+          }
+        </div>
       } @else {
-        <app-otp-code-input
-          inputId="two-factor-code"
-          data-testid="two-factor-code-input"
-          [label]="t('account.twoFactorLogin.codeLabel')"
-          [autofocus]="true"
-          [(value)]="value"
-          (completed)="submit()"
-        />
+        <div hlmField>
+          <app-otp-code-input
+            data-testid="two-factor-code-input"
+            [inputId]="codeInputId"
+            [label]="t('account.twoFactorLogin.codeLabel')"
+            [autofocus]="true"
+            [invalid]="!!error()"
+            [describedBy]="error() ? errorId : null"
+            [value]="value()"
+            (valueChange)="onValueChange($event)"
+            (completed)="submit()"
+          />
+          @if (error(); as message) {
+            <hlm-field-error forceShow data-testid="two-factor-error" [id]="errorId">{{
+              message
+            }}</hlm-field-error>
+          }
+        </div>
       }
       <button
         hlmBtn

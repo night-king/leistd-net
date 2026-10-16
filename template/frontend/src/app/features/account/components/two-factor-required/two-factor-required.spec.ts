@@ -21,7 +21,7 @@ import type { Mock } from 'vitest';
 /** 组织强制两步验证时的受限会话页：设置完成 → 展示恢复码 → 用换发的正常会话进入应用。 */
 describe('TwoFactorRequired', () => {
   let fixture: ComponentFixture<TwoFactorRequired>;
-  let auth: { loadUser: Mock; logout: Mock };
+  let auth: { loadUser: Mock; logout: Mock; currentUser: () => unknown };
   let establish: Mock<() => Promise<void>>;
   let canAccessPlatform: Mock<() => boolean>;
   let navigate: Mock;
@@ -48,7 +48,12 @@ describe('TwoFactorRequired', () => {
   }
 
   beforeEach(async () => {
-    auth = { loadUser: vi.fn(() => of(undefined)), logout: vi.fn() };
+    auth = {
+      loadUser: vi.fn(() => of(undefined)),
+      logout: vi.fn(),
+      // 设置组件按当前用户决定确认身份时能出示什么；本页用例不走到那一步
+      currentUser: () => ({ hasPassword: true, isTwoFactorEnabled: false }),
+    };
     establish = vi.fn(async () => undefined);
     canAccessPlatform = vi.fn(() => false);
     vi.spyOn(toast, 'error').mockImplementation(() => '');
