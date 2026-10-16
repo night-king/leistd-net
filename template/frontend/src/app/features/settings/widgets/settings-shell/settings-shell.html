@@ -1,20 +1,40 @@
 <div class="flex h-full flex-col overflow-hidden">
   <div class="flex-1 overflow-y-auto p-4 sm:p-6">
     <div class="flex w-full min-w-0 flex-col gap-6">
-      <header class="flex items-start gap-3">
-        <!-- 窄屏：面板导航收进抽屉，点选后自动关闭 -->
+      <header class="flex min-w-0 flex-col gap-2">
+        <h2 class="text-2xl leading-none font-semibold tracking-tight" data-testid="settings-title">
+          {{ heading() }}
+        </h2>
+        @if (description()) {
+          <p class="text-muted-foreground text-sm">{{ description() }}</p>
+        }
+      </header>
+
+      <hlm-separator />
+
+      <!-- 窄屏：面板导航收进抽屉。触发器整宽、显示当前面板名，与顶栏菜单按钮区分开，也说明了"我在哪、可以切换"；
+           可访问名就是可见文字加一段隐藏的导航名，不另挂 aria-label（可见名必须包含在可访问名里）。 -->
+      <div class="md:hidden">
         <hlm-sheet side="left">
           <button
             type="button"
             hlmSheetTrigger
             hlmBtn
-            size="icon-sm"
             variant="outline"
-            class="mt-0.5 shrink-0 md:hidden"
+            class="w-full justify-between"
             data-testid="settings-nav-trigger"
-            [attr.aria-label]="openNavLabel()"
           >
-            <ng-icon name="lucideMenu" />
+            <span class="flex min-w-0 items-center gap-2">
+              @if (activePanel(); as panel) {
+                <ng-icon [name]="panel.icon" />
+                <span class="truncate">{{ panel.label }}</span>
+                <!-- 分隔写在文字里：元素之间的纯空白会被模板编译去掉，名称会粘成一个词 -->
+                <span class="sr-only">, {{ navLabel() }}</span>
+              } @else {
+                <span class="truncate">{{ openNavLabel() }}</span>
+              }
+            </span>
+            <ng-icon name="lucideChevronDown" class="text-muted-foreground" />
           </button>
           <hlm-sheet-content *hlmSheetPortal="let ctx">
             <!-- 页头右侧为关闭按钮让位；底边距由下面导航的 p-4 承担 -->
@@ -42,20 +62,7 @@
             </nav>
           </hlm-sheet-content>
         </hlm-sheet>
-        <div class="flex min-w-0 flex-col gap-2">
-          <h2
-            class="text-2xl leading-none font-semibold tracking-tight"
-            data-testid="settings-title"
-          >
-            {{ heading() }}
-          </h2>
-          @if (description()) {
-            <p class="text-muted-foreground text-sm">{{ description() }}</p>
-          }
-        </div>
-      </header>
-
-      <hlm-separator />
+      </div>
 
       <div class="flex flex-col gap-6 md:flex-row md:items-start">
         <nav
@@ -78,7 +85,9 @@
           }
         </nav>
 
-        <div class="flex min-w-0 flex-auto flex-col gap-4">
+        <!-- 面板列：宽度上限与两列判断只在这里定一处。面板内的两列一律按这个命名容器判断
+             （@2xl/panel:grid-cols-2），不按视口：同一视口下面板宽度还受侧栏与左侧导航影响。 -->
+        <div class="@container/panel flex w-full max-w-3xl min-w-0 flex-auto flex-col gap-4">
           @if (activePanel(); as panel) {
             <header class="flex flex-col gap-1">
               <h3 class="text-base leading-none font-medium">{{ panel.label }}</h3>

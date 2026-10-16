@@ -3,135 +3,134 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="flex w-full max-w-3xl flex-col gap-8">
+  <div class="flex w-full flex-col gap-6">
     <!-- 每一节一个卡片：标题说"这是什么"，描述说"为什么要管它"。 -->
-    <section
-      class="border-border flex flex-col gap-4 rounded-xl border p-4 sm:p-6"
-      data-testid="security-password"
-    >
-      <header class="flex flex-col gap-1">
-        <h4 class="text-sm leading-none font-semibold">
-          {{ t('account.changePassword.header') }}
-        </h4>
-        <p class="text-muted-foreground text-sm">
-          {{ t('account.changePassword.subtitle') }}
-        </p>
-      </header>
-      <form
-        novalidate
-        class="flex flex-col gap-4"
-        data-testid="change-password-form"
-        (submit)="$event.preventDefault(); onSubmit()"
-      >
-        <div class="flex flex-col gap-4">
-          <div hlmField>
-            <label hlmFieldLabel for="current-password">{{
-              t('account.changePassword.currentPassword')
-            }}</label>
-            <hlm-input-group>
-              <input
-                hlmInputGroupInput
-                id="current-password"
-                autocomplete="current-password"
-                [type]="showCurrentPassword() ? 'text' : 'password'"
-                [formField]="changeForm.currentPassword"
-              />
-              <button
-                hlmInputGroupButton
-                type="button"
-                size="icon-sm"
-                align="inline-end"
-                [attr.aria-label]="
-                  showCurrentPassword() ? t('common.hidePassword') : t('common.showPassword')
-                "
-                (click)="showCurrentPassword.set(!showCurrentPassword())"
-              >
-                <ng-icon [name]="showCurrentPassword() ? 'lucideEyeOff' : 'lucideEye'" />
-              </button>
-            </hlm-input-group>
-            @for (error of changeForm.currentPassword().errors(); track error.kind) {
-              <hlm-field-error [validator]="error.kind">{{
-                t('validation.' + error.kind, error)
-              }}</hlm-field-error>
-            }
-          </div>
+    <section hlmCard data-testid="security-password">
+      <div hlmCardContent class="flex flex-col gap-4">
+        <header class="flex flex-col gap-1">
+          <h4 hlmCardTitle>
+            {{ t('account.changePassword.header') }}
+          </h4>
+          <p hlmCardDescription>
+            {{ t('account.changePassword.subtitle') }}
+          </p>
+        </header>
+        <form
+          novalidate
+          class="flex flex-col gap-4"
+          data-testid="change-password-form"
+          (submit)="$event.preventDefault(); onSubmit()"
+        >
+          <div class="flex flex-col gap-4">
+            <div hlmField>
+              <label hlmFieldLabel for="current-password">{{
+                t('account.changePassword.currentPassword')
+              }}</label>
+              <hlm-input-group>
+                <input
+                  hlmInputGroupInput
+                  id="current-password"
+                  autocomplete="current-password"
+                  [type]="showCurrentPassword() ? 'text' : 'password'"
+                  [formField]="changeForm.currentPassword"
+                />
+                <button
+                  hlmInputGroupButton
+                  type="button"
+                  size="icon-sm"
+                  align="inline-end"
+                  [attr.aria-label]="
+                    showCurrentPassword() ? t('common.hidePassword') : t('common.showPassword')
+                  "
+                  (click)="showCurrentPassword.set(!showCurrentPassword())"
+                >
+                  <ng-icon [name]="showCurrentPassword() ? 'lucideEyeOff' : 'lucideEye'" />
+                </button>
+              </hlm-input-group>
+              @for (error of changeForm.currentPassword().errors(); track error.kind) {
+                <hlm-field-error [validator]="error.kind">{{
+                  t('validation.' + error.kind, error)
+                }}</hlm-field-error>
+              }
+            </div>
 
-          <div hlmField>
-            <label hlmFieldLabel for="new-password">{{
-              t('account.changePassword.newPassword')
-            }}</label>
-            <hlm-input-group>
-              <input
-                hlmInputGroupInput
-                id="new-password"
-                autocomplete="new-password"
-                [type]="showNewPassword() ? 'text' : 'password'"
-                [formField]="changeForm.newPassword"
-              />
-              <button
-                hlmInputGroupButton
-                type="button"
-                size="icon-sm"
-                align="inline-end"
-                [attr.aria-label]="
-                  showNewPassword() ? t('common.hidePassword') : t('common.showPassword')
-                "
-                (click)="showNewPassword.set(!showNewPassword())"
-              >
-                <ng-icon [name]="showNewPassword() ? 'lucideEyeOff' : 'lucideEye'" />
-              </button>
-            </hlm-input-group>
-            <hlm-field-description>{{ t('account.changePassword.rules') }}</hlm-field-description>
-            @for (error of changeForm.newPassword().errors(); track error.kind) {
-              <hlm-field-error [validator]="error.kind">{{
-                t('validation.' + error.kind, error)
-              }}</hlm-field-error>
-            }
-          </div>
+            <div hlmField>
+              <label hlmFieldLabel for="new-password">{{
+                t('account.changePassword.newPassword')
+              }}</label>
+              <hlm-input-group>
+                <input
+                  hlmInputGroupInput
+                  id="new-password"
+                  autocomplete="new-password"
+                  [type]="showNewPassword() ? 'text' : 'password'"
+                  [formField]="changeForm.newPassword"
+                />
+                <button
+                  hlmInputGroupButton
+                  type="button"
+                  size="icon-sm"
+                  align="inline-end"
+                  [attr.aria-label]="
+                    showNewPassword() ? t('common.hidePassword') : t('common.showPassword')
+                  "
+                  (click)="showNewPassword.set(!showNewPassword())"
+                >
+                  <ng-icon [name]="showNewPassword() ? 'lucideEyeOff' : 'lucideEye'" />
+                </button>
+              </hlm-input-group>
+              <hlm-field-description>{{ t('account.changePassword.rules') }}</hlm-field-description>
+              @for (error of changeForm.newPassword().errors(); track error.kind) {
+                <hlm-field-error [validator]="error.kind">{{
+                  t('validation.' + error.kind, error)
+                }}</hlm-field-error>
+              }
+            </div>
 
-          <div hlmField>
-            <label hlmFieldLabel for="confirm-password">{{
-              t('account.changePassword.confirmPassword')
-            }}</label>
-            <hlm-input-group>
-              <input
-                hlmInputGroupInput
-                id="confirm-password"
-                autocomplete="new-password"
-                [type]="showConfirmPassword() ? 'text' : 'password'"
-                [formField]="changeForm.confirmPassword"
-              />
-              <button
-                hlmInputGroupButton
-                type="button"
-                size="icon-sm"
-                align="inline-end"
-                [attr.aria-label]="
-                  showConfirmPassword() ? t('common.hidePassword') : t('common.showPassword')
-                "
-                (click)="showConfirmPassword.set(!showConfirmPassword())"
-              >
-                <ng-icon [name]="showConfirmPassword() ? 'lucideEyeOff' : 'lucideEye'" />
-              </button>
-            </hlm-input-group>
-            @for (error of changeForm.confirmPassword().errors(); track error.kind) {
-              <hlm-field-error [validator]="error.kind">{{
-                t('validation.' + error.kind, error)
-              }}</hlm-field-error>
-            }
+            <div hlmField>
+              <label hlmFieldLabel for="confirm-password">{{
+                t('account.changePassword.confirmPassword')
+              }}</label>
+              <hlm-input-group>
+                <input
+                  hlmInputGroupInput
+                  id="confirm-password"
+                  autocomplete="new-password"
+                  [type]="showConfirmPassword() ? 'text' : 'password'"
+                  [formField]="changeForm.confirmPassword"
+                />
+                <button
+                  hlmInputGroupButton
+                  type="button"
+                  size="icon-sm"
+                  align="inline-end"
+                  [attr.aria-label]="
+                    showConfirmPassword() ? t('common.hidePassword') : t('common.showPassword')
+                  "
+                  (click)="showConfirmPassword.set(!showConfirmPassword())"
+                >
+                  <ng-icon [name]="showConfirmPassword() ? 'lucideEyeOff' : 'lucideEye'" />
+                </button>
+              </hlm-input-group>
+              @for (error of changeForm.confirmPassword().errors(); track error.kind) {
+                <hlm-field-error [validator]="error.kind">{{
+                  t('validation.' + error.kind, error)
+                }}</hlm-field-error>
+              }
+            </div>
           </div>
-        </div>
-        <div class="flex justify-end">
-          <button hlmBtn type="submit" [disabled]="saving()">
-            @if (saving()) {
-              <hlm-spinner class="text-base" data-icon="inline-start" />
-            } @else {
-              <ng-icon name="lucideLock" data-icon="inline-start" />
-            }
-            {{ t('account.changePassword.submit') }}
-          </button>
-        </div>
-      </form>
+          <div class="flex justify-end">
+            <button hlmBtn type="submit" [disabled]="saving()">
+              @if (saving()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              } @else {
+                <ng-icon name="lucideLock" data-icon="inline-start" />
+              }
+              {{ t('account.changePassword.submit') }}
+            </button>
+          </div>
+        </form>
+      </div>
     </section>
 
     <app-two-factor-settings (sessionsChanged)="loginDevices()?.reload()" />

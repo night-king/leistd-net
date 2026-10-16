@@ -19,6 +19,8 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// 存键会让界面直接显示 <c>Setting:Display.Language</c> 这样的内部标识。
 /// 本地化项目按 <c>Setting:{name}</c> 查词条翻译，查不到才回落到这里的文案——
 /// 键由名称推导，不必在定义里再抄一遍。</para>
+/// <para>设置页的面板顺序取接口里各分组首次出现的先后，接口按这里的定义顺序返回；因此各段按管理员的使用频率排：
+/// 注册验证、登录安全、外部登录、邮件发送，运维与审计在最后。</para>
 /// </remarks>
 /// <para>值域（布尔、整数区间、候选值）声明在定义上：设置组件在写入端据此校验，设置页据此渲染控件。
 /// 覆盖部署配置的宿主级设置（日志级别、审计、发信参数、外部登录）不写默认值——设置组件按绑定取部署基线
@@ -66,50 +68,6 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
             displayName: "Time zone",
             group: SettingConstant.Groups.Display).IsVisibleToClients = true;
 
-        // 日志是**进程级**的：一个进程只有一个 logger，按租户各存一份无从生效，
-        // 因此用 Host 层——租户上下文的写入会被就地拒绝，而不是写进去不起作用。
-        //
-        // 默认值取部署基线（Serilog 配置节），与注册策略取 appsettings 是同一个口径：
-        // 配置给基线、设置表给运行期覆盖。写死成 Information 的话，部署把级别配成
-        // Warning 也会被顶掉，而清除覆盖值同样回不到部署基线。
-        context.Add(
-            SettingConstant.Logging.MinimumLevel,
-            scopes: SettingScopes.Host,
-            displayName: "Minimum log level",
-            group: SettingConstant.Groups.Operations)
-            .WithAllowedValues(SettingConstant.Logging.Levels)
-            .IsVisibleToClients = true;
-
-        // 正常完成的请求记成哪一级。调到 Verbose 就等于关掉请求日志——
-        // 全局最小级别通常是 Information，Verbose 的记录不会落盘。
-        context.Add(
-            SettingConstant.Logging.RequestLevel,
-            scopes: SettingScopes.Host,
-            displayName: "Request log level",
-            group: SettingConstant.Groups.Operations)
-            .WithAllowedValues(SettingConstant.Logging.Levels)
-            .IsVisibleToClients = true;
-
-#if (IncludeOperationRecords)
-        // 操作记录保留期同样是进程级：归档任务跨租户统一执行。默认值取部署基线，
-        // 部署没打开时这里也是关——一个默认就会动审计数据的开关不该由代码替部署决定。
-        context.Add(
-            SettingConstant.Audit.RetentionEnabled,
-            scopes: SettingScopes.Host,
-            displayName: "Archive expired operation records",
-            group: SettingConstant.Groups.Audit)
-            .AsBoolean()
-            .IsVisibleToClients = true;
-
-        // 区间与操作记录组件保留期选项上的校验一致：设置值经配置源进入该选项，越界会让整组设置不生效
-        context.Add(
-            SettingConstant.Audit.RetentionDays,
-            scopes: SettingScopes.Host,
-            displayName: "Operation record retention (days)",
-            group: SettingConstant.Groups.Audit)
-            .AsInteger(30, 3650)
-            .IsVisibleToClients = true;
-#endif
 #if (LocalIdentity)
 
         // 注册策略按租户：同一套部署下，不同租户可以有不同的注册门槛。
@@ -196,6 +154,17 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
             .AsBoolean()
             .IsVisibleToClients = true;
 
+#if (ExternalLogin)
+
+        // 外部登录也是进程级的：认证方案与回调地址整个部署共用。开关默认值取部署基线（模板基线为关闭）；
+        // 客户端密钥是机密设置，没有默认值，未设置时用配置里的密钥
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubEnabled, "Enable GitHub sign-in").AsBoolean();
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubClientId, "GitHub client ID");
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubClientSecret, "GitHub client secret").IsEncrypted = true;
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleEnabled, "Enable Google sign-in").AsBoolean();
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleClientId, "Google client ID");
+        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleClientSecret, "Google client secret").IsEncrypted = true;
+#endif
 #if (Email)
 
         // 发信参数是进程级的：整个部署共用一个发信通道。默认值取部署基线，与日志级别同一口径
@@ -208,17 +177,50 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
         AddEmail(context, SettingConstant.Email.DefaultFromAddress, "Sender address");
         AddEmail(context, SettingConstant.Email.DefaultFromName, "Sender name");
 #endif
-#if (ExternalLogin)
-
-        // 外部登录也是进程级的：认证方案与回调地址整个部署共用。开关默认值取部署基线（模板基线为关闭）；
-        // 客户端密钥是机密设置，没有默认值，未设置时用配置里的密钥
-        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubEnabled, "Enable GitHub sign-in").AsBoolean();
-        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubClientId, "GitHub client ID");
-        AddExternalLogin(context, SettingConstant.ExternalLogin.GithubClientSecret, "GitHub client secret").IsEncrypted = true;
-        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleEnabled, "Enable Google sign-in").AsBoolean();
-        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleClientId, "Google client ID");
-        AddExternalLogin(context, SettingConstant.ExternalLogin.GoogleClientSecret, "Google client secret").IsEncrypted = true;
 #endif
+        // 日志是**进程级**的：一个进程只有一个 logger，按租户各存一份无从生效，
+        // 因此用 Host 层——租户上下文的写入会被就地拒绝，而不是写进去不起作用。
+        //
+        // 默认值取部署基线（Serilog 配置节），与注册策略取 appsettings 是同一个口径：
+        // 配置给基线、设置表给运行期覆盖。写死成 Information 的话，部署把级别配成
+        // Warning 也会被顶掉，而清除覆盖值同样回不到部署基线。
+        context.Add(
+            SettingConstant.Logging.MinimumLevel,
+            scopes: SettingScopes.Host,
+            displayName: "Minimum log level",
+            group: SettingConstant.Groups.Operations)
+            .WithAllowedValues(SettingConstant.Logging.Levels)
+            .IsVisibleToClients = true;
+
+        // 正常完成的请求记成哪一级。调到 Verbose 就等于关掉请求日志——
+        // 全局最小级别通常是 Information，Verbose 的记录不会落盘。
+        context.Add(
+            SettingConstant.Logging.RequestLevel,
+            scopes: SettingScopes.Host,
+            displayName: "Request log level",
+            group: SettingConstant.Groups.Operations)
+            .WithAllowedValues(SettingConstant.Logging.Levels)
+            .IsVisibleToClients = true;
+
+#if (IncludeOperationRecords)
+        // 操作记录保留期同样是进程级：归档任务跨租户统一执行。默认值取部署基线，
+        // 部署没打开时这里也是关——一个默认就会动审计数据的开关不该由代码替部署决定。
+        context.Add(
+            SettingConstant.Audit.RetentionEnabled,
+            scopes: SettingScopes.Host,
+            displayName: "Archive expired operation records",
+            group: SettingConstant.Groups.Audit)
+            .AsBoolean()
+            .IsVisibleToClients = true;
+
+        // 区间与操作记录组件保留期选项上的校验一致：设置值经配置源进入该选项，越界会让整组设置不生效
+        context.Add(
+            SettingConstant.Audit.RetentionDays,
+            scopes: SettingScopes.Host,
+            displayName: "Operation record retention (days)",
+            group: SettingConstant.Groups.Audit)
+            .AsInteger(30, 3650)
+            .IsVisibleToClients = true;
 #endif
 #if (IncludeNotifications)
 

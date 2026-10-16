@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideMenu } from '@ng-icons/lucide';
+import { lucideChevronDown } from '@ng-icons/lucide';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmSeparator } from '@spartan-ng/helm/separator';
 import { HlmSheetImports } from '@spartan-ng/helm/sheet';
@@ -24,7 +24,7 @@ export interface SettingsPanelLink {
 @Component({
   selector: 'app-settings-shell',
   imports: [RouterLink, RouterOutlet, NgIcon, HlmButton, HlmSeparator, ...HlmSheetImports],
-  providers: [provideIcons({ lucideMenu })],
+  providers: [provideIcons({ lucideChevronDown })],
   templateUrl: './settings-shell.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -36,7 +36,7 @@ export class SettingsShell {
   readonly panels = input.required<readonly SettingsPanelLink[]>();
   /** 面板导航的可访问名。 */
   readonly navLabel = input('');
-  /** 窄屏打开面板导航的按钮只有图标，可访问名必须显式给出。 */
+  /** 窄屏导航触发器在没有当前面板时显示的文字。 */
   readonly openNavLabel = input('');
 
   private readonly url = toSignal(

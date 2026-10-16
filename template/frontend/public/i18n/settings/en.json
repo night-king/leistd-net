@@ -46,6 +46,22 @@
       "description": "Language and time zone. Applies to you only; leave blank to follow your system"
     }
   },
+  "groupDescriptions": {
+    //#if (LocalIdentity)
+    "Registration": "Verification for self sign-up and how long codes stay valid",
+    "Security": "Sign-in lockout and two-factor requirements",
+    //#if (ExternalLogin)
+    "ExternalLogin": "Sign-in with GitHub, Google and other providers: a switch and client credentials for each",
+    //#endif
+    //#if (Email)
+    "Email": "SMTP server and sender used for outgoing mail",
+    //#endif
+    //#endif
+    //#if (IncludeOperationRecords)
+    "Audit": "Archiving of expired operation records",
+    //#endif
+    "Operations": "How much detail the logs record"
+  },
   "secretSet": "Set (type a new value to replace it)",
   "secretUnset": "Not set",
   //#if (ExternalLogin)

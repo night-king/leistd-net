@@ -46,6 +46,22 @@
       "description": "语言与时区，只对你生效；留空即跟随系统"
     }
   },
+  "groupDescriptions": {
+    //#if (LocalIdentity)
+    "Registration": "新用户自助注册时的验证要求与验证码时效",
+    "Security": "登录失败锁定与两步验证要求",
+    //#if (ExternalLogin)
+    "ExternalLogin": "用 GitHub、Google 等第三方账号登录：各渠道的开关与客户端凭据",
+    //#endif
+    //#if (Email)
+    "Email": "系统发信使用的 SMTP 服务器与发件人",
+    //#endif
+    //#endif
+    //#if (IncludeOperationRecords)
+    "Audit": "操作记录的到期归档",
+    //#endif
+    "Operations": "日志记录的详细程度"
+  },
   "secretSet": "已设置（输入新值即替换）",
   "secretUnset": "未设置",
   //#if (ExternalLogin)

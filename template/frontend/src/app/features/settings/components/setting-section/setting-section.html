@@ -4,7 +4,7 @@
 <ng-container>
 <!--#endif-->
   <div
-    class="flex w-full min-w-0 flex-col gap-8"
+    class="flex w-full min-w-0 flex-col gap-6"
     data-testid="settings-panel"
     [attr.data-scope]="scope()"
   >
@@ -14,39 +14,54 @@
         data-testid="settings-group-section"
         [attr.data-group]="group.key"
       >
-        @if (groups().length > 1 || group.hostScopeOnce) {
-          <div class="flex flex-col items-start gap-2">
-            <!-- 一页里有多个分组时才出分组标题：单组面板的标题已经由外壳给出，再写一遍是重复。 -->
-            @if (groups().length > 1) {
-              <h4 class="text-sm leading-none font-semibold">{{ group.label }}</h4>
-            }
-            <!-- 整组都是进程级设置时生效范围只说一次；混有其他层级的分组仍按行标注。 -->
-            @if (group.hostScopeOnce) {
-              <span hlmBadge variant="secondary" data-testid="settings-group-host-scope-hint">
-                {{ t('settings.hostScopeHint') }}
-              </span>
-            }
-          </div>
-        }
         <!--#if (ExternalLogin)-->
         @if (group.externalLoginProviders.length > 0) {
-          <div class="w-full max-w-5xl">
-            <app-external-login-providers
-              [providers]="group.externalLoginProviders"
-              [rowTemplate]="settingRow"
-              [revision]="externalLoginRevision()"
-            />
-          </div>
-        }
-        <!--#endif-->
-        @if (group.rows.length > 0) {
-          <!-- 两列布局，窄屏自动落回单列。用 @container 而不是视口断点：面板宽度还受左侧面板导航
-             与侧边栏折叠影响，按视口判断会在"视口够宽但面板很窄"时挤成两列。 -->
-          <div class="@container w-full max-w-5xl">
-            <div class="grid gap-x-8 gap-y-6 @2xl:grid-cols-2">
-              @for (setting of group.rows; track setting.name) {
-                <ng-container *ngTemplateOutlet="settingRow; context: { $implicit: setting }" />
+          <!-- 外部登录按渠道分卡，不再套一张父卡：分组标题与生效范围放在卡片上方，非渠道的设置另成一张普通卡。 -->
+          @if (groups().length > 1 || group.hostScopeOnce) {
+            <div class="flex flex-wrap items-center gap-2">
+              @if (groups().length > 1) {
+                <h4 class="text-base leading-none font-medium">{{ group.label }}</h4>
               }
+              @if (group.hostScopeOnce) {
+                <span hlmBadge variant="secondary" data-testid="settings-group-host-scope-hint">
+                  {{ t('settings.hostScopeHint') }}
+                </span>
+              }
+            </div>
+          }
+          <app-external-login-providers
+            [providers]="group.externalLoginProviders"
+            [rowTemplate]="settingRow"
+            [revision]="externalLoginRevision()"
+          />
+          @if (group.rows.length > 0) {
+            <div hlmCard>
+              <div hlmCardContent>
+                <ng-container *ngTemplateOutlet="rowGrid; context: { $implicit: group.rows }" />
+              </div>
+            </div>
+          }
+        } @else if (group.rows.length > 0) {
+        <!--#else-->
+        @if (group.rows.length > 0) {
+        <!--#endif-->
+          <!-- 一个分组一张卡。一页里有多个分组时才出分组标题：单组面板的标题已经由外壳给出，再写一遍是重复；
+               整组都是进程级设置时生效范围在卡片顶部说一次，混有其他层级的分组仍按行标注。 -->
+          <div hlmCard>
+            @if (groups().length > 1 || group.hostScopeOnce) {
+              <div hlmCardHeader class="flex flex-wrap items-center justify-between gap-2">
+                @if (groups().length > 1) {
+                  <h4 hlmCardTitle>{{ group.label }}</h4>
+                }
+                @if (group.hostScopeOnce) {
+                  <span hlmBadge variant="secondary" data-testid="settings-group-host-scope-hint">
+                    {{ t('settings.hostScopeHint') }}
+                  </span>
+                }
+              </div>
+            }
+            <div hlmCardContent>
+              <ng-container *ngTemplateOutlet="rowGrid; context: { $implicit: group.rows }" />
             </div>
           </div>
         }
@@ -75,12 +90,37 @@
     <!--#endif-->
   </div>
 
-  <!-- 一行设置的渲染：通用网格与外部登录的提供方卡片共用，控件、校验与即改即存只有这一份。 -->
+  <!-- 设置行的网格：面板列够宽时两列（与资料表单同一条规则，按外壳的命名容器判断），否则单列。 -->
+  <ng-template #rowGrid let-rows>
+    <div class="grid gap-x-6 gap-y-4 @2xl/panel:grid-cols-2">
+      @for (setting of rows; track setting.name) {
+        <ng-container *ngTemplateOutlet="settingRow; context: { $implicit: setting }" />
+      }
+    </div>
+  </ng-template>
+
+  <!-- 一行设置的渲染：通用网格与外部登录的提供方卡片共用，控件、校验与即改即存只有这一份。
+       布尔项标签与开关、恢复按钮排在同一行（开关没有宽度，放在下一行会与恢复按钮隔开整列）；
+       其他控件标签在上。每项只有一个 Field，下方描述行归它，开关经 aria-describedby 显式关联到描述。 -->
   <ng-template #settingRow let-setting>
-    <hlm-field>
-      <label hlmFieldLabel [for]="setting.name">{{ setting.displayName }}</label>
+    <hlm-field class="gap-2">
+      @if (!isBoolean(setting)) {
+        <label hlmFieldLabel [for]="setting.name">{{ setting.displayName }}</label>
+      }
       <div class="flex items-center gap-2">
-        @if (isTimeZone(setting)) {
+        @if (isBoolean(setting)) {
+          <label hlmFieldLabel class="flex-auto" [for]="setting.name">
+            {{ setting.displayName }}
+          </label>
+          <hlm-switch
+            [inputId]="setting.name"
+            [checked]="isChecked(setting, scope())"
+            [disabled]="isRowSaving(setting, scope())"
+            [aria-describedby]="descriptionIdOf(setting)"
+            [attr.data-testid]="'setting-switch-' + setting.name"
+            (checkedChange)="onToggle(setting, scope(), $event)"
+          />
+        } @else if (isTimeZone(setting)) {
           <hlm-combobox
             class="flex-1"
             [value]="draftOf(setting, scope())"
@@ -147,18 +187,6 @@
               }
             </hlm-select-content>
           </hlm-select>
-        } @else if (isBoolean(setting)) {
-          <!-- 布局类放在包裹层：hlm-switch 的 class 会透传 twMerge 到内部 brn-switch，
-             flex-1 会把开关拉成整行。 -->
-          <div class="flex flex-1 items-center">
-            <hlm-switch
-              [inputId]="setting.name"
-              [checked]="isChecked(setting, scope())"
-              [disabled]="isRowSaving(setting, scope())"
-              [attr.data-testid]="'setting-switch-' + setting.name"
-              (checkedChange)="onToggle(setting, scope(), $event)"
-            />
-          </div>
         } @else {
           <!-- 数值型把上下界交给浏览器（值域以服务端为准）。用 change 提交；刻意不随写入禁用：
              提交时光标常在框里，禁用会弹走焦点。 -->
@@ -187,7 +215,7 @@
         <button
           type="button"
           hlmBtn
-          size="sm"
+          size="icon-sm"
           variant="ghost"
           [attr.data-testid]="'setting-reset-' + setting.name"
           [disabled]="isRowSaving(setting, scope())"
@@ -201,8 +229,12 @@
       @if (levelHintKeyOf(setting, scope()); as levelHint) {
         <p class="text-muted-foreground text-xs">{{ t(levelHint) }}</p>
       }
-      <!-- 常驻并预留一行高度，状态进出不顶动下方内容；不显示设置名（开发标识）与继承值（占位符已显示）。 -->
-      <hlm-field-description class="flex min-h-4 flex-wrap items-center gap-x-2">
+      <!-- 常驻并预留一行高度，单行状态进出不顶动下方内容（多行错误照常增高）；状态是辅助说明，用 12px 一档。
+           不显示设置名（开发标识）与继承值（占位符已显示）。 -->
+      <hlm-field-description
+        class="flex min-h-4 flex-wrap items-center gap-x-2 text-xs leading-4"
+        [id]="descriptionIdOf(setting)"
+      >
         @if (showsRowHostScope(setting)) {
           <!-- 进程级设置的生效范围与延迟不写出来的话，改完在别的实例上没变会被当成 bug；
              整组都是进程级时分组顶部已说过一次，这里不再重复 -->

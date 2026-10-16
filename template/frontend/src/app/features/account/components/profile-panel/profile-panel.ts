@@ -24,6 +24,7 @@ import { lucideCircleAlert, lucideCircleCheck, lucideImagePlus } from '@ng-icons
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
@@ -67,6 +68,7 @@ interface EmailChallenge {
     FormField,
     NgIcon,
     HlmButton,
+    ...HlmCardImports,
     HlmSpinner,
     HlmInput,
     HlmBadge,

@@ -19,6 +19,7 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideCheck, lucideCopy, lucideRefreshCw } from '@ng-icons/lucide';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { finalize, Subscription } from 'rxjs';
@@ -135,6 +136,7 @@ export interface SettingRowContext {
     HlmButton,
     HlmSpinner,
     StatusDot,
+    ...HlmCardImports,
     ...HlmTooltipImports,
     //#if (IncludeLocalization)
     TranslocoDirective,

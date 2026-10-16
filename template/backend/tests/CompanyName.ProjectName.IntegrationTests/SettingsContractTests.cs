@@ -317,6 +317,38 @@ public sealed class SettingsContractTests(ProjectWebApplicationFactory factory)
     }
 
 #endif
+    /// <summary>系统设置的面板顺序取接口里各分组首次出现的先后：按管理员的使用频率排，运维与审计在最后。</summary>
+    [Fact]
+    public async Task System_setting_groups_are_listed_in_panel_order()
+    {
+        using var hostAdmin = await factory.LoginAsync(
+            "admin", ProjectWebApplicationFactory.TestAdminPassword);
+
+        var listed = await hostAdmin.Client.GetFromJsonAsync<JsonElement>("/api/v1/settings");
+        var groups = listed.EnumerateArray()
+            .Where(s => s.GetProperty("allowsTenantScope").GetBoolean() || s.GetProperty("allowsHostScope").GetBoolean())
+            .Select(s => s.GetProperty("group").GetString()!)
+            .Distinct()
+            .ToList();
+
+        List<string> expected = [];
+#if (LocalIdentity)
+        expected.Add(SettingConstant.Groups.Registration);
+        expected.Add(SettingConstant.Groups.Security);
+#if (ExternalLogin)
+        expected.Add(SettingConstant.Groups.ExternalLogin);
+#endif
+#if (Email)
+        expected.Add(SettingConstant.Groups.Email);
+#endif
+#endif
+        expected.Add(SettingConstant.Groups.Operations);
+#if (IncludeOperationRecords)
+        expected.Add(SettingConstant.Groups.Audit);
+#endif
+        Assert.Equal(expected, groups);
+    }
+
     [Fact]
     public async Task Host_can_change_process_settings_within_the_allowed_range()
     {

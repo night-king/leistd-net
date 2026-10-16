@@ -6,6 +6,7 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideLink } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmCardImports } from '@spartan-ng/helm/card';
 import { HlmItemImports } from '@spartan-ng/helm/item';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
@@ -32,6 +33,7 @@ const PROVIDER_LABELS: Record<string, string> = { github: 'GitHub', google: 'Goo
   imports: [
     NgIcon,
     HlmButton,
+    ...HlmCardImports,
     HlmSpinner,
     ...HlmItemImports,
     //#if (IncludeLocalization)

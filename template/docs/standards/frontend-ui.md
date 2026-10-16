@@ -120,6 +120,7 @@
 - **间距**：兄弟元素之间用 `flex` / `grid` + `gap-*`，不用 `space-y-*` 与逐个元素的外边距。页面外框统一 `p-4 sm:p-6`。
 - **暗色**：表面分五层逐级提亮（`sidebar` < `background` < `card` < `popover` < `muted`），不用纯黑；层级都在 `styles.css` 里定好，页面不写 `dark:` 颜色覆盖。
 - **图标 + 文案的空态一律用 flex 列**（`flex flex-col items-center justify-center gap-2`），不靠给 `ng-icon` 加 `block`：它的 host 样式按行内盒渲染，`block` 压不住，图标与文字会挤在一行、基线错开。同款写法见通知面板的空态。
+- **设置页**（个人设置、系统设置）：面板列的宽度上限 `max-w-3xl` 与命名容器 `@container/panel` 只在外壳 `settings-shell` 写一处，面板不另写 `max-w-*`；面板里的两列（资料表单、设置行网格）一律 `@2xl/panel:grid-cols-2`，不按视口断点。分区用 Spartan Card：普通设置分组一组一张卡，外部登录按渠道分卡、渠道以外的设置另成一张普通卡，测试邮件这类操作是独立的卡；没有内容不输出空卡或空标题区。层级为面板标题（外壳给出的 h3）→ 卡片标题（`h4 hlmCardTitle`，默认样式）→ 字段标签。布尔设置的标签、开关与恢复按钮排在同一行，开关经 `aria-describedby` 指向本行描述（`hlm-switch` 不会自动关联所在字段的描述）。系统设置的面板说明按分组标识取（本地化形态是 `settings` 作用域的 `groupDescriptions` 词条，否则是 `system-settings.ts` 的 `GROUP_DESCRIPTIONS`），未登记的分组没有说明；面板顺序取接口里分组首次出现的先后，即后端设置定义的顺序。
 - **字段说明不要做成独立方框。** 口令规则、格式提示这类说明贴在字段下方的描述位（`hlm-field-description`），与输入框同宽同起止；带边框底色的独立块看着像另一个输入控件，宽度也与输入框对不齐。
 
 ## 3. 导航与菜单分组
