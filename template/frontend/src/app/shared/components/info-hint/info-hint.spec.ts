@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { userEvent } from 'vitest/browser';
 
 import { InfoHint } from './info-hint';
-import { expectTouchTarget, setCoarsePointer, tapAt } from '../../utils/coarse-pointer.testing';
+import { expectTouchTarget, setCoarsePointer } from '../../utils/coarse-pointer.testing';
 
 @Component({
   selector: 'app-test-info-hint-host',
@@ -41,7 +41,7 @@ class TitleRow {}
 })
 class Paragraph {}
 
-/** 补充说明对鼠标、键盘、触屏都可用：悬停展开、点按切换、Escape 收起，触屏目标不小于 44px。 */
+/** 补充说明对鼠标与键盘可用：悬停或聚焦时紧贴图标显示，Escape 收起；触屏目标不小于 44px。 */
 describe('InfoHint', () => {
   async function render(): Promise<HTMLButtonElement> {
     const fixture = TestBed.createComponent(Host);
@@ -51,7 +51,7 @@ describe('InfoHint', () => {
     )!;
   }
 
-  const content = () => document.querySelector('[data-testid="info-hint-content"]');
+  const tooltip = () => document.querySelector('[role="tooltip"]');
   // 移到页面别处：不用 unhover，它把指针挪去的位置可能正好落在说明上
   const elsewhere = () => document.querySelector<HTMLElement>('[data-testid="elsewhere"]')!;
 
@@ -60,43 +60,42 @@ describe('InfoHint', () => {
     await userEvent.keyboard('{Escape}');
   });
 
-  it('opens on hover and closes when the pointer leaves', async () => {
+  // 说明锚定在图标旁（放不下时 Tooltip 自行换边），不落到视口别处。量浮层面板：内容入场动画带位移
+  it('shows the hint next to the icon on hover and hides it when the pointer leaves', async () => {
     const button = await render();
 
     await userEvent.hover(button);
-    await vi.waitFor(() => expect(content()?.textContent).toContain('Applies everywhere'));
+    await vi.waitFor(() => expect(tooltip()?.textContent).toContain('Applies everywhere'));
+    const icon = button.getBoundingClientRect();
+    const hint = tooltip()!.closest('.cdk-overlay-pane')!.getBoundingClientRect();
+    const gap = Math.max(
+      hint.left - icon.right,
+      icon.left - hint.right,
+      hint.top - icon.bottom,
+      icon.top - hint.bottom,
+    );
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(16);
 
     await userEvent.hover(elsewhere());
-    await vi.waitFor(() => expect(content()).toBeNull());
+    await vi.waitFor(() => expect(tooltip()).toBeNull());
   });
 
-  // 指针从按钮移到说明上继续读，说明不能消失；离开两者后才收起
-  it('stays open while the pointer moves onto the explanation', async () => {
+  it('shows the hint on keyboard focus and hides it on Escape', async () => {
     const button = await render();
 
-    await userEvent.hover(button);
-    await vi.waitFor(() => expect(content()).not.toBeNull());
-    await userEvent.hover(content()!);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(content()).not.toBeNull();
-
-    await userEvent.hover(elsewhere());
-    await vi.waitFor(() => expect(content()).toBeNull());
-  });
-
-  it('opens on a tap with a 44px target and closes on Escape, then opens again', async () => {
-    await setCoarsePointer(true);
-    const button = await render();
-    expectTouchTarget(button);
-
-    await tapAt(button, 0, 0);
-    await vi.waitFor(() => expect(content()).not.toBeNull());
+    button.focus();
+    await vi.waitFor(() => expect(tooltip()?.textContent).toContain('Applies everywhere'));
 
     await userEvent.keyboard('{Escape}');
-    await vi.waitFor(() => expect(content()).toBeNull());
+    await vi.waitFor(() => expect(tooltip()).toBeNull());
+  });
 
-    await tapAt(button, 0, 0);
-    await vi.waitFor(() => expect(content()).not.toBeNull());
+  it('keeps a 44px target on coarse pointers', async () => {
+    await setCoarsePointer(true);
+    const button = await render();
+
+    expectTouchTarget(button);
   });
 
   it('centers the icon on the row it sits in', async () => {

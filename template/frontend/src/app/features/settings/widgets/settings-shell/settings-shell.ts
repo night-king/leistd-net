@@ -17,7 +17,7 @@ export interface SettingsPanelLink {
   label: string;
   icon: string;
   description?: string;
-  /** 标题旁信息图标的说明（悬停或点按按钮时展开），例如整组设置的生效范围与延迟；没有时不出图标。 */
+  /** 标题旁信息图标的说明（鼠标悬停或键盘聚焦时显示），例如整组设置的生效范围与延迟；没有时不出图标。 */
   hint?: string;
 }
 
