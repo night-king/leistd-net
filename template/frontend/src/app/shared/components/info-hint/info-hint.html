@@ -1,4 +1,5 @@
-<hlm-popover [state]="state()" sideOffset="6" (stateChanged)="onStateChanged($event)">
+<!-- flex：否则按钮落在继承行高的行盒里按基线排版，不随所在行居中 -->
+<hlm-popover class="flex" [state]="state()" sideOffset="6" (stateChanged)="onStateChanged($event)">
   <button
     type="button"
     hlmBtn

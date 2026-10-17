@@ -17,6 +17,30 @@ import { expectTouchTarget, setCoarsePointer, tapAt } from '../../utils/coarse-p
 })
 class Host {}
 
+// 与设置页面板标题同一结构：图标随宿主行的 items-center 与标题居中
+@Component({
+  selector: 'app-test-info-hint-title-row',
+  imports: [InfoHint],
+  template: `<div class="flex items-center gap-1">
+    <h3 class="text-base leading-none font-medium">Email</h3>
+    <app-info-hint text="Applies everywhere" />
+  </div>`,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class TitleRow {}
+
+@Component({
+  selector: 'app-test-info-hint-paragraph',
+  imports: [InfoHint],
+  template: `<p class="w-[40rem]">
+    <span data-testid="before">Before</span><app-info-hint text="Hint" /><span data-testid="after"
+      >After</span
+    >
+  </p>`,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class Paragraph {}
+
 /** 补充说明对鼠标、键盘、触屏都可用：悬停展开、点按切换、Escape 收起，触屏目标不小于 44px。 */
 describe('InfoHint', () => {
   async function render(): Promise<HTMLButtonElement> {
@@ -73,6 +97,29 @@ describe('InfoHint', () => {
 
     await tapAt(button, 0, 0);
     await vi.waitFor(() => expect(content()).not.toBeNull());
+  });
+
+  it('centers the icon on the row it sits in', async () => {
+    const fixture = TestBed.createComponent(TitleRow);
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    const center = (element: Element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    };
+
+    expect(center(root.querySelector('svg')!)).toBeCloseTo(center(root.querySelector('h3')!), 0);
+  });
+
+  // 嵌在文字里时只占图标宽度，前后文字留在同一行
+  it('stays inline inside running text', async () => {
+    const fixture = TestBed.createComponent(Paragraph);
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    const rect = (selector: string) => root.querySelector(selector)!.getBoundingClientRect();
+
+    expect(rect('app-info-hint').width).toBeLessThanOrEqual(44);
+    expect(rect('[data-testid="after"]').top).toBe(rect('[data-testid="before"]').top);
   });
 
   it('names the button with the hint for screen readers', async () => {

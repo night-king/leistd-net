@@ -28,6 +28,8 @@ const CLOSE_DELAY_MS = 150;
   imports: [NgIcon, HlmButton, PopoverAria, ...HlmPopoverImports],
   providers: [provideIcons({ lucideInfo }), provideBrnPopoverDefaultOptions({ autoFocus: false })],
   templateUrl: './info-hint.html',
+  // 行内原子盒：嵌在文字里不拆开所在段落；在 flex 行里随 items-center 居中
+  host: { class: 'inline-flex align-middle' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InfoHint {
