@@ -245,6 +245,47 @@ public sealed partial class EmailVerificationChallengeTests(ProjectWebApplicatio
         Assert.False(me.RootElement.GetProperty("isEmailVerified").GetBoolean());
     }
 
+    /// <summary>
+    /// 注册时当场验证过这个地址，账号的邮箱就是已验证：同邮箱的外部登录、通知收件人与登录后的提示都按已验证处理。
+    /// 关闭邮箱验证时注册只过图形验证码，地址没被验证过，仍是未验证。
+    /// </summary>
+    [Fact]
+    public async Task Registration_confirms_the_email_only_when_its_code_was_verified()
+    {
+        const string password = "VerificationTests!Pw";
+        using var host = CreateEmailVerificationHost();
+        using var anonymous = ProjectWebApplicationFactory.CreateProjectClient(host);
+        var email = $"confirmed-{Guid.NewGuid():N}@example.test";
+        var username = $"confirmed_{Guid.NewGuid():N}"[..32];
+        using (var registered = await RegisterAsync(anonymous, username, email, await SendChallengeAsync(host, anonymous, email)))
+        {
+            Assert.Equal(HttpStatusCode.OK, registered.StatusCode);
+            using var body = JsonDocument.Parse(await registered.Content.ReadAsStringAsync());
+            Assert.True(body.RootElement.GetProperty("isEmailVerified").GetBoolean());
+        }
+
+        using (var session = await ProjectWebApplicationFactory.LoginAsync(host, username, password))
+            Assert.True(await ReadEmailVerifiedAsync(session.Client));
+
+        using var withoutVerification = host.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["UserRegistration:EnableEmailVerification"] = "false" })));
+        using var captchaClient = ProjectWebApplicationFactory.CreateProjectClient(withoutVerification);
+        var plainUsername = $"plain_{Guid.NewGuid():N}"[..32];
+        using (var registered = await captchaClient.PostAsJsonAsync("/api/v1/auth/register", new
+               {
+                   Username = plainUsername,
+                   Email = $"plain-{Guid.NewGuid():N}@example.test",
+                   Password = password,
+                   CaptchaToken = "accepted",
+                   CaptchaCode = "accepted"
+               }))
+        {
+            Assert.Equal(HttpStatusCode.OK, registered.StatusCode);
+            using var body = JsonDocument.Parse(await registered.Content.ReadAsStringAsync());
+            Assert.False(body.RootElement.GetProperty("isEmailVerified").GetBoolean());
+        }
+    }
+
     /// <summary>注册时发出的验证码不能拿来验证已有账号的邮箱：挑战绑定用途。</summary>
     [Fact]
     public async Task Registration_code_cannot_verify_an_existing_account_email()

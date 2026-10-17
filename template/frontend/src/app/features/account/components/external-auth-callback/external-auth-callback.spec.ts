@@ -1,15 +1,22 @@
 //#if (ExternalLogin)
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { signal } from '@angular/core';
+import { WritableSignal, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, UrlTree, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { ExternalAuthCallback } from './external-auth-callback';
+import {
+  confirmWithCode,
+  reauthenticateForm,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog.testing';
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
+//#endif
+//#if (OpenIddictServer)
+import { ReturnUrlService } from '../../../../core/routing/return-url-service';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
 import { SessionContextService } from '../../../../core/services/session-context-service';
@@ -23,7 +30,11 @@ describe('ExternalAuthCallback', () => {
     externalLoginCallback: ReturnType<typeof vi.fn>;
     linkExternalLogin: ReturnType<typeof vi.fn>;
   };
-  let authService: { loadUser: ReturnType<typeof vi.fn>; currentUser: never };
+  let authService: {
+    loadUser: ReturnType<typeof vi.fn>;
+    signInAgain: ReturnType<typeof vi.fn>;
+    currentUser: never;
+  };
 
   beforeEach(async () => {
     calls = [];
@@ -36,7 +47,9 @@ describe('ExternalAuthCallback', () => {
 
     authService = {
       loadUser: vi.fn().mockName('AuthService.loadUser'),
-      currentUser: signal(null) as never,
+      signInAgain: vi.fn().mockName('AuthService.signInAgain'),
+      // 只经外部登录建立、已开两步验证的账号：确认身份只能出示验证码
+      currentUser: signal({ hasPassword: false, isTwoFactorEnabled: true }) as never,
     };
     authService.loadUser.mockReturnValue(of(undefined) as never);
 
@@ -122,6 +135,42 @@ describe('ExternalAuthCallback', () => {
     expect(calls.indexOf('establish')).toBeLessThan(calls.indexOf('navigate-return'));
   });
 
+  // 组织要求两步验证而本人未启用：先去设置页，受保护的原目标随之带过去
+  it('takes a restricted session to the setup page together with the protected return address', async () => {
+    (authService.currentUser as unknown as WritableSignal<object>).set({
+      hasPassword: false,
+      isTwoFactorEnabled: false,
+      twoFactorSetupRequired: true,
+    });
+    accountService.externalLoginCallback.mockReturnValue(
+      of({ returnUrl: '/workspace/settings/security' }),
+    );
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(TestBed.inject(Router).serializeUrl(navigate.mock.calls[0][0] as UrlTree)).toBe(
+      '/auth/two-factor-setup?returnUrl=%2Fworkspace%2Fsettings%2Fsecurity',
+    );
+    expect(calls).not.toContain('establish');
+  });
+  //#if (OpenIddictServer)
+
+  it('continues an authorization request with a full page load', async () => {
+    const target = '/connect/authorize?client_id=resource&request_uri=urn%3Aabc';
+    accountService.externalLoginCallback.mockReturnValue(of({ returnUrl: target }));
+    const loadPage = vi
+      .spyOn(TestBed.inject(ReturnUrlService), 'loadPage')
+      .mockImplementation(() => undefined);
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(loadPage).toHaveBeenCalledExactlyOnceWith(target);
+    expect(calls.indexOf('establish')).toBeGreaterThanOrEqual(0);
+  });
+  //#endif
+
   it('shows the server reason when the sign-in is rejected', async () => {
     vi.spyOn(console, 'error').mockReturnValue(undefined);
     const reason = 'An account with this email already exists.';
@@ -193,37 +242,58 @@ describe('ExternalAuthCallback', () => {
     expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/workspace/settings/security']);
   });
 
-  // 绑定时会话不够新：票据没被消费，留在回调页请本人出示口令，带上它重试同一次绑定
-  it('asks for the current password and retries the link with it', async () => {
+  // 绑定时会话不够新：票据没被消费，留在回调页请本人确认身份，带上验证码重试同一次绑定
+  it('asks to confirm identity and retries the link with the code', async () => {
     returnWith({ intent: 'link' });
     accountService.linkExternalLogin
-      .mockReturnValueOnce(
-        throwError(() =>
-          ApplicationHttpError.from(
-            new HttpErrorResponse({
-              status: 400,
-              error: { code: 'Auth:ReauthenticationRequired' },
-            }),
-          ),
-        ),
-      )
+      .mockReturnValueOnce(throwError(() => reauthenticationRequired()))
       .mockReturnValueOnce(of(undefined));
     const navigate = TestBed.inject(Router).navigate;
 
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
 
-    expect(accountService.linkExternalLogin).toHaveBeenCalledWith('github', undefined);
+    expect(accountService.linkExternalLogin).toHaveBeenCalledWith('github', {
+      password: undefined,
+      twoFactorCode: undefined,
+    });
     expect(navigate).not.toHaveBeenCalled();
 
-    (
-      fixture.componentInstance as unknown as { onReauthenticated(p: string): void }
-    ).onReauthenticated('current-password');
+    await confirmWithCode(fixture, '123456');
     await new Promise((resolve) => setTimeout(resolve));
 
-    expect(accountService.linkExternalLogin).toHaveBeenLastCalledWith('github', 'current-password');
+    expect(accountService.linkExternalLogin).toHaveBeenLastCalledWith('github', {
+      password: undefined,
+      twoFactorCode: '123456',
+    });
     expect(navigate).toHaveBeenCalledWith(['/workspace/settings/security']);
   });
+
+  // 用不了身份验证器：重新登录后回到账户与安全重新发起绑定，不回到这张票据的回调页
+  it('signs in again back to the security settings, not to the callback', async () => {
+    returnWith({ intent: 'link' });
+    accountService.linkExternalLogin.mockReturnValueOnce(
+      throwError(() => reauthenticationRequired()),
+    );
+
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
+    reauthenticateForm()!
+      .querySelector<HTMLButtonElement>('[data-testid="reauthenticate-sign-in-again-link"]')!
+      .click();
+    await fixture.whenStable();
+
+    expect(authService.signInAgain).toHaveBeenCalledExactlyOnceWith('/workspace/settings/security');
+    expect(accountService.linkExternalLogin).toHaveBeenCalledOnce();
+  });
+
+  function reauthenticationRequired(): ApplicationHttpError {
+    return ApplicationHttpError.from(
+      new HttpErrorResponse({ status: 400, error: { code: 'Auth:ReauthenticationRequired' } }),
+    );
+  }
 
   // 不出示口令、关掉对话框：放弃这次绑定，回到账户与安全
   it('returns to the security settings when the password prompt is dismissed', async () => {

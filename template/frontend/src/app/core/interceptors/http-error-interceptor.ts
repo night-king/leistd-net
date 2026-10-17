@@ -6,7 +6,11 @@ import { Router } from '@angular/router';
 //#if (IncludeLocalization)
 import { TranslocoService } from '@jsverse/transloco';
 //#endif
+//#if (LocalIdentity)
+import { catchError, lastValueFrom, throwError } from 'rxjs';
+//#else
 import { catchError, throwError } from 'rxjs';
+//#endif
 
 import { SILENT_AUTH } from './http-context-tokens';
 //#if (LocalIdentity)
@@ -16,6 +20,9 @@ import { apiErrorCode, ApplicationHttpError } from '../errors/application-http-e
 import { ApplicationHttpError } from '../errors/application-http-error';
 //#endif
 import { EntryRouteService } from '../routing/entry-route-service';
+//#if (LocalIdentity)
+import { ReturnUrlService } from '../routing/return-url-service';
+//#endif
 import { AuthService } from '../services/auth-service';
 import { SessionContextService } from '../services/session-context-service';
 //#if (IncludeMultiTenancy)
@@ -37,6 +44,7 @@ export const httpErrorInterceptor: HttpInterceptorFn = (req, next) => {
   const injector = inject(Injector);
   //#if (LocalIdentity)
   const router = inject(Router);
+  const returnUrls = inject(ReturnUrlService);
   //#endif
   return next(req).pipe(
     catchError((error: unknown) => {
@@ -88,14 +96,18 @@ export const httpErrorInterceptor: HttpInterceptorFn = (req, next) => {
       }
       //#if (LocalIdentity)
 
-      // 受限会话（组织要求两步验证而本人尚未启用）调了设置之外的接口：带去设置页。
-      // 路由守卫已经挡住了页面导航，这里兜住的是页面之外发出的请求（例如会话中途被改成受限）。
+      // 受限会话（组织要求两步验证而本人尚未启用）调了设置之外的接口：带去设置页，完成后回到当前页面。
+      // 路由守卫只在导航时判定，这里兜住的是会话中途变成受限（组织刚打开要求）。先刷新当前用户：
+      // 守卫读的是它，不刷新的话旧的"不受限"会让守卫把人放回工作台，设置页与工作台来回跳。
       if (
         error.status === 403 &&
         apiErrorCode(error.error) === API_ERROR_CODES.twoFactorSetupRequired &&
         !entryRoute.isOnAuthRoute()
       ) {
-        void router.navigateByUrl('/auth/two-factor-setup');
+        const returnUrl = entryRoute.url();
+        void lastValueFrom(authService.loadUser())
+          .catch(() => undefined)
+          .then(() => router.navigateByUrl(returnUrls.twoFactorSetup(returnUrl)));
       }
       //#endif
 

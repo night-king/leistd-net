@@ -13,7 +13,11 @@ import { provideRouter, Router } from '@angular/router';
 //#if (IncludeLocalization)
 import { TranslocoService } from '@jsverse/transloco';
 //#endif
+//#if (LocalIdentity)
+import { Observable, of, throwError } from 'rxjs';
+//#else
 import { Observable, throwError } from 'rxjs';
+//#endif
 
 import { SILENT_AUTH } from './http-context-tokens';
 import { httpErrorInterceptor } from './http-error-interceptor';
@@ -46,7 +50,7 @@ describe('httpErrorInterceptor', () => {
   //#endif
   let sessionContext: Pick<MockedObject<SessionContextService>, 'clear'>;
   //#if (LocalIdentity)
-  let authService: Pick<MockedObject<AuthService>, 'isAuthenticated'>;
+  let authService: Pick<MockedObject<AuthService>, 'isAuthenticated' | 'loadUser'>;
   //#else
   let authService: Pick<MockedObject<AuthService>, 'isAuthenticated' | 'startLogin'>;
   //#endif
@@ -59,7 +63,9 @@ describe('httpErrorInterceptor', () => {
     //#if (LocalIdentity)
     authService = {
       isAuthenticated: vi.fn().mockName('AuthService.isAuthenticated'),
+      loadUser: vi.fn().mockName('AuthService.loadUser'),
     };
+    authService.loadUser.mockReturnValue(of(undefined) as never);
     //#else
     authService = {
       isAuthenticated: vi.fn().mockName('AuthService.isAuthenticated'),
@@ -376,6 +382,59 @@ describe('httpErrorInterceptor', () => {
     expect(clearTenantSpy).toHaveBeenCalled();
     expect(sessionContext.clear).not.toHaveBeenCalled();
     expectNoReauthentication();
+  });
+  //#endif
+  //#if (LocalIdentity)
+
+  describe('a session that turned restricted (organization now requires two-factor)', () => {
+    const restricted = () => httpError(403, { code: 'Auth:TwoFactorSetupRequired' });
+
+    function navigatedUrls(): string[] {
+      return vi
+        .mocked(router.navigateByUrl)
+        .mock.calls.map(([url]) => (typeof url === 'string' ? url : router.serializeUrl(url)));
+    }
+
+    beforeEach(() => vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true));
+
+    // 先刷新当前用户再去设置页：守卫读它，旧的"不受限"会把人送回工作台，两页之间来回跳
+    it('refreshes the current user, then goes to the setup page carrying the current page', async () => {
+      openAt('/platform/users?offset=20');
+
+      runInterceptor(restricted());
+      await vi.waitFor(() => expect(router.navigateByUrl).toHaveBeenCalled());
+
+      expect(authService.loadUser).toHaveBeenCalledOnce();
+      expect(vi.mocked(authService.loadUser).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(router.navigateByUrl).mock.invocationCallOrder[0],
+      );
+      expect(navigatedUrls()).toEqual([
+        '/auth/two-factor-setup?returnUrl=%2Fplatform%2Fusers%3Foffset%3D20',
+      ]);
+    });
+
+    // 刷新失败也照样去设置页：那里的守卫会再读一次，由它决定去留
+    it('still goes to the setup page when refreshing the current user fails', async () => {
+      openAt('/workspace');
+      authService.loadUser.mockReturnValue(throwError(() => httpError(500)) as never);
+
+      runInterceptor(restricted());
+      await vi.waitFor(() => expect(router.navigateByUrl).toHaveBeenCalled());
+
+      expect(navigatedUrls()).toEqual(['/auth/two-factor-setup?returnUrl=%2Fworkspace']);
+    });
+
+    // 认证路由上（包括设置页自己）的流程自己处置，拦截器不插手
+    it('leaves authentication routes alone', async () => {
+      openAt('/auth/two-factor-setup?returnUrl=%2Fworkspace');
+
+      const caught = runInterceptor(restricted());
+      await Promise.resolve();
+
+      expect(authService.loadUser).not.toHaveBeenCalled();
+      expect(router.navigateByUrl).not.toHaveBeenCalled();
+      expect((caught as ApplicationHttpError).code).toBe('Auth:TwoFactorSetupRequired');
+    });
   });
   //#endif
 

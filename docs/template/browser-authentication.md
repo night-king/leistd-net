@@ -4,7 +4,7 @@
 
 模板组合根按有效能力直接组合 ASP.NET Core 官方 Cookie、AddOpenIdConnect、AddGoogle 与 aspnet-contrib 的 AddGitHub；外部处理器还要求开启外部登录。框架不新增 Web/BFF 抽象，不引入反向代理。OpenIddict.Client 继续承担框架的机器认证。带前端的形态保留 Angular 页面、开发代理与同源 Cookie 会话认证。
 
-令牌载体、服务端票据与撤销行为的运行契约见生成项目 [认证与授权](../../template/docs/standards/auth.md#浏览器认证)。维护时：SaveTokens 与 ITicketStore 必须一起配置；MFA 会话升级与冒用切换同显式再登录一样更换引用版本。
+令牌载体、服务端票据与撤销行为的运行契约见生成项目 [认证与授权](../../template/docs/standards/auth.md#浏览器认证)。维护时：SaveTokens 与 ITicketStore 必须一起配置；显式再登录与冒用切换都签发新会话、更换引用版本。组织要求两步验证时，受限会话完成设置不换发：受限是每个请求按策略与账号当前状态动态判定的，完成设置后从下一个请求起解除，sid、auth_time 与 Cookie 都不变。
 
 会话 Cookie 的命名与属性见同一契约；LocalIdentity 与带浏览器会话的 Resource 两处注册要同时修改，测试与 e2e 的期望名各自集中维护，不能从实现读取。
 

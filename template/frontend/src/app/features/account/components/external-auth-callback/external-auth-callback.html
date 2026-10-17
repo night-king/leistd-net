@@ -13,7 +13,7 @@
             </h1>
             <p class="text-muted-foreground">{{ 'key' in error ? t(error.key) : error.text }}</p>
           </div>
-          <a hlmBtn variant="outline" routerLink="/auth/login">
+          <a hlmBtn routerLink="/auth/login">
             {{ t('account.externalCallback.backToLogin') }}
           </a>
         </div>
@@ -32,9 +32,15 @@
   </main>
 
   <app-reauthenticate-dialog
-    [visible]="reauthVisible()"
+    [visible]="reauth.visible()"
     (visibleChange)="onReauthVisibleChange($event)"
-    [saving]="reauthSaving()"
-    (confirmed)="onReauthenticated($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.externalLogins.linkReauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="onSignInAgain()"
   />
 </ng-container>

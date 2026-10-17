@@ -678,7 +678,8 @@ public sealed class ExternalLoginLinkTests
         Assert.True(body.RootElement.GetProperty("requiresTwoFactor").GetBoolean());
     }
 
-    // 绑定的近期认证只在消费票据前判一次：判过之后在凭据锁前等到超出窗口，也照常绑定，不会在票据作废后才要口令
+    // 绑定的近期认证只在消费票据前判一次：判过之后在绑定的凭据锁前等到超出窗口，也照常绑定，不会在票据作废后才要口令。
+    // 预检自己也短暂取本人的锁（第一次获取），停在第二次获取——绑定本身——之前
     [Fact]
     public async Task A_link_that_passed_the_check_completes_even_if_the_window_closes_while_it_waits()
     {
@@ -687,11 +688,13 @@ public sealed class ExternalLoginLinkTests
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var gate = new InterleavingGate();
         var userId = Guid.Empty;
+        var acquisitions = 0;
         using var host = CreateHost(factory, provider).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(clock);
-            gate.GateLock(services, key => key.EndsWith(userId.ToString("N"), StringComparison.Ordinal));
+            gate.GateLock(services, key => key.EndsWith(userId.ToString("N"), StringComparison.Ordinal)
+                && Interlocked.Increment(ref acquisitions) == 2);
         }));
         var username = await CreateUserAsync(host, "link_window");
         userId = await UserIdOfAsync(host, username);
@@ -700,6 +703,7 @@ public sealed class ExternalLoginLinkTests
 
         provider.User = External("gh-link-window");
         var (_, stateCookie) = await StartAsync(session.Client, "link");
+        Interlocked.Exchange(ref acquisitions, 0);
         gate.Arm();
         var link = PostWithCookiesAsync(host, $"{session.Cookie}; {stateCookie}", "/api/v1/external-auth/github/link/complete", new { });
         await gate.Entered;
@@ -753,6 +757,101 @@ public sealed class ExternalLoginLinkTests
         using var rejected = await signIn;
         Assert.Equal("ExternalAuth:InvalidState", await ErrorCodeAsync(rejected));
         Assert.Equal(0L, await LinkCountAsync(host, userId));
+    }
+
+    // 解绑与绑定同等敏感：开久了的会话要确认身份，确认之前什么都不改；不存在的绑定仍幂等成功，不为它要凭证
+    [Fact]
+    public async Task Unlinking_from_an_older_session_requires_confirmation_before_anything_changes()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var host = CreateHost(factory, provider).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        }));
+        var username = await CreateUserAsync(host, "unlink_reauth");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        provider.User = External("gh-unlink-reauth");
+        using (var link = await LinkAsync(host, session))
+            Assert.Equal(HttpStatusCode.OK, link.StatusCode);
+        var linkId = LinkIdOf(await ReadLinksAsync(session.Client));
+        var stamp = await ReadSecurityStampAsync(host, username);
+        clock.Advance(TimeSpan.FromMinutes(16));
+
+        using (var missing = await session.Client.DeleteAsync($"/api/v1/external-auth/links/{Guid.NewGuid()}"))
+            Assert.Equal(HttpStatusCode.OK, missing.StatusCode);
+        using (var bare = await session.Client.DeleteAsync($"/api/v1/external-auth/links/{linkId}"))
+            Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(bare));
+        using (var wrong = await UnlinkAsync(session.Client, linkId, new { Password = Password + "x" }))
+            Assert.Equal("Security:CurrentPasswordIncorrect", await ErrorCodeAsync(wrong));
+        Assert.Equal(linkId, LinkIdOf(await ReadLinksAsync(session.Client)));
+        Assert.Equal(stamp, await ReadSecurityStampAsync(host, username));
+
+        using (var unlinked = await UnlinkAsync(session.Client, linkId, new { Password }))
+            Assert.Equal(HttpStatusCode.OK, unlinked.StatusCode);
+        Assert.Equal(JsonValueKind.Undefined, GithubLink(await ReadLinksAsync(session.Client)).ValueKind);
+    }
+
+    // 绑定预检也认验证码；预检与登录第二步同时用同一个码，凭据锁把两边排成先后，至多一个成功，票据在预检失败时不消费
+    [Fact]
+    public async Task A_code_confirms_a_link_once_even_when_a_sign_in_races_for_it()
+    {
+        using var factory = new ProjectWebApplicationFactory();
+        var provider = new ExternalOAuthBackchannel();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var host = CreateHost(factory, provider).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        }));
+        var username = await CreateUserAsync(host, "link_code_race");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        string secret;
+        using (var begin = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/setup", new { }))
+        {
+            using var setup = JsonDocument.Parse(await begin.Content.ReadAsStringAsync());
+            secret = setup.RootElement.GetProperty("secret").GetString()!;
+            using var enable = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/enable",
+                new { SetupId = setup.RootElement.GetProperty("setupId").GetGuid(), Code = CodeAt(secret, clock) });
+            Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
+        }
+
+        clock.Advance(TimeSpan.FromMinutes(16));
+        var code = CodeAt(secret, clock);
+        using var passwordStep = ProjectWebApplicationFactory.CreateProjectClient(host);
+        using var first = await passwordStep.PostAsJsonAsync("/api/v1/auth/session-login", new { UsernameOrEmail = username, Password });
+        using var firstBody = JsonDocument.Parse(await first.Content.ReadAsStringAsync());
+        var token = firstBody.RootElement.GetProperty("twoFactorToken").GetString()!;
+        provider.User = External("gh-link-code");
+        var (_, stateCookie) = await StartAsync(session.Client, "link");
+        const string url = "/api/v1/external-auth/github/link/complete";
+
+        using var secondStep = ProjectWebApplicationFactory.CreateProjectClient(host);
+        var responses = await Task.WhenAll(
+            PostWithCookiesAsync(host, $"{session.Cookie}; {stateCookie}", url, new { TwoFactorCode = code }),
+            secondStep.PostAsJsonAsync("/api/v1/auth/two-factor", new { Token = token, Code = code }));
+        try
+        {
+            Assert.Equal(1, responses.Count(response => response.IsSuccessStatusCode));
+            Assert.Equal("Auth:TwoFactorCodeInvalid", await ErrorCodeAsync(responses.Single(response => !response.IsSuccessStatusCode)));
+        }
+        finally
+        {
+            foreach (var response in responses)
+                response.Dispose();
+        }
+
+        // 预检输掉时票据还在，带下一个码重试同一张票据即可
+        if (!responses[0].IsSuccessStatusCode)
+        {
+            clock.Advance(TimeSpan.FromSeconds(Totp.StepSeconds));
+            using var retried = await PostWithCookiesAsync(host, $"{session.Cookie}; {stateCookie}", url, new { TwoFactorCode = CodeAt(secret, clock) });
+            Assert.True(retried.StatusCode == HttpStatusCode.OK, await retried.Content.ReadAsStringAsync());
+        }
+
+        Assert.Equal("gh-link-code", GithubLink(await ReadLinksAsync(session.Client)).GetProperty("providerAccountLabel").GetString());
     }
 
     private static async Task<(string Username, Guid Id)> CreateVerifiedUserAsync(WebApplicationFactory<Program> host, string prefix)
@@ -880,6 +979,15 @@ public sealed class ExternalLoginLinkTests
         return await PostWithCookiesAsync(host, $"{session.Cookie}; {stateCookie}",
             "/api/v1/external-auth/github/link/complete", new { });
     }
+
+    private static async Task<HttpResponseMessage> UnlinkAsync(HttpClient client, Guid linkId, object proof)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/external-auth/links/{linkId}") { Content = JsonContent.Create(proof) };
+        return await client.SendAsync(request);
+    }
+
+    private static string CodeAt(string secret, FakeTimeProvider clock) =>
+        Totp.ComputeCode(Totp.ParseSecret(secret)!, Totp.TimeStepAt(clock.GetUtcNow()));
 
     private static Task<(string State, string Cookie)> StartAsync(HttpClient client, string intent) =>
         ExternalOAuthBackchannel.StartAsync(client, intent: intent);

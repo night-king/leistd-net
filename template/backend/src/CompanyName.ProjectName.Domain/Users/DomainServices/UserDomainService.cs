@@ -474,6 +474,17 @@ public class UserDomainService(
         return ChangePasswordStatus.Succeeded;
     }
 
+#if (ExternalLogin)
+    /// <summary>给没有本地口令的账号（只经外部登录建立）设置第一个口令；已有口令时拒绝，改口令另有入口。</summary>
+    /// <remarks>与改口令同样轮换安全版本：此前签发、尚未完成的登录挑战随之作废。</remarks>
+    public void SetInitialPassword(User user, string newPassword)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        user.EnsureLocalPasswordNotSet();
+        user.UpdatePasswordHash(HashWithPolicy(newPassword, "New password"));
+    }
+
+#endif
     /// <summary>再认证时核对本人的当前口令，只给判定；没有本地口令（只经外部登录）的账号一律不通过。</summary>
     /// <remarks>失败计数与锁定由应用层的再认证守卫负责，这里不改用户。</remarks>
     public bool VerifyCurrentPassword(User user, string password)

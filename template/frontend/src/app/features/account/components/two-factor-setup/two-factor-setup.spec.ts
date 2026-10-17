@@ -1,12 +1,22 @@
 import { HttpErrorResponse } from '@angular/common/http';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 
 import { TwoFactorSetup } from './two-factor-setup';
+import {
+  confirmWithCode,
+  confirmWithPassword,
+  reauthenticateClosed,
+  reauthenticateErrorText,
+  reauthenticateForm,
+  reauthenticateMethod,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog.testing';
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AuthService } from '../../../../core/services/auth-service';
 import { AccountService } from '../../services/account-service';
 
 import type { MockedObject } from 'vitest';
@@ -20,6 +30,9 @@ describe('TwoFactorSetup', () => {
   let account: Pick<MockedObject<AccountService>, 'beginTwoFactorSetup' | 'enableTwoFactor'>;
 
   const host = () => fixture.nativeElement as HTMLElement;
+  /** 确认身份按当前用户的账号状态给出可选方式。 */
+  const currentUser = signal<unknown>({ hasPassword: true, isTwoFactorEnabled: false });
+  const signInAgain = vi.fn();
 
   beforeEach(() => {
     account = {
@@ -39,6 +52,7 @@ describe('TwoFactorSetup', () => {
       // prettier-ignore
       providers: [
         { provide: AccountService, useValue: account },
+        { provide: AuthService, useValue: { currentUser, loadUser: () => of(undefined), signInAgain } },
         //#if (IncludeLocalization)
         ...provideTranslocoTesting(['en']),
         //#endif
@@ -164,60 +178,107 @@ describe('TwoFactorSetup', () => {
     expect(fixture.componentInstance['qrDataUrl']()).toBe('data:image/png;base64,fresh');
   });
 
-  // 会话不够新：先出示当前口令，带上口令重新开始；不显示任何密钥
-  it('asks for the current password when the session is not recent and retries with it', async () => {
-    account.beginTwoFactorSetup.mockReturnValueOnce(
-      throwError(() => failure('Auth:ReauthenticationRequired')),
-    );
+  // 会话不够新：弹出确认身份，带上口令重新开始；确认之前不显示任何密钥
+  it('confirms identity when the session is not recent and restarts with the password', async () => {
+    account.beginTwoFactorSetup
+      .mockReturnValueOnce(throwError(() => failure('Auth:ReauthenticationRequired')))
+      .mockReturnValueOnce(
+        throwError(() =>
+          failure('Security:CurrentPasswordIncorrect', 'The current password is incorrect.'),
+        ),
+      );
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const form = host().querySelector('[data-testid="two-factor-setup-password"]');
-    expect(form, 'password step should be rendered').not.toBeNull();
+    expect(account.beginTwoFactorSetup).toHaveBeenCalledWith({ password: undefined });
+    expect(reauthenticateMethod()).toBe('password');
+    expect(host().querySelector('[data-testid="two-factor-setup-reauth"]')).not.toBeNull();
     expect(host().querySelector('[data-testid="two-factor-secret"]')).toBeNull();
 
-    const input = form!.querySelector<HTMLInputElement>('input[type="password"]')!;
-    input.value = 'current-password';
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    form!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
-    await fixture.whenStable();
+    await confirmWithPassword(fixture, 'wrong-password');
+
+    expect(reauthenticateErrorText()).toBe('The current password is incorrect.');
+
+    await confirmWithPassword(fixture, 'current-password');
 
     expect(account.beginTwoFactorSetup).toHaveBeenLastCalledWith({ password: 'current-password' });
     expect(host().querySelector('[data-testid="two-factor-secret"]')).not.toBeNull();
+    expect(await reauthenticateClosed(fixture)).toBe(true);
   });
 
-  it('does not retry with an empty password and says why', async () => {
+  // 个人设置里关掉对话框视同取消，回到两步验证一节
+  it('cancels the setup when the identity prompt is dismissed', async () => {
+    account.beginTwoFactorSetup.mockReturnValueOnce(
+      throwError(() => failure('Auth:ReauthenticationRequired')),
+    );
+    const cancelled = vi.fn();
+    fixture.componentInstance.cancelled.subscribe(cancelled);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    (reauthenticateForm()!.querySelector('button[variant="ghost"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  // 强制设置页没有退路：关掉对话框后留下重新打开的入口
+  it('offers to confirm again on the required setup page after the prompt is dismissed', async () => {
+    fixture.componentRef.setInput('cancellable', false);
     account.beginTwoFactorSetup.mockReturnValueOnce(
       throwError(() => failure('Auth:ReauthenticationRequired')),
     );
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const form = host().querySelector('[data-testid="two-factor-setup-password"]')!;
-    const shownErrors = () =>
-      Array.from(form.querySelectorAll<HTMLElement>('hlm-field-error')).filter(
-        (element) => !element.hidden,
-      ).length;
-    expect(shownErrors()).toBe(0);
+    (reauthenticateForm()!.querySelector('button[variant="ghost"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    const reopen = host().querySelector<HTMLButtonElement>(
+      '[data-testid="two-factor-setup-reauth-open"]',
+    );
+    expect(reopen).not.toBeNull();
 
-    form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    reopen!.click();
     await fixture.whenStable();
 
-    expect(account.beginTwoFactorSetup).toHaveBeenCalledOnce();
-    expect(shownErrors()).toBeGreaterThan(0);
+    expect(account.beginTwoFactorSetup).toHaveBeenCalledTimes(2);
+    expect(host().querySelector('[data-testid="two-factor-secret"]')).not.toBeNull();
   });
 
-  // 没有本地口令可出示：只能重新登录，不再自动重试
+  // 没有本地口令也没开两步验证：对话框只给"重新登录"，不再自动重试
   it('tells an account without a password to sign in again', async () => {
+    currentUser.set({ hasPassword: false, isTwoFactorEnabled: false });
+    onTestFinished(() => currentUser.set({ hasPassword: true, isTwoFactorEnabled: false }));
     account.beginTwoFactorSetup.mockReturnValueOnce(
       throwError(() => failure('Auth:SignInAgainRequired')),
     );
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(host().querySelector('[data-testid="two-factor-setup-sign-in-again"]')).not.toBeNull();
+    expect(reauthenticateMethod()).toBe('signInAgain');
+    reauthenticateForm()!
+      .querySelector<HTMLButtonElement>('[data-testid="reauthenticate-sign-in-again-submit"]')!
+      .click();
+    await fixture.whenStable();
+
+    expect(signInAgain).toHaveBeenCalledOnce();
     expect(account.beginTwoFactorSetup).toHaveBeenCalledOnce();
+  });
+
+  // 换绑而会话不够新、验证器还在：对话框里的验证码同时证明持有旧因素，只带它，不再带恢复码或口令
+  it('replaces with the dialog code alone when a recovery-code replacement needs confirmation', async () => {
+    currentUser.set({ hasPassword: false, isTwoFactorEnabled: true });
+    onTestFinished(() => currentUser.set({ hasPassword: true, isTwoFactorEnabled: false }));
+    fixture.componentRef.setInput('proof', { recoveryCode: 'AAAA-BBBB' });
+    account.beginTwoFactorSetup.mockReturnValueOnce(
+      throwError(() => failure('Auth:ReauthenticationRequired')),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    await confirmWithCode(fixture, '123456');
+
+    expect(account.beginTwoFactorSetup).toHaveBeenLastCalledWith({ code: '123456' });
   });
 
   // 换绑：随开始设置出示现有的第二因素；不对时交回调用方重新输入
@@ -251,9 +312,9 @@ describe('TwoFactorSetup', () => {
     await fixture.whenStable();
   }
 
-  function failure(code: string): ApplicationHttpError {
+  function failure(code: string, detail = code): ApplicationHttpError {
     return ApplicationHttpError.from(
-      new HttpErrorResponse({ status: 400, error: { code, detail: code } }),
+      new HttpErrorResponse({ status: 400, error: { code, detail } }),
     );
   }
 });

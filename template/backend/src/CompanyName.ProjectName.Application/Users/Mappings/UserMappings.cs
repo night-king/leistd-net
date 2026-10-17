@@ -38,6 +38,7 @@ public class UserMappings : IRegister
             .Map(dest => dest.Avatar, src => AvatarUrls.For(src.Id, src.Avatar))
             .Map(dest => dest.IsEmailVerified, src => src.EmailConfirmed)
             .Map(dest => dest.IsTwoFactorEnabled, src => src.TwoFactorEnabled)
+            .Map(dest => dest.HasPassword, src => src.HasLocalPassword)
             .Ignore(dest => dest.TwoFactorSetupRequired);
 #endif
 

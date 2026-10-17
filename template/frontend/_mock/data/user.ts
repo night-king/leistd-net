@@ -6,7 +6,8 @@ export interface MockUser {
   id: string;
   username: string;
   email: string;
-  password: string;
+  /** 本地口令；只经外部登录建立的账号没有。 */
+  password?: string;
   displayName?: string;
   avatar?: string;
   phoneNumber?: string;
@@ -55,6 +56,11 @@ export const USERS: MockUser[] = [
     isEmailVerified: true,
     creationTime: '2025-06-01T00:00:00Z',
     lastLoginTime: '2026-06-09T12:00:00Z',
+    //#if (LocalIdentity)
+    // 已开两步验证、恢复码所剩无几：演示登录第二步与"恢复码不多"的提醒
+    twoFactorEnabled: true,
+    recoveryCodes: ['mock-0000-code-demo', 'mock-0001-code-demo'],
+    //#endif
     roles: ['Member'],
   },
   // 以下几位覆盖列表里的各种状态（多角色、锁定、停用、邮箱未验证），截图与演示不至于只有两行
@@ -124,8 +130,32 @@ export const USERS: MockUser[] = [
     creationTime: '2025-09-30T00:00:00Z',
     roles: ['Member'],
   },
+  //#if (ExternalLogin)
+  // 只经外部登录建立、没有本地口令、已开两步验证的账号（Mock 下从 Google 登录进来）：
+  // 演示"设置密码"、只能出示验证码的确认身份与只填验证码的停用两步验证
+  {
+    id: 'user_octo',
+    username: 'octo',
+    email: 'octo@example.com',
+    displayName: 'Octo',
+    isActive: true,
+    isSuperAdmin: false,
+    isEmailVerified: true,
+    creationTime: '2025-10-08T00:00:00Z',
+    lastLoginTime: '2026-06-11T07:30:00Z',
+    twoFactorEnabled: true,
+    recoveryCodes: Array.from(
+      { length: 8 },
+      (_, i) => `mock-${String(i).padStart(4, '0')}-code-demo`,
+    ),
+    roles: ['Member'],
+  },
+  //#endif
 ];
 //#if (LocalIdentity)
+
+/** Mock 下身份验证器上的验证码固定为这一个：登录第二步、确认身份与两步验证设置共用。 */
+export const MOCK_TWO_FACTOR_CODE = '123456';
 
 /**
  * 已删除的用户：不出现在任何列表与查询里，但仍占着用户名和邮箱。
@@ -160,6 +190,10 @@ export function toUserOutput(user: MockUser): UserOutputDto {
     isActive: user.isActive,
     //#endif
     isEmailVerified: user.isEmailVerified,
+    //#if (LocalIdentity)
+    isTwoFactorEnabled: user.twoFactorEnabled === true,
+    hasPassword: !!user.password,
+    //#endif
     isSuperAdmin: user.isSuperAdmin,
     //#if (LocalIdentity)
     creationTime: user.creationTime,

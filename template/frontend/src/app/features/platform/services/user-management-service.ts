@@ -14,6 +14,7 @@ import {
   GetUsersInputDto,
   //#if (LocalIdentity)
   ResetUserPasswordInputDto,
+  ResetUserTwoFactorInputDto,
   UpdateUserInputDto,
   //#endif
   UpdateUserRolesInputDto,
@@ -88,10 +89,11 @@ export class UserManagementService {
 
   /**
    * 重置用户的两步验证（给丢了手机和恢复码的人用），该用户的会话全部失效。
-   * 管理员的会话不够新时服务端要求带上管理员自己的当前口令（`Auth:ReauthenticationRequired`）。
+   * 管理员的会话不够新时服务端要求确认身份（`Auth:ReauthenticationRequired`），带上管理员自己的
+   * 当前口令或验证码重试。
    */
-  resetTwoFactor(id: string, password?: string): Observable<void> {
-    return this.http.post<void>(`${this.baseUrl}/${id}/reset-two-factor`, { password });
+  resetTwoFactor(id: string, data: ResetUserTwoFactorInputDto = {}): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${id}/reset-two-factor`, data);
   }
 
   deleteUser(id: string): Observable<void> {

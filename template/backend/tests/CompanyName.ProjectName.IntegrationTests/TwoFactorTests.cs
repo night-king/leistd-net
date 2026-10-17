@@ -268,8 +268,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         var (host, clock) = CreateHost();
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_required");
-        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        await RequireTwoFactorAsync(host, true);
         try
         {
             using var restricted = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
@@ -289,25 +288,26 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
             }
 
             var setup = await BeginSetupAsync(restricted.Client);
-        var secret = setup.Secret;
+            var secret = setup.Secret;
             using var enable = await restricted.Client.PostAsJsonAsync(
                 "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(secret, clock) });
             Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
 
-            // 换发的 Cookie 不再受限，服务端会话还是原来那个；旧的受限 Cookie 随之作废（换发时票据存储移除旧票据）
-            using var reissued = ProjectWebApplicationFactory.CreateProjectClient(host);
-            reissued.DefaultRequestHeaders.Add("Cookie", CookieOf(enable));
-            Assert.Equal(HttpStatusCode.OK, (await reissued.GetAsync("/api/v1/auth/me/sessions")).StatusCode);
-            Assert.Equal(HttpStatusCode.Unauthorized, (await restricted.Client.GetAsync("/api/v1/auth/me")).StatusCode);
+            // 同一个 Cookie 下一个请求即不再受限：不换发 Cookie，也就没有"旧的受限 Cookie"要作废
+            Assert.False(enable.Headers.TryGetValues("Set-Cookie", out var setCookies) &&
+                setCookies.Any(value => value.StartsWith(ProjectWebApplicationFactory.SessionCookieName + "=", StringComparison.Ordinal)));
+            Assert.Equal(HttpStatusCode.OK, (await restricted.Client.GetAsync("/api/v1/auth/me/sessions")).StatusCode);
+            me = await restricted.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me");
+            Assert.False(me.GetProperty("twoFactorSetupRequired").GetBoolean());
 
             Step(clock);
-            using var disable = await reissued.PostAsJsonAsync("/api/v1/auth/me/two-factor/disable",
+            using var disable = await restricted.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/disable",
                 new { Password, Code = Code(secret, clock) });
             Assert.Equal("Auth:TwoFactorRequiredByPolicy", await ErrorCodeAsync(disable));
         }
         finally
         {
-            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+            await RequireTwoFactorAsync(host, false);
         }
     }
 
@@ -323,7 +323,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_noaudit");
         using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        await RequireTwoFactorAsync(host, true);
         try
         {
             using var restricted = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
@@ -334,12 +334,14 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
                 new { expectedVersion = 0, permissionNames = Array.Empty<string>() });
             Assert.Equal("Auth:TwoFactorSetupRequired", await ErrorCodeAsync(blocked));
 
+            // 管理员自己也没启用两步验证：要求开着时它的会话同样受限，先撤掉要求再查记录
+            await RequireTwoFactorAsync(host, false);
             Assert.Empty(await OperationRecordQueries.GetFailuresAsync(
                 host, admin.Client, OperationRecordActions.PermissionGrantsReplaced, $"Role/{roleId}"));
         }
         finally
         {
-            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+            await RequireTwoFactorAsync(host, false);
         }
     }
 
@@ -394,8 +396,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         var (host, clock) = CreateHost();
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_stale_required");
-        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        await RequireTwoFactorAsync(host, true);
         try
         {
             using var restricted = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
@@ -413,7 +414,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         }
         finally
         {
-            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+            await RequireTwoFactorAsync(host, false);
         }
     }
 
@@ -496,8 +497,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_lost_required");
         var oldCodes = await EnableWithCodesAsync(host, username, clock);
-        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        await RequireTwoFactorAsync(host, true);
         try
         {
             var (_, token) = await PasswordStepAsync(host, username);
@@ -523,7 +523,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         }
         finally
         {
-            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+            await RequireTwoFactorAsync(host, false);
         }
     }
 
@@ -644,15 +644,14 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         Assert.Equal(RecoveryCodes.Count - 1, status.GetProperty("recoveryCodesLeft").GetInt32());
     }
 
-    // 受限会话转正是同一个服务端会话换发 Cookie，不登记新会话：这个会话若在此期间被撤销，换发出的 Cookie 一样不能用
+    // 受限会话完成设置后沿用原会话：不换发 Cookie、不登记新会话，认证时间仍是登录的那一刻
     [Fact]
-    public async Task Completing_setup_from_a_restricted_session_keeps_the_same_server_session()
+    public async Task Completing_setup_from_a_restricted_session_keeps_the_session_and_its_sign_in_time()
     {
         var (host, clock) = CreateHost();
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_same_sid");
-        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        await RequireTwoFactorAsync(host, true);
         try
         {
             var signedInAt = clock.GetUtcNow().UtcDateTime;
@@ -664,17 +663,21 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
                 "/api/v1/auth/me/two-factor/enable", new { setup.SetupId, Code = Code(setup.Secret, clock) });
             Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
 
-            using var reissued = ProjectWebApplicationFactory.CreateProjectClient(host);
-            reissued.DefaultRequestHeaders.Add("Cookie", CookieOf(enable));
-            var sessions = (await reissued.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/sessions")).EnumerateArray().ToList();
+            var sessions = (await restricted.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/sessions")).EnumerateArray().ToList();
             var current = Assert.Single(sessions);
             Assert.True(current.GetProperty("isCurrent").GetBoolean());
             Assert.True(current.GetProperty("creationTime").GetDateTime() <= signedInAt.AddSeconds(1),
-                "the reissued cookie must point at the session created at sign-in, not a new one");
+                "completing setup must keep the session created at sign-in, not register a new one");
+
+            // 离登录已超过 15 分钟、离完成设置还没有：换邮箱要确认身份，说明认证时间没有被设置推后
+            clock.Advance(TimeSpan.FromMinutes(11));
+            using var change = await restricted.Client.PutAsJsonAsync("/api/v1/auth/me",
+                new { Username = username, Email = $"later-{username}@example.test" });
+            Assert.Equal("Auth:ReauthenticationRequired", await ErrorCodeAsync(change));
         }
         finally
         {
-            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+            await RequireTwoFactorAsync(host, false);
         }
     }
 
@@ -685,8 +688,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         var (host, _) = CreateHost();
         using var _host = host;
         var username = await CreateUserAsync(host, "tfa_no_profile");
-        using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, "true");
+        await RequireTwoFactorAsync(host, true);
         try
         {
             using var restricted = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
@@ -697,7 +699,7 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         }
         finally
         {
-            await WriteSettingAsync(admin.Client, SettingConstant.Security.RequireTwoFactor, null);
+            await RequireTwoFactorAsync(host, false);
         }
     }
 
@@ -1015,12 +1017,10 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         return username;
     }
 
-    private static async Task WriteSettingAsync(HttpClient client, string name, string? value)
-    {
-        using var response = await client.PutAsJsonAsync(
-            "/api/v1/settings/current-tenant", new { Name = name, Value = value });
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-    }
+    // 直接写宿主的"要求两步验证"：它对已有会话即时生效，没启用两步验证的管理员会话写入后就受限了
+    private static Task RequireTwoFactorAsync(WebApplicationFactory<Program> host, bool required) =>
+        ProjectWebApplicationFactory.SetTenantSettingAsync(
+            host, SettingConstant.Security.RequireTwoFactor, required ? "true" : null);
 
     /// <summary>推进一个验证码步长。</summary>
     private static void Step(FakeTimeProvider clock) => clock.Advance(TimeSpan.FromSeconds(Totp.StepSeconds));

@@ -16,7 +16,9 @@ using Leistd.Ddd.Domain.Repositories;
 using Leistd.Security.Claims;
 using Leistd.Timing;
 using Leistd.ExceptionHandling;
+#if (Impersonation)
 using CompanyName.ProjectName.Application.Auth.Constants;
+#endif
 using CompanyName.ProjectName.Application.Shared;
 using Leistd.Security.RequestContext;
 using System.Globalization;
@@ -56,9 +58,8 @@ internal sealed class SessionIssuer(
     /// <remarks>
     /// <list type="bullet">
     /// <item>已启用两步验证：不签发会话，只发第二步凭据。</item>
-    /// <item>租户要求两步验证而本人未启用：签发<b>受限会话</b>（带 <see cref="TwoFactorClaimTypes.SetupRequired"/>），
-    /// 服务端只放行完成设置所需的接口。</item>
-    /// <item>否则直接签发会话。</item>
+    /// <item>否则直接签发会话。组织要求两步验证而本人未启用时会话是否受限不在这里决定、也不写进会话，
+    /// 由每个请求的会话校验按当时的策略判定（见 <see cref="Sessions.IUserSessionValidator"/>）。</item>
     /// </list>
     /// 账号是否可登录（停用、锁定）在发第二步凭据之前就判：否则停用的账号也能走到输验证码那一步。
     /// </remarks>
@@ -78,13 +79,8 @@ internal sealed class SessionIssuer(
                 await twoFactorChallengeStore.CreateAsync(user.Id, user.TenantId, user.SecurityStamp, cancellationToken));
         }
 
-        var policy = await loginSecurityPolicy.GetAsync(cancellationToken);
-        IEnumerable<Claim>? restriction = policy.RequireTwoFactor
-            ? [new Claim(TwoFactorClaimTypes.SetupRequired, "true")]
-            : null;
-
         return SessionLoginResult.SignedIn(
-            await SignInAsync(user, roleNames, restriction, cancellationToken));
+            await SignInAsync(user, roleNames, cancellationToken: cancellationToken));
     }
 
     /// <param name="user">登录用户。</param>
@@ -143,26 +139,6 @@ internal sealed class SessionIssuer(
         // 真正认证时记录，Cookie 滑动续期与会话换发都不能更新 OIDC max_age 与近期认证的基准。
         var authenticationTime = authenticatedAt ?? new DateTimeOffset(DateTime.SpecifyKind(now, DateTimeKind.Utc));
         return await BuildPrincipalAsync(user, session.Id, authenticationTime, roleNames, extraClaims, cancellationToken);
-    }
-
-    /// <summary>在原服务端会话上换发主体：沿用会话 Id 与认证时刻，不登记新会话、不记登录。</summary>
-    /// <remarks>
-    /// 受限会话完成两步验证设置后用它换掉带限制声明的主体。不登记新会话是关键：
-    /// 这个会话若已被撤销（例如设置完成的同时管理员重置了口令），换发出的 Cookie 仍指向那条已撤销的记录，
-    /// 会话校验照样拒绝；新登记一个会话则会在撤销之后让访问复活。
-    /// </remarks>
-    /// <param name="user">会话所属用户，按最新状态组装声明。</param>
-    /// <param name="sessionId">当前服务端会话 Id。</param>
-    /// <param name="authenticatedAt">原会话的认证时刻。</param>
-    /// <param name="cancellationToken">取消令牌。</param>
-    public Task<ClaimsPrincipal> ReissueAsync(
-        User user,
-        Guid sessionId,
-        DateTimeOffset authenticatedAt,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureAllowed(user, clock.Now);
-        return BuildPrincipalAsync(user, sessionId, authenticatedAt, roleNames: null, extraClaims: [], cancellationToken);
     }
 
     private async Task<ClaimsPrincipal> BuildPrincipalAsync(

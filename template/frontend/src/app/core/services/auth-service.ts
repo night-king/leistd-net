@@ -113,12 +113,28 @@ export class AuthService {
     document.body.appendChild(form);
     form.submit();
     //#else
-    this.http.post('/api/v1/auth/logout', {}).subscribe({
-      next: () => (window.location.href = '/auth/login'),
-      error: () => (window.location.href = '/auth/login'),
-    });
+    this.endSessionAndGo('/auth/login');
     //#endif
   }
+  //#if (LocalIdentity)
+
+  /**
+   * 退出后带着 `returnUrl` 回到登录页：确认身份只能靠重新登录时用（账号没有可出示的凭证，或本人用不了
+   * 身份验证器）。待提交的修改与凭证都不进地址栏，回来后由本人重新发起。
+   */
+  signInAgain(returnUrl: string): void {
+    this.clearAuthData();
+    this.endSessionAndGo(`/auth/login?returnUrl=${encodeURIComponent(returnUrl)}`);
+  }
+
+  // 退出请求失败也要离开：本地主体已清空，留在原页面只会看到一个没有用户的界面
+  private endSessionAndGo(target: string): void {
+    this.http.post('/api/v1/auth/logout', {}).subscribe({
+      next: () => (window.location.href = target),
+      error: () => (window.location.href = target),
+    });
+  }
+  //#endif
   //#if (RemoteTokenAuth)
 
   startLogin(returnUrl = '/workspace'): void {

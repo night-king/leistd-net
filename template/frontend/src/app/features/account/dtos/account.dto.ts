@@ -17,7 +17,10 @@ export interface TwoFactorLoginInputDto {
   recoveryCode?: string;
 }
 
-/** 开始设置：会话不够新时带当前口令；换绑时带现有验证器的码或一个恢复码。 */
+/**
+ * 开始设置：会话不够新时带当前口令。换绑时带现有验证器的码（同时算确认身份，不再另带口令），
+ * 或一个恢复码（它不算确认身份，会话不够新时仍要口令）。
+ */
 export interface BeginTwoFactorSetupInputDto {
   password?: string;
   code?: string;
@@ -37,8 +40,9 @@ export interface TwoFactorRecoveryCodesOutputDto {
   recoveryCodes: string[];
 }
 
+/** 停用两步验证：有口令的账号口令与验证码都要；没有口令的账号只带验证码。 */
 export interface DisableTwoFactorInputDto {
-  password: string;
+  password?: string;
   code: string;
 }
 
@@ -75,8 +79,10 @@ export interface UpdateCurrentUserInputDto {
   email: string;
   displayName?: string;
   phoneNumber?: string;
-  /** 本人的当前口令：换邮箱而会话不够新时带上。 */
+  /** 本人的当前口令：换邮箱而会话不够新时带上，与 `twoFactorCode` 二选一。 */
   currentPassword?: string;
+  /** 本人身份验证器上的 6 位验证码：换邮箱而会话不够新时带上，与 `currentPassword` 二选一。 */
+  twoFactorCode?: string;
 }
 
 /** 设置自己的头像：图片的 data URL（浏览器端已裁剪缩放）；`null` 清除。 */
@@ -90,6 +96,25 @@ export interface ChangePasswordInputDto {
   confirmPassword: string;
 }
 //#if (ExternalLogin)
+
+/** 没有本地口令的账号设置第一个口令；会话不够新时带上身份验证器上的验证码（账号没有口令可出示）。 */
+export interface SetPasswordInputDto {
+  newPassword: string;
+  confirmPassword: string;
+  twoFactorCode?: string;
+}
+
+/** 外部授权回来后完成绑定：会话不够新时带上本人的当前口令或验证码（二选一）。 */
+export interface CompleteExternalLinkInputDto {
+  password?: string;
+  twoFactorCode?: string;
+}
+
+/** 解绑外部账号：会话不够新时带上本人的当前口令或验证码（二选一）。 */
+export interface UnlinkExternalLoginInputDto {
+  password?: string;
+  twoFactorCode?: string;
+}
 
 /** 部署已配置的外部登录提供商。 */
 export interface ExternalLoginProvidersOutputDto {

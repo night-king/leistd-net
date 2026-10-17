@@ -1,4 +1,5 @@
 #if (LocalIdentity)
+using System.ComponentModel.DataAnnotations;
 using CompanyName.ProjectName.Application.Auth.SignIn;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Auth.Errors;
@@ -6,16 +7,57 @@ using CompanyName.ProjectName.Domain.Users.DomainServices;
 using CompanyName.ProjectName.Domain.Users.Entities;
 using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Domain.Users.ValueObjects;
+using Leistd.Ddd.Domain.Repositories;
 using Leistd.ExceptionHandling;
+using Leistd.Lock.Abstractions;
 using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Recording;
 using Leistd.Security.Claims;
 using Leistd.Security.Users;
 using Leistd.Timing;
+using Leistd.UnitOfWork;
 
 namespace CompanyName.ProjectName.Application.Auth.Policies;
 
-/// <summary>再认证的失败约束：已登录的人要再证明一次自己知道口令或验证码时，失败按登录的同一套计数与锁定处理。</summary>
+/// <summary>本次确认身份出示的凭证：当前口令或操作者本人身份验证器上的验证码，一次只出示一种；都为空表示只看会话是否刚认证过。</summary>
+/// <param name="CurrentPassword">操作者本人的当前口令。</param>
+/// <param name="TwoFactorCode">操作者本人身份验证器上的 6 位验证码。</param>
+internal sealed record ReauthenticationProof(string? CurrentPassword, string? TwoFactorCode)
+{
+    /// <summary>没有出示任何凭证。</summary>
+    public static ReauthenticationProof None { get; } = new(null, null);
+
+    /// <summary>出示了口令。</summary>
+    public bool HasPassword => !string.IsNullOrEmpty(CurrentPassword);
+
+    /// <summary>出示了验证码。</summary>
+    public bool HasTwoFactorCode => !string.IsNullOrWhiteSpace(TwoFactorCode);
+
+    /// <summary>入参 DTO 的互斥校验：两种都出示时返回字段错误（文案是本地化键）。</summary>
+    public static IEnumerable<ValidationResult> ValidateOneAtATime(string? currentPassword, string? twoFactorCode, string twoFactorCodeMember)
+    {
+        if (!string.IsNullOrEmpty(currentPassword) && !string.IsNullOrWhiteSpace(twoFactorCode))
+        {
+            yield return new ValidationResult(
+                "Confirm with either your password or a verification code, not both.", [twoFactorCodeMember]);
+        }
+    }
+}
+
+/// <summary>这一次确认身份靠什么通过。</summary>
+internal enum ReauthenticationMethod
+{
+    /// <summary>会话的认证时间在窗口内，没有出示凭证。</summary>
+    RecentSignIn,
+
+    /// <summary>出示了正确的当前口令。</summary>
+    Password,
+
+    /// <summary>出示了正确的验证码；这一步已用掉并提交，不能再用。</summary>
+    TwoFactorCode
+}
+
+/// <summary>再认证：已登录的人改动"谁能登进这个账号"之前，再证明一次是本人；失败按登录的同一套计数与锁定处理。</summary>
 /// <remarks>
 /// <para><b>为什么需要这一层。</b>登录页有锁定，再认证入口（改口令、停用两步验证、重发恢复码）
 /// 如果没有，那条"连续失败 N 次锁定"的设置就名不副实：会话被盗用的人能在改口令接口上
@@ -34,31 +76,44 @@ internal interface IReauthenticationGuard
     Task EnsureAllowedAsync(User user, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 确认当前会话的主人刚刚证明过自己：会话的认证时间（<c>auth_time</c>）在 <see cref="ReauthenticationGuard.RecentAuthenticationWindow"/> 内，
-    /// 或者本次出示了正确的当前口令。用在绑定验证器、换绑、管理员重置他人两步验证这类"拿到会话就能改掉凭据"的入口前。
+    /// 确认当前会话的主人刚刚证明过自己：没有出示凭证时看会话的认证时间（<c>auth_time</c>）是否在
+    /// <see cref="ReauthenticationGuard.RecentAuthenticationWindow"/> 内；出示了凭证时只按这份凭证判定。
+    /// 用在改邮箱、设置口令、绑定验证器与换绑、绑定与解绑外部账号、管理员改他人凭据这类"拿到会话就能改掉凭据"的入口前。
     /// </summary>
     /// <remarks>
-    /// <para>只看会话是否受限不够：要求两步验证的受限会话可能已经开着很久，判据只认真实的认证时间。
-    /// 模拟登录签发的会话不算——那是发起人认证的时间，不是这个账号的主人。</para>
-    /// <para>不新鲜时：有本地口令的账号以 <see cref="AuthErrorCodes.ReauthenticationRequired"/> 要求出示口令；
-    /// 只经外部登录、没有本地口令的账号以 <see cref="AuthErrorCodes.SignInAgainRequired"/> 要求重新登录——
-    /// 重新走一遍外部登录得到新的认证时间，就满足了同一条判据，不为它另开豁免。</para>
-    /// <para>口令错误按再认证失败计数与锁定（同 <see cref="RejectAsync"/>）。</para>
+    /// <para><b>调用方必须已持有操作者本人的凭据锁</b>（<see cref="UserCredentialLock"/>）；管理员入口与绑定预检用
+    /// <see cref="EnsureRecentInOwnLockAsync"/>。本方法在独立工作单元里重读操作者、校验并提交：验证码通过即作废，
+    /// 之后业务失败也不退回；调用方的业务阶段要另开工作单元重新读取用户，不能沿用此前读到的实体。</para>
+    /// <para>判定顺序：锁定期内先拒绝。出示了凭证时不回落到会话时间或另一种凭证：本账号不具备这种方式
+    /// （没有口令却给口令、没开两步验证却给验证码）以 <see cref="AuthErrorCodes.ReauthenticationMethodUnavailable"/> 拒绝且不计数；
+    /// 凭证错误按再认证失败计数与锁定（同 <see cref="RejectAsync"/>）。没有出示凭证而会话不够新时，没有口令也没开两步验证的账号
+    /// 以 <see cref="AuthErrorCodes.SignInAgainRequired"/> 要求重新登录，其余以 <see cref="AuthErrorCodes.ReauthenticationRequired"/>
+    /// 要求出示凭证。只看会话是否受限不够：受限会话可能已经开着很久；模拟登录签发的会话不算刚认证——那是发起人认证的时间。</para>
+    /// <para>只对当次操作有效：不改写会话的认证时间，不开宽限期。</para>
     /// </remarks>
-    /// <param name="user">当前会话的用户本人。</param>
-    /// <param name="currentPassword">本次出示的当前口令；没有出示时为 null。</param>
+    /// <param name="proof">本次出示的凭证，一次只能一种。</param>
     /// <param name="action">业务动作码，失败审计用，与该操作成功路径的值一致。</param>
     /// <param name="cancellationToken">取消令牌。</param>
-    Task EnsureRecentlyAuthenticatedAsync(
-        User user,
-        string? currentPassword,
+    /// <returns>通过的方式；为 <see cref="ReauthenticationMethod.TwoFactorCode"/> 时这一步已用掉，换绑据此不再校验第二次。</returns>
+    Task<ReauthenticationMethod> EnsureRecentAsync(
+        ReauthenticationProof proof,
+        string action,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>取操作者本人的凭据锁，在锁内执行 <see cref="EnsureRecentAsync"/>，提交后释放。</summary>
+    /// <remarks>
+    /// 管理员操作他人与绑定外部账号的预检用：验证阶段只持操作者的锁，释放之后调用方再取目标（或票据）的锁进入业务阶段，
+    /// 两位管理员互相操作时不会交叉持锁；操作者就是目标时同一把锁先后取两次，不嵌套。
+    /// </remarks>
+    Task<ReauthenticationMethod> EnsureRecentInOwnLockAsync(
+        ReauthenticationProof proof,
         string action,
         CancellationToken cancellationToken = default);
 
     /// <summary>登记一次再认证失败（计数、必要时锁定、留下审计），并<b>返回该抛给调用方的异常</b>。</summary>
     /// <remarks>
     /// 返回异常而不是由调用方自己构造：<b>这一次恰好触发锁定时，答案不再是"口令不正确"而是"已锁定"</b>
-    /// ——与登录页一致（见 <c>LoginLockoutTests</c>）。把这个判断留给三个调用点各写一次，
+    /// ——与登录页一致（见 <c>LoginLockoutTests</c>）。把这个判断留给各调用点各写一次，
     /// 漏掉的那个会在锁定后继续回"口令不正确"，让人以为还能再试。
     /// 用法固定是 <c>throw await guard.RejectAsync(...)</c>。
     /// </remarks>
@@ -80,11 +135,15 @@ internal sealed class ReauthenticationGuard(
     IAccessFailureCounter accessFailureCounter,
     IOperationRecorder operationRecorder,
     UserDomainService userDomainService,
+    TwoFactorDomainService twoFactorDomainService,
+    IRepository<User, Guid> userRepository,
+    IUnitOfWorkManager unitOfWorkManager,
+    IDistributedLock distributedLock,
     ICurrentUser currentUser,
     IClock clock) : IReauthenticationGuard
 {
     /// <summary>会话认证时间离现在多久以内算"刚刚认证过"。</summary>
-    /// <remarks>覆盖"登录后接着去设置两步验证"这一段操作；更久的会话改为当场出示口令。</remarks>
+    /// <remarks>覆盖"登录后接着去设置两步验证"这一段操作；更久的会话改为当场出示凭证。</remarks>
     public static readonly TimeSpan RecentAuthenticationWindow = TimeSpan.FromMinutes(15);
 
     /// <inheritdoc />
@@ -137,9 +196,48 @@ internal sealed class ReauthenticationGuard(
     }
 
     /// <inheritdoc />
-    public async Task EnsureRecentlyAuthenticatedAsync(
+    public async Task<ReauthenticationMethod> EnsureRecentAsync(
+        ReauthenticationProof proof,
+        string action,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(proof);
+        var userId = currentUser.Id
+            ?? throw new InvalidOperationException("Recent authentication is checked for a signed-in user only.");
+
+        // 独立工作单元：读取此刻最新的操作者，验证码用掉的步随它提交，与调用方随后的业务提交无关
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+        var user = await userRepository.GetByIdAsync(userId, cancellationToken)
+            ?? throw new BusinessException(UserErrorCodes.NotFound, $"User {userId} not found.").WithData("Id", userId);
+
+        var method = await VerifyAsync(user, proof, action, cancellationToken);
+        if (method == ReauthenticationMethod.TwoFactorCode)
+        {
+            // 用掉的步必须落库，否则同一个码还能在别的入口或登录第二步再用一次
+            await userRepository.UpdateAsync(user, cancellationToken);
+        }
+
+        await unit.CompleteAsync(cancellationToken);
+        return method;
+    }
+
+    /// <inheritdoc />
+    public async Task<ReauthenticationMethod> EnsureRecentInOwnLockAsync(
+        ReauthenticationProof proof,
+        string action,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = currentUser.Id
+            ?? throw new InvalidOperationException("Recent authentication is checked for a signed-in user only.");
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        return await EnsureRecentAsync(proof, action, lockScope.Token);
+    }
+
+    /// <summary>判定表本身：对已读出的操作者按凭证或会话时间判定。验证码通过时改动了 <paramref name="user"/>（记下用掉的步），由调用方保存。</summary>
+    internal async Task<ReauthenticationMethod> VerifyAsync(
         User user,
-        string? currentPassword,
+        ReauthenticationProof proof,
         string action,
         CancellationToken cancellationToken = default)
     {
@@ -149,13 +247,25 @@ internal sealed class ReauthenticationGuard(
             throw new InvalidOperationException("Recent authentication is checked for the signed-in user only.");
         }
 
+        if (proof.HasPassword && proof.HasTwoFactorCode)
+        {
+            // 入参 DTO 已以字段错误拒绝；走到这里是调用方拼错了凭证
+            throw new ArgumentException("Present one proof at a time.", nameof(proof));
+        }
+
         await EnsureAllowedAsync(user, cancellationToken);
 
-        if (!string.IsNullOrEmpty(currentPassword))
+        if (proof.HasPassword)
         {
-            if (userDomainService.VerifyCurrentPassword(user, currentPassword))
+            // 没有本地口令就没什么可猜的：不计数，否则别人能借此把只用外部登录的账号锁住
+            if (!user.HasLocalPassword)
             {
-                return;
+                throw MethodUnavailable();
+            }
+
+            if (userDomainService.VerifyCurrentPassword(user, proof.CurrentPassword!))
+            {
+                return ReauthenticationMethod.Password;
             }
 
             throw await RejectAsync(
@@ -166,15 +276,40 @@ internal sealed class ReauthenticationGuard(
                 cancellationToken);
         }
 
-        if (IsRecentSession())
+        if (proof.HasTwoFactorCode)
         {
-            return;
+            if (!user.TwoFactorEnabled)
+            {
+                throw MethodUnavailable();
+            }
+
+            // 与登录第二步同一个判定：同一步只认一次，登录刚用过的码在这里同样被拒
+            if (twoFactorDomainService.VerifyCode(user, proof.TwoFactorCode!, clock.Now))
+            {
+                return ReauthenticationMethod.TwoFactorCode;
+            }
+
+            throw await RejectAsync(
+                user,
+                action,
+                AuthErrorCodes.TwoFactorCodeInvalid,
+                "The verification code is incorrect.",
+                cancellationToken);
         }
 
-        throw user.HasLocalPassword
-            ? new BusinessException(AuthErrorCodes.ReauthenticationRequired, "Enter your current password to continue.")
-            : new BusinessException(AuthErrorCodes.SignInAgainRequired, "Sign in again to continue.");
+        if (IsRecentSession())
+        {
+            return ReauthenticationMethod.RecentSignIn;
+        }
+
+        // 既没有口令也没开两步验证：拿不出任何凭证，只能重新走一遍外部登录得到新的认证时间
+        throw !user.HasLocalPassword && !user.TwoFactorEnabled
+            ? new BusinessException(AuthErrorCodes.SignInAgainRequired, "Sign in again to continue.")
+            : new BusinessException(AuthErrorCodes.ReauthenticationRequired, "Confirm it's you to continue.");
     }
+
+    private static BusinessException MethodUnavailable() =>
+        new(AuthErrorCodes.ReauthenticationMethodUnavailable, "This verification method isn't available for your account.");
 
     private bool IsRecentSession()
     {

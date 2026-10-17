@@ -156,8 +156,9 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
             .AsInteger(1, 1440)
             .IsVisibleToClients = true;
 
-        // 开启后，没启用两步验证的人登录只拿到受限会话，必须先完成设置才能做别的事。
-        // 默认关闭：打开它会让所有尚未设置的人下次登录时被拦下，这得是管理员有意的决定
+        // 开启后，没启用两步验证的人的会话即受限（已登录的会话在下一个请求生效，包括打开开关的管理员本人），
+        // 必须先完成设置才能做别的事；关闭后下一个请求即解除。
+        // 默认关闭：打开它会让所有尚未设置的人立即被拦下，这得是管理员有意的决定
         context.Add(
             SettingConstant.Security.RequireTwoFactor,
             defaultValue: "false",

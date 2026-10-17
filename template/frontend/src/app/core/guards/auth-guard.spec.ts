@@ -97,12 +97,14 @@ describe('authGuard', () => {
     );
   });
 
-  // 受限会话只能去两步验证设置页；服务端同样只放行设置所需的接口
+  // 受限会话只能去两步验证设置页，并带上这次要去的地方，设置完成后回到那里
   it('confines a session that must set up two-factor authentication to the setup page', async () => {
     await startUp();
     signIn({ twoFactorSetupRequired: true });
 
-    await expect(activate('/workspace')).resolves.toBe('/auth/two-factor-setup');
+    await expect(activate('/platform/users?offset=20')).resolves.toBe(
+      '/auth/two-factor-setup?returnUrl=%2Fplatform%2Fusers%3Foffset%3D20',
+    );
   });
   //#else
 

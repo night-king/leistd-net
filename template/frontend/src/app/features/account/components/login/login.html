@@ -32,7 +32,12 @@
       />
       <!--#endif-->
 
-      <form novalidate (submit)="$event.preventDefault(); onSubmit()" class="flex flex-col gap-5">
+      <form
+        novalidate
+        class="flex flex-col gap-5"
+        (submit)="$event.preventDefault(); onSubmit()"
+        (input)="clearLoginError()"
+      >
         <div hlmField>
           <label hlmFieldLabel for="usernameOrEmail">{{
             t('account.login.usernameOrEmail')
@@ -164,6 +169,13 @@
           }
         </div>
 <!--#endif-->
+
+        @if (loginError(); as message) {
+          <div hlmAlert variant="destructive" data-testid="login-error">
+            <ng-icon name="lucideCircleAlert" />
+            <p hlmAlertDescription>{{ message }}</p>
+          </div>
+        }
 
         <button hlmBtn type="submit" class="w-full" [disabled]="isLoading() || authBlocked()">
           @if (isLoading()) {

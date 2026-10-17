@@ -14,6 +14,7 @@ public static class AuthErrorCodes
     public const string EmailVerificationUnavailable = "Auth:EmailVerificationUnavailable";
 #endif
     public const string InvalidCredentials = "Auth:InvalidCredentials";
+    public const string ReauthenticationMethodUnavailable = "Auth:ReauthenticationMethodUnavailable";
     public const string ReauthenticationRequired = "Auth:ReauthenticationRequired";
     public const string RegistrationDisabled = "Auth:RegistrationDisabled";
     public const string SignInAgainRequired = "Auth:SignInAgainRequired";

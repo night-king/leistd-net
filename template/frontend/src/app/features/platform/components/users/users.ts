@@ -49,16 +49,13 @@ import {
 } from 'rxjs/operators';
 
 //#if (LocalIdentity)
-import { ReauthenticateDialog } from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
-import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
-//#endif
-// prettier-ignore
 import {
-  //#if (LocalIdentity)
-  ApplicationHttpError,
-  //#endif
-  applicationErrorMessage,
-} from '../../../../core/errors/application-http-error';
+  ReauthenticateDialog,
+  ReauthenticationProof,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
+import { injectReauthentication } from '../../../../core/components/reauthenticate-dialog/reauthentication';
+//#endif
+import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { LayoutService } from '../../../../core/services/layout-service';
@@ -198,10 +195,13 @@ export class Users {
   resetPasswordDialogVisible = signal(false);
   resetPasswordSaving = signal(false);
   resettingUserId = signal<string | null>(null);
-  reauthDialogVisible = signal(false);
-  reauthSaving = signal(false);
-  /** 等待管理员出示自己的当前口令后重试的那个操作（重置两步验证、重置口令、改邮箱）。 */
-  private pendingReauthentication: ((password: string) => void) | null = null;
+  /**
+   * 改邮箱或标为已验证、重置口令、重置两步验证而管理员的会话不够新时，确认的是管理员本人：
+   * 出示自己的口令或验证码，对话框按操作者本人的账号状态给出可选方式。
+   */
+  protected readonly reauth = injectReauthentication();
+  /** 正在等确认身份的是哪个操作，决定对话框里的说明。 */
+  protected readonly reauthAction = signal<'update' | 'resetPassword' | 'resetTwoFactor'>('update');
   //#endif
 
   // 搜索框即时值：随 URL 回填，输入时乐观更新，防抖后写回 URL。
@@ -440,25 +440,25 @@ export class Users {
 
   //#endif
   //#if (LocalIdentity)
-  handleSave(data: CreateUserInputDto | UpdateUserInputDto, password?: string) {
+  handleSave(data: CreateUserInputDto | UpdateUserInputDto, proof?: ReauthenticationProof) {
     this.editDialogSaving.set(true);
-    this.reauthSaving.set(password !== undefined);
     const selected = this.selectedUser();
     const request = selected
-      ? this.service.updateUser(selected.id, { ...(data as UpdateUserInputDto), password })
+      ? this.service.updateUser(selected.id, {
+          ...(data as UpdateUserInputDto),
+          password: proof?.password,
+          twoFactorCode: proof?.twoFactorCode,
+        })
       : this.service.createUser(data as CreateUserInputDto);
 
     request
       .pipe(
-        finalize(() => {
-          this.editDialogSaving.set(false);
-          this.reauthSaving.set(false);
-        }),
+        finalize(() => this.editDialogSaving.set(false)),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
         next: () => {
-          this.endReauthentication();
+          this.reauth.complete();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate(
@@ -474,7 +474,10 @@ export class Users {
           this.reloadList();
         },
         // 改邮箱或标为已验证而管理员的会话不够新：先确认身份再重试
-        error: (error) => this.handleReauthenticationError(error, (p) => this.handleSave(data, p)),
+        error: (error) =>
+          this.handleReauthenticationError('update', error, proof, (next) =>
+            this.handleSave(data, next),
+          ),
       });
   }
 
@@ -630,43 +633,30 @@ export class Users {
     this.resetTwoFactor(user);
   }
 
-  /** 管理员在确认身份的对话框里出示了口令：带上它重试挂起的那个操作。 */
-  onReauthenticated(password: string) {
-    this.pendingReauthentication?.(password);
-  }
-
   /**
-   * 会话不够新（`Auth:ReauthenticationRequired`）：记下重试动作并请管理员出示自己的当前口令；
-   * 口令错误时留在对话框里重输。其余错误照常提示。
+   * 会话不够新时记下重试动作并请管理员确认身份；凭证被拒时留在对话框里就地说明。其余错误照常提示。
    */
-  private handleReauthenticationError(error: unknown, retry: (password: string) => void) {
-    if (
-      error instanceof ApplicationHttpError &&
-      error.code === API_ERROR_CODES.reauthenticationRequired
-    ) {
-      this.pendingReauthentication = retry;
-      this.reauthDialogVisible.set(true);
-      return;
+  private handleReauthenticationError(
+    action: 'update' | 'resetPassword' | 'resetTwoFactor',
+    error: unknown,
+    proof: ReauthenticationProof | undefined,
+    retry: (proof: ReauthenticationProof) => void,
+  ) {
+    if (proof === undefined) {
+      this.reauthAction.set(action);
     }
-    this.showRequestError(error);
+    if (!this.reauth.handleError(error, proof, retry)) {
+      this.showRequestError(error);
+    }
   }
 
-  private endReauthentication() {
-    this.pendingReauthentication = null;
-    this.reauthDialogVisible.set(false);
-  }
-
-  private resetTwoFactor(user: UserManagementOutputDto, password?: string) {
-    this.reauthSaving.set(password !== undefined);
+  private resetTwoFactor(user: UserManagementOutputDto, proof?: ReauthenticationProof) {
     this.service
-      .resetTwoFactor(user.id, password)
-      .pipe(
-        finalize(() => this.reauthSaving.set(false)),
-        takeUntilDestroyed(this.destroyRef),
-      )
+      .resetTwoFactor(user.id, { password: proof?.password, twoFactorCode: proof?.twoFactorCode })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.endReauthentication();
+          this.reauth.complete();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate('users.toast.twoFactorReset'),
@@ -677,7 +667,9 @@ export class Users {
           this.reloadList();
         },
         error: (error) =>
-          this.handleReauthenticationError(error, (p) => this.resetTwoFactor(user, p)),
+          this.handleReauthenticationError('resetTwoFactor', error, proof, (next) =>
+            this.resetTwoFactor(user, next),
+          ),
       });
   }
 
@@ -686,26 +678,26 @@ export class Users {
     this.resetPasswordDialogVisible.set(true);
   }
 
-  handleResetPassword(data: ResetUserPasswordInputDto, currentPassword?: string) {
+  handleResetPassword(data: ResetUserPasswordInputDto, proof?: ReauthenticationProof) {
     const id = this.resettingUserId();
     if (!id) {
       return;
     }
 
     this.resetPasswordSaving.set(true);
-    this.reauthSaving.set(currentPassword !== undefined);
     this.service
-      .resetPassword(id, { ...data, currentPassword })
+      .resetPassword(id, {
+        ...data,
+        currentPassword: proof?.password,
+        twoFactorCode: proof?.twoFactorCode,
+      })
       .pipe(
-        finalize(() => {
-          this.resetPasswordSaving.set(false);
-          this.reauthSaving.set(false);
-        }),
+        finalize(() => this.resetPasswordSaving.set(false)),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
         next: () => {
-          this.endReauthentication();
+          this.reauth.complete();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('common.success'), {
             description: this.transloco.translate('users.toast.passwordReset'),
@@ -718,7 +710,9 @@ export class Users {
         },
         // 重置口令总要管理员的会话刚认证过：不够新时先确认身份再重试
         error: (error) =>
-          this.handleReauthenticationError(error, (p) => this.handleResetPassword(data, p)),
+          this.handleReauthenticationError('resetPassword', error, proof, (next) =>
+            this.handleResetPassword(data, next),
+          ),
       });
   }
 
@@ -919,5 +913,12 @@ const ENGLISH: Record<string, string> = {
   'users.batch.allSucceeded': 'Done for {{count}} users.',
   'users.batch.partial': '{{succeeded}} succeeded, {{failed}} failed',
   'common.success': 'Success',
+  //#if (LocalIdentity)
+  'users.reauth.update':
+    "Changing someone's sign-in email or its verified status needs you to confirm it is you.",
+  'users.reauth.resetPassword': "Resetting someone's password needs you to confirm it is you.",
+  'users.reauth.resetTwoFactor':
+    "Resetting someone's two-factor authentication needs you to confirm it is you.",
+  //#endif
 };
 //#endif

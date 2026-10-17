@@ -87,7 +87,7 @@ public sealed class ExternalAuthController(
 
     /// <summary>把外部账号绑定到当前用户，成功时为空响应。</summary>
     /// <remarks>
-    /// 会话不够新时以 <c>Auth:ReauthenticationRequired</c> 拒绝且<b>不消费票据</b>：本人输入当前口令后带上它重试即可。
+    /// 需要确认身份时（<c>Auth:ReauthenticationRequired</c> 等）拒绝且<b>不消费票据</b>：本人出示当前口令或验证码后带上它重试即可。
     /// </remarks>
     [Authorize]
     [HttpPost("{provider}/link/complete")]
@@ -96,7 +96,7 @@ public sealed class ExternalAuthController(
         [FromBody] CompleteExternalLinkInputDto? input,
         CancellationToken cancellationToken)
     {
-        await externalAuthAppService.EnsureLinkAllowedAsync(input?.Password, cancellationToken);
+        await externalAuthAppService.EnsureLinkAllowedAsync(input, cancellationToken);
         await ConsumeTicketAsync(provider, "link", async (user, _, operationToken) =>
         {
             await externalAuthAppService.LinkCurrentUserAsync(provider, user, operationToken);
@@ -162,10 +162,11 @@ public sealed class ExternalAuthController(
             .Order(StringComparer.Ordinal)
             .ToList();
 
+    /// <summary>解绑一个外部账号；会话不够新时请求体带上本人的当前口令或验证码。</summary>
     [Authorize]
     [HttpDelete("links/{id:guid}")]
-    public Task UnlinkAsync(Guid id, CancellationToken cancellationToken) =>
-        externalAuthAppService.UnlinkCurrentUserAsync(id, cancellationToken);
+    public Task UnlinkAsync(Guid id, [FromBody] UnlinkExternalLoginInputDto? input, CancellationToken cancellationToken) =>
+        externalAuthAppService.UnlinkCurrentUserAsync(id, input, cancellationToken);
 
     private static BusinessException InvalidIntent() => new(ExternalAuthErrorCodes.InvalidState, "Invalid or expired external authentication intent.");
 }

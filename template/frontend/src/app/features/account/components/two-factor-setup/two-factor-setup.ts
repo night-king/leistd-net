@@ -8,7 +8,6 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { form, FormField, maxLength, required } from '@angular/forms/signals';
 //#if (IncludeLocalization)
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
@@ -17,43 +16,46 @@ import { lucideCheck, lucideCopy } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
-import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { toDataURL } from 'qrcode';
 import { finalize } from 'rxjs/operators';
 
+import {
+  ReauthenticateDialog,
+  ReauthenticationProof,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
+import { injectReauthentication } from '../../../../core/components/reauthenticate-dialog/reauthentication';
 import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
 import {
   ApplicationHttpError,
   applicationErrorMessage,
 } from '../../../../core/errors/application-http-error';
-import { PASSWORD_MAX_LENGTH } from '../../../../core/validation/password-rule';
+import { OtpCodeInput } from '../../../../shared/components/otp-code-input/otp-code-input';
 import { injectCopyToClipboard } from '../../../../shared/utils/clipboard';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 import { BeginTwoFactorSetupInputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
-import { OtpCodeInput } from '../otp-code-input/otp-code-input';
 
 /**
  * 设置两步验证：添加密钥到身份验证器后输入验证码确认。个人设置、换绑与"组织要求启用"的强制页共用；
  * 确认后发出恢复码，二维码在浏览器里生成，密钥不经过第三方服务。
  *
- * 服务端要求"刚认证过"：会话不够新时先在这里出示当前口令；没有本地口令的账号只能重新登录。
- * 这一次设置失效（过期、别处重新开始、凭据变过）时清掉二维码、密钥与已输入的码，请本人重新开始。
+ * 服务端要求"刚认证过"：先不带凭证开始，会话不够新时弹出确认身份的对话框，带上本人交出的凭证重新开始。
+ * 换绑时现有验证器上的码同时算确认身份，服务端只校验一次，不再另弹对话框；用恢复码换绑时它不算确认身份，
+ * 会话不够新仍要确认。这一次设置失效（过期、别处重新开始、凭据变过）时清掉二维码、密钥与已输入的码，请本人重新开始。
  */
 @Component({
   selector: 'app-two-factor-setup',
   // prettier-ignore
   imports: [
-    FormField,
     NgIcon,
     HlmButton,
     ...HlmFieldImports,
-    HlmInput,
     HlmSpinner,
     OtpCodeInput,
+    ReauthenticateDialog,
     //#if (IncludeLocalization)
     TranslocoDirective,
     //#endif
@@ -82,22 +84,18 @@ export class TwoFactorSetup implements OnInit {
   readonly proofRejected = output<void>();
 
   /**
-   * 设置所处的阶段：加载中、要出示口令、要重新登录、可扫码确认、已失效、启动失败。
+   * 设置所处的阶段：加载中、等本人确认身份、可扫码确认、已失效、启动失败。
    * 已失效时二维码与密钥已清掉，只能重新开始。
    */
-  protected readonly stage = signal<
-    'loading' | 'password' | 'signInAgain' | 'ready' | 'expired' | 'failed'
-  >('loading');
+  protected readonly stage = signal<'loading' | 'reauth' | 'ready' | 'expired' | 'failed'>(
+    'loading',
+  );
   protected readonly secret = signal<string | null>(null);
   protected readonly qrDataUrl = signal<string | null>(null);
   protected readonly code = signal('');
-  private readonly passwordModel = signal({ password: '' });
-  // 只做必填与长度的快速反馈；口令对不对由服务端判定
-  protected readonly passwordForm = form(this.passwordModel, (path) => {
-    required(path.password);
-    maxLength(path.password, PASSWORD_MAX_LENGTH);
-  });
   protected readonly submitting = signal(false);
+  /** 会话不够新：确认身份后带上凭证重新开始。 */
+  protected readonly reauth = injectReauthentication();
   protected readonly copied = this.clipboard.copied;
 
   private setupId: string | null = null;
@@ -121,19 +119,22 @@ export class TwoFactorSetup implements OnInit {
     this.start();
   }
 
-  /** 开始（或重新开始）一次设置；会话不够新时带上刚输入的口令。 */
-  protected start(password?: string): void {
+  /** 开始（或重新开始）一次设置；`reauthProof` 是确认身份的对话框交出的凭证。 */
+  protected start(reauthProof?: ReauthenticationProof): void {
     const generation = ++this.generation;
     this.clearSetup();
-    this.stage.set('loading');
-    this.accountService.beginTwoFactorSetup({ ...this.proof(), password }).subscribe({
+    // 带着凭证重试时对话框还开着，背后保持"等确认身份"，不闪成加载中
+    if (reauthProof === undefined) {
+      this.stage.set('loading');
+    }
+    this.accountService.beginTwoFactorSetup(this.beginInput(reauthProof)).subscribe({
       next: async (setup) => {
         if (generation !== this.generation) {
           return;
         }
+        this.reauth.complete();
         this.setupId = setup.setupId;
         this.secret.set(setup.secret);
-        this.passwordModel.set({ password: '' });
         this.stage.set('ready');
         try {
           const qr = await this.renderQrCode(setup.otpAuthUri);
@@ -148,33 +149,47 @@ export class TwoFactorSetup implements OnInit {
         if (generation !== this.generation) {
           return;
         }
-        switch (errorCode(error)) {
-          case API_ERROR_CODES.reauthenticationRequired:
-            this.stage.set('password');
-            return;
-          case API_ERROR_CODES.signInAgainRequired:
-            this.stage.set('signInAgain');
-            return;
-          case API_ERROR_CODES.twoFactorCodeInvalid:
-            // 只有换绑出示的码或恢复码会被这样拒绝：交回调用方重新输入
-            this.showError(error);
-            this.proofRejected.emit();
-            return;
-          default:
-            this.showError(error);
-            // 口令错了留在口令这一步重输；其他失败给"重试"
-            this.stage.set(password !== undefined ? 'password' : 'failed');
+        // 要求确认身份，或对话框里交出的凭证被拒：留在"等确认身份"，原因在对话框里就地说明
+        if (this.reauth.handleError(error, reauthProof, (next) => this.start(next))) {
+          this.stage.set('reauth');
+          return;
         }
+        const proofRejected =
+          errorCode(error) === API_ERROR_CODES.twoFactorCodeInvalid && reauthProof === undefined;
+        // 换绑表单里出示的是验证码时，它可能刚在登录时用过：同一个码只能用一次，提示等新码
+        this.showError(error, proofRejected && this.proof()?.code !== undefined);
+        if (proofRejected) {
+          // 换绑表单里出示的码或恢复码不对：交回调用方重新输入
+          this.proofRejected.emit();
+          return;
+        }
+        this.stage.set('failed');
       },
     });
   }
 
-  protected submitPassword(): void {
-    if (this.passwordForm().invalid()) {
-      this.passwordForm().markAsTouched();
-      return;
+  /**
+   * 开始设置的请求体。对话框交出验证码（换绑而会话不够新、验证器还在）时，它同时证明持有现有因素，
+   * 服务端只校验一次，不再另带恢复码或口令；交出口令时与换绑表单里的恢复码一起提交。
+   */
+  private beginInput(reauthProof?: ReauthenticationProof): BeginTwoFactorSetupInputDto {
+    if (reauthProof?.twoFactorCode !== undefined) {
+      return { code: reauthProof.twoFactorCode };
     }
-    this.start(this.passwordModel().password);
+    return { ...this.proof(), password: reauthProof?.password };
+  }
+
+  /** 本人关掉了确认身份的对话框：个人设置里视同取消；强制设置页没有退路，留下重新打开的入口。 */
+  protected onReauthVisibleChange(visible: boolean): void {
+    this.reauth.setVisible(visible);
+    if (!visible && this.stage() === 'reauth' && this.cancellable()) {
+      this.cancelled.emit();
+    }
+  }
+
+  /** 强制设置页上重新打开确认身份：不带凭证重新开始，由服务端决定是否仍需确认。 */
+  protected retryReauthentication(): void {
+    this.start();
   }
 
   // 剪贴板不可用（非安全上下文等）时用户仍能手动选中复制
@@ -222,14 +237,18 @@ export class TwoFactorSetup implements OnInit {
     this.code.set('');
   }
 
-  private showError(error: unknown): void {
+  /** `codeRejected`：被拒的是本人输入的验证码，补一句刚用过的码要等新码。 */
+  private showError(error: unknown, codeRejected = false): void {
+    const message = applicationErrorMessage(error);
     //#if (IncludeLocalization)
+    const hint = codeRejected ? this.transloco.translate('common.twoFactorCodeReuseHint') : '';
     toast.error(this.transloco.translate('common.requestError'), {
-      description: applicationErrorMessage(error),
+      description: hint ? `${message} ${hint}` : message,
     });
     //#else
+    const hint = codeRejected ? this.t('common.twoFactorCodeReuseHint') : '';
     toast.error(this.t('common.requestError'), {
-      description: applicationErrorMessage(error),
+      description: hint ? `${message} ${hint}` : message,
     });
     //#endif
   }
@@ -245,6 +264,7 @@ const ENGLISH: Record<string, string> = {
   'common.requestError': 'Request error',
   'common.retry': 'Retry',
   'common.cancel': 'Cancel',
+  'common.twoFactorCodeReuseHint': 'If you just used this code, wait for a new one.',
   'account.twoFactor.scanTitle': '1. Add this account to your authenticator app',
   'account.twoFactor.scanHint':
     'Scan the QR code with an app such as Google Authenticator, Microsoft Authenticator or Tencent Authenticator.',
@@ -257,12 +277,11 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactor.enable': 'Verify and turn on',
   'account.twoFactor.setupLoadFailed': "Couldn't start the setup.",
   'account.twoFactor.replaceConfirm': 'Verify and replace',
-  'account.twoFactor.reauthHint':
-    'To protect your account, enter your current password to continue.',
-  'account.twoFactor.passwordLabel': 'Current password',
-  'account.twoFactor.continue': 'Continue',
-  'account.twoFactor.signInAgainHint':
-    'To protect your account, sign out and sign in again, then set it up right away.',
+  'account.twoFactor.reauthPending':
+    'Confirm it is you before setting up two-factor authentication.',
+  'account.twoFactor.reauthOpen': 'Confirm it is you',
+  'account.twoFactor.reauthDescription':
+    'Setting up an authenticator changes how you sign in. Confirm it is you to continue.',
   'account.twoFactor.setupExpired':
     'This setup is no longer valid (it expired or was restarted elsewhere). The key above was discarded.',
   'account.twoFactor.restart': 'Start again',

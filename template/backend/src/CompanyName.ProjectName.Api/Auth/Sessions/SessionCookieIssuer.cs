@@ -40,7 +40,7 @@ public sealed class SessionCookieIssuer(IUserSessionAppService sessionAppService
         await ReissueAsync(httpContext, principal);
     }
 
-    /// <summary>在同一服务端会话上换发 Cookie（主体变化，如结束模拟、解除受限会话）。</summary>
+    /// <summary>在同一服务端会话上换发 Cookie（主体变化，如结束模拟）。</summary>
     public Task ReissueAsync(HttpContext httpContext, ClaimsPrincipal principal) =>
         httpContext.SignInAsync(AuthenticationSchemeNames.SessionCookie, principal,
             new AuthenticationProperties { IsPersistent = true });

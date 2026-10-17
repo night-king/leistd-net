@@ -6,6 +6,13 @@ import { TENANT_HEADER } from '../../src/app/core/tenancy/tenant-protocol';
 //#endif
 import {
   ChangePasswordInputDto,
+  DisableTwoFactorInputDto,
+  BeginTwoFactorSetupInputDto,
+  //#if (ExternalLogin)
+  CompleteExternalLinkInputDto,
+  SetPasswordInputDto,
+  UnlinkExternalLoginInputDto,
+  //#endif
   UpdateCurrentUserInputDto,
   RegisterInputDto,
   CaptchaOutputDto,
@@ -42,8 +49,17 @@ import { TENANT_SETTING_VALUES } from '../data/settings';
 //#if (IncludeMultiTenancy)
 import { TENANTS } from '../data/tenant';
 //#endif
-import { MockUser, USERS, isEmailTaken, isUsernameTaken, toUserOutput } from '../data/user';
+// prettier-ignore
 import {
+  MOCK_TWO_FACTOR_CODE,
+  MockUser,
+  USERS,
+  isEmailTaken,
+  isUsernameTaken,
+  toUserOutput,
+} from '../data/user';
+import {
+  ensureMockReauthentication,
   getCurrentUser as getSessionMockUser,
   //#if (Impersonation)
   getMockImpersonator,
@@ -147,7 +163,19 @@ function requireCurrentMockUser(): MockUser {
 }
 
 function getCurrentUser(_req: MockRequest): UserOutputDto {
-  return toUserOutput(requireCurrentMockUser());
+  const user = requireCurrentMockUser();
+  // 与后端同一判定：每次按会话所属租户的"要求两步验证"与本人状态得出，不记在会话里；模拟登录的会话不受限
+  const requiredByPolicy =
+    TENANT_SETTING_VALUES.get(`${getMockSessionTenantKey()}:Security.RequireTwoFactor`) === 'true';
+  //#if (Impersonation)
+  const restrictable = getMockImpersonator() === null;
+  //#else
+  const restrictable = true;
+  //#endif
+  return {
+    ...toUserOutput(user),
+    twoFactorSetupRequired: requiredByPolicy && restrictable && user.twoFactorEnabled !== true,
+  };
 }
 
 function updateCurrentUser(req: MockRequest): UserOutputDto {
@@ -169,8 +197,12 @@ function updateCurrentUser(req: MockRequest): UserOutputDto {
   ensureUsernameAvailable(username, user.id);
   ensureEmailAvailable(email, user.id);
 
-  // 换了邮箱即回到未验证，与后端 User.UpdateProfile 同一规则
+  // 换了邮箱即回到未验证，与后端 User.UpdateProfile 同一规则；换登录邮箱要先确认是本人
   if (normalizeEmail(user.email) !== normalizeEmail(email)) {
+    ensureMockReauthentication(user, {
+      password: body.currentPassword,
+      twoFactorCode: body.twoFactorCode,
+    });
     user.isEmailVerified = false;
   }
 
@@ -279,6 +311,34 @@ function changePassword(req: MockRequest): 'ok' {
   mockSessions = mockSessions.filter((s) => s.isCurrent);
   return 'ok';
 }
+//#if (ExternalLogin)
+
+/**
+ * 没有本地口令的账号设置第一个口令。已有口令时 409；会话不够新时要出示验证码（账号没有口令可出示），
+ * 两者都没有时只能重新登录。与改口令一致，成功后其他设备退出登录。
+ */
+function setPassword(req: MockRequest): 'ok' {
+  const user = requireCurrentMockUser();
+  const body = (req.body ?? {}) as SetPasswordInputDto;
+  if (user.password) {
+    throw new MockException(409, {
+      code: 'Security:PasswordAlreadySet',
+      message: 'A password is already set. Use change password instead.',
+    });
+  }
+  if (!body.newPassword || body.newPassword !== body.confirmPassword) {
+    throw new MockException(400, {
+      errors: [{ field: 'confirmPassword', detail: 'The new passwords do not match.' }],
+    });
+  }
+  ensureAcceptablePassword(body.newPassword, 'New password');
+  ensureMockReauthentication(user, { twoFactorCode: body.twoFactorCode });
+
+  user.password = body.newPassword;
+  mockSessions = mockSessions.filter((s) => s.isCurrent);
+  return 'ok';
+}
+//#endif
 
 /**
  * 当前会话之外预置两台"别的设备"，让登录设备一节在 mock 下有内容可看、可撤销。
@@ -315,10 +375,9 @@ let mockSessions: UserSessionOutputDto[] = [
 ];
 
 /**
- * 两步验证：mock 下验证码固定为 {@link MOCK_TWO_FACTOR_CODE}，启用状态与恢复码记在各 Mock 用户上，
+ * 两步验证：mock 下验证码固定为 `MOCK_TWO_FACTOR_CODE`，启用状态与恢复码记在各 Mock 用户上，
  * 因此登录第二步与管理员重置都能演示。
  */
-const MOCK_TWO_FACTOR_CODE = '123456';
 /** 与后端单个挑战的尝试上限同一量级：输错到上限即作废，只能回到第一步。 */
 const TWO_FACTOR_CHALLENGE_MAX_ATTEMPTS = 5;
 
@@ -424,28 +483,35 @@ function getTwoFactorStatus(): TwoFactorStatusOutputDto {
   };
 }
 
-/** 最近一次开始的设置：只认它，别处重新开始过就作废（同后端）。Mock 的会话总算"刚认证过"，不要口令。 */
+/** 最近一次开始的设置：只认它，别处重新开始过就作废（同后端）。 */
 let mockPendingSetupId: string | null = null;
 
+/**
+ * 开始设置或换绑。首次启用时会话不够新要出示口令；换绑时现有验证器上的码同时算确认身份，只校验一次，
+ * 不能再同时带口令；验证器丢了用恢复码（它不算确认身份，会话不够新时仍要口令），确认身份通过后才用掉。
+ */
 function beginTwoFactorSetup(req: MockRequest): TwoFactorSetupOutputDto {
   const user = requireCurrentMockUser();
+  const body = (req.body ?? {}) as BeginTwoFactorSetupInputDto;
   if (user.twoFactorEnabled) {
-    // 换绑：出示现有验证器上的码，或者用掉一个恢复码
-    const recoveryCode = req.body?.recoveryCode as string | undefined;
-    if (recoveryCode) {
-      const index = (user.recoveryCodes ?? []).indexOf(recoveryCode.trim());
+    const recoveryCode = body.recoveryCode?.trim();
+    if (body.code) {
+      ensureMockReauthentication(user, { password: body.password, twoFactorCode: body.code });
+    } else if (recoveryCode) {
+      ensureMockReauthentication(user, { password: body.password });
+      const index = (user.recoveryCodes ?? []).indexOf(recoveryCode);
       if (index < 0) {
         ensureMockTwoFactorCode(undefined);
       }
       user.recoveryCodes = (user.recoveryCodes ?? []).filter((_, i) => i !== index);
-    } else if (req.body?.code) {
-      ensureMockTwoFactorCode(req.body.code);
     } else {
       throw new MockException(409, {
         code: 'Auth:TwoFactorAlreadyEnabled',
         message: 'Two-factor authentication is already turned on.',
       });
     }
+  } else {
+    ensureMockReauthentication(user, { password: body.password });
   }
 
   const secret = 'JBSWY3DPEHPK3PXP';
@@ -471,15 +537,30 @@ function enableTwoFactor(req: MockRequest): TwoFactorRecoveryCodesOutputDto {
   return issueRecoveryCodes(user);
 }
 
+/** 停用两步验证：有口令的账号口令与验证码都要；没有口令的账号只要验证码，带了口令按方式不具备拒绝。 */
 function disableTwoFactor(req: MockRequest): 'ok' {
   const user = requireCurrentMockUser();
-  if (req.body?.password !== user.password) {
+  const body = (req.body ?? {}) as Partial<DisableTwoFactorInputDto>;
+  if (user.password) {
+    if (!body.password) {
+      throw new MockException(400, {
+        code: 'Security:PasswordRequired',
+        message: 'Enter your current password.',
+      });
+    }
+    if (body.password !== user.password) {
+      throw new MockException(400, {
+        code: 'Security:CurrentPasswordIncorrect',
+        message: 'The current password is incorrect.',
+      });
+    }
+  } else if (body.password) {
     throw new MockException(400, {
-      code: 'Security:CurrentPasswordIncorrect',
-      message: 'The current password is incorrect.',
+      code: 'Auth:ReauthenticationMethodUnavailable',
+      message: 'This way of confirming your identity is not available for your account.',
     });
   }
-  ensureMockTwoFactorCode(req.body?.code);
+  ensureMockTwoFactorCode(body.code);
   user.twoFactorEnabled = false;
   user.recoveryCodes = [];
   mockSessions = mockSessions.filter((s) => s.isCurrent);
@@ -801,8 +882,18 @@ let mockExternalLinks: {
   },
 ];
 
+/**
+ * Mock 没有提供商往返：从 Google 回来的是只经外部登录建立的 octo（没有口令、已开两步验证，要做第二步），
+ * 其余提供商回来的是第一个演示账号。
+ */
 function externalLoginCallback(req: MockRequest): SessionLoginOutputDto {
-  setMockSessionUserId(USERS[0].id);
+  const user =
+    (req.params.provider === 'google' ? USERS.find((u) => u.id === 'user_octo') : undefined) ??
+    USERS[0];
+  if (user.twoFactorEnabled) {
+    return beginTwoFactorChallenge(user, getRequestScope(req));
+  }
+  setMockSessionUserId(user.id);
   setMockSessionTenantKey(getRequestScope(req));
   return {};
 }
@@ -824,6 +915,7 @@ function getExternalLinks() {
  */
 function completeExternalLink(req: MockRequest): 'ok' {
   const user = requireCurrentMockUser();
+  const body = (req.body ?? {}) as CompleteExternalLinkInputDto;
   const provider = String(req.params.provider);
   if (!availableExternalProviders().includes(provider)) {
     throw new MockException(400, {
@@ -837,6 +929,8 @@ function completeExternalLink(req: MockRequest): 'ok' {
       message: `A ${provider} account is already linked. Unlink it first.`,
     });
   }
+  // 确认身份不通过时票据不消费，带上凭证重试同一个请求即可
+  ensureMockReauthentication(user, body);
   mockExternalLinks = [
     ...mockExternalLinks,
     {
@@ -849,9 +943,24 @@ function completeExternalLink(req: MockRequest): 'ok' {
   return 'ok';
 }
 
+/**
+ * 解绑：不存在的绑定幂等成功；没有口令时不能解绑最后一种登录方式（409）；真正删除之前确认身份，
+ * 会话不够新时凭证随请求体出示。
+ */
 function unlinkExternalLogin(req: MockRequest): 'ok' {
-  requireCurrentMockUser();
-  mockExternalLinks = mockExternalLinks.filter((l) => l.id !== String(req.params.id));
+  const user = requireCurrentMockUser();
+  const link = mockExternalLinks.find((l) => l.id === String(req.params.id));
+  if (!link) {
+    return 'ok';
+  }
+  if (!user.password && mockExternalLinks.length <= 1) {
+    throw new MockException(409, {
+      code: 'ExternalAuth:LastSignInMethod',
+      message: 'This is your only way to sign in. Set a password before unlinking it.',
+    });
+  }
+  ensureMockReauthentication(user, (req.body ?? {}) as UnlinkExternalLoginInputDto);
+  mockExternalLinks = mockExternalLinks.filter((l) => l.id !== link.id);
   return 'ok';
 }
 //#endif
@@ -899,6 +1008,9 @@ export const AUTH_API = {
   'DELETE /api/v1/auth/me/sessions/:id': (req: MockRequest) => revokeSession(req),
   'POST /api/v1/auth/me/sessions/revoke-others': () => revokeOtherSessions(),
   'POST /api/v1/auth/change-password': (req: MockRequest) => changePassword(req),
+  //#if (ExternalLogin)
+  'POST /api/v1/auth/me/password': (req: MockRequest) => setPassword(req),
+  //#endif
   //#if (ExternalLogin)
   'POST /api/v1/external-auth/:provider/complete': (req: MockRequest) => externalLoginCallback(req),
   'POST /api/v1/external-auth/:provider/link/complete': (req: MockRequest) =>

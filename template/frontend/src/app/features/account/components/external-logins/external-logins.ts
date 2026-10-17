@@ -10,6 +10,11 @@ import { HlmItemImports } from '@spartan-ng/helm/item';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
 
+import {
+  ReauthenticateDialog,
+  ReauthenticationProof,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog';
+import { injectReauthentication } from '../../../../core/components/reauthenticate-dialog/reauthentication';
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
@@ -24,7 +29,8 @@ const PROVIDER_LABELS: Record<string, string> = { github: 'GitHub', google: 'Goo
 
 /**
  * 「账户与安全」面板的一节：已绑定的外部账号，可绑定或解绑。绑定走完整外部授权；没有密码时
- * 服务端拒绝解绑最后一个。部署没有可用的外部登录时整节不出现。
+ * 服务端拒绝解绑最后一个。解绑会少一种登录方式，会话不够新时服务端要求先确认身份。
+ * 部署没有可用的外部登录时整节不出现。
  */
 @Component({
   selector: 'app-external-logins',
@@ -33,6 +39,7 @@ const PROVIDER_LABELS: Record<string, string> = { github: 'GitHub', google: 'Goo
     NgIcon,
     HlmButton,
     HlmSpinner,
+    ReauthenticateDialog,
     ...HlmItemImports,
     //#if (IncludeLocalization)
     TranslocoDirective,
@@ -57,6 +64,8 @@ export class ExternalLogins {
   protected readonly data = signal<ExternalLoginsOutputDto | null>(null);
   protected readonly loadFailed = signal(false);
   protected readonly busy = signal<string | null>(null);
+  /** 解绑而会话不够新：确认身份后带上凭证重试。 */
+  protected readonly reauth = injectReauthentication();
 
   /** 成功取到的目录为空：部署没有可用的外部登录。加载中与加载失败不算，失败要能看到并重试。 */
   protected readonly isEmpty = computed(
@@ -93,7 +102,8 @@ export class ExternalLogins {
     this.reload();
   }
 
-  protected reload(): void {
+  /** 重新取绑定情况；设置口令之后由所在面板调用（有了口令，最后一个绑定也能解绑）。 */
+  reload(): void {
     this.loadFailed.set(false);
     this.accountService.getExternalLogins().subscribe({
       next: (data) => this.data.set(data),
@@ -129,12 +139,18 @@ export class ExternalLogins {
       return;
     }
 
+    this.unlinkConfirmed(provider, id);
+  }
+
+  /** 先不带凭证解绑；服务端要求确认身份时弹出对话框，带上交出的凭证重试。 */
+  private unlinkConfirmed(provider: string, id: string, proof?: ReauthenticationProof): void {
     this.busy.set(provider);
     this.accountService
-      .unlinkExternalLogin(id)
+      .unlinkExternalLogin(id, { password: proof?.password, twoFactorCode: proof?.twoFactorCode })
       .pipe(finalize(() => this.busy.set(null)))
       .subscribe({
         next: () => {
+          this.reauth.complete();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('account.externalLogins.unlinked'));
           //#else
@@ -142,7 +158,15 @@ export class ExternalLogins {
           //#endif
           this.reload();
         },
-        error: (error) => this.showError(error),
+        error: (error) => {
+          if (
+            !this.reauth.handleError(error, proof, (next) =>
+              this.unlinkConfirmed(provider, id, next),
+            )
+          ) {
+            this.showError(error);
+          }
+        },
       });
   }
 
@@ -174,5 +198,7 @@ const ENGLISH: Record<string, string> = {
   'account.externalLogins.unlinked': 'Account unlinked',
   'account.externalLogins.lastMethod': 'Your only way to sign in',
   'account.externalLogins.loadFailed': "Couldn't load linked accounts.",
+  'account.externalLogins.unlinkReauthDescription':
+    'Unlinking removes a way to sign in. Confirm it is you to continue.',
 };
 //#endif

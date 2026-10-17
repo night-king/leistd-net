@@ -5,6 +5,16 @@ import { toast } from '@spartan-ng/brain/sonner';
 import { of, throwError } from 'rxjs';
 
 import { ProfilePanel } from './profile-panel';
+import {
+  confirmWithCode,
+  confirmWithPassword,
+  reauthenticateCancelButton,
+  reauthenticateClosed,
+  reauthenticateCodeReuseHint,
+  reauthenticateErrorText,
+  reauthenticateForm,
+  reauthenticateMethod,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog.testing';
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
@@ -28,11 +38,14 @@ describe('ProfilePanel', () => {
     isEmailVerified: false,
     roles: [],
     isSuperAdmin: false,
+    hasPassword: true,
+    isTwoFactorEnabled: true,
   };
 
   let fixture: ComponentFixture<ProfilePanel>;
   let currentUser: WritableSignal<unknown>;
   let setCurrentUser: Mock;
+  let loadUser: Mock;
   let account: {
     updateCurrentUser: Mock;
     setAvatar: Mock;
@@ -44,6 +57,7 @@ describe('ProfilePanel', () => {
   beforeEach(async () => {
     currentUser = signal<unknown>(initialUser);
     setCurrentUser = vi.fn((user: unknown) => currentUser.set(user));
+    loadUser = vi.fn(() => of(currentUser()));
     account = {
       updateCurrentUser: vi.fn(),
       setAvatar: vi.fn(),
@@ -60,7 +74,10 @@ describe('ProfilePanel', () => {
         //#if (IncludeLocalization)
         ...provideTranslocoTesting(['en']),
         //#endif
-        { provide: AuthService, useValue: { currentUser, setCurrentUser } },
+        {
+          provide: AuthService,
+          useValue: { currentUser, setCurrentUser, loadUser, signInAgain: vi.fn() },
+        },
         { provide: AccountService, useValue: account },
         //#if (Email)
         {
@@ -107,42 +124,169 @@ describe('ProfilePanel', () => {
     expect(panel.saving()).toBe(false);
   });
 
-  // 换邮箱而会话不够新：弹出确认身份，带上当前口令重试同一次保存
-  it('asks for the current password and retries the save with it when the session is not recent', async () => {
+  function rejection(code: string, detail = code) {
+    return throwError(() =>
+      ApplicationHttpError.from(new HttpErrorResponse({ status: 400, error: { code, detail } })),
+    );
+  }
+
+  // 换邮箱而会话不够新：先不带凭证提交，服务端要求时才弹出确认身份，带上验证码重试同一次保存
+  it('asks to confirm identity only when required and retries the save with the code', async () => {
     const saved = { ...initialUser, email: 'alice@new.example.com' };
     account.updateCurrentUser
-      .mockReturnValueOnce(
-        throwError(() =>
-          ApplicationHttpError.from(
-            new HttpErrorResponse({
-              status: 400,
-              error: { code: 'Auth:ReauthenticationRequired' },
-            }),
-          ),
-        ),
-      )
+      .mockReturnValueOnce(rejection('Auth:ReauthenticationRequired'))
       .mockReturnValueOnce(of(saved));
     const panel = fixture.componentInstance;
     panel.profileForm.email().value.set('alice@new.example.com');
 
+    expect(await reauthenticateClosed(fixture)).toBe(true);
     panel.onSubmit();
     await fixture.whenStable();
 
-    expect(panel.reauthVisible()).toBe(true);
+    expect(account.updateCurrentUser.mock.calls[0][0].currentPassword).toBeUndefined();
+    expect(account.updateCurrentUser.mock.calls[0][0].twoFactorCode).toBeUndefined();
+    expect(reauthenticateForm()).not.toBeNull();
     expect(setCurrentUser).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
 
-    panel.onSubmit('current-password');
+    await confirmWithCode(fixture, '123456');
+
+    expect(account.updateCurrentUser).toHaveBeenCalledTimes(2);
+    const retried = account.updateCurrentUser.mock.calls[1][0];
+    expect(retried).toMatchObject({ email: 'alice@new.example.com', twoFactorCode: '123456' });
+    expect(retried.currentPassword).toBeUndefined();
+    expect(setCurrentUser).toHaveBeenCalledExactlyOnceWith(saved);
+    expect(await reauthenticateClosed(fixture)).toBe(true);
+  });
+
+  it('keeps a wrong password inside the dialog and retries with the next one', async () => {
+    const saved = { ...initialUser, email: 'alice@new.example.com' };
+    account.updateCurrentUser
+      .mockReturnValueOnce(rejection('Auth:ReauthenticationRequired'))
+      .mockReturnValueOnce(
+        rejection('Security:CurrentPasswordIncorrect', 'The current password is incorrect.'),
+      )
+      .mockReturnValueOnce(of(saved));
+    const panel = fixture.componentInstance;
+    panel.profileForm.email().value.set('alice@new.example.com');
+    panel.onSubmit();
     await fixture.whenStable();
 
-    expect(account.updateCurrentUser).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        email: 'alice@new.example.com',
-        currentPassword: 'current-password',
-      }),
-    );
+    await confirmWithPassword(fixture, 'wrong-password');
+
+    expect(account.updateCurrentUser.mock.calls[1][0]).toMatchObject({
+      currentPassword: 'wrong-password',
+    });
+    expect(reauthenticateErrorText()).toBe('The current password is incorrect.');
+    expect(toast.error).not.toHaveBeenCalled();
+
+    await confirmWithPassword(fixture, 'current-password');
+
+    expect(account.updateCurrentUser.mock.calls[2][0]).toMatchObject({
+      currentPassword: 'current-password',
+    });
+    expect(account.updateCurrentUser.mock.calls[2][0].twoFactorCode).toBeUndefined();
     expect(setCurrentUser).toHaveBeenCalledExactlyOnceWith(saved);
-    expect(panel.reauthVisible()).toBe(false);
+  });
+
+  // 验证码确认时得知两步验证已在别处停用：刷新当前用户只换掉可选的方式，重试的仍是第一次提交的那份资料
+  it('retries the submitted profile after refreshing the current user for another method', async () => {
+    const refreshed = { ...initialUser, isTwoFactorEnabled: false };
+    loadUser.mockImplementation(() => {
+      currentUser.set(refreshed);
+      return of(refreshed);
+    });
+    const saved = { ...refreshed, email: 'alice@new.example.com' };
+    account.updateCurrentUser
+      .mockReturnValueOnce(rejection('Auth:ReauthenticationRequired'))
+      .mockReturnValueOnce(rejection('Auth:ReauthenticationMethodUnavailable'))
+      .mockReturnValueOnce(of(saved));
+    const panel = fixture.componentInstance;
+    panel.profileForm.email().value.set('alice@new.example.com');
+    panel.profileForm.displayName().value.set('Alice Smith');
+    panel.profileForm.phoneNumber().value.set('+81 3 1234 5678');
+    panel.onSubmit();
+    await fixture.whenStable();
+
+    await confirmWithCode(fixture, '123456');
+
+    expect(loadUser).toHaveBeenCalledOnce();
+    expect(currentUser()).toBe(refreshed);
+    expect(reauthenticateMethod()).toBe('password');
+    // 刷新的是账号状态，资料没变：未保存的修改留在表单里
+    expect(panel.profileForm.email().value()).toBe('alice@new.example.com');
+    expect(panel.profileForm.displayName().value()).toBe('Alice Smith');
+
+    await confirmWithPassword(fixture, 'current-password');
+
+    expect(account.updateCurrentUser).toHaveBeenCalledTimes(3);
+    expect(account.updateCurrentUser.mock.calls[2][0]).toEqual({
+      username: 'alice',
+      email: 'alice@new.example.com',
+      displayName: 'Alice Smith',
+      phoneNumber: '+81 3 1234 5678',
+      currentPassword: 'current-password',
+      twoFactorCode: undefined,
+    });
+    expect(setCurrentUser).toHaveBeenCalledExactlyOnceWith(saved);
+    expect(await reauthenticateClosed(fixture)).toBe(true);
+  });
+
+  // 等确认期间资料被别处改动、表单随之重填：重试仍发第一次提交的资料，不改发重填后的值
+  it('retries the submitted profile even when the form was refilled meanwhile', async () => {
+    account.updateCurrentUser
+      .mockReturnValueOnce(rejection('Auth:ReauthenticationRequired'))
+      .mockReturnValueOnce(of({ ...initialUser, email: 'alice@new.example.com' }));
+    const panel = fixture.componentInstance;
+    panel.profileForm.email().value.set('alice@new.example.com');
+    panel.onSubmit();
+    await fixture.whenStable();
+
+    currentUser.set({ ...initialUser, displayName: 'Changed elsewhere' });
+    await fixture.whenStable();
+    expect(panel.profileForm.email().value()).toBe('alice@example.com');
+
+    await confirmWithPassword(fixture, 'current-password');
+
+    expect(account.updateCurrentUser.mock.calls[1][0]).toMatchObject({
+      email: 'alice@new.example.com',
+      displayName: 'Alice',
+      currentPassword: 'current-password',
+    });
+  });
+
+  // 刚在登录时用过的码不能马上再用：错误下方提示等待新码，同一个错误码，不放宽重放
+  it('suggests waiting for a new code when the confirmation code is rejected', async () => {
+    account.updateCurrentUser
+      .mockReturnValueOnce(rejection('Auth:ReauthenticationRequired'))
+      .mockReturnValueOnce(
+        rejection('Auth:TwoFactorCodeInvalid', 'The verification code is incorrect.'),
+      );
+    const panel = fixture.componentInstance;
+    panel.profileForm.email().value.set('alice@new.example.com');
+    panel.onSubmit();
+    await fixture.whenStable();
+
+    await confirmWithCode(fixture, '123456');
+
+    expect(reauthenticateErrorText()).toBe('The verification code is incorrect.');
+    expect(reauthenticateCodeReuseHint()).not.toBe('');
+  });
+
+  it('does not save when the confirmation is cancelled', async () => {
+    account.updateCurrentUser.mockReturnValueOnce(rejection('Auth:ReauthenticationRequired'));
+    const panel = fixture.componentInstance;
+    panel.profileForm.email().value.set('alice@new.example.com');
+    panel.onSubmit();
+    await fixture.whenStable();
+
+    reauthenticateCancelButton()!.click();
+    expect(await reauthenticateClosed(fixture)).toBe(true);
+
+    expect(account.updateCurrentUser).toHaveBeenCalledOnce();
+    expect(setCurrentUser).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(panel.profileForm.email().value()).toBe('alice@new.example.com');
   });
 
   it('leaves the current user untouched when saving the profile fails', async () => {

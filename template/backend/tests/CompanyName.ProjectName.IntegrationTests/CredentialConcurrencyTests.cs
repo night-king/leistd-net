@@ -2,7 +2,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using CompanyName.ProjectName.Application.Auth.Policies;
+using CompanyName.ProjectName.Application.OperationRecords.Provider;
+using Leistd.OperationRecords.Models;
+using Leistd.OperationRecords.Recording;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,7 +15,7 @@ namespace CompanyName.ProjectName.IntegrationTests;
 /// 口令登录与改口令、管理员重置口令交错：撤权之后不能再冒出一个凭旧口令建立的会话。
 /// </summary>
 /// <remarks>
-/// 交错用门控替身固定：登录停在登记会话之前（登录安全策略的读取处）或取凭据锁之前，
+/// 交错用门控替身固定：登录停在登记会话之后、提交之前（登录成功记录的写入处），或取凭据锁之前，
 /// 另一边改口令或重置口令；放行后看登录得到的会话还能不能用。
 /// </remarks>
 public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory factory) : IClassFixture<ProjectWebApplicationFactory>
@@ -21,12 +23,12 @@ public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory fact
     private const string Password = "Concurrency!Passw0rd";
     private const string NewPassword = "Concurrency!Passw0rd2";
 
-    // 登录停在登记会话之前、持着凭据锁：改口令要等它登记完再撤，撤掉的就包括这一个
+    // 登录停在登记会话之后、提交之前，持着凭据锁：改口令要等它提交完再撤，撤掉的就包括这一个
     [Fact]
     public async Task A_sign_in_racing_a_password_change_does_not_outlive_the_change()
     {
         var gate = new InterleavingGate();
-        using var host = CreateHost(services => InterleavingGate.Wrap<ILoginSecurityPolicyProvider>(services, inner => new PolicyGate(gate, inner)));
+        using var host = CreateHost(services => InterleavingGate.Wrap<IOperationRecorder>(services, inner => new LoginRecorderGate(gate, inner)));
         var (username, _) = await CreateUserAsync(host, "race_pwd");
         using var current = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
 
@@ -52,7 +54,7 @@ public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory fact
     public async Task A_sign_in_racing_an_admin_password_reset_does_not_outlive_the_reset()
     {
         var gate = new InterleavingGate();
-        using var host = CreateHost(services => InterleavingGate.Wrap<ILoginSecurityPolicyProvider>(services, inner => new PolicyGate(gate, inner)));
+        using var host = CreateHost(services => InterleavingGate.Wrap<IOperationRecorder>(services, inner => new LoginRecorderGate(gate, inner)));
         var (username, userId) = await CreateUserAsync(host, "race_reset");
         using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
 
@@ -138,13 +140,20 @@ public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory fact
         Assert.NotSame(request, finished);
     }
 
-    private sealed class PolicyGate(InterleavingGate gate, ILoginSecurityPolicyProvider inner) : ILoginSecurityPolicyProvider
+    // 只拦登录成功的记录：它在会话登记之后、工作单元提交之前写入，此时登录持着凭据锁
+    private sealed class LoginRecorderGate(InterleavingGate gate, IOperationRecorder inner) : IOperationRecorder
     {
-        public async Task<LoginSecurityPolicy> GetAsync(CancellationToken cancellationToken = default)
+        public async Task RecordSucceededAsync(
+            string action, OperationTarget target, string authorizationBasis, CancellationToken cancellationToken = default)
         {
-            await gate.PassAsync();
-            return await inner.GetAsync(cancellationToken);
+            if (action == OperationRecordActions.AuthLoginSucceeded)
+                await gate.PassAsync();
+            await inner.RecordSucceededAsync(action, target, authorizationBasis, cancellationToken);
         }
+
+        public Task RecordFailedAsync(
+            string action, OperationTarget target, string authorizationBasis, OperationFailure failure = default)
+            => inner.RecordFailedAsync(action, target, authorizationBasis, failure);
     }
 }
 #endif

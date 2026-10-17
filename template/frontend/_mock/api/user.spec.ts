@@ -8,7 +8,11 @@ import {
 } from './user';
 import { MockException } from '../core/models';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
+//#if (LocalIdentity)
+import { expireMockSessionAuthentication, setMockSessionUserId } from '../utils/current-user';
+//#else
 import { setMockSessionUserId } from '../utils/current-user';
+//#endif
 
 type Handler = (req: { params: { id: string } }) => unknown;
 
@@ -219,6 +223,52 @@ describe('user mock', () => {
     });
   });
   //#if (LocalIdentity)
+
+  // 与后端一致：换邮箱（大小写不敏感）或标为已验证才要求操作者确认身份
+  describe('update sensitive changes', () => {
+    beforeEach(() => {
+      setMockSessionUserId('user_admin');
+      expireMockSessionAuthentication();
+    });
+
+    afterEach(() => setMockSessionUserId(null));
+
+    function demo(): MockUser {
+      return USERS.find((user) => user.id === 'user_demo')!;
+    }
+
+    function update(changes: { email?: string; isEmailVerified?: boolean }) {
+      const user = demo();
+      return () =>
+        updateUser(user.id, {
+          email: user.email,
+          displayName: user.displayName,
+          avatar: user.avatar,
+          isActive: user.isActive,
+          isEmailVerified: user.isEmailVerified,
+          ...changes,
+        });
+    }
+
+    it('asks to confirm identity for a new email or for marking the email verified', () => {
+      expect(rejectionOf(update({ email: 'someone@example.com' })).error.code).toBe(
+        'Auth:ReauthenticationRequired',
+      );
+      demo().isEmailVerified = false;
+      expect(rejectionOf(update({ isEmailVerified: true })).error.code).toBe(
+        'Auth:ReauthenticationRequired',
+      );
+      expect(demo().isEmailVerified).toBe(false);
+    });
+
+    it('saves a case-only email change or unmarking verification without confirming', () => {
+      update({ email: demo().email.toUpperCase() })();
+      update({ isEmailVerified: false })();
+
+      expect(demo().email).toBe('DEMO@EXAMPLE.COM');
+      expect(demo().isEmailVerified).toBe(false);
+    });
+  });
 
   describe('reset two-factor', () => {
     const reset = USER_API['POST /api/v1/users/:id/reset-two-factor'] as Handler;

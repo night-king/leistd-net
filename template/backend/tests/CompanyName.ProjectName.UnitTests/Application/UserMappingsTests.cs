@@ -1,3 +1,6 @@
+#if (LocalIdentity)
+using CompanyName.ProjectName.Application.Auth.Dtos;
+#endif
 using CompanyName.ProjectName.Application.Roles.Dtos;
 using CompanyName.ProjectName.Application.Users.Dtos;
 using CompanyName.ProjectName.Application.Users.Mappings;
@@ -52,4 +55,25 @@ public class UserMappingsTests
 
         Assert.Equal("marked:Member", Assert.Single(dto.Roles).DisplayName);
     }
+#if (LocalIdentity)
+
+    // 前端据此决定确认身份时显示口令还是验证码，只经外部登录建立的账号没有口令
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("hash", true)]
+    public void The_current_user_output_tells_whether_a_local_password_is_set(string? passwordHash, bool expected)
+    {
+        using var provider = new ServiceCollection()
+            .AddLogging()
+            .AddMapsterObjectMapper(options => options.Configurators.Add(config => config.Scan(typeof(UserMappings).Assembly)))
+            .BuildServiceProvider();
+        var user = new User("alice", "alice@example.test", passwordHash: passwordHash);
+
+        var dto = provider.GetRequiredService<IObjectMapper>().Map<User, UserOutputDto>(
+            user,
+            new Dictionary<string, object> { [UserMappings.RoleNamesKey] = new List<string>() });
+
+        Assert.Equal(expected, dto.HasPassword);
+    }
+#endif
 }

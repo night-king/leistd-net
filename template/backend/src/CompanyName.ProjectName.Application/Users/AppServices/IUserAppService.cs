@@ -72,7 +72,7 @@ public interface IUserAppService : IAppService
 
     /// <summary>
     /// 重置用户的两步验证（停用并清掉密钥与恢复码），该用户的会话全部失效。不能重置自己；
-    /// 管理员的会话不够新时要出示自己的当前口令（<c>Auth:ReauthenticationRequired</c>）。
+    /// 管理员的会话不够新时要出示自己的当前口令或验证码（<c>Auth:ReauthenticationRequired</c>）。
     /// </summary>
     Task ResetTwoFactorAsync(Guid id, ResetUserTwoFactorInputDto input, CancellationToken cancellationToken = default);
 #endif

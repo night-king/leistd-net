@@ -72,9 +72,11 @@ internal sealed class TwoFactorAppService(
 
     /// <inheritdoc />
     /// <remarks>
-    /// <para>先确认会话的主人刚认证过：拿到会话就能把自己的验证器绑上去的话，被盗会话能把本人挡在第二步之外。</para>
-    /// <para>换绑再出示一次第二因素：现有验证器上的码，或者验证器丢了时用一个恢复码。恢复码在这里当场用掉，
-    /// 只换得一次重新绑定的机会，新的一组恢复码要等新验证器确认后才发——恢复码不能直接换出新的恢复码。</para>
+    /// <para>先确认是本人：拿到会话就能把自己的验证器绑上去的话，被盗会话能把本人挡在第二步之外。</para>
+    /// <para>换绑再出示一次第二因素：现有验证器上的码，或者验证器丢了时用一个恢复码。现有验证器上的码同时算作确认身份，
+    /// 守卫校验并用掉它之后这里不再校验第二次（同一步只认一次，校验两次必然自我拒绝）。恢复码在这里当场用掉，
+    /// 只换得一次重新绑定的机会，新的一组恢复码要等新验证器确认后才发——恢复码不能直接换出新的恢复码，也不算确认身份。</para>
+    /// <para>在本人的凭据锁内：确认身份独立提交（验证码用掉不退回），再另开工作单元重读用户、出示恢复码并提交。</para>
     /// </remarks>
     public async Task<TwoFactorSetupOutputDto> BeginSetupAsync(
         BeginTwoFactorSetupInputDto input,
@@ -84,22 +86,30 @@ internal sealed class TwoFactorAppService(
         await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
         cancellationToken = lockScope.Token;
-        using var unit = unitOfWorkManager.Begin(requiresNew: true);
 
-        var user = await GetCurrentUserEntityAsync(cancellationToken);
-        var replacing = user.TwoFactorEnabled;
-        // 已启用又没出示任何第二因素：是"再启用一次"而不是换绑，不当作一次猜错计数
-        if (replacing && string.IsNullOrWhiteSpace(input.Code) && string.IsNullOrWhiteSpace(input.RecoveryCode))
+        // 锁内读到的启用状态在释放前不会再变；只为选动作码与前置拒绝，业务阶段另行重读
+        var current = await GetCurrentUserEntityAsync(cancellationToken);
+        var replacing = current.TwoFactorEnabled;
+        var usesRecoveryCode = replacing && !string.IsNullOrWhiteSpace(input.RecoveryCode);
+        // 已启用又没出示任何第二因素：是"再启用一次"而不是换绑，先于确认身份拒绝，不当作一次猜错计数
+        if (replacing && string.IsNullOrWhiteSpace(input.Code) && !usesRecoveryCode)
         {
-            user.EnsureTwoFactorDisabled();
+            current.EnsureTwoFactorDisabled();
         }
 
         var action = replacing
             ? OperationRecordActions.AuthTwoFactorAuthenticatorReplaced
             : OperationRecordActions.AuthTwoFactorEnabled;
-        await reauthenticationGuard.EnsureRecentlyAuthenticatedAsync(user, input.Password, action, cancellationToken);
+        // 出示了恢复码时验证码不参与（与登录第二步一致：都给时以恢复码为准）
+        var method = await reauthenticationGuard.EnsureRecentAsync(
+            new ReauthenticationProof(input.Password, usesRecoveryCode ? null : input.Code),
+            action,
+            cancellationToken);
 
-        if (replacing)
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
+        // 守卫已用掉现有验证器上的码：它既确认了身份，也证明了持有现有因素
+        if (replacing && method != ReauthenticationMethod.TwoFactorCode)
         {
             await ProveCurrentSecondFactorAsync(user, input, action, cancellationToken);
         }
@@ -214,18 +224,34 @@ internal sealed class TwoFactorAppService(
             throw new BusinessException(AuthErrorCodes.TwoFactorRequiredByPolicy, "Two-factor authentication is required here and cannot be turned off.");
         }
 
-        // 停用两步验证要口令与验证码各过一关，两关都是再认证：锁定期内不给试，失败按登录的同一套计数。
+        // 停用两步验证是再认证：锁定期内不给试，失败按登录的同一套计数。
         // 少了这一道，持有被盗会话的人能在这个接口上无限次猜——猜到了就把这个账号的第二道防线拆了。
+        // 有口令的账号口令与验证码各过一关；没有口令（只经外部登录）的账号只过验证码这一关，
+        // 不能拿一个不存在的口令去比对并计入失败——那样本人永远停用不了，反复尝试还会把自己锁住
         await reauthenticationGuard.EnsureAllowedAsync(user, cancellationToken);
 
-        if (!userDomainService.VerifyCurrentPassword(user, input.Password))
+        if (user.HasLocalPassword)
         {
-            throw await reauthenticationGuard.RejectAsync(
-                user,
-                OperationRecordActions.AuthTwoFactorDisabled,
-                SecurityErrorCodes.CurrentPasswordIncorrect,
-                "The current password is incorrect.",
-                cancellationToken);
+            if (string.IsNullOrEmpty(input.Password))
+            {
+                throw new BusinessException(SecurityErrorCodes.PasswordRequired, "Password cannot be empty.");
+            }
+
+            if (!userDomainService.VerifyCurrentPassword(user, input.Password))
+            {
+                throw await reauthenticationGuard.RejectAsync(
+                    user,
+                    OperationRecordActions.AuthTwoFactorDisabled,
+                    SecurityErrorCodes.CurrentPasswordIncorrect,
+                    "The current password is incorrect.",
+                    cancellationToken);
+            }
+        }
+        else if (!string.IsNullOrEmpty(input.Password))
+        {
+            throw new BusinessException(
+                AuthErrorCodes.ReauthenticationMethodUnavailable,
+                "This verification method isn't available for your account.");
         }
 
         if (!twoFactorDomainService.VerifyCode(user, input.Code, clock.Now))
@@ -305,7 +331,7 @@ internal sealed class TwoFactorAppService(
     /// <summary>待确认设置密钥的缓存键。</summary>
     internal static string SetupKey(Guid userId) => SetupKeyPrefix + userId.ToString("N");
 
-    /// <summary>换绑前再出示一次现有的第二因素；失败按再认证计数。用掉的步或恢复码随本次工作单元落库。</summary>
+    /// <summary>换绑前用恢复码出示现有的第二因素（验证码已由确认身份那一步校验并用掉）；失败按再认证计数。用掉的恢复码随本次工作单元落库。</summary>
     private async Task ProveCurrentSecondFactorAsync(
         User user,
         BeginTwoFactorSetupInputDto input,
@@ -313,9 +339,7 @@ internal sealed class TwoFactorAppService(
         CancellationToken cancellationToken)
     {
         var usedRecoveryCode = !string.IsNullOrWhiteSpace(input.RecoveryCode);
-        var proven = usedRecoveryCode
-            ? twoFactorDomainService.UseRecoveryCode(user, input.RecoveryCode!)
-            : !string.IsNullOrWhiteSpace(input.Code) && twoFactorDomainService.VerifyCode(user, input.Code, clock.Now);
+        var proven = usedRecoveryCode && twoFactorDomainService.UseRecoveryCode(user, input.RecoveryCode!);
         if (!proven)
         {
             throw await reauthenticationGuard.RejectAsync(

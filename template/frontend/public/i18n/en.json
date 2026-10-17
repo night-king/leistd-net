@@ -61,10 +61,18 @@
       "previousMonth": "Previous month",
       "nextMonth": "Next month"
     },
+    "twoFactorCodeReuseHint": "If you just used this code, wait for a new one.",
     "reauthenticate": {
       "header": "Confirm it is you",
-      "description": "This change affects how you or someone else signs in. Enter your current password to continue.",
+      "description": "This change affects how you or someone else signs in. Confirm it is you to continue.",
       "passwordLabel": "Your current password",
+      "codeLabel": "Verification code",
+      "codeHint": "Enter the 6-digit code from your authenticator app.",
+      "useCode": "Use an authenticator code instead",
+      "usePassword": "Use your password instead",
+      "cannotUseAuthenticator": "Can't use your authenticator? Sign in again",
+      "signInAgainHint": "Your account has no password or authenticator to confirm with. Sign in again to continue.",
+      "signInAgain": "Sign in again",
       "confirm": "Confirm"
     }
   },
@@ -81,7 +89,8 @@
     "tenantNamePattern": "Use letters, digits and hyphens only, not starting or ending with a hyphen, up to 63 characters.",
     "connectionNamePattern": "Use lowercase letters, digits and hyphens only, 1 to 64 characters.",
     "connectionNameTaken": "This connection name is already registered; change its connection string instead.",
-    "pkceRequired": "Native/Public clients must enable PKCE."
+    "pkceRequired": "Native/Public clients must enable PKCE.",
+    "credentialRejected": "Not accepted. Check it and try again."
   },
   "menu": {
     "workspace": "Workspace",

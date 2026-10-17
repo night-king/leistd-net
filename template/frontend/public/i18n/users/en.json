@@ -138,5 +138,10 @@
     "rolesTitle": "Add roles to {{count}} users",
     "rolesDescription": "The selected roles are added. Roles the users already have are kept.",
     "assign": "Add roles"
+  },
+  "reauth": {
+    "update": "Changing someone's sign-in email or its verified status needs you to confirm it is you.",
+    "resetPassword": "Resetting someone's password needs you to confirm it is you.",
+    "resetTwoFactor": "Resetting someone's two-factor authentication needs you to confirm it is you."
   }
 }

@@ -12,8 +12,9 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 // prettier-ignore
-import { lucideBuilding2, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
+import { lucideBuilding2, lucideCircleAlert, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
+import { HlmAlertImports } from '@spartan-ng/helm/alert';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInput } from '@spartan-ng/helm/input';
@@ -25,8 +26,12 @@ import {
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
-import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+import {
+  ApplicationHttpError,
+  applicationErrorMessage,
+} from '../../../../core/errors/application-http-error';
 import { MOCKED_URL } from '../../../../core/mock/mocked-url';
+import { ReturnUrlService } from '../../../../core/routing/return-url-service';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { SecurityConfigService } from '../../../../core/services/security-config-service';
@@ -55,6 +60,7 @@ import { TwoFactorChallenge } from '../two-factor-challenge/two-factor-challenge
     FormField,
     RouterModule,
     NgIcon,
+    ...HlmAlertImports,
     HlmButton,
     HlmInput,
     HlmSpinner,
@@ -75,6 +81,7 @@ import { TwoFactorChallenge } from '../two-factor-challenge/two-factor-challenge
   providers: [
     provideIcons({
       lucideBuilding2,
+      lucideCircleAlert,
       lucideInfo,
       lucideEye,
       lucideEyeOff,
@@ -93,6 +100,7 @@ export class Login implements OnInit {
   protected readonly registrationOpen = this.securityConfig.registrationOpen;
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private readonly returnUrls = inject(ReturnUrlService);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -106,6 +114,12 @@ export class Login implements OnInit {
   public readonly isLoading = this._isLoading.asReadonly();
 
   protected readonly showPassword = signal(false);
+
+  /**
+   * 凭据被拒（用户名或密码不对、账号已锁定等）时服务端给出的原因，就地显示在"登录"按钮上方；
+   * 改动任一输入即清掉。连不上服务器这类全局问题仍用 toast。
+   */
+  protected readonly loginError = signal<string | null>(null);
 
   // 登录接口由 Mock 应答时才提示演示账号：只 Mock 了别的模块时，演示账号登不进真实后端
   public readonly isMockEnabled = signal(inject(MOCKED_URL)(AuthService.loginUrl));
@@ -172,6 +186,7 @@ export class Login implements OnInit {
     }
 
     this._isLoading.set(true);
+    this.loginError.set(null);
 
     try {
       const { usernameOrEmail, password } = this.model();
@@ -187,6 +202,10 @@ export class Login implements OnInit {
 
       await this.finishLogin(returnUrl);
     } catch (error) {
+      if (isRejection(error)) {
+        this.loginError.set(applicationErrorMessage(error));
+        return;
+      }
       //#if (IncludeLocalization)
       toast.error(this.transloco.translate('account.login.loginFailed'), {
         description: applicationErrorMessage(error),
@@ -225,9 +244,9 @@ export class Login implements OnInit {
     this.sessionContext.clear();
     await lastValueFrom(this.authService.loadUser());
 
-    // 受限会话（组织要求两步验证而本人尚未启用）：先去设置，别的页面都进不去
+    // 受限会话（组织要求两步验证而本人尚未启用）：先去设置，别的页面都进不去；设置完成后回到原目标
     if (this.authService.currentUser()?.twoFactorSetupRequired) {
-      await this.router.navigate(['/auth/two-factor-setup']);
+      await this.router.navigateByUrl(this.returnUrls.twoFactorSetup(returnUrl));
       return;
     }
 
@@ -246,34 +265,18 @@ export class Login implements OnInit {
     toast.success('Signed in successfully', { description: 'Welcome back!', duration: 3000 });
     //#endif
 
-    if (this.isSafeLocalReturnUrl(returnUrl)) {
-      //#if (OpenIddictServer)
-      // 授权端点把未登录的授权请求送来这里；登录后整页回到服务端的授权端点继续签发，它不是前端路由
-      if (returnUrl.startsWith('/connect/')) {
-        window.location.href = returnUrl;
-        return;
-      }
-      //#endif
-      await this.router.navigateByUrl(returnUrl);
-      return;
-    }
-
-    // 按权限跳转：拥有任一平台入口权限才进管理区，而不是按角色名或超管标志判断。
-    if (this.authorizationService.canAccessPlatform()) {
-      this.router.navigate(['/platform']);
-    } else {
-      this.router.navigate(['/workspace']);
-    }
+    // 有可接续的站内目标就回去（授权端点 /connect/* 整页回到服务端继续签发）；
+    // 否则按权限跳转：拥有任一平台入口权限才进管理区，而不是按角色名或超管标志判断。
+    await this.returnUrls.navigate(returnUrl, () =>
+      this.router.navigate([
+        this.authorizationService.canAccessPlatform() ? '/platform' : '/workspace',
+      ]),
+    );
   }
 
-  private isSafeLocalReturnUrl(returnUrl: string | null): returnUrl is string {
-    return (
-      !!returnUrl &&
-      returnUrl.startsWith('/') &&
-      !returnUrl.startsWith('//') &&
-      !returnUrl.includes('://') &&
-      !returnUrl.includes('\\')
-    );
+  /** 改动任一输入：上一次被拒的原因不再对应当前填写的内容。 */
+  protected clearLoginError(): void {
+    this.loginError.set(null);
   }
 
   //#if (IncludeMultiTenancy)
@@ -400,6 +403,10 @@ export class Login implements OnInit {
   //#else
   readonly authBlocked = signal(false);
   //#endif
+}
+/** 服务端按请求内容拒绝（4xx）：说明这次填写的问题，就地显示；断网与服务故障不在此列。 */
+function isRejection(error: unknown): error is ApplicationHttpError {
+  return error instanceof ApplicationHttpError && error.status >= 400 && error.status < 500;
 }
 //#if (!IncludeLocalization)
 

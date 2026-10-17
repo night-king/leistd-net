@@ -18,9 +18,6 @@ public interface IAuthAppService : IAppService
         TwoFactorLoginInputDto input,
         CancellationToken cancellationToken = default);
 
-    /// <summary>在当前服务端会话上按账号最新状态换发主体（受限会话完成两步验证设置后调用）。</summary>
-    Task<ClaimsPrincipal> ReissueSessionAsync(CancellationToken cancellationToken = default);
-
     /// <summary>当前租户的注册摘要：是否开放自助注册、注册时是否要求邮箱验证、部署能否发出验证码。匿名可读。</summary>
     Task<SecurityConfigOutputDto> GetSecurityConfigAsync(CancellationToken cancellationToken = default);
 
@@ -46,4 +43,10 @@ public interface IAuthAppService : IAppService
 
     /// <summary>修改密码。成功后撤销本人除当前会话以外的全部会话。</summary>
     Task ChangePasswordAsync(ChangePasswordInputDto input, CancellationToken cancellationToken = default);
+#if (ExternalLogin)
+
+    /// <summary>给没有本地口令的账号设置第一个口令。成功后撤销本人除当前会话以外的全部会话。</summary>
+    /// <remarks>已有口令时以 <c>Security:PasswordAlreadySet</c> 拒绝；会话不够新时要出示验证码，没开两步验证的要重新登录。</remarks>
+    Task SetPasswordAsync(SetPasswordInputDto input, CancellationToken cancellationToken = default);
+#endif
 }

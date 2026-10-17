@@ -61,10 +61,18 @@
       "previousMonth": "上个月",
       "nextMonth": "下个月"
     },
+    "twoFactorCodeReuseHint": "如果刚用过这个验证码，请等待新的验证码。",
     "reauthenticate": {
       "header": "确认是你本人",
-      "description": "这项修改会影响你或他人的登录方式。请输入你的当前密码以继续。",
+      "description": "这项修改会影响你或他人的登录方式。请先确认是你本人。",
       "passwordLabel": "你的当前密码",
+      "codeLabel": "验证码",
+      "codeHint": "输入身份验证器应用上的 6 位验证码。",
+      "useCode": "改用身份验证器验证码",
+      "usePassword": "改用密码",
+      "cannotUseAuthenticator": "无法使用身份验证器？重新登录",
+      "signInAgainHint": "你的账号没有可用于确认的密码或身份验证器，请重新登录后再继续。",
+      "signInAgain": "重新登录",
       "confirm": "确认"
     }
   },
@@ -81,7 +89,8 @@
     "tenantNamePattern": "只能使用字母、数字与连字符，不能以连字符开头或结尾，最多 63 位。",
     "connectionNamePattern": "连接名只能是小写字母、数字与连字符，长度 1 到 64 位。",
     "connectionNameTaken": "该连接名已登记，要换连接串请用「改连接串」。",
-    "pkceRequired": "Native/Public 客户端必须启用 PKCE。"
+    "pkceRequired": "Native/Public 客户端必须启用 PKCE。",
+    "credentialRejected": "未通过验证，请检查后重试。"
   },
   "menu": {
     "workspace": "工作空间",

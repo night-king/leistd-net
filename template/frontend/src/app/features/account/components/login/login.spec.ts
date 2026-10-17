@@ -1,8 +1,4 @@
-//#if (ExternalLogin)
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
-//#else
-import { provideHttpClient } from '@angular/common/http';
-//#endif
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { WritableSignal, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -20,12 +16,13 @@ import {
 } from 'rxjs';
 
 import { Login } from './login';
-//#if (ExternalLogin)
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
-//#endif
 import { permissionGuard } from '../../../../core/guards/permission-guard';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
+//#endif
+//#if (OpenIddictServer)
+import { ReturnUrlService } from '../../../../core/routing/return-url-service';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
@@ -356,6 +353,7 @@ describe('Login', () => {
   });
 
   it('sends a restricted session (organization requires two-factor) straight to the setup page without establishing session context', async () => {
+    queryParams = { returnUrl: '/platform/users?offset=20' };
     await setUp();
     authService.loadUser.mockImplementation(() => {
       currentUser.set({ twoFactorSetupRequired: true });
@@ -365,9 +363,57 @@ describe('Login', () => {
 
     await component.onSubmit();
 
-    expect(router.navigate).toHaveBeenCalledWith(['/auth/two-factor-setup']);
+    // 原目标随之带去设置页，设置完成后回到那里
+    expect(navigatedUrls()).toEqual([
+      '/auth/two-factor-setup?returnUrl=%2Fplatform%2Fusers%3Foffset%3D20',
+    ]);
+    expect(router.navigate).not.toHaveBeenCalled();
     expect(TestBed.inject(SessionContextService).establish).not.toHaveBeenCalled();
   });
+
+  // 第二步完成后才知道受限：外部登录带来的原目标同样随之带去设置页
+  it('carries the return address from the second step to the setup page of a restricted session', async () => {
+    navigationState = { twoFactorToken: 'challenge', returnUrl: '/workspace/settings/security' };
+    await setUp();
+    authService.loadUser.mockImplementation(() => {
+      currentUser.set({ twoFactorSetupRequired: true });
+      return of(undefined) as never;
+    });
+
+    await (
+      component as unknown as { onTwoFactorCompleted(): Promise<void> }
+    ).onTwoFactorCompleted();
+
+    expect(navigatedUrls()).toEqual([
+      '/auth/two-factor-setup?returnUrl=%2Fworkspace%2Fsettings%2Fsecurity',
+    ]);
+  });
+  //#if (OpenIddictServer)
+
+  // 授权端点把未登录的授权请求送来这里：登录后整页回到它，原样保留缓存请求的引用与证明
+  it('returns to an authorization request with a full page load after signing in', async () => {
+    const target =
+      '/connect/authorize?client_id=resource&request_uri=urn%3Aabc&reauthentication=proof';
+    queryParams = { returnUrl: target };
+    await setUp();
+    const loadPage = vi
+      .spyOn(TestBed.inject(ReturnUrlService), 'loadPage')
+      .mockImplementation(() => undefined);
+    fillValidCredentials();
+
+    await component.onSubmit();
+
+    expect(loadPage).toHaveBeenCalledExactlyOnceWith(target);
+    expect(router.navigateByUrl).not.toHaveBeenCalled();
+  });
+  //#endif
+
+  /** 经 navigateByUrl 发出的导航，按地址栏形式读出（UrlTree 与字符串一视同仁）。 */
+  function navigatedUrls(): string[] {
+    return vi
+      .mocked(router.navigateByUrl)
+      .mock.calls.map(([url]) => (typeof url === 'string' ? url : router.serializeUrl(url)));
+  }
 
   for (const hostile of [
     '//evil.example.com',
@@ -420,6 +466,59 @@ describe('Login', () => {
 
     // 加载状态卡住的话，按钮会一直转，用户只能刷新页面。
     expect(component.isLoading()).toBe(false);
+  });
+
+  // 凭据被拒：服务端给出的原因显示在"登录"按钮上方，不弹 toast；改动任一输入即消失
+  it('shows a rejected sign-in above the button and clears it when an input changes', async () => {
+    await setUp();
+    fillValidCredentials();
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => '');
+    authService.login.mockReturnValue(
+      throwError(() =>
+        ApplicationHttpError.from(
+          new HttpErrorResponse({
+            status: 401,
+            error: { code: 'Auth:InvalidCredentials', detail: 'Incorrect username or password.' },
+          }),
+        ),
+      ),
+    );
+
+    await component.onSubmit();
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const alert = host.querySelector<HTMLElement>('[data-testid="login-error"]');
+    expect(alert?.textContent?.trim()).toBe('Incorrect username or password.');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    const submit = host.querySelector('button[type="submit"]')!;
+    expect(alert!.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(error).not.toHaveBeenCalled();
+
+    const password = host.querySelector<HTMLInputElement>('#password')!;
+    password.value = 'Admin@1234567';
+    password.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(host.querySelector('[data-testid="login-error"]')).toBeNull();
+  });
+
+  // 连不上服务器这类全局问题仍用 toast，不占表单里的位置
+  it('keeps network failures in a toast', async () => {
+    await setUp();
+    fillValidCredentials();
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => '');
+    authService.login.mockReturnValue(
+      throwError(() => ApplicationHttpError.from(new HttpErrorResponse({ status: 0 }))),
+    );
+
+    await component.onSubmit();
+    fixture.detectChanges();
+
+    expect(error).toHaveBeenCalledOnce();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="login-error"]'),
+    ).toBeNull();
   });
 
   it('loads permissions before navigating when logging in to a protected returnUrl', async () => {

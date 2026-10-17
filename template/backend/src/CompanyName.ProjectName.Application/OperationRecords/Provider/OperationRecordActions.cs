@@ -176,6 +176,9 @@ public static class OperationRecordActions
 
     /// <summary>用户解绑了一个外部账号。</summary>
     public const string AuthExternalLoginUnlinked = "auth.external-login.unlinked";
+
+    /// <summary>只经外部登录建立的账号自助设置了第一个口令。</summary>
+    public const string AuthPasswordSet = "auth.password.set";
 #endif
 
     /// <summary>自助注册。</summary>

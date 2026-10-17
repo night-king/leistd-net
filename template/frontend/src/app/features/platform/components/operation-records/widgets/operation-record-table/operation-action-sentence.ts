@@ -71,6 +71,7 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   //#if (ExternalLogin)
   'auth.external-login.linked': (t) => `Linked external account ${t}`,
   'auth.external-login.unlinked': (t) => `Unlinked external account ${t}`,
+  'auth.password.set': () => 'Set their own password',
   //#endif
   'auth.registered': (t) => `Registered account ${t}`,
   'impersonation.started': (t) => `Started acting as ${t}`,

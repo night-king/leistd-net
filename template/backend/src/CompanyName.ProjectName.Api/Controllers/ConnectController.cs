@@ -5,6 +5,7 @@ using Leistd.Timing;
 using System.Text.Json.Nodes;
 using CompanyName.ProjectName.Application.Shared;
 using CompanyName.ProjectName.Application.Auth.AppServices;
+using CompanyName.ProjectName.Application.Auth.Sessions;
 using CompanyName.ProjectName.Api.Auth.OpenIddict;
 using CompanyName.ProjectName.Application.Auth.OAuth;
 using CompanyName.ProjectName.Application.OpenApplications;
@@ -36,6 +37,8 @@ namespace CompanyName.ProjectName.Api.Controllers;
 public sealed class ConnectController(
     IAuthPrincipalFactory principalFactory,
     IUserSessionAppService sessionAppService,
+    IUserSessionValidator sessionValidator,
+    ICurrentSessionState sessionState,
     IOptions<OAuthResourceOptions> oauthOptions,
     IOptions<ClaimTypeOptions> claimTypes,
     IOpenIddictApplicationManager applications,
@@ -55,6 +58,10 @@ public sealed class ConnectController(
                 + "This means the OpenIddict server middleware is not wired for this endpoint.");
 
         var result = await HttpContext.AuthenticateAsync(AuthenticationSchemeNames.SessionCookie);
+        // 端点匿名可达（未登录的人要能开始认证），受限会话的拦截因此不能交给中间件，在这里按这个 Cookie 主体判定
+        var session = result.Succeeded && result.Principal is not null
+            ? await ReadSessionAsync(result.Principal, cancellationToken)
+            : SessionValidationResult.Invalid;
         var authenticationTime = result.Principal?.GetClaim(Claims.AuthenticationTime);
         var fresh = long.TryParse(authenticationTime, out var authenticatedAt);
         var now = new DateTimeOffset(DateTime.SpecifyKind(clock.Now, DateTimeKind.Utc)).ToUnixTimeSeconds();
@@ -68,23 +75,26 @@ public sealed class ConnectController(
             interactions.IsReauthenticated(proof, request.RequestUri, await sessionAppService.GetCurrentSessionStartTimeAsync(cancellationToken));
         var demanded = loginPrompted || maxAgeExceeded;
         var reauthenticate = loginPrompted && !proven || maxAgeExceeded && !(proven && request.MaxAge == 0);
-        if (!result.Succeeded || result.Principal == null || reauthenticate)
+        if (!session.IsValid || result.Principal == null || reauthenticate)
         {
             if (request.HasPromptValue(PromptValues.None))
                 return ProtocolError(Errors.LoginRequired);
-            // 回到同一个缓存请求：只带 client_id 与 request_uri（协议参数全在 request token 里），需要时附上证明
-            var requestUri = request.RequestUri ?? throw new InvalidOperationException(
-                "The authorization request has no request_uri. This means authorization request caching is not enabled.");
-            var returnUrl = Request.PathBase + Request.Path + QueryString.Create(new Dictionary<string, string?>
-            {
-                [Parameters.ClientId] = request.ClientId,
-                [Parameters.RequestUri] = requestUri,
-                [ConnectInteractionProtector.ReauthenticationParameter] =
-                    demanded ? interactions.CreateReauthentication(requestUri, clock.Now) : null
-            }.Where(parameter => parameter.Value is not null));
+            // 回到同一个缓存请求，需要时附上证明
+            var returnUrl = AuthorizationReturnUrl(request,
+                demanded ? interactions.CreateReauthentication(CachedRequestUri(request), clock.Now) : null);
 
             return Redirect($"/auth/login?returnUrl={Uri.EscapeDataString(returnUrl)}" +
                 (reauthenticate ? "&reauthenticate=true" : string.Empty));
+        }
+
+        // 受限会话（组织要求两步验证而本人尚未启用）不签发授权码：静默请求按协议要求交互，
+        // 交互请求先去设置页，完成后整页回到同一个缓存请求继续授权（本请求已带的重新认证证明原样保留）
+        if (session.TwoFactorSetupRequired)
+        {
+            if (request.HasPromptValue(PromptValues.None))
+                return ProtocolError(Errors.InteractionRequired);
+            var returnUrl = AuthorizationReturnUrl(request, string.IsNullOrEmpty(proof) ? null : proof);
+            return Redirect($"/auth/two-factor-setup?returnUrl={Uri.EscapeDataString(returnUrl)}");
         }
 
         var subject = claimTypes.Value.FindUserId(result.Principal);
@@ -263,6 +273,25 @@ public sealed class ConnectController(
         throw new InvalidOperationException(
             $"Grant type '{request.GrantType}' is enabled on the OpenIddict server but has no handler in {nameof(ExchangeAsync)}.");
     }
+
+    // 同一个缓存请求的本地地址：只带 client_id 与 request_uri（协议参数全在 request token 里），需要时附上重新认证证明
+    private string AuthorizationReturnUrl(OpenIddictRequest request, string? reauthenticationProof) =>
+        Request.PathBase + Request.Path + QueryString.Create(new Dictionary<string, string?>
+        {
+            [Parameters.ClientId] = request.ClientId,
+            [Parameters.RequestUri] = CachedRequestUri(request),
+            [ConnectInteractionProtector.ReauthenticationParameter] = reauthenticationProof
+        }.Where(parameter => parameter.Value is not null));
+
+    private static string CachedRequestUri(OpenIddictRequest request) => request.RequestUri ?? throw new InvalidOperationException(
+        "The authorization request has no request_uri. This means authorization request caching is not enabled.");
+
+    // 本请求的会话状态由会话 Cookie 校验写入，但只在它属于这个 Cookie 主体时才能用：默认认证方案可能选了 Bearer，
+    // 那时状态没有写入，缺失不代表不受限。对不上就按这个主体重新校验，无效即当作未登录
+    private async Task<SessionValidationResult> ReadSessionAsync(ClaimsPrincipal principal, CancellationToken cancellationToken) =>
+        Guid.TryParse(principal.GetClaim(CustomClaimTypes.SessionId), out var sessionId) && sessionState.SessionId == sessionId
+            ? SessionValidationResult.Valid(sessionState.TwoFactorSetupRequired)
+            : await sessionValidator.ValidateAsync(principal, cancellationToken);
 
     private ForbidResult ProtocolError(string error) => Forbid(new AuthenticationProperties(new Dictionary<string, string?>
     {
