@@ -1,26 +1,12 @@
-<hlm-popover [state]="state()" sideOffset="6" (stateChanged)="onStateChanged($event)">
-  <button
-    type="button"
-    hlmBtn
-    hlmPopoverTrigger
-    variant="ghost"
-    size="icon-sm"
-    class="text-muted-foreground -my-2"
-    data-testid="info-hint"
-    [attr.aria-label]="text()"
-    (pointerenter)="hover($event, true)"
-    (pointerleave)="hover($event, false)"
-  >
-    <ng-icon name="lucideInfo" />
-  </button>
-  <hlm-popover-content
-    *hlmPopoverPortal
-    class="w-auto max-w-72 gap-0 p-2.5 text-xs"
-    data-testid="info-hint-content"
-    [appPopoverAria]="text()"
-    (pointerenter)="hover($event, true)"
-    (pointerleave)="hover($event, false)"
-  >
-    {{ text() }}
-  </hlm-popover-content>
-</hlm-popover>
+<button
+  type="button"
+  hlmBtn
+  variant="ghost"
+  size="icon-sm"
+  class="text-muted-foreground -my-2"
+  data-testid="info-hint"
+  [attr.aria-label]="text()"
+  [hlmTooltip]="text()"
+>
+  <ng-icon name="lucideInfo" />
+</button>
