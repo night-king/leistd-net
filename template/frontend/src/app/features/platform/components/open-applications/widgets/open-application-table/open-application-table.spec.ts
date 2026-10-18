@@ -12,6 +12,10 @@ import { page, userEvent } from 'vitest/browser';
 
 import { OpenApplicationTable } from './open-application-table';
 //#if (IncludeLocalization)
+import globalEn from '../../../../../../../../public/i18n/en.json';
+import openAppEn from '../../../../../../../../public/i18n/openApp/en.json';
+//#endif
+//#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
 import {
@@ -66,8 +70,26 @@ describe('OpenApplicationTable', () => {
       ],
     }).compileComponents();
 
+    //#if (IncludeLocalization)
+    // 装正式英文词条：空词条下表头与徽章渲染成键名（openApp.table.colApp…），比真实文案宽得多，
+    // 量出的折叠档位不代表真实界面——1600px 下带长名称的一行会被键名撑到只能放下最窄一档
+    const transloco = TestBed.inject(TranslocoService);
+    transloco.setTranslation(globalEn, 'en');
+    transloco.setTranslation(openAppEn, 'openApp/en');
+    //#endif
     fixture = TestBed.createComponent(OpenApplicationTable);
   });
+
+  /**
+   * 收敛后的折叠档位：连续两帧不变才算数。放不下时档位逐帧往下降，中间经过的宽档位会让
+   * "不是 mobile"在一瞬间成立，那不是结论。
+   */
+  async function settledFit(host: HTMLElement): Promise<string | null | undefined> {
+    const read = () => host.querySelector('[data-table-fit]')?.getAttribute('data-table-fit');
+    const before = read();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return before === read() ? before : 'changing';
+  }
 
   // 换列由用户表与角色表的同名用例覆盖；这里只有 Client ID 一列在各档都显示
   it('puts aria-sort only on the header of the sorted column', async () => {
@@ -114,9 +136,7 @@ describe('OpenApplicationTable', () => {
     const [table] = await fixture.getDeferBlocks();
     await table.render(DeferBlockState.Complete);
     fixture.autoDetectChanges();
-    await expect
-      .poll(() => host.querySelector('[data-table-fit]')?.getAttribute('data-table-fit'))
-      .toBe('mobile');
+    await expect.poll(() => settledFit(host)).toBe('mobile');
     // 主列里名称与 Client ID 上下两行，长了各自截断，不压到右邻的类型列上
     const titleCell = host.querySelector<HTMLElement>('tbody td')!;
     for (const text of Array.from(titleCell.querySelectorAll<HTMLElement>('span.truncate'))) {
@@ -137,13 +157,8 @@ describe('OpenApplicationTable', () => {
     await page.viewport(1800, 900);
     viewport.next(desktop(true));
     host.style.width = '1600px';
-    // 中途改视口要等 iframe 重排、ResizeObserver 回调与变更检测依次完成，整套并发时可能超过默认 1 秒；
-    // 只放宽等待时长，判据不变
-    await expect
-      .poll(() => host.querySelector('[data-table-fit]')?.getAttribute('data-table-fit'), {
-        timeout: 5000,
-      })
-      .not.toBe('mobile');
+    // 放得下全部列：收敛到桌面档
+    await expect.poll(() => settledFit(host)).toBe('desktop');
     // 没有收起的列时展开行整个不渲染；渲染时这一项也不显示
     const wide = host.querySelector<HTMLElement>('[data-testid="open-app-detail-identity"]');
     expect(wide === null || getComputedStyle(wide).display === 'none').toBe(true);
@@ -160,25 +175,12 @@ describe('OpenApplicationTable', () => {
       const host = fixture.nativeElement as HTMLElement;
       host.style.display = 'block';
       host.style.width = '1760px';
-      //#if (IncludeLocalization)
-      TestBed.inject(TranslocoService).setTranslation(
-        {
-          popover: {
-            permissionsTrigger: 'View all authorization capabilities of {{name}} ({{count}})',
-          },
-        },
-        'openApp/en',
-        { merge: true },
-      );
-      //#endif
       fixture.componentRef.setInput('applications', apps);
       const [table] = await fixture.getDeferBlocks();
       await table.render(DeferBlockState.Complete);
       fixture.autoDetectChanges();
       await fixture.whenStable();
-      await expect
-        .poll(() => host.querySelector('[data-table-fit]')?.getAttribute('data-table-fit'))
-        .toBe('desktop');
+      await expect.poll(() => settledFit(host)).toBe('desktop');
       onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
       return host;
     }
@@ -356,9 +358,7 @@ describe('OpenApplicationTable', () => {
     const [table] = await fixture.getDeferBlocks();
     await table.render(DeferBlockState.Complete);
     fixture.autoDetectChanges();
-    await expect
-      .poll(() => host.querySelector('[data-table-fit]')?.getAttribute('data-table-fit'))
-      .toBe('mobile');
+    await expect.poll(() => settledFit(host)).toBe('mobile');
     host.querySelector('tbody ng-icon[name="lucideChevronRight"]')!.closest('button')!.click();
     await fixture.whenStable();
 
