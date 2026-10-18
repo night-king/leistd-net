@@ -4,17 +4,7 @@ import { Router } from '@angular/router';
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
-// prettier-ignore
-import {
-  lucideBell,
-  lucideCircleAlert,
-  lucideInbox,
-  lucideInfo,
-  //#if (LocalIdentity)
-  lucideShieldAlert,
-  //#endif
-  lucideTrash2,
-} from '@ng-icons/lucide';
+import { lucideBell, lucideCircleAlert, lucideInbox, lucideTrash2 } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
@@ -24,7 +14,10 @@ import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 
 import { applicationErrorMessage } from '../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../core/feedback/confirm-service';
-import { NotificationService } from '../../../core/services/notification-service';
+import {
+  NOTIFICATION_ICONS,
+  NotificationService,
+} from '../../../core/services/notification-service';
 import { SettingContextService } from '../../../core/settings/setting-context-service';
 import { PopoverAria } from '../../../shared/directives/popover-aria';
 import { NotificationOutputDto } from '../../../shared/dtos/notification.dto';
@@ -54,13 +47,10 @@ import { englishText } from '../../../shared/utils/english-text';
   ],
   providers: [
     provideIcons({
+      ...NOTIFICATION_ICONS,
       lucideBell,
       lucideCircleAlert,
       lucideInbox,
-      lucideInfo,
-      //#if (LocalIdentity)
-      lucideShieldAlert,
-      //#endif
       lucideTrash2,
     }),
   ],

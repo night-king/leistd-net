@@ -36,7 +36,7 @@ describe('Notifications', () => {
     MockedObject<NotificationService>,
     'init' | 'markAsRead' | 'markAllAsRead' | 'clearAll' | 'clearOne' | 'getIcon'
   > &
-    Pick<NotificationService, 'notifications' | 'unreadCount' | 'loading'>;
+    Pick<NotificationService, 'notifications' | 'unreadCount' | 'loading' | 'loadFailed'>;
   let confirmService: Pick<MockedObject<ConfirmService>, 'open'>;
   let errorToast: Mock;
 
@@ -51,6 +51,7 @@ describe('Notifications', () => {
       notifications: signal<NotificationOutputDto[]>([]),
       unreadCount: signal(0),
       loading: signal(false),
+      loadFailed: signal(false),
     };
     service.init.mockResolvedValue();
     confirmService = {
@@ -164,6 +165,52 @@ describe('Notifications', () => {
       'navigation is the primary action and must not be blocked',
     ).toHaveBeenCalledWith('/platform/users');
     expect(component.notificationOpen()).toBe('closed');
+  });
+
+  // 图标由使用方自己整组注册（测试不在父级预先提供）：漏注册不会报错，面板里只剩一块空白
+  it('renders the type icon of a notification centred beside its title', async () => {
+    service.getIcon.mockImplementation((type: string) =>
+      NotificationService.prototype.getIcon.call(service, type),
+    );
+    service.notifications.set([
+      {
+        id: 'n-1',
+        title: 'Sign-in from a new device',
+        //#if (LocalIdentity)
+        type: 'Security',
+        //#else
+        type: 'System',
+        //#endif
+        isRead: false,
+        creationTime: new Date().toISOString(),
+      } as NotificationOutputDto,
+    ]);
+    const fixture = TestBed.createComponent(Notifications);
+    fixture.detectChanges();
+    fixture.componentInstance.notificationOpen.set('open');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
+
+    const findItem = () =>
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button'),
+      ).find((button) => button.textContent?.includes('Sign-in from a new device'));
+    await expect.poll(findItem).toBeDefined();
+    const item = findItem()!;
+    const icon = item.querySelector('ng-icon')!;
+    const svg = icon.querySelector('svg');
+    expect(svg, 'the icon must be registered by the panel itself').not.toBeNull();
+    const svgBox = svg!.getBoundingClientRect();
+    const iconBox = icon.getBoundingClientRect();
+    const itemBox = item.getBoundingClientRect();
+    expect(svgBox.width).toBeGreaterThan(0);
+    expect(
+      Math.abs(svgBox.left + svgBox.width / 2 - (iconBox.left + iconBox.width / 2)),
+    ).toBeLessThan(1);
+    expect(
+      Math.abs(svgBox.top + svgBox.height / 2 - (itemBox.top + itemBox.height / 2)),
+    ).toBeLessThan(1);
   });
 
   it('surfaces an error when dismissing a single notification fails', async () => {

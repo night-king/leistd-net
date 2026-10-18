@@ -136,24 +136,41 @@
           role="status"
           data-testid="realtime-status"
         >
+          <!-- 可见文案是一行短状态，完整说明放进可聚焦的提示；常驻的状态区另放一份视觉隐藏的完整说明给读屏，
+             它不在可聚焦元素里，聚焦时只读到短状态与提示，不重复 -->
           @switch (realtimeStatus()) {
             @case ('connected') {
               <span hlmBadge variant="success">{{ t('layout.realtime.label') }}</span>
-              <span class="text-muted-foreground min-w-0">{{
-                t('layout.realtime.connected')
-              }}</span>
+              <span
+                tabindex="0"
+                class="text-muted-foreground focus-visible:ring-ring/50 min-w-0 truncate rounded-sm outline-none focus-visible:ring-[3px]"
+                data-testid="realtime-status-text"
+                [hlmTooltip]="t('layout.realtime.connected')"
+                >{{ t('layout.realtime.connectedShort') }}</span
+              >
+              <span class="sr-only">{{ t('layout.realtime.connected') }}</span>
             }
             @case ('reconnecting') {
               <span hlmBadge variant="outline">{{ t('layout.realtime.label') }}</span>
-              <span class="text-muted-foreground min-w-0">{{
-                t('layout.realtime.reconnecting')
-              }}</span>
+              <span
+                tabindex="0"
+                class="text-muted-foreground focus-visible:ring-ring/50 min-w-0 truncate rounded-sm outline-none focus-visible:ring-[3px]"
+                data-testid="realtime-status-text"
+                [hlmTooltip]="t('layout.realtime.reconnecting')"
+                >{{ t('layout.realtime.reconnectingShort') }}</span
+              >
+              <span class="sr-only">{{ t('layout.realtime.reconnecting') }}</span>
             }
             @default {
               <span hlmBadge variant="destructive">{{ t('layout.realtime.label') }}</span>
-              <span class="text-muted-foreground min-w-0">{{
-                t('layout.realtime.disconnected')
-              }}</span>
+              <span
+                tabindex="0"
+                class="text-muted-foreground focus-visible:ring-ring/50 min-w-0 truncate rounded-sm outline-none focus-visible:ring-[3px]"
+                data-testid="realtime-status-text"
+                [hlmTooltip]="t('layout.realtime.disconnected')"
+                >{{ t('layout.realtime.disconnectedShort') }}</span
+              >
+              <span class="sr-only">{{ t('layout.realtime.disconnected') }}</span>
             }
           }
         </div>

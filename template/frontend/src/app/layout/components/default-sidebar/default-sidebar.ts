@@ -26,6 +26,9 @@ import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
 import { HlmKbdImports } from '@spartan-ng/helm/kbd';
 import { HlmSidebarImports, HlmSidebarService } from '@spartan-ng/helm/sidebar';
+//#if (IncludeRealTime)
+import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
+//#endif
 
 import { CommandPaletteService } from '../../../core/services/command-palette-service';
 import { LayoutService } from '../../../core/services/layout-service';
@@ -52,6 +55,7 @@ import { UserMenu } from '../user-menu/user-menu';
     ...HlmSidebarImports,
     //#if (IncludeRealTime)
     HlmBadge,
+    ...HlmTooltipImports,
     //#endif
     UserMenu,
     //#if (IncludeLocalization)
@@ -115,6 +119,9 @@ const ENGLISH: Record<string, string> = {
   'layout.realtime.connected': 'Live updates connected',
   'layout.realtime.reconnecting': 'Connection lost, reconnecting…',
   'layout.realtime.disconnected': 'Live updates offline. Refresh to retry.',
+  'layout.realtime.connectedShort': 'Connected',
+  'layout.realtime.reconnectingShort': 'Reconnecting…',
+  'layout.realtime.disconnectedShort': 'Offline',
   //#endif
 };
 //#endif
