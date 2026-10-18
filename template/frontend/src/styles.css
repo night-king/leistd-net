@@ -247,6 +247,19 @@ body {
 }
 
 /*
+ * 下拉与组合框触发器里的选中值、占位只是一段文字（Brain 直接写 textContent）：放不下时单行截断并带省略号，
+ * 箭头留在控件内。上游把选择框的值区写成 flex + line-clamp，省略号只对块容器生效，这里改回块级文字盒；
+ * 组合框的值区没有任何收缩约束，长文字会把箭头挤出边框。隐藏状态（无值且无占位）不覆盖。
+ */
+:is([data-slot='select-value'], [data-slot='combobox-value']):not([data-hidden]) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
  * 触屏点按目标不小于 44px（frontend-ui.md「可访问性」）。按钮、输入框等在 helm 里按尺寸档位加了 pointer-coarse；
  * 菜单项、选项、导航链接、侧栏菜单按钮与分段控件项的最小目标尺寸不随档位变化，在这里统一补足，内容多行时照常撑高。
  * 折叠为图标的侧栏加宽到能放下 44px 的按钮（按钮本身的尺寸见 helm sidebar-menu-button）。

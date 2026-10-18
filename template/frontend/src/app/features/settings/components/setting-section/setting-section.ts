@@ -81,6 +81,13 @@ interface GroupView extends SettingGroup {
   //#endif
 }
 
+/** 继承来源的文案，由模板按当前语言传入。 */
+interface InheritedSourceLabels {
+  followSystem: string;
+  followOrganization: string;
+  deploymentDefault: string;
+}
+
 /** "已保存"提示的停留时长：看得见，又不与下一次改动的状态混淆。 */
 const SAVED_HINT_MS = 2000;
 
@@ -184,6 +191,8 @@ export class SettingSection {
 
   /** 写入链的队尾。见 {@link write} 里为什么必须串行。 */
   private writeQueue: Promise<void> = Promise.resolve();
+  /** 每行最近一次写入的序号：同一行连续写入时，只有最后一次给出这一行的状态。 */
+  private readonly writeGenerations = new Map<string, number>();
   protected readonly settings = this.pageState.settings;
   protected readonly drafts = signal<Record<string, string>>({});
   private readonly labelFns = new Map<string, (value: unknown) => string>();
@@ -285,24 +294,15 @@ export class SettingSection {
     return option ? timeZoneMatches(option, search) : false;
   };
 
-  /** 选中项在触发器上的文案：带上偏移，省得为了确认选对了再点开一次。 */
-  protected readonly timeZoneToString = (value: unknown): string => {
-    const id = String(value ?? '');
-    const option = this.timeZoneIndex.get(id);
-    return option && option.offsetLabel ? `${option.value} · ${option.offsetLabel}` : id;
-  };
+  /**
+   * 选中项在触发器上的文案：只写 IANA 名，与继承来的占位同一写法。偏移留在候选列表里：带上它，
+   * 多数时区名在设置页的固定宽度里放不下，被省略的正是值本身。
+   */
+  protected readonly timeZoneToString = (value: unknown): string => String(value ?? '');
 
   /** 这一项当前的写入状态；没有即常态。 */
   protected stateOf(setting: SettingOutputDto, scope: SettingScope): RowState | undefined {
     return this.rowState()[this.draftKey(setting, scope)];
-  }
-
-  /**
-   * 是否正在写入。只用于禁用开关、下拉、重置等离散控件：写入在途时再点不表达新意图；
-   * 文本与数字框不禁用，原因见模板注释。
-   */
-  protected isRowSaving(setting: SettingOutputDto, scope: SettingScope): boolean {
-    return this.stateOf(setting, scope)?.status === 'saving';
   }
 
   /** 取值封闭的设置渲染下拉，其余渲染文本框；返回 undefined 表示没有候选项。 */
@@ -400,36 +400,59 @@ export class SettingSection {
   }
 
   /**
-   * 继承值的展示文案：有候选项时换成标签，避免同一控件上出现「中文」与 `zh-CN` 两种写法。
-   *
-   * 语言与时区还要说清值从哪来（个人 → 组织 → 部署基线 → 设备）：个人页继承到的是"跟随组织"
-   * （组织值或部署基线），系统页继承到的是"部署默认"；都没有时跟随系统。
+   * 继承值的展示文案（占位符）：只写正在生效的值，有候选项时换成标签，避免同一控件上出现「中文」与
+   * `zh-CN` 两种写法。值从哪来由 {@link inheritedSourceOf} 写在标签后面：两者拼在一起时，设置页的
+   * 固定宽度放不下，被省略的正是值。没有继承值时看有没有"跟随系统"探测到的值，空占位符会让正在
+   * 生效的值看不见；探测不到（系统页不探测管理员本机）时占位就是"跟随系统"。
    *
    * @param labels 来源文案，由模板按当前语言传入。
    */
   protected inheritedLabelOf(
     setting: SettingOutputDto,
     scope: SettingScope,
-    labels: { followSystem: string; followOrganization: string; deploymentDefault: string },
+    labels: InheritedSourceLabels,
   ): string {
-    const inherited = this.inheritedOf(setting, scope);
-    const followsDevice = isDeviceDefaulted(setting);
+    const inherited = this.inheritedOf(setting, scope) || this.systemDefaultOf(setting, scope);
     if (inherited.length > 0) {
-      const label = this.labelOf(setting, inherited);
-      if (!followsDevice) {
-        return label;
-      }
-
-      return `${scope === 'account' ? labels.followOrganization : labels.deploymentDefault} · ${label}`;
+      return this.labelOf(setting, inherited);
     }
 
-    // 没有继承值时看有没有"跟随系统"探测到的值：空占位符会让正在生效的值看不见。
-    const system = this.systemDefaultOf(setting, scope);
-    if (system.length > 0) {
-      return `${labels.followSystem} · ${this.labelOf(setting, system)}`;
+    return isDeviceDefaulted(setting) ? labels.followSystem : '';
+  }
+
+  /**
+   * 语言与时区在本层未覆盖时，说清生效值从哪来（个人 → 组织 → 部署基线 → 设备）：个人页继承到的是
+   * "跟随组织"（组织值或部署基线），系统页继承到的是"部署默认"，用的是设备探测值时是"跟随系统"。
+   * 本层已覆盖、或占位本身已是"跟随系统"时不写。
+   *
+   * @param labels 来源文案，由模板按当前语言传入。
+   */
+  protected inheritedSourceOf(
+    setting: SettingOutputDto,
+    scope: SettingScope,
+    labels: InheritedSourceLabels,
+  ): string {
+    if (!isDeviceDefaulted(setting) || this.draftOf(setting, scope).length > 0) {
+      return '';
     }
 
-    return followsDevice ? labels.followSystem : '';
+    if (this.inheritedOf(setting, scope).length > 0) {
+      return scope === 'account' ? labels.followOrganization : labels.deploymentDefault;
+    }
+
+    return this.systemDefaultOf(setting, scope).length > 0 ? labels.followSystem : '';
+  }
+
+  /** 触发器上正在显示的全文：本层的值或继承来的占位。放不下时控件里单行省略，悬停提示给出全文。 */
+  protected displayTextOf(
+    setting: SettingOutputDto,
+    scope: SettingScope,
+    labels: InheritedSourceLabels,
+  ): string {
+    const draft = this.draftOf(setting, scope);
+    return draft.length > 0
+      ? this.labelOf(setting, draft)
+      : this.inheritedLabelOf(setting, scope, labels);
   }
 
   protected onInput(setting: SettingOutputDto, scope: SettingScope, event: Event): void {
@@ -441,8 +464,7 @@ export class SettingSection {
   protected onCommit(setting: SettingOutputDto, scope: SettingScope, event: Event): void {
     const value = (event.target as HTMLInputElement).value.trim();
 
-    // 草稿同步成裁剪后的值：界面显示实际存入的值，写入完成后按值比对清草稿（见 write）才对得上。
-    this.drafts.update((drafts) => ({ ...drafts, [this.draftKey(setting, scope)]: value }));
+    // 写入裁剪后的值：草稿随之同步（见 write），界面显示的就是实际存入的值。
     void this.write(setting, value.length === 0 ? null : value, scope);
   }
 
@@ -483,10 +505,15 @@ export class SettingSection {
   /** 写入一项：经 {@link enqueue} 串行执行 PUT → 重取快照 → 全局发布。 */
   private write(setting: SettingOutputDto, value: string | null, scope: SettingScope): void {
     const key = this.draftKey(setting, scope);
+    // 控件在写入期间照常可用，焦点留在原处：禁用会把焦点弹到页面上，键盘与读屏用户得从头找回来。
+    // 再次操作就再排一次写入，以最后一次为准。草稿即最新意图：前一次写入刷新的快照不会把控件拨回旧值。
+    this.drafts.update((drafts) => ({ ...drafts, [key]: value ?? '' }));
+    const generation = (this.writeGenerations.get(key) ?? 0) + 1;
+    this.writeGenerations.set(key, generation);
+    const isLatest = () => this.writeGenerations.get(key) === generation;
     this.setRowState(key, { status: 'saving' });
 
-    // 串行：两条链并发时 GET 响应可能乱序，旧快照会覆盖新快照。只禁用本行的离散控件，
-    // 其他设置项照样能改。
+    // 串行：两条链并发时 GET 响应可能乱序，旧快照会覆盖新快照。
     const startedAt = Date.now();
     this.enqueue(async () => {
       try {
@@ -507,24 +534,28 @@ export class SettingSection {
         // 本页的快照就是会话快照，刷新完即已更新。
         await this.sessionContext.refreshSettings();
 
-        // 快照到手后才丢草稿，否则 PUT 成功而 GET 失败时界面会退回旧值。
-        // 只丢仍等于本次写入值的草稿：回车提交后用户可以接着改，新输入不能被抹掉。
-        this.drafts.update((drafts) => {
-          if (drafts[key] !== (value ?? '')) {
-            return drafts;
-          }
+        // 快照到手后才丢草稿，否则 PUT 成功而 GET 失败时界面会退回旧值。只丢最后一次写入、且仍等于
+        // 本次写入值的草稿：之后又排了写入时草稿属于那一次（A→B→A 里两个 A 不是同一份意图）；
+        // 回车提交后用户可以接着改，尚未提交的新输入也不能被抹掉。
+        if (isLatest()) {
+          this.drafts.update((drafts) => {
+            if (drafts[key] !== (value ?? '')) {
+              return drafts;
+            }
 
-          const next = { ...drafts };
-          delete next[key];
-          return next;
-        });
+            const next = { ...drafts };
+            delete next[key];
+            return next;
+          });
+        }
 
-        await this.holdSavingState(startedAt);
-        this.markSaved(key);
+        await this.publishRowState(key, generation, startedAt, { status: 'saved' });
       } catch (error: unknown) {
         // 失败就地报在该行且不自动消失（toast 会离开该行且易被顶掉）；上一份快照仍有效。
-        await this.holdSavingState(startedAt);
-        this.setRowState(key, { status: 'error', message: applicationErrorMessage(error) });
+        await this.publishRowState(key, generation, startedAt, {
+          status: 'error',
+          message: applicationErrorMessage(error),
+        });
       }
     });
   }
@@ -546,11 +577,43 @@ export class SettingSection {
       : new Promise<void>((resolve) => setTimeout(resolve, remaining));
   }
 
-  /** 成功状态是暂时的：留一小会儿让人看见，然后回到常态。 */
-  private markSaved(key: string): void {
+  /**
+   * 发布一次写入的结果：这一行之后又有写入时，本次结果不再代表这一行，状态由最后一次写入给出。
+   * 补足"保存中"的最短时长之后再判一次：等待期间又排进来的写入正在保存，旧结果不能盖住它。
+   */
+  private async publishRowState(
+    key: string,
+    generation: number,
+    startedAt: number,
+    state: RowState,
+  ): Promise<void> {
+    if (this.writeGenerations.get(key) !== generation) {
+      return;
+    }
+
+    await this.holdSavingState(startedAt);
+    if (this.writeGenerations.get(key) !== generation) {
+      return;
+    }
+
+    if (state.status === 'saved') {
+      this.markSaved(key, generation);
+    } else {
+      this.setRowState(key, state);
+    }
+  }
+
+  /**
+   * 成功状态是暂时的：留一小会儿让人看见，然后回到常态。只清本次写入的提示：之后那次写入的提示
+   * 按它自己的时长停留。
+   */
+  private markSaved(key: string, generation: number): void {
     this.setRowState(key, { status: 'saved' });
     setTimeout(() => {
-      if (this.rowState()[key]?.status === 'saved') {
+      if (
+        this.writeGenerations.get(key) === generation &&
+        this.rowState()[key]?.status === 'saved'
+      ) {
         this.rowState.update((current) => {
           const next = { ...current };
           delete next[key];

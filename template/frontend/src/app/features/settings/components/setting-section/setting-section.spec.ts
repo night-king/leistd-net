@@ -1,5 +1,6 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 //#if (IncludeLocalization)
@@ -159,23 +160,157 @@ describe('SettingSection', () => {
   });
 
   /**
-   * 离散控件在本行写入期间禁用、写完恢复；以每行都有的重置按钮断言，用虚拟时间收尾，
-   * 确认禁用态不会一直挂着。
+   * 写入期间本行控件照常可用、焦点留在原处：禁用会把焦点弹到页面上，键盘与读屏用户得从头找回来。
+   * 以每行都有的重置按钮断言。
    */
-  it('disables the discrete controls on that row while it saves', async () => {
+  it('keeps the row controls enabled and focused while it saves', async () => {
     const resetButton = () =>
       (fixture.nativeElement as HTMLElement).querySelector(
         '[data-testid="setting-reset-Display.FreeTextProbe"]',
       ) as HTMLButtonElement;
 
-    await typeAndSave('UTC');
-    expect(resetButton().disabled).toBe(true);
+    resetButton().focus();
+    resetButton().click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('hlm-spinner')).toBeTruthy();
+    expect(resetButton().disabled).toBe(false);
+    expect(document.activeElement).toBe(resetButton());
 
     await flushSave();
+    http.expectOne('/api/v1/settings').flush([row()]);
+    await settleSave();
+
+    expect(document.activeElement).toBe(resetButton());
+  });
+
+  // 写入在途时再改一次：两次按序写入，以最后一次为准。前一次刷新的快照不能把控件拨回旧值，
+  // 也不能提前报"已保存"——那时最后一次还没写完。
+  it('queues a second change on the same row and reports only the latest write', async () => {
+    const host = fixture.nativeElement as HTMLElement;
+    await typeAndSave('UTC');
+    await typeAndSave('Asia/Tokyo');
+
+    const first = http.expectOne('/api/v1/settings/current-user');
+    expect(first.request.body).toEqual({ name: 'Display.FreeTextProbe', value: 'UTC' });
+    first.flush(null);
+    await fixture.whenStable();
+    http.expectOne('/api/v1/settings').flush([row({ userValue: 'UTC' })]);
+    await vi.advanceTimersByTimeAsync(400);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(input().value).toBe('Asia/Tokyo');
+    expect(host.querySelector('ng-icon[name="lucideCircleCheck"]')).toBeNull();
+    expect(host.querySelector('hlm-spinner')).toBeTruthy();
+
+    const second = http.expectOne('/api/v1/settings/current-user');
+    expect(second.request.body).toEqual({ name: 'Display.FreeTextProbe', value: 'Asia/Tokyo' });
+    second.flush(null);
+    await fixture.whenStable();
+    http.expectOne('/api/v1/settings').flush([row({ userValue: 'Asia/Tokyo' })]);
+    await settleSave();
+
+    expect(input().value).toBe('Asia/Tokyo');
+    expect(host.querySelector('ng-icon[name="lucideCircleCheck"]')).toBeTruthy();
+  });
+
+  // 前一次写入补足"保存中"的等待期间又提交了一次：等待结束时前一次的结果不能盖住正在保存的这一次
+  it('keeps the saving state when an earlier write finishes waiting while a later one is pending', async () => {
+    const host = fixture.nativeElement as HTMLElement;
+    await typeAndSave('UTC');
+    await flushSave();
+    http.expectOne('/api/v1/settings').flush([row({ userValue: 'UTC' })]);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await typeAndSave('Asia/Tokyo');
+    await vi.advanceTimersByTimeAsync(300);
+    fixture.detectChanges();
+
+    expect(host.querySelector('hlm-spinner')).toBeTruthy();
+    expect(host.querySelector('ng-icon[name="lucideCircleCheck"]')).toBeNull();
+    const second = http.expectOne('/api/v1/settings/current-user');
+    expect(second.request.body).toEqual({ name: 'Display.FreeTextProbe', value: 'Asia/Tokyo' });
+    second.flush(null);
+    await fixture.whenStable();
+    http.expectOne('/api/v1/settings').flush([row({ userValue: 'Asia/Tokyo' })]);
+    await settleSave();
+    expect(host.querySelector('ng-icon[name="lucideCircleCheck"]')).toBeTruthy();
+  });
+
+  it('does not report an earlier failure while a later write of the row is pending', async () => {
+    const host = fixture.nativeElement as HTMLElement;
+    await typeAndSave('UTC');
+    http
+      .expectOne('/api/v1/settings/current-user')
+      .flush('boom', { status: 500, statusText: 'Server Error' });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await typeAndSave('Asia/Tokyo');
+    await vi.advanceTimersByTimeAsync(300);
+    fixture.detectChanges();
+
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('hlm-spinner')).toBeTruthy();
+    await flushSave();
+    http.expectOne('/api/v1/settings').flush([row({ userValue: 'Asia/Tokyo' })]);
+    await settleSave();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(input().value).toBe('Asia/Tokyo');
+  });
+
+  // A→B→A：第一笔 A 写完时，草稿里的 A 属于第三笔，不能被当成自己的清掉，否则第二笔的快照把控件拨回 B
+  it('keeps the latest value through a write sequence that returns to an earlier value', async () => {
+    await typeAndSave('UTC');
+    await typeAndSave('Asia/Tokyo');
+    await typeAndSave('UTC');
+
+    const writes: string[] = [];
+    for (const snapshot of ['UTC', 'Asia/Tokyo']) {
+      const put = http.expectOne('/api/v1/settings/current-user');
+      writes.push(put.request.body.value);
+      put.flush(null);
+      await fixture.whenStable();
+      http.expectOne('/api/v1/settings').flush([row({ userValue: snapshot })]);
+      await vi.advanceTimersByTimeAsync(0);
+      fixture.detectChanges();
+
+      expect(input().value).toBe('UTC');
+    }
+
+    const last = http.expectOne('/api/v1/settings/current-user');
+    writes.push(last.request.body.value);
+    last.flush(null);
+    await fixture.whenStable();
     http.expectOne('/api/v1/settings').flush([row({ userValue: 'UTC' })]);
     await settleSave();
 
-    expect(resetButton().disabled).toBe(false);
+    expect(writes).toEqual(['UTC', 'Asia/Tokyo', 'UTC']);
+    expect(input().value).toBe('UTC');
+  });
+
+  // 两次先后成功：前一次"已保存"的清理不能提前清掉后一次的提示，各自停留 2 秒
+  it('keeps the latest saved hint for its own duration after an earlier save', async () => {
+    const host = fixture.nativeElement as HTMLElement;
+    const saved = () => host.querySelector('ng-icon[name="lucideCircleCheck"]');
+    await typeAndSave('UTC');
+    await flushSave();
+    http.expectOne('/api/v1/settings').flush([row({ userValue: 'UTC' })]);
+    await settleSave();
+    await vi.advanceTimersByTimeAsync(500);
+
+    await typeAndSave('Asia/Tokyo');
+    await flushSave();
+    http.expectOne('/api/v1/settings').flush([row({ userValue: 'Asia/Tokyo' })]);
+    await settleSave();
+    // 越过前一次提示的 2 秒（它在 400ms 出现），后一次的提示（900ms 起计）还在
+    await vi.advanceTimersByTimeAsync(1150);
+    fixture.detectChanges();
+    expect(saved()).toBeTruthy();
+
+    await vi.advanceTimersByTimeAsync(900);
+    fixture.detectChanges();
+    expect(saved()).toBeNull();
   });
 
   // 回车提交后光标还在输入框里，用户可以接着改；先前那次写入完成时清草稿不能抹掉新输入。
@@ -615,8 +750,9 @@ describe('SettingSection host scope hint', () => {
 
 /** 开关没有占位符，本层未覆盖时显示继承来的生效值。 */
 /**
- * 语言与时区的占位说清值从哪层来：个人页继承到的是"跟随组织"（组织值或部署基线），系统页继承到的是"部署默认"；
- * 都没有时跟随系统，系统页不显示管理员自己这台设备的探测值。
+ * 语言与时区：占位只写正在生效的值，值从哪层来写在标签后面的说明里（个人页继承到的是"跟随组织"，
+ * 系统页继承到的是"部署默认"，用设备探测值时是"跟随系统"）。拼进一个占位时固定宽度放不下，
+ * 被省略的正是值。系统页不显示管理员自己这台设备的探测值。
  */
 describe('SettingSection display placeholders', () => {
   const timeZone = (overrides: Partial<SettingOutputDto>) =>
@@ -631,7 +767,7 @@ describe('SettingSection display placeholders', () => {
 
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
-  async function placeholderOf(scope: string, setting: SettingOutputDto): Promise<string> {
+  async function render(scope: string, setting: SettingOutputDto) {
     TestBed.configureTestingModule({
       imports: [SettingSection],
       providers: [...pageProviders()],
@@ -642,49 +778,251 @@ describe('SettingSection display placeholders', () => {
     TestBed.inject(HttpTestingController).expectOne('/api/v1/settings').flush([setting]);
     await fixture.whenStable();
     fixture.detectChanges();
-    const trigger = (fixture.nativeElement as HTMLElement).querySelector(
-      '[data-testid="setting-combobox-Display.TimeZone"] hlm-combobox-trigger',
-    );
-    return trigger?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    return fixture;
+  }
+
+  /** 触发器上的文字、悬停提示，以及可聚焦按钮经 aria-describedby 读到的说明。 */
+  function readRow(host: HTMLElement) {
+    const button = host.querySelector<HTMLButtonElement>('button#Display\\.TimeZone')!;
+    const describedBy = (button.getAttribute('aria-describedby') ?? '').split(/\s+/);
+    return {
+      text: button.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      title: host.querySelector('hlm-combobox-trigger')?.getAttribute('title') ?? null,
+      source: host.querySelector('[data-testid="setting-source"]')?.textContent?.trim() ?? '',
+      description: describedBy
+        .map((id) => (id ? document.getElementById(id)?.textContent?.trim() : ''))
+        .join(' '),
+    };
   }
 
   const ORGANIZATION = /Follows your organization|settings\.followOrganization/;
   const DEPLOYMENT = /Deployment default|settings\.deploymentDefault/;
   const SYSTEM = /Follows your system|settings\.followSystem/;
 
-  it('names the organization when the account inherits an organization value', async () => {
-    const text = await placeholderOf('account', timeZone({ tenantValue: 'Asia/Tokyo' }));
+  it('shows the inherited organization value and names its source beside the label', async () => {
+    const fixture = await render('account', timeZone({ tenantValue: 'Asia/Tokyo' }));
+    const view = readRow(fixture.nativeElement);
 
-    expect(text).toMatch(ORGANIZATION);
-    expect(text).toContain('Asia/Tokyo');
+    expect(view.text).toBe('Asia/Tokyo');
+    expect(view.title).toBe('Asia/Tokyo');
+    expect(view.source).toMatch(ORGANIZATION);
+    // 来源在本行常驻描述里，读屏经控件的 aria-describedby 读到它
+    expect(view.description).toMatch(ORGANIZATION);
   });
 
   it('names the organization when the account inherits the deployment baseline', async () => {
-    const text = await placeholderOf('account', timeZone({ defaultValue: 'Asia/Tokyo' }));
+    const fixture = await render('account', timeZone({ defaultValue: 'Asia/Tokyo' }));
+    const view = readRow(fixture.nativeElement);
 
-    expect(text).toMatch(ORGANIZATION);
-    expect(text).toContain('Asia/Tokyo');
+    expect(view.text).toBe('Asia/Tokyo');
+    expect(view.source).toMatch(ORGANIZATION);
   });
 
   it('shows the detected device value on the account page when nothing is set', async () => {
-    const text = await placeholderOf('account', timeZone({}));
+    const fixture = await render('account', timeZone({}));
+    const view = readRow(fixture.nativeElement);
 
-    expect(text).toMatch(SYSTEM);
-    expect(text).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(view.text).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(view.source).toMatch(SYSTEM);
   });
 
   it('names the deployment baseline on the system page', async () => {
-    const text = await placeholderOf('system', timeZone({ defaultValue: 'Asia/Tokyo' }));
+    const fixture = await render('system', timeZone({ defaultValue: 'Asia/Tokyo' }));
+    const view = readRow(fixture.nativeElement);
 
-    expect(text).toMatch(DEPLOYMENT);
-    expect(text).toContain('Asia/Tokyo');
+    expect(view.text).toBe('Asia/Tokyo');
+    expect(view.source).toMatch(DEPLOYMENT);
   });
 
   it("does not present the admin's own device value as the organization's on the system page", async () => {
-    const text = await placeholderOf('system', timeZone({}));
+    const fixture = await render('system', timeZone({}));
+    const view = readRow(fixture.nativeElement);
 
-    expect(text).toMatch(SYSTEM);
-    expect(text).not.toContain('·');
+    // 占位本身就是"跟随系统"，说明里不再重复
+    expect(view.text).toMatch(SYSTEM);
+    expect(view.source).toBe('');
+  });
+
+  // 时区只写 IANA 名：带上偏移后多数时区名在设置页的固定宽度里放不下，偏移在候选列表里
+  it('shows only the zone name for an own value and drops the inherited source', async () => {
+    const fixture = await render(
+      'account',
+      timeZone({ tenantValue: 'Asia/Tokyo', userValue: 'Europe/Paris' }),
+    );
+    const view = readRow(fixture.nativeElement);
+
+    expect(view.text).toBe('Europe/Paris');
+    expect(view.title).toBe('Europe/Paris');
+    expect(view.source).toBe('');
+  });
+});
+
+/**
+ * 写入状态与继承来源共用标签后面那一处：写入期间显示状态，状态结束后回到来源；
+ * 清掉本层的值后来源重新出现。
+ */
+describe('SettingSection inherited source and save state', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    TestBed.inject(HttpTestingController).verify();
+  });
+
+  it('replaces the source with the save state and brings it back afterwards', async () => {
+    const timeZone = (userValue: string | null) =>
+      row({
+        name: 'Display.TimeZone',
+        group: 'Display',
+        defaultValue: null,
+        tenantValue: 'Asia/Tokyo',
+        userValue,
+      });
+    TestBed.configureTestingModule({
+      imports: [SettingSection],
+      providers: [...pageProviders()],
+    });
+    const fixture = TestBed.createComponent(SettingSection);
+    const http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+    http.expectOne('/api/v1/settings').flush([timeZone('Europe/Paris')]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const host = fixture.nativeElement as HTMLElement;
+    const source = () => host.querySelector('[data-testid="setting-source"]');
+
+    // 本层有值：不写来源
+    expect(source()).toBeNull();
+
+    (host.querySelector('[data-testid="setting-reset-Display.TimeZone"]') as HTMLElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(host.querySelector('hlm-spinner')).toBeTruthy();
+    expect(source()).toBeNull();
+
+    http.expectOne('/api/v1/settings/current-user').flush(null);
+    await fixture.whenStable();
+    http.expectOne('/api/v1/settings').flush([timeZone(null)]);
+    await vi.advanceTimersByTimeAsync(400);
+    fixture.detectChanges();
+    expect(host.querySelector('ng-icon[name="lucideCircleCheck"]')).toBeTruthy();
+    expect(source()).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2000);
+    fixture.detectChanges();
+    expect(host.querySelector('ng-icon[name="lucideCircleCheck"]')).toBeNull();
+    expect(source()?.textContent).toMatch(/Follows your organization|settings\.followOrganization/);
+  });
+});
+
+/**
+ * 长值在设置页的固定宽度（`w-64`）里单行省略，箭头留在控件内，悬停提示给出全文。省略由 `styles.css`
+ * 按 data-slot 统一处理（上游选择框的值区是 flex，省略号不生效；组合框的值区没有收缩约束），
+ * 所以这组用例量的是全局样式加载后的真实几何。
+ */
+describe('SettingSection long values', () => {
+  const LONG = 'America/Argentina/Rio_Gallegos/With_A_Name_Longer_Than_Any_Zone';
+
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  async function render(settings: SettingOutputDto[]): Promise<HTMLElement> {
+    TestBed.configureTestingModule({
+      imports: [SettingSection],
+      providers: [...pageProviders()],
+    });
+    const fixture = TestBed.createComponent(SettingSection);
+    fixture.componentRef.setInput('scope', 'account');
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController).expectOne('/api/v1/settings').flush(settings);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await document.fonts.ready;
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  const timeZone = (overrides: Partial<SettingOutputDto>) =>
+    row({ name: 'Display.TimeZone', group: 'Display', defaultValue: null, ...overrides });
+  const logLevel = (overrides: Partial<SettingOutputDto>) =>
+    row({ name: 'Logging.MinimumLevel', group: 'Logging', defaultValue: null, ...overrides });
+
+  /** 值区单行省略、确实溢出，且右缘不压箭头，箭头在控件内。 */
+  function expectTruncatedInside(button: HTMLElement, slot: string) {
+    const value = button.querySelector<HTMLElement>(`[data-slot="${slot}"]`)!;
+    const icon = button.querySelector('ng-icon')!.getBoundingClientRect();
+    const box = button.getBoundingClientRect();
+    // 宽列表下控件固定 w-64：没进这一档就测不到缺陷
+    expect(box.width).toBeCloseTo(256, 0);
+    const style = getComputedStyle(value);
+    expect(style.display).toBe('block');
+    expect(style.textOverflow).toBe('ellipsis');
+    expect(value.scrollWidth).toBeGreaterThan(value.clientWidth);
+    expect(value.getBoundingClientRect().right).toBeLessThanOrEqual(icon.left + 0.5);
+    expect(icon.right).toBeLessThanOrEqual(box.right + 0.5);
+  }
+
+  it('truncates a long inherited time zone inside the combobox', async () => {
+    const host = await render([timeZone({ tenantValue: LONG })]);
+    const button = host.querySelector<HTMLElement>('button#Display\\.TimeZone')!;
+
+    expectTruncatedInside(button, 'combobox-value');
+    expect(host.querySelector('hlm-combobox-trigger')!.getAttribute('title')).toBe(LONG);
+  });
+
+  it('truncates a long own time zone inside the combobox', async () => {
+    const host = await render([timeZone({ userValue: LONG })]);
+    const button = host.querySelector<HTMLElement>('button#Display\\.TimeZone')!;
+
+    expectTruncatedInside(button, 'combobox-value');
+    expect(host.querySelector('hlm-combobox-trigger')!.getAttribute('title')).toBe(LONG);
+  });
+
+  it('truncates a long value inside the select with an ellipsis', async () => {
+    const host = await render([logLevel({ userValue: LONG })]);
+    const button = host.querySelector<HTMLElement>('button#Logging\\.MinimumLevel')!;
+
+    expectTruncatedInside(button, 'select-value');
+    expect(host.querySelector('hlm-select-trigger')!.getAttribute('title')).toBe(LONG);
+  });
+
+  it('truncates a long inherited placeholder inside the select', async () => {
+    const host = await render([logLevel({ tenantValue: LONG })]);
+    const button = host.querySelector<HTMLElement>('button#Logging\\.MinimumLevel')!;
+
+    expectTruncatedInside(button, 'select-value');
+  });
+
+  // 对照：短值不受影响；无值且无占位时值区仍按上游隐藏，没被统一规则改成块级
+  it('leaves short values whole and keeps an empty value hidden', async () => {
+    const host = await render([
+      timeZone({ userValue: 'Asia/Tokyo' }),
+      logLevel({ userValue: null, tenantValue: null }),
+    ]);
+    const zone = host.querySelector<HTMLElement>(
+      'button#Display\\.TimeZone [data-slot="combobox-value"]',
+    )!;
+    const level = host.querySelector<HTMLElement>('button#Logging\\.MinimumLevel')!;
+
+    expect(zone.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(zone.scrollWidth).toBeLessThanOrEqual(zone.clientWidth);
+    const empty = level.querySelector<HTMLElement>('hlm-select-value')!;
+    expect(empty.hasAttribute('data-hidden')).toBe(true);
+    expect(getComputedStyle(empty).display).toBe('none');
+  });
+
+  // 触发器上放不下的时区名，展开后在候选列表里能看到全名：城市名换行而不截断
+  it('shows every candidate city in full when the list opens', async () => {
+    const host = await render([timeZone({})]);
+    host.querySelector<HTMLElement>('button#Display\\.TimeZone')!.click();
+    await TestBed.inject(ApplicationRef).whenStable();
+
+    const cities = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"] > span:first-child'),
+    );
+    expect(cities.length).toBeGreaterThan(100);
+    const clipped = cities.filter((city) => {
+      const width = city.getBoundingClientRect().width;
+      return width === 0 || city.scrollWidth > city.clientWidth;
+    });
+    expect(clipped.map((city) => city.textContent?.trim())).toEqual([]);
   });
 });
 
@@ -778,6 +1116,41 @@ describe('SettingSection switches', () => {
     const write = TestBed.inject(HttpTestingController).expectOne('/api/v1/settings/current-user');
     expect(write.request.method).toBe('PUT');
     expect(write.request.body).toEqual({ name, value: 'false' });
+  });
+
+  // 拨两下：第一次写完刷新的快照（关）不能把开关拨回去，开关保持最新意图（开），两次按序写入
+  it('keeps the latest toggle while an earlier write of the same switch completes', async () => {
+    const host = await render('account');
+    const http = TestBed.inject(HttpTestingController);
+    const name = 'Probe.DefaultOn';
+    const control = () =>
+      host.querySelector<HTMLElement>(`[data-testid="setting-switch-${name}"] [role="switch"]`)!;
+    const withUserValue = (userValue: string) =>
+      switches.map((setting) => (setting.name === name ? { ...setting, userValue } : setting));
+
+    control().click();
+    await TestBed.inject(ApplicationRef).whenStable();
+    control().click();
+    await TestBed.inject(ApplicationRef).whenStable();
+
+    const first = http.expectOne('/api/v1/settings/current-user');
+    expect(first.request.body).toEqual({ name, value: 'false' });
+    first.flush(null);
+    await TestBed.inject(ApplicationRef).whenStable();
+    const refreshFirst = await vi.waitFor(() => http.expectOne('/api/v1/settings'));
+    refreshFirst.flush(withUserValue('false'));
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect(control().getAttribute('aria-checked')).toBe('true');
+
+    // 第二次写入排在第一条链之后，链收尾要过几轮微任务才发出
+    const second = await vi.waitFor(() => http.expectOne('/api/v1/settings/current-user'));
+    expect(second.request.body).toEqual({ name, value: 'true' });
+    second.flush(null);
+    await TestBed.inject(ApplicationRef).whenStable();
+    const refreshSecond = await vi.waitFor(() => http.expectOne('/api/v1/settings'));
+    refreshSecond.flush(withUserValue('true'));
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect(control().getAttribute('aria-checked')).toBe('true');
   });
 
   it('inherits only the code default at system scope', async () => {
@@ -912,7 +1285,6 @@ describe('SettingSection external login', () => {
     fixture.detectChanges();
 
     // 行状态由设置区块持有，模板插在卡片里照样跟着刷新
-    expect(resetButton.disabled).toBe(true);
     expect(card.querySelector('hlm-field-description hlm-spinner')).not.toBeNull();
 
     http.expectOne('/api/v1/settings/current-tenant').flush(null);
