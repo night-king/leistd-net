@@ -131,16 +131,46 @@ describe('WorkspaceNav overflow', () => {
     // 期望的首项按打开时刻的折叠结果取：断言的是"打开的那份菜单首项拿到焦点"，
     // 不受打开之后导航是否再折叠一次影响
     const expectedFirst = LONG_LABELS[inlineLinks(fixture.nativeElement).length];
+    // 诊断（临时）：CI 偶发失败时把各阶段的折叠状态带进失败消息
+    const trace: unknown[] = [];
+    const snapshot = (stage: string) => {
+      const nav = fixture.debugElement.query(
+        (node) => node.componentInstance instanceof WorkspaceNav,
+      ).componentInstance as WorkspaceNav;
+      const navEl = fixture.nativeElement.querySelector('nav[hlmNavigationMenu]') as HTMLElement;
+      trace.push({
+        stage,
+        t: Math.round(performance.now()),
+        domInline: inlineLinks(fixture.nativeElement).length,
+        signalVisible: nav.visibleCount(),
+        navWidth: navEl.clientWidth,
+        ruler: Array.from(navEl.querySelectorAll('[aria-hidden="true"] > div > span'), (span) =>
+          Math.round(span.getBoundingClientRect().width),
+        ),
+        menu: Array.from(document.querySelectorAll('[hlmDropdownMenuItem]'), (item) =>
+          item.textContent?.trim(),
+        ),
+        active: document.activeElement?.textContent?.trim().slice(0, 30),
+        fonts: document.fonts.status,
+        viewport: `${innerWidth}x${innerHeight}@${devicePixelRatio}`,
+      });
+    };
+    snapshot('before-open');
     more.focus();
     // CDK 菜单按 keyCode 判断方向键，构造的事件里它是 0，这里补上
     const arrowDown = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true });
     Object.defineProperty(arrowDown, 'keyCode', { value: 40 });
     more.dispatchEvent(arrowDown);
+    snapshot('after-dispatch');
     await settle(fixture);
+    snapshot('after-settle');
 
     // 下拉的首项拿到焦点；导航自己的方向键管理没有把焦点抢回平铺链接
-    expect(document.activeElement?.closest('[hlmDropdownMenuItem]')).not.toBeNull();
-    expect(document.activeElement?.textContent?.trim()).toBe(expectedFirst);
+    expect(
+      document.activeElement?.closest('[hlmDropdownMenuItem]'),
+      JSON.stringify(trace),
+    ).not.toBeNull();
+    expect(document.activeElement?.textContent?.trim(), JSON.stringify(trace)).toBe(expectedFirst);
   });
 
   describe('touch targets', () => {
