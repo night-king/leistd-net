@@ -10,14 +10,20 @@
   >
     <hlm-dialog-content
       *hlmDialogPortal
-      class="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-2xl"
+      class="flex max-h-[calc(100dvh-2rem)] min-w-[min(42rem,calc(100vw_-_2rem))] flex-col overflow-hidden sm:max-w-2xl"
       [showCloseButton]="!saving()"
     >
       <hlm-dialog-header>
         <h2 hlmDialogTitle>
           {{ isEditMode() ? t('users.editDialog.editHeader') : t('users.editDialog.createHeader') }}
         </h2>
-        <p hlmDialogDescription>{{ t('users.editDialog.description') }}</p>
+        <p hlmDialogDescription>
+          {{
+            isEditMode()
+              ? t('users.editDialog.editDescription')
+              : t('users.editDialog.createDescription')
+          }}
+        </p>
       </hlm-dialog-header>
 
       @if (loading()) {
@@ -167,10 +173,11 @@
 
             <hlm-separator />
 
-            <section class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <!-- 角色与开关各占整行：开关的说明不被半栏挤成两行，开关与上方输入框右缘对齐 -->
+            <section class="flex flex-col gap-4">
               <!-- 初始角色仅「新建 + 持有角色分配权限」时可见；编辑态的角色分配走独立入口与权限。 -->
               @if (showRoleField()) {
-                <div hlmField class="md:col-span-2">
+                <div hlmField>
                   <label hlmFieldLabel for="user-roles">{{
                     t('users.editDialog.rolesLabel')
                   }}</label>

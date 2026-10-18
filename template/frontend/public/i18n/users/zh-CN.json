@@ -78,7 +78,8 @@
   "editDialog": {
     "editHeader": "编辑用户",
     "createHeader": "新建用户",
-    "description": "管理该账号的资料、角色与状态。",
+    "createDescription": "填写账号资料，并设置初始角色与状态。",
+    "editDescription": "修改账号资料。角色与启用状态在用户列表中管理。",
     "loading": "正在加载用户信息...",
     "unnamedUser": "未命名用户",
     "noEmail": "未设置邮箱",
@@ -101,7 +102,7 @@
     "activeTitle": "启用用户",
     "activeHint": "禁用后用户无法登录和调用受保护接口",
     "emailVerifiedTitle": "邮箱已验证",
-    "emailVerifiedHint": "用于管理邮箱验证状态",
+    "emailVerifiedHint": "标记该邮箱已确认归本人所有",
     "avatarDecodeFailed": "无法读取这张图片，请换一张试试"
   },
   "resetDialog": {

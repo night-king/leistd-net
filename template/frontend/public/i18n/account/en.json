@@ -145,7 +145,7 @@
     "emailVerified": "Verified",
     "emailUnverified": "Not verified",
     "emailChangeHint": "Save first, then verify the new email address.",
-    "sendCode": "Send verification code",
+    "sendCode": "Send code",
     "resendCode": "Resend code",
     "resendIn": "Resend in {{seconds}}s",
     "codeLabel": "Verification code",

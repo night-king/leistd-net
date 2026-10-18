@@ -320,7 +320,10 @@ export class UserEditDialog {
 const ENGLISH: Record<string, string> = {
   'users.editDialog.editHeader': 'Edit user',
   'users.editDialog.createHeader': 'New user',
-  'users.editDialog.description': 'Manage the account profile, roles, and status.',
+  'users.editDialog.createDescription':
+    'Fill in the account profile and set its initial roles and status.',
+  'users.editDialog.editDescription':
+    'Update the account profile. Roles and sign-in access are managed from the user list.',
   'users.editDialog.loading': 'Loading user information...',
   'common.uploadAvatar': 'Upload avatar',
   'users.editDialog.unnamedUser': 'Unnamed user',
@@ -342,7 +345,7 @@ const ENGLISH: Record<string, string> = {
   'users.editDialog.activeHint':
     'When disabled, the user cannot sign in or call protected endpoints',
   'users.editDialog.emailVerifiedTitle': 'Email verified',
-  'users.editDialog.emailVerifiedHint': 'Used to manage the email verification status',
+  'users.editDialog.emailVerifiedHint': 'Marks the address as confirmed to belong to this user',
   'common.cancel': 'Cancel',
   'common.save': 'Save',
   'common.create': 'Create',
