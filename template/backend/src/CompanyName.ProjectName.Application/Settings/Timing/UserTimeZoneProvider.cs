@@ -10,13 +10,21 @@ namespace CompanyName.ProjectName.Application.Settings.Timing;
 /// 就会存进一个后端认、前端用不了的值，界面静默回落到浏览器时区，表现为「保存成功但不生效」。
 /// 因此这里额外要求 <see cref="TimeZoneInfo.HasIanaId"/>，让两端认的是同一个集合。
 /// </remarks>
-/// <param name="settingProvider">设置读取器，按 用户 → 租户 → 默认值 回落。</param>
+/// <param name="settingProvider">设置读取器，按 用户 → 租户 → 默认值（部署基线）回落。</param>
 public class UserTimeZoneProvider(ISettingProvider settingProvider) : IUserTimeZoneProvider
 {
     /// <inheritdoc />
     public async Task<TimeZoneInfo> GetAsync(CancellationToken cancellationToken = default)
     {
         var id = await settingProvider.GetOrNullAsync(SettingConstant.Display.TimeZone, cancellationToken);
+
+        return TryResolve(id, out var timeZone) ? timeZone : TimeZoneInfo.Utc;
+    }
+
+    /// <inheritdoc />
+    public async Task<TimeZoneInfo> GetForUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var id = await settingProvider.GetOrNullForUserAsync(SettingConstant.Display.TimeZone, userId.ToString(), cancellationToken);
 
         return TryResolve(id, out var timeZone) ? timeZone : TimeZoneInfo.Utc;
     }
@@ -33,7 +41,13 @@ public class UserTimeZoneProvider(ISettingProvider settingProvider) : IUserTimeZ
 
     /// <inheritdoc />
     /// <remarks>读取与写入共用这一处判定：写入端放行的值，读取端必须解析得出来，前端也必须认。</remarks>
-    public bool TryResolve(string? timeZoneId, out TimeZoneInfo timeZone)
+    public bool TryResolve(string? timeZoneId, out TimeZoneInfo timeZone) => TryResolveId(timeZoneId, out timeZone);
+
+    /// <summary><see cref="TryResolve"/> 的纯值判定，供不能依赖设置读取的场合（如部署基线的启动校验）使用。</summary>
+    /// <param name="timeZoneId">IANA 时区名。</param>
+    /// <param name="timeZone">解析出的时区；不可用时为 UTC。</param>
+    /// <returns>可用时为 <see langword="true"/>。</returns>
+    public static bool TryResolveId(string? timeZoneId, out TimeZoneInfo timeZone)
     {
         timeZone = TimeZoneInfo.Utc;
 

@@ -54,6 +54,7 @@ function requireSubjectId(): string {
 
 /** 系统设置分组 → 管理它所需的子权限，与后端 SettingGroupPermissions 一致。 */
 const GROUP_PERMISSIONS: Readonly<Record<string, string>> = {
+  Display: PERMISSIONS.settings.display,
   //#if (LocalIdentity)
   Registration: PERMISSIONS.settings.registration,
   Security: PERMISSIONS.settings.security,
@@ -138,6 +139,20 @@ function requireDefinition(name: string) {
     });
   }
   return definition;
+}
+
+// 层级与后端设置组件一致：定义不允许的层写不进去。放行的话，Mock 里能存进组织值的设置到了真实后端一律 400
+function assertScopeAllowed(definition: MockSettingDefinition, scope: 'tenant' | 'user'): void {
+  const allowed =
+    scope === 'user'
+      ? definition.allowsUserScope
+      : definition.allowsTenantScope || (definition.allowsHostScope ?? false);
+  if (!allowed) {
+    throw new MockException(400, {
+      code: 'Setting:ScopeNotAllowed',
+      message: `'${definition.displayName}' cannot be changed at this level.`,
+    });
+  }
 }
 
 // 值域与后端保持一致：Mock 放行了真实后端会拒的值，只会把问题推迟到联调时才发现。
@@ -309,6 +324,7 @@ export const SETTING_API = {
     const subjectId = requireSubjectId();
     const { name, value } = readBody(req);
     const definition = requireDefinition(name);
+    assertScopeAllowed(definition, 'user');
     assertValidValue(definition, value);
     return write(USER_SETTING_VALUES, `${getMockSessionTenantKey()}:${subjectId}:${name}`, value);
   },
@@ -319,6 +335,7 @@ export const SETTING_API = {
     const { name, value } = readBody(req);
     const definition = requireDefinition(name);
     requireManage(definition);
+    assertScopeAllowed(definition, 'tenant');
     const tenantKey = getMockSessionTenantKey();
     // 进程级设置只有宿主那一行：租户写不进去，否则会存成该租户自己的覆盖
     if (definition.allowsHostScope && tenantKey !== 'host') {

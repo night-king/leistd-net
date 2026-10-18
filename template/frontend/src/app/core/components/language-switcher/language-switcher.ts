@@ -9,6 +9,7 @@ import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
 import { applicationErrorMessage } from '../../errors/application-http-error';
 import { AuthService } from '../../services/auth-service';
 import { Lang, LanguageService } from '../../services/language-service';
+import { SessionContextService } from '../../services/session-context-service';
 import { SettingService } from '../../settings/setting-service';
 import { SETTINGS } from '../../settings/setting.constants';
 
@@ -59,6 +60,7 @@ export class LanguageSwitcher {
   private readonly languageService = inject(LanguageService);
   private readonly authService = inject(AuthService);
   private readonly settingService = inject(SettingService);
+  private readonly sessionContext = inject(SessionContextService);
   private readonly transloco = inject(TranslocoService);
 
   /** 当前语言的短标识（EN / 中），显示在全球化图标右侧；随语言切换响应式更新。 */
@@ -80,7 +82,12 @@ export class LanguageSwitcher {
       this.settingService
         .setForCurrentUser({ name: SETTINGS.display.language, value: lang })
         .subscribe({
-          next: () => void this.languageService.applyAccountLang(lang),
+          next: () => {
+            void this.languageService.applyAccountLang(lang);
+            // 设置快照跟着刷新，否则偏好页与按快照解析的消费端仍停在旧值（组织默认存在时尤其明显）。
+            // 刷新失败不回退：账户里已经存好了，界面也已是这门语言，下次会话建立时快照自然对齐
+            this.sessionContext.refreshSettings().catch(() => undefined);
+          },
           // 保存失败就不切换，并且说出来：静默吞掉的话，用户会以为账户偏好存好了。
           error: (error: unknown) =>
             toast.error(this.transloco.translate('language.saveFailed'), {

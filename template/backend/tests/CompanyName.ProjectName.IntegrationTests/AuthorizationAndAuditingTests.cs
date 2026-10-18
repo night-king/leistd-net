@@ -245,6 +245,44 @@ public sealed class AuthorizationAndAuditingTests(ProjectWebApplicationFactory f
 
 
     /// <summary>
+    /// 显示（语言与时区）组织与个人两级都有：个人覆盖谁都能写，组织默认要显示分组的子权限。
+    /// </summary>
+    [Fact]
+    public async Task Display_defaults_need_the_display_permission_but_personal_overrides_do_not()
+    {
+        using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var timeZone = SettingConstant.Display.TimeZone;
+
+        var member = await CreateUserAsync(superAdmin.Client);
+        using (var session = await Factory.LoginAsync(member.Username, TestPassword))
+        {
+            var listed = await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/settings");
+            var setting = Assert.Single(listed.EnumerateArray(), s => s.GetProperty("name").GetString() == timeZone);
+            Assert.False(setting.GetProperty("canManage").GetBoolean());
+            Assert.True(setting.GetProperty("allowsTenantScope").GetBoolean());
+
+            using (var own = await session.Client.PutAsJsonAsync("/api/v1/settings/current-user", new { Name = timeZone, Value = "Asia/Tokyo" }))
+                Assert.Equal(HttpStatusCode.NoContent, own.StatusCode);
+            using (var organization = await session.Client.PutAsJsonAsync("/api/v1/settings/current-tenant", new { Name = timeZone, Value = "Asia/Tokyo" }))
+                Assert.Equal(HttpStatusCode.Forbidden, organization.StatusCode);
+        }
+
+        var displayAdmin = await CreateUserAsync(superAdmin.Client);
+        await GrantAsync(PermissionGrantProviderNames.User, displayAdmin.Id, PermissionConstant.Settings.Display);
+        using var display = await Factory.LoginAsync(displayAdmin.Username, TestPassword);
+        try
+        {
+            using var accepted = await display.Client.PutAsJsonAsync("/api/v1/settings/current-tenant", new { Name = timeZone, Value = "Europe/Paris" });
+            Assert.Equal(HttpStatusCode.NoContent, accepted.StatusCode);
+        }
+        finally
+        {
+            using var cleared = await display.Client.PutAsJsonAsync("/api/v1/settings/current-tenant", new { Name = timeZone, Value = (string?)null });
+            Assert.Equal(HttpStatusCode.NoContent, cleared.StatusCode);
+        }
+    }
+
+    /// <summary>
     /// 系统设置按分组授权：只有某个分组的子权限时，读不到也写不了别的分组；只有父权限时只能进页面，没有可管理的设置。
     /// </summary>
     [Fact]

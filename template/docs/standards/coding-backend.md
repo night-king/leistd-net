@@ -171,6 +171,7 @@ public class UserAppService(
 - 管理员运行期维护的第三方集成客户端凭据（发信、外部登录）走宿主级设置，口令与密钥定义为机密设置；边界以 `settings` 组件随包文档的注意事项为准（随包文档的定位见 [后端说明](../../backend/README.md#leistd-框架-api)）。
 - 值域声明在设置定义上（`AsBoolean()`、`AsInteger(min, max)`、`WithAllowedValues(...)`）；定义表达不了的规则写成 `Application/Settings/Validators` 下的 `ISettingValueValidator`。跨设置的约束（如未读通知保留不短于已读）读另一项的设置链值而不是 `IOptionsMonitor`；清除也经校验器，候选值是回落后的值。
 - 分组按管理员要完成的事归组，不按组件归组：新设置先归入已有分组（保留期一类都进 `Retention`），讲不进任何现有分组才新建；同一作用域的设置不散落到多个分组。允许用户覆盖的设置（`SettingScopes.All`）可以同时出现在系统与个人设置页，不为此拆定义。
+- 界面语言与时区（`Display.*`）是组织默认、个人可覆盖（`SettingScopes.All`），代码默认值取部署基线 `DisplayDefaults`（启动期绑定与校验，空为跟随设备）。服务端给某个收件人产出文本时按收件人解析：语言用 `GetOrNullForUserAsync`，时区用 `IUserTimeZoneProvider.GetForUserAsync`，写出的时刻注明时区；不用当前用户的值，也不把当地时刻标成 UTC。
 - 系统设置的每个分组一条 `App.Settings.*` 子权限，登记在 `Application/Settings/Provider/SettingGroupPermissions`（设置端点的分组策略与操作记录的授权依据都从这里取）；只含进程级设置的分组子权限侧别为 `Host`。新建系统设置分组时同时加子权限定义、中英译文、前端 `PERMISSIONS.settings` 与 Mock。
 
 ## 4. 依赖注入

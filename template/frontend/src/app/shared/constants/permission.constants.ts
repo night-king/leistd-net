@@ -51,6 +51,7 @@ export const PERMISSIONS = {
   // 父权限是系统设置页的入口；每个系统设置分组一条子权限，与后端 SettingGroupPermissions 一一对应
   settings: {
     default: 'App.Settings',
+    display: 'App.Settings.Display',
     //#if (LocalIdentity)
     registration: 'App.Settings.Registration',
     security: 'App.Settings.Security',

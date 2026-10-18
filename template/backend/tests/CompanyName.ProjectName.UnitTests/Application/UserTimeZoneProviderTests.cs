@@ -86,6 +86,36 @@ public class UserTimeZoneProviderTests
         Assert.Equal(TimeZoneInfo.Utc.Id, timeZone.Id);
     }
 
+    // 收件人不是当前用户（例如登录前的锁定提醒）：按目标用户读，不能落到当前用户身上
+    [Fact]
+    public async Task A_named_user_is_resolved_by_their_own_setting_not_the_current_users()
+    {
+        var target = Guid.CreateVersion7();
+        var provider = new UserTimeZoneProvider(new PerUserSettingProvider(
+            current: "America/New_York",
+            perUser: new Dictionary<string, string> { [target.ToString()] = "Asia/Tokyo" }));
+
+        Assert.Equal("Asia/Tokyo", (await provider.GetForUserAsync(target)).Id);
+        Assert.Equal(TimeZoneInfo.Utc.Id, (await provider.GetForUserAsync(Guid.CreateVersion7())).Id);
+    }
+
+    private sealed class PerUserSettingProvider(string current, IReadOnlyDictionary<string, string> perUser) : ISettingProvider
+    {
+        public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(name == SettingConstant.Display.TimeZone ? current : null);
+
+        public Task<string?> GetOrNullForUserAsync(string name, string userId, CancellationToken cancellationToken = default)
+            => Task.FromResult(name == SettingConstant.Display.TimeZone && perUser.TryGetValue(userId, out var id) ? id : null);
+
+        public Task<T?> GetAsync<T>(string name, CancellationToken cancellationToken = default)
+            => Task.FromResult<T?>(default);
+
+        public Task<IReadOnlyDictionary<string, string?>> GetAllAsync(
+            bool visibleToClientsOnly = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>());
+    }
+
     private sealed class FixedSettingProvider(string? timeZoneId) : ISettingProvider
     {
         public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default)

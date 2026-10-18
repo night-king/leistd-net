@@ -129,6 +129,9 @@ public static class PermissionConstant
         /// <summary>进入系统设置页。</summary>
         public const string Default = Prefix + ".Settings";
 
+        /// <summary>显示：组织默认的界面语言与时区。</summary>
+        public const string Display = Default + ".Display";
+
 #if (LocalIdentity)
         /// <summary>注册：是否开放自助注册、验证方式与验证码时效。</summary>
         public const string Registration = Default + ".Registration";

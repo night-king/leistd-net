@@ -94,7 +94,7 @@ internal sealed class EmailChangedEventHandler(ISecurityAlertPublisher securityA
     }
 
 #if (IncludeLocalization)
-    // 文案按收件人的界面语言渲染：本人设过语言就用它，没设过用本次请求的语言
+    // 文案按收件人的界面语言渲染：本人设过语言就用它，否则用组织默认或部署基线，都没有才用本次请求的语言
     private async Task<(string Subject, string Content)> RenderAsync(Guid userId, CancellationToken cancellationToken)
     {
         var language = await settingProvider.GetOrNullForUserAsync(SettingConstant.Display.Language, userId.ToString(), cancellationToken);

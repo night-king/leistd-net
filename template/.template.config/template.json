@@ -655,7 +655,8 @@
         {
           "condition": "!(IncludeNotifications && LocalIdentity)",
           "exclude": [
-            "backend/src/CompanyName.ProjectName.Api/Notifications/NotificationSecurityAlertPublisher.cs"
+            "backend/src/CompanyName.ProjectName.Api/Notifications/NotificationSecurityAlertPublisher.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/NotificationSecurityAlertPublisherTests.cs"
           ]
         },
         {

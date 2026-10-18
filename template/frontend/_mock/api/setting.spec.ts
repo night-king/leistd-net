@@ -269,6 +269,10 @@ describe('settings mock', () => {
         api[putUser](request({ name: 'Display.TimeZone', value: 'China Standard Time' })),
       ),
     ).toBe(400);
+    // 定义不允许的层写不进去：进程级设置没有个人层
+    expect(
+      statusOf(() => api[putUser](request({ name: 'Logging.MinimumLevel', value: 'Debug' }))),
+    ).toBe(400);
   });
 
   // 系统设置按分组授权：运维角色（演示账号 zihang）只管运维与数据保留，别的分组读不到管理值、写入被拒
@@ -287,6 +291,13 @@ describe('settings mock', () => {
     ]);
     expect(
       statusOf(() => api[putTenant](request({ name: 'Logging.MinimumLevel', value: 'Debug' }))),
+    ).toBe(200);
+    // 组织默认的语言与时区要显示分组的子权限；个人覆盖不受限
+    expect(
+      statusOf(() => api[putTenant](request({ name: 'Display.TimeZone', value: 'Asia/Tokyo' }))),
+    ).toBe(403);
+    expect(
+      statusOf(() => api[putUser](request({ name: 'Display.TimeZone', value: 'Asia/Tokyo' }))),
     ).toBe(200);
     //#if (LocalIdentity)
     expect(
@@ -338,6 +349,7 @@ describe('settings mock', () => {
 
     // prettier-ignore
     expect([...new Set(groups)]).toEqual([
+      'Display',
       //#if (LocalIdentity)
       'Registration',
       'Security',

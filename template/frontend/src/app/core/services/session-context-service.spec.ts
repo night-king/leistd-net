@@ -168,6 +168,36 @@ describe('SessionContextService', () => {
     expect(languageService.activeLang()).toBe('zh-CN');
   });
 
+  // 两次刷新乱序返回：只有最后发起的那次能应用语言，旧的晚到不能把语言改回去
+  it('applies only the latest refresh when an earlier one answers late', async () => {
+    const languageService = TestBed.inject(LanguageService);
+
+    const earlier = service.refreshSettings();
+    const later = service.refreshSettings();
+    const [first, second] = http.match('/api/v1/settings');
+    second.flush([languageSetting('zh-CN')]);
+    await later;
+    first.flush([languageSetting('en')]);
+    await earlier;
+
+    expect(languageService.activeLang()).toBe('zh-CN');
+    expect(settingContext.valueOf('Display.Language')).toBe('zh-CN');
+  });
+
+  // 主体离开后才返回的刷新：不能把上一个人的语言重新应用回来
+  it('does not apply a refresh that answers after the subject leaves', async () => {
+    const languageService = TestBed.inject(LanguageService);
+
+    const refresh = service.refreshSettings();
+    service.clear();
+    http.expectOne('/api/v1/settings').flush([languageSetting('zh-CN')]);
+    await refresh;
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(languageService.activeLang()).toBe('en');
+    expect(settingContext.valueOf('Display.Language')).toBeUndefined();
+  });
+
   // 语言已落在 LanguageService 上，清快照收不回来；同时钉住账户语言不写进设备存储。
   it('reverts the language to the device preference when the subject leaves', async () => {
     localStorage.setItem(LanguageService.STORAGE_KEY, 'en');

@@ -614,6 +614,80 @@ describe('SettingSection host scope hint', () => {
 });
 
 /** 开关没有占位符，本层未覆盖时显示继承来的生效值。 */
+/**
+ * 语言与时区的占位说清值从哪层来：个人页继承到的是"跟随组织"（组织值或部署基线），系统页继承到的是"部署默认"；
+ * 都没有时跟随系统，系统页不显示管理员自己这台设备的探测值。
+ */
+describe('SettingSection display placeholders', () => {
+  const timeZone = (overrides: Partial<SettingOutputDto>) =>
+    row({
+      name: 'Display.TimeZone',
+      displayName: 'Time zone',
+      group: 'Display',
+      groupDisplayName: 'Display',
+      defaultValue: null,
+      ...overrides,
+    });
+
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  async function placeholderOf(scope: string, setting: SettingOutputDto): Promise<string> {
+    TestBed.configureTestingModule({
+      imports: [SettingSection],
+      providers: [...pageProviders()],
+    });
+    const fixture = TestBed.createComponent(SettingSection);
+    fixture.componentRef.setInput('scope', scope);
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController).expectOne('/api/v1/settings').flush([setting]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="setting-combobox-Display.TimeZone"] hlm-combobox-trigger',
+    );
+    return trigger?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  }
+
+  const ORGANIZATION = /Follows your organization|settings\.followOrganization/;
+  const DEPLOYMENT = /Deployment default|settings\.deploymentDefault/;
+  const SYSTEM = /Follows your system|settings\.followSystem/;
+
+  it('names the organization when the account inherits an organization value', async () => {
+    const text = await placeholderOf('account', timeZone({ tenantValue: 'Asia/Tokyo' }));
+
+    expect(text).toMatch(ORGANIZATION);
+    expect(text).toContain('Asia/Tokyo');
+  });
+
+  it('names the organization when the account inherits the deployment baseline', async () => {
+    const text = await placeholderOf('account', timeZone({ defaultValue: 'Asia/Tokyo' }));
+
+    expect(text).toMatch(ORGANIZATION);
+    expect(text).toContain('Asia/Tokyo');
+  });
+
+  it('shows the detected device value on the account page when nothing is set', async () => {
+    const text = await placeholderOf('account', timeZone({}));
+
+    expect(text).toMatch(SYSTEM);
+    expect(text).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it('names the deployment baseline on the system page', async () => {
+    const text = await placeholderOf('system', timeZone({ defaultValue: 'Asia/Tokyo' }));
+
+    expect(text).toMatch(DEPLOYMENT);
+    expect(text).toContain('Asia/Tokyo');
+  });
+
+  it("does not present the admin's own device value as the organization's on the system page", async () => {
+    const text = await placeholderOf('system', timeZone({}));
+
+    expect(text).toMatch(SYSTEM);
+    expect(text).not.toContain('·');
+  });
+});
+
 describe('SettingSection switches', () => {
   const switches = [
     row({ name: 'Probe.DefaultOn', isBoolean: true, defaultValue: 'true' }),
@@ -904,12 +978,20 @@ describe('SettingSection language', () => {
       (fixture.nativeElement as HTMLElement).querySelector(
         '[data-testid="setting-reset-Display.FreeTextProbe"]',
       )!;
-    transloco.setActiveLang('en');
-    await fixture.whenStable();
+    // 切换语言会让页面按新语言重取显示名：应答它，页面才算稳定。界面语言由设置派生（读取会重新应用），
+    // 真实切换器先把选择写进个人设置，这里的应答同样带上它
+    const language = (lang: string) =>
+      row({ name: 'Display.Language', group: 'Display', userValue: lang });
+    const switchTo = async (lang: string) => {
+      transloco.setActiveLang(lang);
+      await new Promise((resolve) => setTimeout(resolve));
+      http.match('/api/v1/settings').forEach((request) => request.flush([row(), language(lang)]));
+      await fixture.whenStable();
+    };
+    await switchTo('en');
     expect(reset().getAttribute('aria-label')).toBe('settings.reset');
 
-    transloco.setActiveLang('zh-CN');
-    await fixture.whenStable();
+    await switchTo('zh-CN');
 
     expect(reset().getAttribute('aria-label')).toBe('恢复默认');
   });

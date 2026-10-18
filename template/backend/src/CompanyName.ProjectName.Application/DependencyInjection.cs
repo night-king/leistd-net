@@ -3,8 +3,10 @@ using Leistd.Settings.Events;
 using Leistd.Settings.Validation;
 using Leistd.OperationRecords.Definitions;
 using CompanyName.ProjectName.Application.OperationRecords.EventHandlers;
+using CompanyName.ProjectName.Application.Settings.Options;
 using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Application.Settings.Validators;
+using Microsoft.Extensions.Options;
 #if (Email)
 using CompanyName.ProjectName.Application.Settings.AppServices;
 #endif
@@ -32,7 +34,6 @@ using Leistd.BackgroundJobs.Recurring;
 #if (OpenIddictServer)
 using CompanyName.ProjectName.Application.OpenApplications.AppServices;
 using CompanyName.ProjectName.Application.Auth.Options;
-using Microsoft.Extensions.Options;
 #endif
 #endif
 using CompanyName.ProjectName.Application.Initialization;
@@ -144,6 +145,16 @@ public static class DependencyInjection
         services.TryAddTransient<IPlatformStatisticsAppService, PlatformStatisticsAppService>();
 
         services.AddApplicationDefinitions();
+        // 语言与时区的部署基线是这两项设置的代码默认值；所有形态都有，绑定在定义提供器旁边。
+        // 以校验器是否已登记判断绑定过没有：重复绑定会追加一份变更令牌源，注册就不再幂等
+        if (!services.Any(descriptor => descriptor.ServiceType == typeof(IValidateOptions<DisplayDefaultsOptions>) &&
+                descriptor.ImplementationType == typeof(DisplayDefaultsOptionsValidator)))
+        {
+            services.AddOptions<DisplayDefaultsOptions>()
+                .BindConfiguration(DisplayDefaultsOptions.SectionName)
+                .ValidateOnStart();
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<DisplayDefaultsOptions>, DisplayDefaultsOptionsValidator>());
+        }
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISettingDefinitionProvider, SettingDefinitionProvider>());
         // 设置值的业务校验：值域（布尔、区间、候选）写在定义上，这里只放定义表达不了的规则
         services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, TimeZoneSettingValidator>());

@@ -118,6 +118,30 @@ describe('SettingContextService', () => {
   });
 
   //#endif
+  // 晚到的旧响应不能覆盖较新的快照：设置页保存与页头切换语言可能各发一次读取
+  it('keeps the newer snapshot when an earlier load answers late', async () => {
+    const earlier = service.load();
+    const later = service.load();
+    const [first, second] = http.match('/api/v1/settings');
+
+    second.flush([setting({ userValue: 'Asia/Tokyo' })]);
+    await later;
+    first.flush([setting({ userValue: 'Europe/Paris' })]);
+    await earlier;
+
+    expect(service.timeZone()).toBe('Asia/Tokyo');
+  });
+
+  // 主体离开前发出的读取晚到：不能把上一个人的快照写回来
+  it('ignores a load that answers after sign-out', async () => {
+    const load = service.load();
+    service.clear();
+    http.expectOne('/api/v1/settings').flush([setting({ userValue: 'Asia/Tokyo' })]);
+    await load;
+
+    expect(service.timeZone()).toBeUndefined();
+  });
+
   it('clears the snapshot on sign-out', async () => {
     const load = service.load();
     http.expectOne('/api/v1/settings').flush([setting({ userValue: 'Asia/Tokyo' })]);

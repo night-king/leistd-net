@@ -11,6 +11,8 @@
   "timeZoneToggle": "展开时区列表",
   "browserTimeZone": "浏览器",
   "followSystem": "跟随系统",
+  "followOrganization": "跟随组织",
+  "deploymentDefault": "部署默认",
   "hostScope": {
     //#if (IncludeMultiTenancy)
     "note": "。对所有租户生效",
@@ -56,10 +58,11 @@
     },
     "preferences": {
       "title": "偏好",
-      "description": "语言、时区与外观。语言与时区只对你生效，留空即跟随系统"
+      "description": "语言、时区与外观。语言与时区只对你生效，留空即跟随组织设置；组织和部署都未设置时跟随系统"
     }
   },
   "groupDescriptions": {
+    "Display": "这里所有人默认使用的界面语言与时区；个人可在偏好中覆盖。留空使用部署默认；部署也未设置时跟随各自设备",
     //#if (LocalIdentity)
     //#if (ExternalLogin)
     "Registration": "是否开放自助注册（不影响外部登录首次登录建号）、新用户的验证要求与验证码时效",

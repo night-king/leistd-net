@@ -10,6 +10,7 @@ import { provideTranslocoTesting } from '../../i18n/transloco.testing';
 //#endif
 import { AuthService } from '../../services/auth-service';
 import { LanguageService } from '../../services/language-service';
+import { SessionContextService } from '../../services/session-context-service';
 import { SettingContextService } from '../../settings/setting-context-service';
 import { SettingService } from '../../settings/setting-service';
 
@@ -20,6 +21,7 @@ describe('LanguageSwitcher', () => {
   let component: LanguageSwitcher;
   let authService: Pick<MockedObject<AuthService>, 'isAuthenticated'>;
   let settingService: Pick<MockedObject<SettingService>, 'setForCurrentUser'>;
+  let sessionContext: Pick<MockedObject<SessionContextService>, 'refreshSettings'>;
 
   function setUp(authenticated: boolean): void {
     authService = {
@@ -30,6 +32,10 @@ describe('LanguageSwitcher', () => {
       setForCurrentUser: vi.fn().mockName('SettingService.setForCurrentUser'),
     };
     settingService.setForCurrentUser.mockReturnValue(of(undefined));
+    sessionContext = {
+      refreshSettings: vi.fn().mockName('SessionContextService.refreshSettings'),
+    };
+    sessionContext.refreshSettings.mockResolvedValue([]);
 
     TestBed.configureTestingModule({
       imports: [LanguageSwitcher],
@@ -39,6 +45,7 @@ describe('LanguageSwitcher', () => {
         // 真实 AuthService 会拉起认证栈；这里只关心「已登录还是没登录」。
         { provide: AuthService, useValue: authService },
         { provide: SettingService, useValue: settingService },
+        { provide: SessionContextService, useValue: sessionContext },
         ...provideTranslocoTesting(['en', 'zh-CN']),
       ],
     });
@@ -96,6 +103,37 @@ describe('LanguageSwitcher', () => {
     // 不切换，界面与账户偏好就不会分叉；但必须说出来，否则用户以为存好了。
     expect(TestBed.inject(LanguageService).activeLang()).toBe('en');
     expect(error).toHaveBeenCalled();
+  });
+
+  // 写入成功后刷新设置快照：偏好页与按快照解析的消费端要看到新值
+  it('refreshes the settings snapshot after the account write succeeds', async () => {
+    setUp(true);
+
+    component.select('zh-CN');
+
+    await vi.waitFor(() => expect(sessionContext.refreshSettings).toHaveBeenCalledOnce());
+  });
+
+  it('keeps the new language when refreshing the snapshot fails', async () => {
+    setUp(true);
+    sessionContext.refreshSettings.mockRejectedValue(new Error('network down'));
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => '');
+
+    component.select('zh-CN');
+
+    await vi.waitFor(() => expect(sessionContext.refreshSettings).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(TestBed.inject(LanguageService).activeLang()).toBe('zh-CN'));
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('does not refresh the snapshot when the account write fails', () => {
+    setUp(true);
+    settingService.setForCurrentUser.mockReturnValue(throwError(() => new Error('network down')));
+    vi.spyOn(toast, 'error').mockImplementation(() => '');
+
+    component.select('zh-CN');
+
+    expect(sessionContext.refreshSettings).not.toHaveBeenCalled();
   });
 
   it('records an anonymous choice as the device preference and writes no setting', async () => {

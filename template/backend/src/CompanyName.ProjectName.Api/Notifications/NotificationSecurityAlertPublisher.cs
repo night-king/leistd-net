@@ -3,6 +3,7 @@
 using System.Globalization;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using CompanyName.ProjectName.Application.Notifications.Constants;
+using CompanyName.ProjectName.Application.Settings.Timing;
 #if (IncludeLocalization)
 using CompanyName.ProjectName.Api.Localization;
 using CompanyName.ProjectName.Application.Settings.Provider;
@@ -16,11 +17,13 @@ namespace CompanyName.ProjectName.Api.Notifications;
 
 /// <summary>经通知组件发出安全提醒：站内通知总会送达（必达组合），邮件按本人偏好（通知偏好组件读收件人的设置）。</summary>
 /// <remarks>
-/// 文案按<b>收件人</b>的界面语言渲染：本人设过语言就用它，没设过用本次请求的语言——
+/// 文案按<b>收件人</b>的界面语言渲染：本人设过语言就用它，否则用组织默认或部署基线，都没有才用本次请求的语言——
 /// 触发提醒的请求往往就是本人发出的（改密码、启用两步验证）。
+/// 正文里的时刻（锁定截止）按收件人的展示时区写出并注明时区：锁定发生在登录前，当前用户为空，按目标用户解析。
 /// </remarks>
 public sealed class NotificationSecurityAlertPublisher(
     INotificationPublisher publisher,
+    IUserTimeZoneProvider userTimeZoneProvider,
 #if (IncludeLocalization)
     ISettingProvider settingProvider,
     IStringLocalizerFactory localizerFactory,
@@ -32,7 +35,10 @@ public sealed class NotificationSecurityAlertPublisher(
     {
         try
         {
-            var (title, content) = await RenderAsync(userId, alert, cancellationToken);
+            var until = alert.Until is { } utc
+                ? FormatUntil(utc, await userTimeZoneProvider.GetForUserAsync(userId, cancellationToken))
+                : "-";
+            var (title, content) = await RenderAsync(userId, alert, until, cancellationToken);
             await publisher.PublishToUserAsync(
                 userId.ToString(),
                 new NotificationInputDto
@@ -54,7 +60,7 @@ public sealed class NotificationSecurityAlertPublisher(
     }
 
 #if (IncludeLocalization)
-    private async Task<(string Title, string? Content)> RenderAsync(Guid userId, SecurityAlert alert, CancellationToken cancellationToken)
+    private async Task<(string Title, string? Content)> RenderAsync(Guid userId, SecurityAlert alert, string until, CancellationToken cancellationToken)
     {
         var language = await settingProvider.GetOrNullForUserAsync(SettingConstant.Display.Language, userId.ToString(), cancellationToken);
 
@@ -69,7 +75,7 @@ public sealed class NotificationSecurityAlertPublisher(
             // 必须用已登记到 JsonResourceTypes 的类型，未登记的类型会落到 RESX，取回的就是键本身
             var localizer = localizerFactory.Create(typeof(ApiResource));
             var title = localizer[$"SecurityAlert:{alert.Kind}:Title"].Value;
-            var content = Fill(localizer[$"SecurityAlert:{alert.Kind}:Content"].Value, alert);
+            var content = Fill(localizer[$"SecurityAlert:{alert.Kind}:Content"].Value, alert, until);
             return (title, content);
         }
         finally
@@ -78,7 +84,7 @@ public sealed class NotificationSecurityAlertPublisher(
         }
     }
 #else
-    private static Task<(string Title, string? Content)> RenderAsync(Guid userId, SecurityAlert alert, CancellationToken cancellationToken)
+    private static Task<(string Title, string? Content)> RenderAsync(Guid userId, SecurityAlert alert, string until, CancellationToken cancellationToken)
     {
         var (title, content) = alert.Kind switch
         {
@@ -89,18 +95,25 @@ public sealed class NotificationSecurityAlertPublisher(
             SecurityAlertKind.TwoFactorAuthenticatorReplaced => ("Authenticator app replaced", "Codes from your previous authenticator and your old recovery codes no longer work. If you didn't do this, contact your administrator right away."),
             SecurityAlertKind.TwoFactorDisabled => ("Two-factor authentication turned off", "If you didn't do this, turn it back on and change your password."),
             SecurityAlertKind.TwoFactorReset => ("Two-factor authentication was reset by an administrator", "Set it up again from your security settings."),
-            SecurityAlertKind.LockedOut => ("Your account was locked", "There were too many failed sign-in attempts. It unlocks at {Until} (UTC)."),
+            SecurityAlertKind.LockedOut => ("Your account was locked", "There were too many failed sign-in attempts. It unlocks at {Until}."),
             SecurityAlertKind.EmailChanged => ("Your account email address was changed", "If you didn't do this, contact your administrator right away."),
             _ => (alert.Kind.ToString(), null)
         };
-        return Task.FromResult((title, content is null ? null : Fill(content, alert)));
+        return Task.FromResult((title, content is null ? null : Fill(content, alert, until)));
     }
 #endif
 
-    private static string Fill(string text, SecurityAlert alert) => text
+    private static string Fill(string text, SecurityAlert alert, string until) => text
         .Replace("{Ip}", alert.IpAddress ?? "-", StringComparison.Ordinal)
         .Replace("{Device}", DescribeDevice(alert.UserAgent), StringComparison.Ordinal)
-        .Replace("{Until}", alert.Until?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "-", StringComparison.Ordinal);
+        .Replace("{Until}", until, StringComparison.Ordinal);
+
+    // 时刻后面带上时区名：读的人才知道它是哪里的时间，回落到 UTC 时也写明
+    private static string FormatUntil(DateTime utc, TimeZoneInfo timeZone)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), timeZone);
+        return $"{local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} ({timeZone.Id})";
+    }
 
     // 只取 User-Agent 里最能认出设备的一截，完整原文放进提醒里没人读
     private static string DescribeDevice(string? userAgent)
