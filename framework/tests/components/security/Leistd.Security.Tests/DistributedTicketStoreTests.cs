@@ -1,5 +1,11 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Leistd.Lock.Abstractions;
 using Leistd.Lock.Memory;
 using Leistd.Security.AspNetCore;
@@ -268,7 +274,7 @@ public sealed class DistributedTicketStoreTests
     {
         using var host = new Harness("callback");
         var cookie = await host.LoginAsync("A");
-        host.Cache.FailReads = true;
+        host.Cache.ReadFailure = new IOException("Cache unavailable.");
         await Assert.ThrowsAsync<IOException>(() => host.MeAsync(cookie, "A"));
     }
 
@@ -306,13 +312,18 @@ public sealed class DistributedTicketStoreTests
         Assert.Null(await host.Store.RetrieveAsync(key));
     }
 
+    /// <summary>
+    /// HTTP 重载使用已中止的请求，证明请求中止本身不放宽取消契约；唯一例外（已中止请求的被动续期）
+    /// 见 <see cref="An_abandoned_passive_renewal_returns_quietly_and_keeps_the_original_reference_version"/>，
+    /// 请求仍在时的续期取消照常抛出。
+    /// </summary>
     [Theory]
     [InlineData("store")]
     [InlineData("store-http")]
     [InlineData("read")]
     [InlineData("read-http")]
     [InlineData("renew")]
-    [InlineData("renew-http")]
+    [InlineData("renew-http-live")]
     [InlineData("remove")]
     [InlineData("remove-http")]
     public async Task Every_cancelable_native_overload_honors_cancellation(string operation)
@@ -320,7 +331,7 @@ public sealed class DistributedTicketStoreTests
         using var host = new Harness("callback");
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestAborted = canceled.Token };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation switch
         {
             "store" => host.Store.StoreAsync(host.Ticket(), canceled.Token),
@@ -328,28 +339,98 @@ public sealed class DistributedTicketStoreTests
             "read" => host.Store.RetrieveAsync("unused", canceled.Token),
             "read-http" => host.Store.RetrieveAsync("unused", context, canceled.Token),
             "renew" => host.Store.RenewAsync("unused", host.Ticket(), canceled.Token),
-            "renew-http" => host.Store.RenewAsync("unused", host.Ticket(), context, canceled.Token),
+            "renew-http-live" => host.Store.RenewAsync("unused", host.Ticket(), new DefaultHttpContext(), canceled.Token),
             "remove" => host.Store.RemoveAsync("unused", canceled.Token),
             _ => host.Store.RemoveAsync("unused", context, canceled.Token)
         });
     }
 
+    /// <summary>
+    /// 原生处理器在响应启动回调里续期，异常逃出即被 Kestrel 记为应用错误。请求在续期写缓存前中止时，
+    /// 续期安静结束：Kestrel 与组件都没有 Error，缓存未被改写，写出的引用仍是原票据版本并能继续认证。
+    /// </summary>
     [Fact]
-    public async Task Losing_a_lock_cancels_a_pending_write_without_mutating_the_stored_ticket()
+    public async Task An_abandoned_passive_renewal_returns_quietly_and_keeps_the_original_reference_version()
+    {
+        var cookies = new RecordingCookieManager();
+        using var host = new Harness("callback", kestrel: true, configure: builder =>
+        {
+            builder.Logging.ClearProviders().AddFakeLogging().SetMinimumLevel(LogLevel.Information);
+            builder.Services.Configure<CookieAuthenticationOptions>("A", options => options.CookieManager = cookies);
+        });
+        var logs = host.Services.GetFakeLogCollector();
+        var cookie = await host.LoginAsync("A");
+        var key = Assert.Single(host.Reference(cookie, "A").Principal.Claims).Value;
+        var before = (await host.Cache.GetAsync(key))!;
+        host.Clock.Advance(TimeSpan.FromMinutes(11));
+        cookies.Appended.Clear();
+        logs.Clear();
+        host.Cache.Arm();
+
+        // 原始套接字：断开时机由用例决定，不受客户端连接池与重试影响。
+        using var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+        await socket.ConnectAsync(host.Client.BaseAddress!.Host, host.Client.BaseAddress.Port);
+        await socket.SendAsync(Encoding.ASCII.GetBytes(
+            $"GET /me?scheme=A HTTP/1.1\r\nHost: {host.Client.BaseAddress.Authority}\r\nCookie: {cookie}\r\n\r\n"));
+        await host.Cache.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var finished = WaitForLogAsync(logs, record => record.Category == "Microsoft.AspNetCore.Hosting.Diagnostics" && record.Id.Id == 2);
+        socket.Dispose();
+        await finished;
+
+        Assert.DoesNotContain(logs.GetSnapshot(), record => record.Level >= LogLevel.Error);
+        Assert.Equal(before, await host.Cache.GetAsync(key));
+        var reference = Assert.Single(cookies.Appended);
+        host.Cache.Disarm();
+        Assert.Equal(HttpStatusCode.OK, await host.MeAsync(reference, "A"));
+    }
+
+    /// <summary>显式再次登录时请求已中止，取消照常传播，不把未写入的新版本报告为登录成功。</summary>
+    [Fact]
+    public async Task Canceling_an_explicit_sign_in_over_an_existing_session_propagates()
+    {
+        using var host = new Harness("callback");
+        var cookie = await host.LoginAsync("A");
+        using (var request = new HttpRequestMessage(HttpMethod.Get, "/login-aborted?scheme=A"))
+        {
+            request.Headers.Add("Cookie", cookie);
+            try { using var _ = await host.Client.SendAsync(request); }
+            catch (Exception) { /* 服务端中止请求，客户端怎样结束不是本用例关注点 */ }
+        }
+        Assert.IsAssignableFrom<OperationCanceledException>(await host.Events.AbortedSignIn.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, host.Events.SignedIn);
+    }
+
+    /// <summary>失锁取消的是关联令牌而非调用方令牌，服务端与仍在进行的 HTTP 续期都照常抛出。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Losing_a_lock_cancels_a_pending_write_without_mutating_the_stored_ticket(bool http)
     {
         using var loss = new LosingLock();
         using var host = new Harness("callback", loss);
-        var ticket = host.Ticket();
-        var key = await host.Store.StoreAsync(ticket);
+        var (key, ticket, context) = await host.RenewalTargetAsync(http);
         ticket.Properties.Items["changed"] = "uncommitted";
         host.Cache.Arm();
-        var pending = host.Store.RenewAsync(key, ticket);
+        var pending = context is null ? host.Store.RenewAsync(key, ticket) : host.Store.RenewAsync(key, ticket, context, CancellationToken.None);
         await host.Cache.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         loss.Lose();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
         var stored = (await host.Store.RetrieveAsync(key))!;
         Assert.False(stored.Properties.Items.ContainsKey("changed"));
+    }
+
+    /// <summary>调用方未取消时缓存超时抛出的取消是故障，服务端与 HTTP 续期都照常传播。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cache_timeouts_during_renewal_propagate(bool http)
+    {
+        using var host = new Harness("callback");
+        var (key, ticket, context) = await host.RenewalTargetAsync(http);
+        host.Cache.ReadFailure = new TaskCanceledException("Cache timeout.");
+        await Assert.ThrowsAsync<TaskCanceledException>(() =>
+            context is null ? host.Store.RenewAsync(key, ticket) : host.Store.RenewAsync(key, ticket, context, CancellationToken.None));
     }
 
     [Fact]
@@ -404,14 +485,17 @@ public sealed class DistributedTicketStoreTests
         public EventState Events { get; } = new();
         private readonly WebApplication _app;
         public TestServer Server => _app.GetTestServer();
+        public IServiceProvider Services => _app.Services;
         public HttpClient Client { get; }
-        public ITicketStore Store => Server.Services.GetRequiredService<ITicketStore>();
-        public CacheProbe Cache => Server.Services.GetRequiredService<CacheProbe>();
+        public ITicketStore Store => Services.GetRequiredService<ITicketStore>();
+        public CacheProbe Cache => Services.GetRequiredService<CacheProbe>();
 
-        public Harness(string mode, IDistributedLock? locks = null, Action<WebApplicationBuilder>? configure = null)
+        // kestrel：响应启动回调的异常出口由 Kestrel 自己捕获并记录，TestServer 观察不到。
+        public Harness(string mode, IDistributedLock? locks = null, Action<WebApplicationBuilder>? configure = null, bool kestrel = false)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
-            builder.WebHost.UseTestServer();
+            if (kestrel) builder.WebHost.UseKestrel(options => options.Listen(IPAddress.Loopback, 0));
+            else builder.WebHost.UseTestServer();
             var services = builder.Services;
             {
                 services.AddDataProtection().UseEphemeralDataProtectionProvider();
@@ -466,6 +550,20 @@ public sealed class DistributedTicketStoreTests
                         await context.SignInAsync(scheme, Principal(scheme), properties);
                         context.Response.StatusCode = 204;
                     }
+                    else if (context.Request.Path == "/login-aborted")
+                    {
+                        var properties = (await context.AuthenticateAsync(scheme)).Properties!;
+                        context.Abort();
+                        try
+                        {
+                            await context.SignInAsync(scheme, Principal(scheme), properties);
+                            Events.AbortedSignIn.TrySetResult(null);
+                        }
+                        catch (Exception error)
+                        {
+                            Events.AbortedSignIn.TrySetResult(error);
+                        }
+                    }
                     else if (context.Request.Path == "/challenge")
                     {
                         await context.ChallengeAsync(scheme);
@@ -487,11 +585,29 @@ public sealed class DistributedTicketStoreTests
                 });
             }
             _app.StartAsync().GetAwaiter().GetResult();
-            Client = Server.CreateClient();
+            Client = kestrel
+                // 不用客户端 Cookie 容器：用例按请求显式携带引用，容器里的旧 Cookie 会混进请求。
+                ? new HttpClient(new SocketsHttpHandler { UseCookies = false }) { BaseAddress = new Uri(_app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single()) }
+                : Server.CreateClient();
+        }
+
+        // 已存储的会话：服务端续期直接用票据，HTTP 续期再带上与之匹配、请求仍在进行的 Cookie 引用。
+        public async Task<(string Key, AuthenticationTicket Ticket, HttpContext? Context)> RenewalTargetAsync(bool http)
+        {
+            if (!http)
+            {
+                var ticket = Ticket();
+                return (await Store.StoreAsync(ticket), ticket, null);
+            }
+            var cookie = await LoginAsync("A");
+            var key = Assert.Single(Reference(cookie, "A").Principal.Claims).Value;
+            var context = new DefaultHttpContext { RequestServices = Services };
+            context.Request.Headers.Cookie = cookie;
+            return (key, (await Store.RetrieveAsync(key))!, context);
         }
 
         public CookieAuthenticationOptions Options(string scheme) =>
-            Server.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(scheme);
+            Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(scheme);
         public AuthenticationTicket Reference(string cookie, string scheme) =>
             Options(scheme).TicketDataFormat.Unprotect(Uri.UnescapeDataString(cookie.Split('=', 2)[1]))!;
         public AuthenticationTicket Ticket() => new(Principal("A"), new AuthenticationProperties(), "A");
@@ -524,8 +640,8 @@ public sealed class DistributedTicketStoreTests
         }
         public async Task<RedirectContext<CookieAuthenticationOptions>> RedirectContextAsync(string scheme)
         {
-            var context = new DefaultHttpContext { RequestServices = Server.Services };
-            var definition = (await Server.Services.GetRequiredService<IAuthenticationSchemeProvider>().GetSchemeAsync(scheme))!;
+            var context = new DefaultHttpContext { RequestServices = Services };
+            var definition = (await Services.GetRequiredService<IAuthenticationSchemeProvider>().GetSchemeAsync(scheme))!;
             return new RedirectContext<CookieAuthenticationOptions>(context, definition, Options(scheme), new AuthenticationProperties(), "/signed-out");
         }
         private static ClaimsPrincipal Principal(string scheme) => new(new ClaimsIdentity([new Claim("sub", "user")], scheme));
@@ -539,6 +655,30 @@ public sealed class DistributedTicketStoreTests
         public int ValidatePrincipal { get; set; }
         public int RedirectToLogin { get; set; }
         public List<Guid> InstanceIds { get; } = [];
+        public TaskCompletionSource<Exception?> AbortedSignIn { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private static async Task WaitForLogAsync(FakeLogCollector logs, Func<FakeLogRecord, bool> match)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await foreach (var record in logs.GetLogsAsync(timeout.Token))
+        {
+            if (match(record)) return;
+        }
+    }
+
+    // 记录组件包装之后实际交给内层管理器的 Cookie 值（name=value 形式，可直接回放）。
+    private sealed class RecordingCookieManager : ICookieManager
+    {
+        private readonly ChunkingCookieManager _inner = new();
+        public List<string> Appended { get; } = [];
+        public string? GetRequestCookie(HttpContext context, string key) => _inner.GetRequestCookie(context, key);
+        public void DeleteCookie(HttpContext context, string key, CookieOptions options) => _inner.DeleteCookie(context, key, options);
+        public void AppendResponseCookie(HttpContext context, string key, string? value, CookieOptions options)
+        {
+            Appended.Add(key + "=" + Uri.EscapeDataString(value ?? ""));
+            _inner.AppendResponseCookie(context, key, value, options);
+        }
     }
 
     public sealed class StatefulEvents(EventState state) : CookieAuthenticationEvents
@@ -602,11 +742,12 @@ public sealed class DistributedTicketStoreTests
         private bool _armed;
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public bool FailReads { get; set; }
+        public Exception? ReadFailure { get; set; }
         public void Arm() => _armed = true;
+        public void Disarm() => _armed = false;
         public byte[]? Get(string key) => _inner.Get(key);
         public Task<byte[]?> GetAsync(string key, CancellationToken token = default) =>
-            FailReads ? throw new IOException("Cache unavailable.") : _inner.GetAsync(key, token);
+            ReadFailure is { } failure ? throw failure : _inner.GetAsync(key, token);
         public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => _inner.Set(key, value, options);
         public async Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
         {
