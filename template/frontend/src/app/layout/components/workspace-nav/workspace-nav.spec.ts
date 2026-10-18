@@ -128,10 +128,7 @@ describe('WorkspaceNav overflow', () => {
       '[data-testid="workspace-nav-more"]',
     ) as HTMLElement;
 
-    // 期望的首项按打开时刻的折叠结果取：断言的是"打开的那份菜单首项拿到焦点"，
-    // 不受打开之后导航是否再折叠一次影响
-    const expectedFirst = LONG_LABELS[inlineLinks(fixture.nativeElement).length];
-    // 诊断（临时）：CI 偶发失败时把各阶段的折叠状态带进失败消息
+    // 各阶段的折叠与焦点状态带进失败消息：这条曾只在 CI 偶发失败，本机复现不出
     const trace: unknown[] = [];
     const snapshot = (stage: string) => {
       const nav = fixture.debugElement.query(
@@ -165,12 +162,11 @@ describe('WorkspaceNav overflow', () => {
     await settle(fixture);
     snapshot('after-settle');
 
-    // 下拉的首项拿到焦点；导航自己的方向键管理没有把焦点抢回平铺链接
-    expect(
-      document.activeElement?.closest('[hlmDropdownMenuItem]'),
-      JSON.stringify(trace),
-    ).not.toBeNull();
-    expect(document.activeElement?.textContent?.trim(), JSON.stringify(trace)).toBe(expectedFirst);
+    // 打开的菜单首项拿到焦点，导航自己的方向键管理没有把焦点抢回平铺链接。按元素比对而不按
+    // 文案推算：用例读到的平铺项数可能早于测量回调，比文案会把这种时序差当成焦点错位
+    const firstItem = document.querySelector('[hlmDropdownMenuItem]');
+    expect(firstItem, JSON.stringify(trace)).not.toBeNull();
+    expect(document.activeElement === firstItem, JSON.stringify(trace)).toBe(true);
   });
 
   describe('touch targets', () => {
