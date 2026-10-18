@@ -3,6 +3,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <!-- 续期取消要在 Kestrel 的日志出口观察，官方 FakeLogger 收集全部分类 -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 

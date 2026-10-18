@@ -128,18 +128,45 @@ describe('WorkspaceNav overflow', () => {
       '[data-testid="workspace-nav-more"]',
     ) as HTMLElement;
 
+    // 各阶段的折叠与焦点状态带进失败消息：这条曾只在 CI 偶发失败，本机复现不出
+    const trace: unknown[] = [];
+    const snapshot = (stage: string) => {
+      const nav = fixture.debugElement.query(
+        (node) => node.componentInstance instanceof WorkspaceNav,
+      ).componentInstance as WorkspaceNav;
+      const navEl = fixture.nativeElement.querySelector('nav[hlmNavigationMenu]') as HTMLElement;
+      trace.push({
+        stage,
+        t: Math.round(performance.now()),
+        domInline: inlineLinks(fixture.nativeElement).length,
+        signalVisible: nav.visibleCount(),
+        navWidth: navEl.clientWidth,
+        ruler: Array.from(navEl.querySelectorAll('[aria-hidden="true"] > div > span'), (span) =>
+          Math.round(span.getBoundingClientRect().width),
+        ),
+        menu: Array.from(document.querySelectorAll('[hlmDropdownMenuItem]'), (item) =>
+          item.textContent?.trim(),
+        ),
+        active: document.activeElement?.textContent?.trim().slice(0, 30),
+        fonts: document.fonts.status,
+        viewport: `${innerWidth}x${innerHeight}@${devicePixelRatio}`,
+      });
+    };
+    snapshot('before-open');
     more.focus();
     // CDK 菜单按 keyCode 判断方向键，构造的事件里它是 0，这里补上
     const arrowDown = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true });
     Object.defineProperty(arrowDown, 'keyCode', { value: 40 });
     more.dispatchEvent(arrowDown);
+    snapshot('after-dispatch');
     await settle(fixture);
+    snapshot('after-settle');
 
-    // 下拉的首项拿到焦点；导航自己的方向键管理没有把焦点抢回平铺链接
-    expect(document.activeElement?.closest('[hlmDropdownMenuItem]')).not.toBeNull();
-    expect(document.activeElement?.textContent?.trim()).toBe(
-      LONG_LABELS[inlineLinks(fixture.nativeElement).length],
-    );
+    // 打开的菜单首项拿到焦点，导航自己的方向键管理没有把焦点抢回平铺链接。按元素比对而不按
+    // 文案推算：用例读到的平铺项数可能早于测量回调，比文案会把这种时序差当成焦点错位
+    const firstItem = document.querySelector('[hlmDropdownMenuItem]');
+    expect(firstItem, JSON.stringify(trace)).not.toBeNull();
+    expect(document.activeElement === firstItem, JSON.stringify(trace)).toBe(true);
   });
 
   describe('touch targets', () => {

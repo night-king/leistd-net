@@ -11,7 +11,10 @@ using Microsoft.Extensions.Options;
 namespace Leistd.Security.AspNetCore.Cookies;
 
 /// <summary>将受保护票据留在服务端缓存，浏览器仅携带带版本的引用。</summary>
-/// <remarks>宿主提供共享缓存、数据保护密钥环和锁；直接服务端重载可信，HTTP 读取、续期与删除校验 Cookie 引用版本，显式登录由原生事件标记。</remarks>
+/// <remarks>
+/// <para>宿主提供共享缓存、数据保护密钥环和锁；直接服务端重载可信，HTTP 读取、续期与删除校验 Cookie 引用版本，显式登录由原生事件标记。</para>
+/// <para>各操作传递取消令牌并抛出 <see cref="OperationCanceledException"/>，持锁操作同时响应失锁。唯一例外是请求已中止时的被动 HTTP 续期：调用方令牌与 <see cref="HttpContext.RequestAborted"/> 均已取消且不是显式登录时，不再续期，按原票据版本写出引用后正常返回；此时缓存写入可能已完成，也可能未开始。</para>
+/// </remarks>
 public sealed class DistributedTicketStore(
     IDistributedCache cache,
     IDataProtectionProvider protection,
@@ -75,6 +78,20 @@ public sealed class DistributedTicketStore(
     }
 
     private async Task RenewCoreAsync(string key, AuthenticationTicket ticket, HttpContext? context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await RenewLockedAsync(key, ticket, context, cancellationToken);
+        }
+        // 被动续期在响应启动回调里执行，异常逃出后由服务器记为应用错误；请求已放弃时结果到不了客户端，保留原版本后安静返回。
+        catch (OperationCanceledException) when (context is not null && context.RequestAborted.IsCancellationRequested &&
+            cancellationToken.IsCancellationRequested && !context.Items.ContainsKey(ExplicitSignInKey(ticket.AuthenticationScheme)))
+        {
+            context.Items[ResponseVersionKey(ticket.AuthenticationScheme)] = ticket.Properties.Items[ReferenceVersion];
+        }
+    }
+
+    private async Task RenewLockedAsync(string key, AuthenticationTicket ticket, HttpContext? context, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         await using var handle = await locks.LockAsync(key + ":ticket", cancellationToken);

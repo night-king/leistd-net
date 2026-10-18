@@ -1,19 +1,18 @@
-using System.Security.Claims;
-using System.Text.Encodings.Web;
 using Leistd.RealTime.AspNetCore.SignalR;
 using Leistd.RealTime.AspNetCore.SignalR.Hubs;
 using Leistd.RealTime.Publishing;
-using Microsoft.AspNetCore.Authentication;
+using Leistd.RealTime.Subscriptions;
+using Leistd.RealTime.Tests.TestDoubles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Testing;
+using Microsoft.AspNetCore.SignalR.StackExchangeRedis;
 using StackExchange.Redis;
 using Xunit;
 
@@ -28,8 +27,6 @@ namespace Leistd.RealTime.Tests;
 /// </remarks>
 public sealed class RealTimeBackplaneTests
 {
-    private const string TestScheme = "Test";
-    private const string UserHeader = "X-Test-User";
     private static readonly TimeSpan Delivery = TimeSpan.FromSeconds(10);
 
     [SkippableFact]
@@ -86,15 +83,55 @@ public sealed class RealTimeBackplaneTests
         await Assert.ThrowsAsync<TimeoutException>(() => received.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
-    private static async Task<WebApplication> StartApiAsync(string channelPrefix)
+    /// <summary>
+    /// 订阅停在授权阶段，连接中止并从背板移除后再放行：组操作改走跨节点确认，无人确认，约 30 秒后以取消结束。
+    /// 调用已到达背板且最终完成，SignalR 不记调用失败，只留 Hub 的 Debug。背板的确认计时器不受应用时钟控制，只能真实等待。
+    /// </summary>
+    [SkippableFact]
+    public async Task A_subscribe_that_outlives_its_connection_ends_on_the_backplane_without_an_invocation_error()
+    {
+        Skip.IfNot(BackplaneRedis.IsAvailable, BackplaneRedis.SkipReason);
+        var gate = new InvocationGate();
+        var tracker = new InvocationTracker();
+        var observer = new BackplaneObserver();
+        await using var b = await StartApiAsync($"leistd-test-{Guid.NewGuid():N}:", builder =>
+        {
+            builder.Logging.AddFakeLogging().SetMinimumLevel(LogLevel.Debug);
+            builder.Services.AddSingleton<IRealTimeSubscriptionAuthorizer>(new GatedAuthorizer(gate, completeAfterRelease: true));
+            InvocationTracker.Register(builder.Services, tracker);
+            builder.Services.AddSingleton<HubLifetimeManager<RealTimeHub>>(provider =>
+                new ObservedLifetimeManager(ActivatorUtilities.CreateInstance<RedisHubLifetimeManager<RealTimeHub>>(provider), observer));
+        });
+        var logs = b.Services.GetFakeLogCollector();
+        await using var client = await TestHubClient.ConnectAsync(b.GetTestServer(), "user-4");
+
+        var call = client.InvokeAsync("Subscribe", "catalog:4");
+        await gate.Entered.Task.WaitAsync(Delivery);
+        await InvocationTracker.AbortAsync(await tracker.Caller.Task.WaitAsync(Delivery));
+        await observer.Disconnected.Task.WaitAsync(Delivery);
+        gate.Release.SetResult();
+        var groupAction = await observer.GroupAction.Task.WaitAsync(TimeSpan.FromSeconds(60));
+        await tracker.Completed.Task.WaitAsync(Delivery);
+        await Record.ExceptionAsync(() => call.WaitAsync(Delivery));
+
+        Assert.IsAssignableFrom<OperationCanceledException>(groupAction);
+        var snapshot = logs.GetSnapshot();
+        Assert.DoesNotContain(snapshot, record => record.Level >= LogLevel.Error);
+        Assert.Contains(snapshot, record => record.Category == typeof(RealTimeHub).FullName && record.Level == LogLevel.Debug);
+    }
+
+    private static async Task<WebApplication> StartApiAsync(string channelPrefix, Action<WebApplicationBuilder>? configure = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
-        builder.Services.AddAuthentication(TestScheme).AddScheme<AuthenticationSchemeOptions, HeaderAuthenticationHandler>(TestScheme, null);
+        builder.Services.AddAuthentication(HeaderAuthenticationHandler.SchemeName)
+            .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, HeaderAuthenticationHandler>(HeaderAuthenticationHandler.SchemeName, null);
         builder.Services.AddAuthorization();
-        builder.Services.AddRealTimeSignalR().AddAllowAllRealTimeSubscriptions();
+        builder.Services.AddRealTimeSignalR();
         AddBackplane(builder.Services, channelPrefix);
+        configure?.Invoke(builder);
+        builder.Services.AddAllowAllRealTimeSubscriptions();
         var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -119,20 +156,8 @@ public sealed class RealTimeBackplaneTests
         services.AddSignalR().AddStackExchangeRedis(BackplaneRedis.ConnectionString,
             options => options.Configuration.ChannelPrefix = RedisChannel.Literal(channelPrefix));
 
-    private static async Task<AsyncHubConnection> ConnectAsync(WebApplication node, string userId)
-    {
-        var server = node.GetTestServer();
-        var connection = new HubConnectionBuilder()
-            .WithUrl(new Uri(server.BaseAddress, Leistd.RealTime.AspNetCore.SignalR.DependencyInjection.DefaultRealTimeHubPath).ToString(), options =>
-            {
-                options.Transports = HttpTransportType.LongPolling;
-                options.HttpMessageHandlerFactory = _ => server.CreateHandler();
-                options.Headers[UserHeader] = userId;
-            })
-            .Build();
-        await connection.StartAsync();
-        return new AsyncHubConnection(connection);
-    }
+    private static async Task<AsyncHubConnection> ConnectAsync(WebApplication node, string userId) =>
+        new(await TestHubClient.ConnectAsync(node.GetTestServer(), userId));
 
     private static System.Threading.Channels.ChannelReader<T> Collect<T>(AsyncHubConnection connection, string method)
     {
@@ -152,17 +177,56 @@ public sealed class RealTimeBackplaneTests
         public ValueTask DisposeAsync() => Inner.DisposeAsync();
     }
 
-    private sealed class HeaderAuthenticationHandler(
-        IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
-        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    // 转发给 Redis 背板，并报告连接何时已从本节点移除、组操作以什么结束。
+    private sealed class BackplaneObserver
     {
-        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        public TaskCompletionSource Disconnected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<Exception?> GroupAction { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class ObservedLifetimeManager(HubLifetimeManager<RealTimeHub> inner, BackplaneObserver observer)
+        : HubLifetimeManager<RealTimeHub>, IDisposable
+    {
+        public override Task OnConnectedAsync(HubConnectionContext connection) => inner.OnConnectedAsync(connection);
+        public override async Task OnDisconnectedAsync(HubConnectionContext connection)
         {
-            if (!Request.Headers.TryGetValue(UserHeader, out var user) || string.IsNullOrEmpty(user))
-                return Task.FromResult(AuthenticateResult.NoResult());
-            var identity = new ClaimsIdentity([new Claim("sub", user!)], TestScheme);
-            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), TestScheme)));
+            await inner.OnDisconnectedAsync(connection);
+            observer.Disconnected.TrySetResult();
         }
+        public override async Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await inner.AddToGroupAsync(connectionId, groupName, cancellationToken);
+                observer.GroupAction.TrySetResult(null);
+            }
+            catch (Exception error)
+            {
+                observer.GroupAction.TrySetResult(error);
+                throw;
+            }
+        }
+        public override Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default) =>
+            inner.RemoveFromGroupAsync(connectionId, groupName, cancellationToken);
+        public override Task SendAllAsync(string methodName, object?[] args, CancellationToken cancellationToken = default) =>
+            inner.SendAllAsync(methodName, args, cancellationToken);
+        public override Task SendAllExceptAsync(string methodName, object?[] args, IReadOnlyList<string> excludedConnectionIds, CancellationToken cancellationToken = default) =>
+            inner.SendAllExceptAsync(methodName, args, excludedConnectionIds, cancellationToken);
+        public override Task SendConnectionAsync(string connectionId, string methodName, object?[] args, CancellationToken cancellationToken = default) =>
+            inner.SendConnectionAsync(connectionId, methodName, args, cancellationToken);
+        public override Task SendConnectionsAsync(IReadOnlyList<string> connectionIds, string methodName, object?[] args, CancellationToken cancellationToken = default) =>
+            inner.SendConnectionsAsync(connectionIds, methodName, args, cancellationToken);
+        public override Task SendGroupAsync(string groupName, string methodName, object?[] args, CancellationToken cancellationToken = default) =>
+            inner.SendGroupAsync(groupName, methodName, args, cancellationToken);
+        public override Task SendGroupsAsync(IReadOnlyList<string> groupNames, string methodName, object?[] args, CancellationToken cancellationToken = default) =>
+            inner.SendGroupsAsync(groupNames, methodName, args, cancellationToken);
+        public override Task SendGroupExceptAsync(string groupName, string methodName, object?[] args, IReadOnlyList<string> excludedConnectionIds, CancellationToken cancellationToken = default) =>
+            inner.SendGroupExceptAsync(groupName, methodName, args, excludedConnectionIds, cancellationToken);
+        public override Task SendUserAsync(string userId, string methodName, object?[] args, CancellationToken cancellationToken = default) =>
+            inner.SendUserAsync(userId, methodName, args, cancellationToken);
+        public override Task SendUsersAsync(IReadOnlyList<string> userIds, string methodName, object?[] args, CancellationToken cancellationToken = default) =>
+            inner.SendUsersAsync(userIds, methodName, args, cancellationToken);
+        public void Dispose() => (inner as IDisposable)?.Dispose();
     }
 
     private static class BackplaneRedis
