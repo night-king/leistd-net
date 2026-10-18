@@ -80,7 +80,7 @@
         </div>
       </div>
 
-      <!-- 与设置行同一写法：标签在左、输入在右（宽时 256px 右对齐，窄时落到标签下方），错误与验证在输入下方 -->
+      <!-- 与设置行同一写法：标签在左、输入在右（宽时右对齐，宽度等于设置行输入框加恢复按钮的总宽：296px，触屏 308px；窄时落到标签下方），错误在输入下方 -->
       <div hlmFieldGroup class="gap-5">
         <div hlmField orientation="responsive">
           <div hlmFieldContent class="min-w-0 wrap-anywhere">
@@ -93,7 +93,7 @@
             </div>
           </div>
           <div
-            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
           >
             <input
               hlmInput
@@ -113,7 +113,7 @@
 
         <div hlmField orientation="responsive">
           <div hlmFieldContent class="min-w-0 wrap-anywhere">
-            <!-- 验证状态接在标签后面，与设置行的"已保存"同一位置；需要操作的验证码输入与发送按钮留在输入框下方 -->
+            <!-- 验证状态接在标签后面，与设置行的"已保存"同一位置；发送按钮在邮箱右侧，验证码一行在下方 -->
             <div
               class="flex flex-wrap items-center gap-x-2 gap-y-1 @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
             >
@@ -144,8 +144,10 @@
 <!--#endif-->
             </div>
           </div>
+          <!-- 两列网格：输入一列、按钮一列，两行按钮同宽，输入框左右对齐。间距由按钮的左外边距给出，
+               没有按钮时按钮列宽为 0，输入占满整列 -->
           <div
-            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+            class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-y-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
           >
             <input
               hlmInput
@@ -155,68 +157,67 @@
               [formField]="profileForm.email"
               [placeholder]="t('account.profile.emailPlaceholder')"
             />
+<!--#if (Email)-->
+            @if (!emailEdited() && !user()?.isEmailVerified && emailVerificationAvailable()) {
+              <!-- 最小宽度容纳默认间隔（两位数秒）的倒计时文案，倒数时输入框不跟着伸缩；间隔调到三位数以上时按钮按内容加宽 -->
+              <button
+                hlmBtn
+                type="button"
+                variant="outline"
+                class="ml-2 min-w-28 tabular-nums"
+                data-testid="email-send-code"
+                [disabled]="sendingCode() || resendSeconds() > 0"
+                (click)="sendEmailCode()"
+              >
+                @if (resendSeconds() > 0) {
+                  {{ t('account.profile.resendIn', { seconds: resendSeconds() }) }}
+                } @else if (emailChallenge()) {
+                  {{ t('account.profile.resendCode') }}
+                } @else {
+                  {{ t('account.profile.sendCode') }}
+                }
+              </button>
+            }
+<!--#endif-->
             @for (error of profileForm.email().errors(); track error.kind) {
-              <hlm-field-error [validator]="error.kind">{{
+              <hlm-field-error class="col-span-2" [validator]="error.kind">{{
                 t('validation.' + error.kind, error)
               }}</hlm-field-error>
             }
 <!--#if (Email)-->
             @if (!emailEdited() && !user()?.isEmailVerified) {
-              <div class="flex flex-col gap-2" data-testid="email-verification">
-                @if (!emailVerificationAvailable()) {
-                  <p
-                    class="text-muted-foreground text-xs"
-                    data-testid="email-verification-unavailable"
-                  >
-                    {{ t('account.profile.emailVerificationUnavailable') }}
-                  </p>
-                } @else {
-                  @if (emailChallenge()) {
-                    <div class="flex gap-2">
-                      <input
-                        hlmInput
-                        id="profile-email-code"
-                        class="w-40"
-                        inputmode="numeric"
-                        autocomplete="one-time-code"
-                        maxlength="6"
-                        [attr.aria-label]="t('account.profile.codeLabel')"
-                        [placeholder]="t('account.profile.codePlaceholder')"
-                        [value]="emailCode()"
-                        (input)="onEmailCodeInput($event)"
-                        (keydown.enter)="$event.preventDefault(); confirmEmailCode()"
-                      />
-                      <button
-                        hlmBtn
-                        type="button"
-                        size="sm"
-                        [disabled]="confirmingCode() || emailCode().trim().length === 0"
-                        (click)="confirmEmailCode()"
-                      >
-                        {{ t('account.profile.confirmCode') }}
-                      </button>
-                    </div>
-                  }
-                  <button
-                    hlmBtn
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    class="self-start"
-                    data-testid="email-send-code"
-                    [disabled]="sendingCode() || resendSeconds() > 0"
-                    (click)="sendEmailCode()"
-                  >
-                    @if (resendSeconds() > 0) {
-                      {{ t('account.profile.resendIn', { seconds: resendSeconds() }) }}
-                    } @else if (emailChallenge()) {
-                      {{ t('account.profile.resendCode') }}
-                    } @else {
-                      {{ t('account.profile.sendCode') }}
-                    }
-                  </button>
-                }
-              </div>
+              @if (!emailVerificationAvailable()) {
+                <p
+                  class="text-muted-foreground col-span-2 text-xs"
+                  data-testid="email-verification-unavailable"
+                >
+                  {{ t('account.profile.emailVerificationUnavailable') }}
+                </p>
+              } @else if (emailChallenge()) {
+                <input
+                  hlmInput
+                  id="profile-email-code"
+                  class="w-full"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  [attr.aria-label]="t('account.profile.codeLabel')"
+                  [placeholder]="t('account.profile.codePlaceholder')"
+                  [value]="emailCode()"
+                  (input)="onEmailCodeInput($event)"
+                  (keydown.enter)="$event.preventDefault(); confirmEmailCode()"
+                />
+                <button
+                  hlmBtn
+                  type="button"
+                  class="ml-2 min-w-28"
+                  data-testid="email-confirm-code"
+                  [disabled]="confirmingCode() || emailCode().trim().length === 0"
+                  (click)="confirmEmailCode()"
+                >
+                  {{ t('account.profile.confirmCode') }}
+                </button>
+              }
             }
 <!--#endif-->
           </div>
@@ -233,7 +234,7 @@
             </div>
           </div>
           <div
-            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
           >
             <input
               hlmInput
@@ -261,7 +262,7 @@
             </div>
           </div>
           <div
-            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
           >
             <input
               hlmInput

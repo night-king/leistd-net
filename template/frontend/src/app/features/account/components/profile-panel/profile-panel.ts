@@ -184,6 +184,8 @@ export class ProfilePanel {
   /** 距离可以重发还剩几秒；0 表示可以发。 */
   readonly resendSeconds = signal(0);
   private resendTimer: ReturnType<typeof setInterval> | undefined;
+  /** 倒计时针对的地址：服务端按地址限频，换了地址的倒计时不再适用。 */
+  private resendEmail: string | null = null;
 
 //#endif
   readonly profileForm = form(this.formModel, (path) => {
@@ -222,6 +224,10 @@ export class ProfilePanel {
     if (this.emailChallenge()?.email !== saved.email) {
       this.emailChallenge.set(null);
       this.emailCode.set('');
+    }
+    // 重发倒计时同理：服务端按地址限频，新地址可以立即发送；不停掉的话按钮一直禁用，点了也没有反应
+    if (this.resendEmail !== null && this.resendEmail !== saved.email) {
+      this.stopResendCountdown();
     }
 //#endif
   }
@@ -300,7 +306,7 @@ export class ProfilePanel {
         next: (challenge) => {
           this.emailChallenge.set({ challengeId: challenge.challengeId, email });
           this.emailCode.set('');
-          this.startResendCountdown(challenge.retryAfterSeconds);
+          this.startResendCountdown(email, challenge.retryAfterSeconds);
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('account.profile.codeSent', { email }));
           //#else
@@ -341,16 +347,23 @@ export class ProfilePanel {
     this.emailCode.set((event.target as HTMLInputElement).value);
   }
 
-  private startResendCountdown(seconds: number): void {
+  private startResendCountdown(email: string, seconds: number): void {
     clearInterval(this.resendTimer);
+    this.resendEmail = email;
     this.resendSeconds.set(Math.max(0, Math.ceil(seconds)));
     this.resendTimer = setInterval(() => {
       const next = this.resendSeconds() - 1;
       this.resendSeconds.set(Math.max(0, next));
       if (next <= 0) {
-        clearInterval(this.resendTimer);
+        this.stopResendCountdown();
       }
     }, 1000);
+  }
+
+  private stopResendCountdown(): void {
+    clearInterval(this.resendTimer);
+    this.resendSeconds.set(0);
+    this.resendEmail = null;
   }
 
 //#endif
@@ -451,7 +464,7 @@ const ENGLISH: Record<string, string> = {
   'account.profile.confirmCode': 'Verify',
   'account.profile.resendIn': 'Resend in {{seconds}}s',
   'account.profile.resendCode': 'Resend code',
-  'account.profile.sendCode': 'Send verification code',
+  'account.profile.sendCode': 'Send code',
   'account.profile.displayName': 'Display name',
   'account.profile.displayNamePlaceholder': 'Enter a display name',
   'account.profile.phoneNumber': 'Phone Number',

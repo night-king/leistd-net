@@ -50,6 +50,7 @@ describe('ProfilePanel', () => {
     updateCurrentUser: Mock;
     setAvatar: Mock;
     //#if (Email)
+    sendCurrentEmailCode: Mock;
     confirmCurrentEmail: Mock;
     //#endif
   };
@@ -62,6 +63,9 @@ describe('ProfilePanel', () => {
       updateCurrentUser: vi.fn(),
       setAvatar: vi.fn(),
       //#if (Email)
+      sendCurrentEmailCode: vi.fn(() =>
+        of({ challengeId: 'challenge-1', expiresInSeconds: 300, retryAfterSeconds: 60 }),
+      ),
       confirmCurrentEmail: vi.fn(),
       //#endif
     };
@@ -343,6 +347,61 @@ describe('ProfilePanel', () => {
     });
     expect(setCurrentUser).toHaveBeenCalledExactlyOnceWith(saved);
     expect(panel.emailChallenge()).toBeNull();
+  });
+
+  // 发送按钮在邮箱右侧、验证按钮在验证码右侧，按钮与输入同高；两行输入框与按钮各自左右对齐
+  it('lines up the send and verify buttons beside their inputs in two equal rows', async () => {
+    fixture.componentInstance.emailChallenge.set({
+      challengeId: 'challenge-1',
+      email: initialUser.email,
+    });
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    const rect = (selector: string) => root.querySelector(selector)!.getBoundingClientRect();
+    const email = rect('#profile-email');
+    const send = rect('[data-testid="email-send-code"]');
+    const code = rect('#profile-email-code');
+    const verify = rect('[data-testid="email-confirm-code"]');
+
+    expect(send.top).toBe(email.top);
+    expect(send.height).toBe(email.height);
+    expect(verify.top).toBe(code.top);
+    expect(verify.height).toBe(code.height);
+    expect(code.top).toBeGreaterThan(email.bottom);
+    expect(code.left).toBe(email.left);
+    expect(code.right).toBe(email.right);
+    expect(verify.left).toBe(send.left);
+    expect(verify.right).toBe(send.right);
+  });
+
+  // 服务端按地址限频：换了已保存的地址，旧地址的倒计时不再适用，新地址能立即发送
+  it('lets a newly saved address be sent a code right away', async () => {
+    const panel = fixture.componentInstance;
+    panel.sendEmailCode();
+    await fixture.whenStable();
+    expect(panel.resendSeconds()).toBe(60);
+
+    currentUser.set({ ...initialUser, email: 'alice.new@example.com' });
+    await fixture.whenStable();
+
+    expect(panel.resendSeconds()).toBe(0);
+    expect(panel.emailChallenge()).toBeNull();
+    const send = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="email-send-code"]',
+    )!;
+    expect(send.disabled).toBe(false);
+  });
+
+  it('keeps the countdown when the saved address stays the same', async () => {
+    const panel = fixture.componentInstance;
+    panel.sendEmailCode();
+    await fixture.whenStable();
+
+    currentUser.set({ ...initialUser, displayName: 'Alice Smith' });
+    await fixture.whenStable();
+
+    expect(panel.resendSeconds()).toBe(60);
+    expect(panel.emailChallenge()).not.toBeNull();
   });
 
   it('keeps the challenge and the current user when confirming the email fails', async () => {

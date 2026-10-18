@@ -57,7 +57,7 @@ class HostComponent {
 const ENGLISH_HINTS: Record<string, string> = {
   'users.editDialog.activeHint':
     'When disabled, the user cannot sign in or call protected endpoints',
-  'users.editDialog.emailVerifiedHint': 'Used to manage the email verification status',
+  'users.editDialog.emailVerifiedHint': 'Marks the address as confirmed to belong to this user',
 };
 
 //#endif
@@ -181,6 +181,30 @@ describe('UserEditDialog', () => {
       expect(describedBy).toBeTruthy();
       expect(document.getElementById(describedBy!)?.textContent?.trim()).toBe(description);
     }
+  });
+
+  // 开关各占整行（宽屏两栏布局下也是）：开关与上方输入框的右缘对齐，说明不被半栏挤成两行
+  it('lines each switch up with the right edge of the inputs above', async () => {
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+    const inputsRight = document.getElementById('user-email')!.getBoundingClientRect().right;
+
+    // prettier-ignore
+    for (const id of [
+      'user-is-active',
+      //#if (LocalIdentity)
+      'user-email-verified',
+      //#endif
+    ]) {
+      const right = document.getElementById(id)!.getBoundingClientRect().right;
+      expect(Math.abs(right - inputsRight)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  // 宽度固定为两栏布局的宽度，不随内容伸缩：新建与编辑两态、说明长短不同时对话框不忽宽忽窄
+  it('keeps the dialog at its two-column width regardless of content', async () => {
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+
+    expect(document.querySelector('hlm-dialog-content')!.getBoundingClientRect().width).toBe(672);
   });
 
   // 开关视觉只有约 32×18px：触屏下命中区铺到 44px，点在开关外沿也能切换

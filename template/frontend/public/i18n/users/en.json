@@ -78,7 +78,8 @@
   "editDialog": {
     "editHeader": "Edit user",
     "createHeader": "New user",
-    "description": "Manage the account profile, roles, and status.",
+    "createDescription": "Fill in the account profile and set its initial roles and status.",
+    "editDescription": "Update the account profile. Roles and sign-in access are managed from the user list.",
     "loading": "Loading user information...",
     "unnamedUser": "Unnamed user",
     "noEmail": "No email set",
@@ -101,7 +102,7 @@
     "activeTitle": "Enable user",
     "activeHint": "When disabled, the user cannot sign in or call protected endpoints",
     "emailVerifiedTitle": "Email verified",
-    "emailVerifiedHint": "Used to manage the email verification status",
+    "emailVerifiedHint": "Marks the address as confirmed to belong to this user",
     "avatarDecodeFailed": "This image could not be read. Try another one."
   },
   "resetDialog": {
