@@ -8,7 +8,8 @@ namespace Leistd.Settings.Hosting.Configuration;
 internal sealed class HostSettingsConfigurationProvider : ConfigurationProvider
 {
     // 写入后的立即应用与周期刷新可能同时到来，换数据与重载要成对完成
-    private readonly Lock _gate = new();
+    // 写全名：引用 Leistd.Lock 包后，Leistd.* 命名空间内的裸 Lock 会解析成该命名空间
+    private readonly System.Threading.Lock _gate = new();
     private Dictionary<string, string?>? _rejected;
 
     public bool IsAttached { get; private set; }

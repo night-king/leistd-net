@@ -1,6 +1,8 @@
 using System.Globalization;
 using Leistd.EventBus.Abstractions;
 using Leistd.ExceptionHandling;
+using Leistd.Lock.Abstractions;
+using Leistd.MultiTenancy.Context;
 using Leistd.Settings.Definitions;
 using Leistd.Settings.Errors;
 using Leistd.Settings.Resolution;
@@ -9,38 +11,54 @@ using Leistd.Settings.Events;
 using Leistd.Settings.Exceptions;
 using Leistd.Settings.Validation;
 using Leistd.Settings.Options;
+using Leistd.UnitOfWork;
+using Leistd.UnitOfWork.Options;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Options;
 
 namespace Leistd.Settings.Management;
 
-/// <summary>写入前对照定义校验设置名、层级与取值，写入后发布 <see cref="SettingChangedEvent"/>。</summary>
+/// <summary>写入前对照定义校验设置名、层级与取值，按租户串行地在独立事务里完成校验与写入，提交后分发 <see cref="SettingChangedEvent"/>。</summary>
 /// <remarks>
 /// <para>取值校验依次是：空串拒绝、<see cref="ISettingDefinition.ValueType"/> 与区间、
 /// <see cref="ISettingDefinition.AllowedValues"/>、宿主注册的 <see cref="ISettingValueValidator"/>。
 /// 清除（值为 <see langword="null"/>）不做值元数据校验，但以清除后会生效的值（下一层或代码默认值）经过业务校验器，
 /// 跨设置的约束因此不会被一次清除绕过；清除后没有任何值时不调用校验器。</para>
-/// <para>写入后作废同一作用域 <see cref="ISettingProvider"/> 的记忆化结果，同一请求里先写后读能读到新值。</para>
+/// <para>每次写入先按当前租户取 <see cref="IDistributedLock"/>（键 <c>settings:{租户 Id}</c>，宿主为 <c>settings:host</c>；
+/// 用户层与租户层共用一把），再以 <c>requiresNew</c> 开一个事务型工作单元（隔离级别与超时沿用宿主的工作单元默认选项）。
+/// 锁内依次：作废同一作用域 <see cref="ISettingProvider"/> 的记忆化结果 → 取值校验与业务校验器 → 存储写入 → 再次作废记忆化 →
+/// 发布事件（进入本工作单元的提交后队列） → 提交；提交与提交后处理器全部结束、退出工作单元之后才释放锁。
+/// 校验器经 <see cref="ISettingProvider"/> 读到的因此是锁内已提交的最新值，写入后同一作用域先写后读也读到新值。</para>
+/// <para>锁获取失败或等待中取消原样上抛；持锁资格失效（<see cref="ILockHandle.LockLost"/>）与调用方取消合并，传给锁内的读写、
+/// 校验器与提交前检查。提交开始之后沿用工作单元的不可逆边界，不再因取消报告未保存。</para>
 /// </remarks>
 /// <param name="definitionManager">设置定义。</param>
-/// <param name="store">设置值存储。</param>
-/// <param name="settingProvider">同一作用域的设置读取器，写入后作废它的记忆化结果。</param>
+/// <param name="store">设置值存储；须经当前工作单元读写（参与其事务），见 <see cref="ISettingManager"/>。</param>
+/// <param name="settingProvider">同一作用域的设置读取器，校验前与写入后作废它的记忆化结果。</param>
 /// <param name="validators">业务取值校验器。</param>
+/// <param name="distributedLock">按租户串行化写入；多副本部署须为跨进程实现（如 Redis）。</param>
+/// <param name="unitOfWorkManager">为每次写入开独立的事务型工作单元。</param>
 /// <param name="eventBus">发布变更事件；未注册本地事件总线时不发布。</param>
 /// <param name="dataProtectionProvider">机密设置的加解密用宿主的 Data Protection；为 <see langword="null"/> 时写入机密设置、
 /// 以及清除用户覆盖而需要解密租户层回落值时会失败。</param>
 /// <param name="localizerFactory">校验失败时按请求语言取设置显示名；未启用本地化时用定义上的显示名。</param>
 /// <param name="managementOptions">提供显示名词条所在的资源类型。</param>
+/// <param name="currentTenant">锁键按它取租户；未注册多租户时全部写入共用宿主那把锁。</param>
+/// <param name="unitOfWorkOptions">宿主的工作单元默认选项，提供隔离级别与超时；事务开关固定为开启。</param>
 public sealed class DefaultSettingManager(
     ISettingDefinitionManager definitionManager,
     ISettingStore store,
     ISettingProvider settingProvider,
     IEnumerable<ISettingValueValidator> validators,
+    IDistributedLock distributedLock,
+    IUnitOfWorkManager unitOfWorkManager,
     ILocalEventBus? eventBus = null,
     IDataProtectionProvider? dataProtectionProvider = null,
     IStringLocalizerFactory? localizerFactory = null,
-    IOptions<SettingManagementOptions>? managementOptions = null) : ISettingManager
+    IOptions<SettingManagementOptions>? managementOptions = null,
+    ICurrentTenant? currentTenant = null,
+    IOptions<UnitOfWorkOptions>? unitOfWorkOptions = null) : ISettingManager
 {
     // 与读取器同一用途，写入的密文它才解得开
     private readonly IDataProtector? _protector =
@@ -72,6 +90,37 @@ public sealed class DefaultSettingManager(
             userId = null;
         }
 
+        // 同租户的全部写入共用一把锁：用户层清除会回落到租户层值，跨设置规则也可能跨层读取
+        await using var lease = await distributedLock.LockAsync(LockKey(), cancellationToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.LockLost);
+
+        // 锁要等提交之后才释放：requiresNew 不并入调用方的事务（并入的话要等外层结束才真正提交）
+        using var unitOfWork = unitOfWorkManager.Begin(TransactionalOptions(), requiresNew: true);
+        try
+        {
+            await WriteAsync(definition, value, scope, userId, linked.Token);
+            await unitOfWork.CompleteAsync(linked.Token);
+        }
+        catch
+        {
+            await unitOfWork.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+    }
+
+    // 在锁与本次工作单元之内执行：校验器读到的是锁内的权威值，事件进入本次提交的提交后队列
+    private async Task WriteAsync(
+        ISettingDefinition definition,
+        string? value,
+        SettingScopes scope,
+        string? userId,
+        CancellationToken cancellationToken)
+    {
+        var reader = settingProvider as DefaultSettingProvider;
+
+        // 本作用域之前读过的快照可能早于前一个持锁者的提交；校验器读另一项设置前必须丢掉
+        reader?.Invalidate();
+
         if (value is not null)
         {
             EnsureWellFormed(definition, value);
@@ -89,18 +138,30 @@ public sealed class DefaultSettingManager(
         }
 
         var stored = definition.IsEncrypted && value is not null
-            ? (_protector ?? throw DefaultSettingProvider.MissingDataProtection(name))
-                .CreateProtector(name)
+            ? (_protector ?? throw DefaultSettingProvider.MissingDataProtection(definition.Name))
+                .CreateProtector(definition.Name)
                 .Protect(value)
             : value;
 
-        await store.SetAsync(name, stored, scope, userId, cancellationToken);
-        (settingProvider as DefaultSettingProvider)?.Invalidate();
+        await store.SetAsync(definition.Name, stored, scope, userId, cancellationToken);
+
+        // 校验器读取时又缓存了含本项旧值的快照；不再作废的话同一作用域写后读仍是旧值
+        reader?.Invalidate();
 
         if (eventBus is not null)
         {
-            await eventBus.PublishAsync(new SettingChangedEvent(name, scope, userId), cancellationToken);
+            await eventBus.PublishAsync(new SettingChangedEvent(definition.Name, scope, userId), cancellationToken);
         }
+    }
+
+    private string LockKey() => currentTenant?.Id is { } tenantId ? $"settings:{tenantId:D}" : "settings:host";
+
+    // 宿主可能把默认工作单元配成非事务型；本操作的回滚与“提交先于释放锁”都依赖事务
+    private UnitOfWorkOptions TransactionalOptions()
+    {
+        var options = unitOfWorkOptions?.Value.Clone() ?? new UnitOfWorkOptions();
+        options.IsTransactional = true;
+        return options;
     }
 
     // 移除本层覆盖后会生效的明文值：用户层回落到租户层存储值（定义允许时），再回落到代码默认值；

@@ -11,6 +11,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Localization;
 using Xunit;
 using Leistd.Settings.Tests.TestDoubles;
+using Leistd.Lock.Memory;
+using Leistd.UnitOfWork;
 
 namespace Leistd.Settings.Tests.Core;
 
@@ -216,7 +218,11 @@ public class SettingManagementTests
             .AddSettingsCore(options => options.LocalizationResource = localized is null ? null : typeof(SettingManagementTests))
             .AddSingleton<ISettingDefinitionProvider, Definitions>()
             .AddSingleton(store)
-            .AddSingleton<ICurrentUser>(currentUser ?? new FakeCurrentUser(UserId));
+            .AddSingleton<ICurrentUser>(currentUser ?? new FakeCurrentUser(UserId))
+            // 默认写入入口的前提：锁与工作单元
+            .AddLogging()
+            .AddMemoryLocalLock()
+            .AddSingleton<IUnitOfWorkManager>(new RecordingUnitOfWorkManager());
         if (localized is not null)
         {
             services.AddSingleton<IStringLocalizerFactory>(new DictionaryLocalizerFactory(localized));

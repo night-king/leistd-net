@@ -106,7 +106,9 @@ public class SettingWriteTests
             definitions,
             store,
             new DefaultSettingProvider(definitions, store, new FakeCurrentUser(Guid.NewGuid())),
-            []);
+            [],
+            WriteDependencies.Lock(),
+            new RecordingUnitOfWorkManager());
         return (manager, store);
     }
 

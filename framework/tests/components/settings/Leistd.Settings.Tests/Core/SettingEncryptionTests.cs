@@ -95,7 +95,7 @@ public class SettingEncryptionTests
     {
         var store = new FakeSettingStore();
         var provider = Provider(store, _dataProtection);
-        var manager = new DefaultSettingManager(Definitions(), store, provider, [], dataProtectionProvider: _dataProtection);
+        var manager = new DefaultSettingManager(Definitions(), store, provider, [], WriteDependencies.Lock(), new RecordingUnitOfWorkManager(), dataProtectionProvider: _dataProtection);
 
         Assert.Null(await provider.GetOrNullAsync("Email.Host"));
         Assert.Equal(1, store.HostReads);
@@ -108,7 +108,7 @@ public class SettingEncryptionTests
     }
 
     private static ISettingManager Manager(FakeSettingStore store, IDataProtectionProvider? dataProtection)
-        => new DefaultSettingManager(Definitions(), store, Provider(store, dataProtection), [], dataProtectionProvider: dataProtection);
+        => new DefaultSettingManager(Definitions(), store, Provider(store, dataProtection), [], WriteDependencies.Lock(), new RecordingUnitOfWorkManager(), dataProtectionProvider: dataProtection);
 
     private static DefaultSettingProvider Provider(FakeSettingStore store, IDataProtectionProvider? dataProtection)
         => new(Definitions(), store, new FakeCurrentUser(UserId), dataProtection);

@@ -185,6 +185,8 @@ public class SettingValueValidationTests
             store,
             new DefaultSettingProvider(definitions, store, new FakeCurrentUser(Guid.NewGuid()), dataProtection),
             validators,
+            WriteDependencies.Lock(),
+            new RecordingUnitOfWorkManager(),
             events,
             dataProtection);
         return (manager, store, events);

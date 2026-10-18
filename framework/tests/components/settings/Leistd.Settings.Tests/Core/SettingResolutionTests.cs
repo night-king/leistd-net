@@ -246,7 +246,7 @@ public class SettingResolutionTests
         var store = new TenantAwareStore(currentTenant);
         var definitions = new SettingDefinitionManager([new TestSettingDefinitionProvider()]);
         var provider = new DefaultSettingProvider(definitions, store, new FakeCurrentUser(UserId), currentTenant: currentTenant);
-        var manager = new DefaultSettingManager(definitions, store, provider, []);
+        var manager = new DefaultSettingManager(definitions, store, provider, [], WriteDependencies.Lock(), new RecordingUnitOfWorkManager());
 
         await provider.GetOrNullAsync("Display.Language");
         using (currentTenant.Change(tenantA))

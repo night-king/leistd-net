@@ -14,6 +14,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Xunit;
 using Leistd.Settings.Tests.TestDoubles;
+using Leistd.Lock.Memory;
+using Leistd.UnitOfWork;
 
 namespace Leistd.Settings.Tests.Hosting;
 
@@ -191,6 +193,8 @@ public sealed class HostSettingsTests : IDisposable
         builder.Services
             .AddSettingsCore()
             .AddSingleton<ISettingStore>(_store)
+            .AddMemoryLocalLock()
+            .AddSingleton<IUnitOfWorkManager>(new RecordingUnitOfWorkManager())
             .AddSingleton<ICurrentUser>(new FakeCurrentUser())
             .AddSingleton<ISettingDefinitionProvider, Definitions>()
             .AddHostSettings(bindings =>

@@ -14,12 +14,17 @@
     <ProjectReference Include="..\..\localization\Leistd.Localization.Core\Leistd.Localization.Core.csproj" />
     <!-- 读取器的缓存按当前租户分键；只用上下文契约，未注册多租户时按宿主一份 -->
     <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- 默认写入入口按租户取锁、在独立事务里完成校验到提交；锁与工作单元的实现由宿主注册 -->
+    <ProjectReference Include="..\..\lock\Leistd.Lock.Core\Leistd.Lock.Core.csproj" />
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.Core\Leistd.UnitOfWork.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- 机密设置的默认加解密：只引用抽象，密钥环由宿主的 AddDataProtection 提供 -->
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
+    <!-- 启动期检查默认写入入口的依赖 -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>

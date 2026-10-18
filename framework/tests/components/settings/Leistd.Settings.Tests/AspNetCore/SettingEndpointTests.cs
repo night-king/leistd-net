@@ -23,6 +23,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Xunit;
 using Leistd.Settings.Tests.TestDoubles;
+using Leistd.Lock.Memory;
+using Leistd.UnitOfWork;
 
 namespace Leistd.Settings.Tests.AspNetCore;
 
@@ -54,6 +56,8 @@ public sealed class SettingEndpointTests : IAsyncLifetime
                     services.AddSecurity();
                     services.AddSettingsCore();
                     services.AddSingleton<ISettingStore>(_store);
+                    services.AddMemoryLocalLock();
+                    services.AddSingleton<IUnitOfWorkManager>(new RecordingUnitOfWorkManager());
                     services.AddSingleton<ISettingDefinitionProvider, Definitions>();
                     services.AddAuthentication("Test")
                         .AddScheme<AuthenticationSchemeOptions, SubjectHandler>("Test", _ => { })
