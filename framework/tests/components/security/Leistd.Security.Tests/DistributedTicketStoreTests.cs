@@ -384,6 +384,37 @@ public sealed class DistributedTicketStoreTests
         Assert.Equal(HttpStatusCode.OK, await host.MeAsync(reference, "A"));
     }
 
+    /// <summary>有效引用的被动续期在调用前请求与调用方令牌均已取消：正常返回，不写缓存。</summary>
+    [Fact]
+    public async Task A_passive_renewal_canceled_before_the_call_returns_without_writing_the_cache()
+    {
+        using var host = new Harness("callback");
+        var (key, ticket, context) = await host.RenewalTargetAsync(http: true);
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+        context!.RequestAborted = canceled.Token;
+        var before = (await host.Cache.GetAsync(key))!;
+        host.Clock.Advance(TimeSpan.FromMinutes(11));
+
+        await host.Store.RenewAsync(key, ticket, context, canceled.Token);
+
+        Assert.Equal(before, await host.Cache.GetAsync(key));
+    }
+
+    /// <summary>请求已中止但调用方传入的独立令牌未取消时，依赖抛出的取消是故障，照常传播。</summary>
+    [Fact]
+    public async Task A_dependency_cancellation_propagates_when_only_the_request_was_aborted()
+    {
+        using var host = new Harness("callback");
+        var (key, ticket, context) = await host.RenewalTargetAsync(http: true);
+        using var aborted = new CancellationTokenSource();
+        await aborted.CancelAsync();
+        context!.RequestAborted = aborted.Token;
+        host.Cache.ReadFailure = new OperationCanceledException("Dependency canceled.");
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => host.Store.RenewAsync(key, ticket, context, CancellationToken.None));
+    }
+
     /// <summary>显式再次登录时请求已中止，取消照常传播，不把未写入的新版本报告为登录成功。</summary>
     [Fact]
     public async Task Canceling_an_explicit_sign_in_over_an_existing_session_propagates()
