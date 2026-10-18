@@ -69,6 +69,7 @@ public sealed class SettingWriteSerializationTests : IDisposable
                 $"publish:{ReadDays}",
                 "commit",
                 "dispose",
+                $"lock-release-start:{HostLockKey}",
                 $"lock-released:{HostLockKey}",
             ],
             _journal);
@@ -118,9 +119,6 @@ public sealed class SettingWriteSerializationTests : IDisposable
         var barrier = new FirstPartyBarrier();
         var secondWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = RunAs("first", () => Manager(barrier).SetAsync(firstName, firstValue, SettingScopes.Tenant));
-        await barrier.FirstValidated.WaitAsync(Guard);
-
         _lock.Waiting += key =>
         {
             if (key == HostLockKey && Party.Value == "second")
@@ -128,21 +126,28 @@ public sealed class SettingWriteSerializationTests : IDisposable
                 secondWaiting.TrySetResult();
             }
         };
-        var second = RunAs("second", () => Manager(barrier).SetAsync(secondName, secondValue, SettingScopes.Tenant));
 
+        Task? first = null;
+        Task? second = null;
         Task observed;
         try
         {
+            first = RunAs("first", () => Manager(barrier).SetAsync(firstName, firstValue, SettingScopes.Tenant));
+            await Task.WhenAny(barrier.FirstValidated, first).WaitAsync(Guard);
+            await (barrier.FirstValidated.IsCompleted ? Task.CompletedTask : first);
+
+            second = RunAs("second", () => Manager(barrier).SetAsync(secondName, secondValue, SettingScopes.Tenant));
             observed = await Task.WhenAny(secondWaiting.Task, barrier.SecondValidated).WaitAsync(Guard);
         }
         finally
         {
-            // 断言失败时也放行第一方并等两方结束，不留挂起的写入与锁
+            // 任何一步失败也先放行第一方，并有界地等两方结束，之后才释放测试锁；原始失败照常上抛
             barrier.ReleaseFirst();
+            await DrainAsync(first, second);
         }
 
-        var firstFailure = await Outcome(first);
-        var secondFailure = await Outcome(second);
+        var firstFailure = await Outcome(first!);
+        var secondFailure = await Outcome(second!);
 
         Assert.True(observed == secondWaiting.Task, "The second write passed validation before waiting for the lock");
         Assert.Null(firstFailure);
@@ -150,8 +155,8 @@ public sealed class SettingWriteSerializationTests : IDisposable
 
         var journal = _journal.ToList();
         Assert.True(
-            journal.IndexOf("first:commit") < journal.IndexOf($"first:lock-released:{HostLockKey}")
-            && journal.IndexOf($"first:lock-released:{HostLockKey}") < journal.IndexOf($"second:lock-acquired:{HostLockKey}"),
+            journal.IndexOf("first:commit") < journal.IndexOf($"first:lock-release-start:{HostLockKey}")
+            && journal.IndexOf($"first:lock-release-start:{HostLockKey}") < journal.IndexOf($"second:lock-acquired:{HostLockKey}"),
             "The second write entered the lock before the first one committed and released it: " + string.Join(", ", journal));
         Assert.DoesNotContain("second:commit", journal);
 
@@ -246,6 +251,18 @@ public sealed class SettingWriteSerializationTests : IDisposable
         Party.Value = party;
         await write();
     });
+
+    // 只等结束、不判结果：结果由调用方另行断言，这里吞掉的异常不会掩盖 try 块里的原始失败
+    private static async Task DrainAsync(params Task?[] writes)
+    {
+        try
+        {
+            await Task.WhenAll(writes.OfType<Task>()).WaitAsync(Guard);
+        }
+        catch (Exception)
+        {
+        }
+    }
 
     private static async Task<Exception?> Outcome(Task write)
     {

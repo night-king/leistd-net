@@ -48,7 +48,9 @@ public static class DependencyInjection
         services.TryAddScoped<ISettingProvider, DefaultSettingProvider>();
         services.TryAddTransient<ISettingManager, DefaultSettingManager>();
         services.TryAddTransient<ISettingManagementService, SettingManagementService>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SettingManagerDependencyCheck>());
+        // 检查要看宿主最终的登记（替换发生在本方法之后），因此持有登记集合本身而不是此刻的快照
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SettingManagerDependencyCheck>(
+            sp => new SettingManagerDependencyCheck(sp.GetRequiredService<IServiceScopeFactory>(), services)));
         services.AddOptions<SettingManagementOptions>();
         if (configure is not null)
         {

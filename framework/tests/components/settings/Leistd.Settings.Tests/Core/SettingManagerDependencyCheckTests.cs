@@ -65,13 +65,47 @@ public sealed class SettingManagerDependencyCheckTests
         await host.StopAsync();
     }
 
+    /// <summary>工厂登记看不出实现类型时才解析一次；只支持异步释放的替换实现能正常启动，并在检查结束时被释放。</summary>
+    [Fact]
+    public async Task An_opaque_replacement_that_only_disposes_asynchronously_starts_and_is_released()
+    {
+        var manager = new AsyncOnlyManager();
+        using var host = Build(services => services.Replace(ServiceDescriptor.Transient<ISettingManager>(_ => manager)));
+
+        await host.StartAsync();
+        await host.StopAsync();
+
+        Assert.True(manager.Disposed);
+    }
+
+    /// <summary>按类型登记的替换实现不在启动时解析：它自己缺的依赖照旧在首次使用时报出，不被说成默认实现缺锁。</summary>
+    [Fact]
+    public async Task A_replacement_registered_by_type_is_not_resolved_at_startup()
+    {
+        using var host = Build(services => services.Replace(ServiceDescriptor.Transient<ISettingManager, ManagerNeedingUnregisteredService>()));
+
+        await host.StartAsync();
+        await host.StopAsync();
+    }
+
+    /// <summary>工厂登记解析失败时原样上抛它自己的原因，不推断成默认实现缺锁或缺工作单元。</summary>
+    [Fact]
+    public async Task A_failing_opaque_registration_keeps_its_own_error()
+    {
+        var failure = new InvalidOperationException("replacement factory failed");
+        using var host = Build(services => services.Replace(ServiceDescriptor.Transient<ISettingManager>(_ => throw failure)));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => host.StartAsync());
+
+        Assert.Same(failure, error);
+    }
+
     [Fact]
     public void Repeated_registration_adds_the_check_once()
     {
-        var services = new ServiceCollection().AddSettingsCore().AddSettingsCore();
+        using var provider = new ServiceCollection().AddSettingsCore().AddSettingsCore().BuildServiceProvider();
 
-        Assert.Single(services, descriptor => descriptor.ServiceType == typeof(IHostedService)
-                                              && descriptor.ImplementationType == typeof(SettingManagerDependencyCheck));
+        Assert.Single(provider.GetServices<IHostedService>().OfType<SettingManagerDependencyCheck>());
     }
 
     private static IHost Build(Action<IServiceCollection> configure)
@@ -93,6 +127,42 @@ public sealed class SettingManagerDependencyCheckTests
     private sealed class Definitions : ISettingDefinitionProvider
     {
         public void Define(ISettingDefinitionContext context) => context.Add("Display.Language", "zh-CN");
+    }
+
+    private sealed class AsyncOnlyManager : ISettingManager, IAsyncDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public Task SetAsync(
+            string name,
+            string? value,
+            SettingScopes scope,
+            string? userId = null,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    // 依赖一个宿主没有登记的服务
+    private sealed class ManagerNeedingUnregisteredService(IUnregisteredService dependency) : ISettingManager
+    {
+        public Task SetAsync(
+            string name,
+            string? value,
+            SettingScopes scope,
+            string? userId = null,
+            CancellationToken cancellationToken = default)
+            => dependency.RunAsync();
+    }
+
+    private interface IUnregisteredService
+    {
+        Task RunAsync();
     }
 
     private sealed class ReplacementManager : ISettingManager

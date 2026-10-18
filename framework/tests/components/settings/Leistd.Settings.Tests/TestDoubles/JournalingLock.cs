@@ -25,13 +25,19 @@ internal sealed class JournalingLock(IDistributedLock inner, Action<string>? jou
         }
 
         journal?.Invoke($"lock-acquired:{key}");
-        return new Handle(handle, _lockLost.Token, () => journal?.Invoke($"lock-released:{key}"));
+        return new Handle(
+            handle,
+            _lockLost.Token,
+            () => journal?.Invoke($"lock-release-start:{key}"),
+            () => journal?.Invoke($"lock-released:{key}"));
     }
 
     public Task<ILockHandle?> TryLockAsync(string key, TimeSpan timeout, CancellationToken cancellationToken = default)
         => inner.TryLockAsync(key, timeout, cancellationToken);
 
-    private sealed class Handle(ILockHandle inner, CancellationToken lockLost, Action released) : ILockHandle
+    // releasing 在真正解锁之前记录，是"其他持有者进入之前"的确定先后；released 只表示本方已返回，
+    // 等待者可能先于它被唤醒并记录取锁
+    private sealed class Handle(ILockHandle inner, CancellationToken lockLost, Action releasing, Action released) : ILockHandle
     {
         private int _disposed;
 
@@ -44,6 +50,7 @@ internal sealed class JournalingLock(IDistributedLock inner, Action<string>? jou
                 return;
             }
 
+            releasing();
             await inner.DisposeAsync();
             released();
         }

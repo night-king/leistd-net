@@ -48,6 +48,8 @@ public sealed class NotificationRetentionConcurrencyTests(ProjectWebApplicationF
 
         // 先启动宿主：启动耗时不计入下面只防卡死的等待
         _ = host.Services;
+        Task? first = null;
+        Task? second = null;
         try
         {
             if (presetUnread is not null)
@@ -56,7 +58,7 @@ public sealed class NotificationRetentionConcurrencyTests(ProjectWebApplicationF
             }
 
             var run = probe.Start(firstName, secondName);
-            var first = Task.Run(() => WriteAsync(host, firstName, firstValue));
+            first = Task.Run(() => WriteAsync(host, firstName, firstValue));
             // 第一次写入没走到屏障就失败时直接暴露它的异常，不等到超时
             await Task.WhenAny(run.FirstValidated, first).WaitAsync(Guard);
             if (!run.FirstValidated.IsCompleted)
@@ -64,7 +66,7 @@ public sealed class NotificationRetentionConcurrencyTests(ProjectWebApplicationF
                 await first;
             }
 
-            var second = Task.Run(() => WriteAsync(host, secondName, secondValue));
+            second = Task.Run(() => WriteAsync(host, secondName, secondValue));
 
             Task observed;
             try
@@ -73,8 +75,9 @@ public sealed class NotificationRetentionConcurrencyTests(ProjectWebApplicationF
             }
             finally
             {
-                // 断言失败时也放行第一次写入并等两次写入结束，不留挂起的请求与锁
+                // 任何一步失败也先放行第一次写入，并有界地等两次写入结束，之后才清理设置；原始失败照常上抛
                 run.ReleaseFirst();
+                await DrainAsync(first, second);
             }
 
             var firstFailure = await OutcomeAsync(first);
@@ -98,6 +101,7 @@ public sealed class NotificationRetentionConcurrencyTests(ProjectWebApplicationF
         finally
         {
             probe.Stop();
+            await DrainAsync(first, second);
             // 先清已读（回落 90）再清未读（回落 365），两步都合规
             await WriteAsync(host, SettingConstant.NotificationRetention.ReadDays, null);
             await WriteAsync(host, SettingConstant.NotificationRetention.UnreadDays, null);
@@ -117,6 +121,18 @@ public sealed class NotificationRetentionConcurrencyTests(ProjectWebApplicationF
         var settings = scope.ServiceProvider.GetRequiredService<ISettingProvider>();
         return (await settings.GetAsync<int>(SettingConstant.NotificationRetention.ReadDays),
             await settings.GetAsync<int>(SettingConstant.NotificationRetention.UnreadDays));
+    }
+
+    // 只等结束、不判结果：结果另行断言，这里吞掉的异常不会掩盖原始失败
+    private static async Task DrainAsync(params Task?[] writes)
+    {
+        try
+        {
+            await Task.WhenAll(writes.OfType<Task>()).WaitAsync(Guard);
+        }
+        catch (Exception)
+        {
+        }
     }
 
     // 超时不算业务结果：直接让用例失败

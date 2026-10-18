@@ -1,6 +1,7 @@
 using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Infrastructure.Persistence;
 using Leistd.EventBus.EventHandlers;
+using Leistd.Lock.Abstractions;
 using Leistd.MultiTenancy.Context;
 using Leistd.MultiTenancy.Extensions;
 using Leistd.Settings.Definitions;
@@ -95,6 +96,47 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
         Assert.Equal(0, afterCommit.Count);
     }
 
+    /// <summary>提交后处理器抛错：值已提交，写入方收到这个异常（不是回滚），处理器只执行一次，锁随之释放。</summary>
+    /// <remarks>
+    /// 带外层工作单元时同样如此：事件属于设置自己的提交，在写入返回前就已分发，不会推迟到外层提交（外层随后回滚也不影响）。
+    /// </remarks>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_failing_after_commit_handler_surfaces_after_the_setting_committed(bool insideOuterUnitOfWork)
+    {
+        var userId = Guid.NewGuid().ToString("N");
+        var failing = new FailingAfterCommit(userId);
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton<IEventHandler<SettingChangedEvent>>(failing)));
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            var services = scope.ServiceProvider;
+            using var outer = insideOuterUnitOfWork
+                ? services.GetRequiredService<IUnitOfWorkManager>().Begin(new UnitOfWorkOptions { IsTransactional = true }, requiresNew: true)
+                : null;
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => services.GetRequiredService<ISettingManager>()
+                .SetAsync(SettingConstant.Display.TimeZone, "Asia/Tokyo", SettingScopes.User, userId));
+            Assert.Equal(FailingAfterCommit.Message, error.Message);
+            Assert.Equal(1, failing.Calls);
+
+            if (outer is not null)
+            {
+                await outer.RollbackAsync();
+            }
+        }
+
+        Assert.Equal("Asia/Tokyo", Assert.Single(await RowsAsync(host, userId)).Value);
+        Assert.Equal(1, failing.Calls);
+
+        // 宿主上下文的设置锁已释放：下一次写入不会被这次失败挂住
+        await using var handle = await host.Services.GetRequiredService<IDistributedLock>()
+            .TryLockAsync("settings:host", TimeSpan.Zero);
+        Assert.NotNull(handle);
+    }
+
     private static async Task<List<SettingRecord>> RowsAsync(WebApplicationFactory<Program> host, string userId)
     {
         await using var scope = host.Services.CreateAsyncScope();
@@ -120,6 +162,26 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
             }
 
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FailingAfterCommit(string userId) : IEventHandler<SettingChangedEvent>
+    {
+        public const string Message = "Injected failure after commit";
+
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public Task HandleAsync(SettingChangedEvent @event, CancellationToken cancellationToken = default)
+        {
+            if (@event.UserId != userId)
+            {
+                return Task.CompletedTask;
+            }
+
+            Interlocked.Increment(ref _calls);
+            throw new InvalidOperationException(Message);
         }
     }
 
