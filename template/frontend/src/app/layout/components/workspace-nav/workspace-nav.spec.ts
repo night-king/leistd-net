@@ -128,6 +128,9 @@ describe('WorkspaceNav overflow', () => {
       '[data-testid="workspace-nav-more"]',
     ) as HTMLElement;
 
+    // 期望的首项按打开时刻的折叠结果取：断言的是"打开的那份菜单首项拿到焦点"，
+    // 不受打开之后导航是否再折叠一次影响
+    const expectedFirst = LONG_LABELS[inlineLinks(fixture.nativeElement).length];
     more.focus();
     // CDK 菜单按 keyCode 判断方向键，构造的事件里它是 0，这里补上
     const arrowDown = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true });
@@ -137,9 +140,7 @@ describe('WorkspaceNav overflow', () => {
 
     // 下拉的首项拿到焦点；导航自己的方向键管理没有把焦点抢回平铺链接
     expect(document.activeElement?.closest('[hlmDropdownMenuItem]')).not.toBeNull();
-    expect(document.activeElement?.textContent?.trim()).toBe(
-      LONG_LABELS[inlineLinks(fixture.nativeElement).length],
-    );
+    expect(document.activeElement?.textContent?.trim()).toBe(expectedFirst);
   });
 
   describe('touch targets', () => {
