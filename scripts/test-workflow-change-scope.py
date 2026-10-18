@@ -229,6 +229,80 @@ def check_docs_scope():
     print('PASS documentation responsibilities, gate-read Markdown, mixed unions, path boundaries, deletions and moves')
 
 
+def check_template_package_responsibilities():
+    """Template source cannot change package contents; documentation unions still can."""
+    sources = [('template/frontend/src/app/app.ts', 'frontend'),
+               ('template/backend/src/CompanyName.ProjectName.Api/Program.cs', 'backend')]
+    with candidate_fixture() as (repo, planner, base):
+        scratch = repo / '.tmp'
+        scratch.mkdir(exist_ok=True)
+        validator = scratch / 'validate-plan.ps1'
+        validator.write_text("$ErrorActionPreference = 'Stop'\n"
+                             ". ./scripts/template-matrix-scenarios.ps1\n"
+                             ". ./scripts/quality-validation-plan.ps1\n"
+                             "$null = Read-QualityValidationPlan $args[0] pr\n", encoding='utf-8')
+
+        def validate(plan, valid, error=''):
+            path = scratch / 'plan.json'
+            path.write_text(json.dumps(plan), encoding='utf-8')
+            result = subprocess.run(['pwsh', '-NoProfile', '-File', str(validator), str(path)], cwd=repo,
+                                    capture_output=True, text=True, encoding='utf-8', errors='replace')
+            assert (result.returncode == 0) == valid, result.stdout + result.stderr
+            if error:
+                assert error in result.stderr, result.stderr
+
+        for source, mode in sources:
+            git(repo, 'reset', '--hard', base)
+            append_input(repo, source)
+            plan = planner.create_plan('pr', base, 'pull_request', '')
+            assert plan['Mode'] == mode and not plan['PackageDocumentation']
+            assert not plan['Jobs']['package-consumption'] and plan['Jobs']['framework-pack']
+            assert plan['ConsumerProjects'] == []
+            assert all(plan['Jobs'][job] for job in ('template-slices', 'template-generation', 'postgresql-e2e', 'oidc-e2e'))
+            validate(plan, True)
+            invalid = json.loads(json.dumps(plan))
+            invalid['Jobs']['package-consumption'] = True
+            validate(invalid, False, 'Invalid template-stage responsibilities')
+            invalid['Jobs']['framework-pack'] = False
+            validate(invalid, False, 'Invalid quality plan responsibility set')
+            append_input(repo, 'framework/NuGet.md')
+            union = planner.create_plan('pr', base, 'pull_request', '')
+            assert union['Mode'] == mode and union['PackageDocumentation']
+            assert union['Jobs']['package-consumption'] and union['Jobs']['framework-pack']
+            validate(union, True)
+            invalid = json.loads(json.dumps(union))
+            invalid['Jobs']['package-consumption'] = False
+            validate(invalid, False)
+
+        framework_source = next((repo / 'framework/components/core').rglob('*.cs')).relative_to(repo).as_posix()
+        for path in (framework_source, 'Directory.Packages.props', 'framework/Directory.Packages.props', 'VERSION',
+                     'framework/build/test-package-consumption.ps1', 'template/.template.config/template.json',
+                     'unknown-input.txt'):
+            git(repo, 'reset', '--hard', base)
+            append_input(repo, sources[0][0])
+            append_input(repo, path)
+            plan = planner.create_plan('pr', base, 'pull_request', '')
+            assert plan['Mode'] == 'full' and plan['Jobs']['package-consumption'] and plan['Jobs']['framework-pack'], path
+            validate(plan, True)
+            invalid = json.loads(json.dumps(plan))
+            invalid['Jobs']['package-consumption'] = False
+            validate(invalid, False)
+            invalid['PackageDocumentation'] = False
+            validate(invalid, False)
+        git(repo, 'reset', '--hard', base)
+        append_input(repo, sources[0][0])
+        for event in ('workflow_dispatch', 'schedule'):
+            plan = planner.create_plan('pr', base, event, '')
+            assert plan['Mode'] == 'full' and all(plan['Jobs'].values())
+            validate(plan, True)
+        git(repo, 'tag', 'v0.13.0-beta.10', base)
+        plan = planner.create_plan('full', base, 'push', git(repo, 'rev-parse', 'HEAD'), release_channel='beta')
+        assert plan['Mode'] == 'full' and plan['Jobs']['package-consumption'] and plan['Jobs']['framework-pack']
+        publication = planner.create_plan('full', base, 'workflow_dispatch', git(repo, 'rev-parse', 'HEAD'), release_channel='beta')
+        assert publication['ReleaseRequired'] and publication['Mode'] == 'full' and all(publication['Jobs'].values())
+    print('PASS template package responsibilities: frontend/backend, documentation unions, shared/unknown/publication inputs and validator counterexamples')
+
+
 def check_quality_aggregation():
     workflow = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8'))
     jobs = workflow['jobs']
@@ -924,6 +998,7 @@ def main():
         return
     check_existing_scopes()
     check_docs_scope()
+    check_template_package_responsibilities()
     check_quality_aggregation()
     check_framework_test_receipts()
     check_release_links()

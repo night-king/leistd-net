@@ -21,7 +21,7 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
         @($selected | Where-Object { $_ -cnotin $registered }).Count -gt 0 -or
         $plan.Jobs.'template-slices' -ne ($selected.Count -gt 0) -or $plan.Jobs.test -ne $plan.FrameworkTests -or
         $plan.DocsOnly -ne (@($jobNames | Where-Object { $plan.Jobs.$_ }).Count -eq 0) -or
-        $plan.Jobs.'package-consumption' -ne $plan.Jobs.'framework-pack' -or
+        ($plan.Jobs.'package-consumption' -and -not $plan.Jobs.'framework-pack') -or
         ($plan.GeneratedDocumentation -and -not $plan.Jobs.'template-generation') -or
         ($plan.PackageDocumentation -and -not $plan.Jobs.'package-consumption')) { throw 'Invalid quality plan responsibility set.' }
     if ($plan.ReleaseRequired -and ($plan.Mode -cne 'full' -or $plan.Tier -cne 'full' -or
@@ -40,15 +40,16 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
             throw 'Invalid documentation responsibilities.'
         }
     } else {
-        if ($selected.Count -eq 0 -or @($jobNames | Where-Object { $_ -cnotin @('test', 'frontend-gates') -and -not $plan.Jobs.$_ }).Count -gt 0) {
+        if ($selected.Count -eq 0 -or @($jobNames | Where-Object { $_ -cnotin @('test', 'frontend-gates', 'package-consumption') -and -not $plan.Jobs.$_ }).Count -gt 0) {
             throw 'Runtime modes must retain independent dynamic jobs.'
         }
-        if ($plan.Mode -ceq 'full' -and (-not $plan.FrameworkTests -or -not $plan.Jobs.'frontend-gates' -or
+        if ($plan.Mode -ceq 'full' -and (-not $plan.FrameworkTests -or -not $plan.Jobs.'frontend-gates' -or -not $plan.Jobs.'package-consumption' -or
             $selected.Count -ne $registered.Count -or ($null -ne $plan.ConsumerProjects -and @($plan.ConsumerProjects).Count -eq 0))) {
             throw 'Full mode must retain all scenarios and framework tests.'
         }
         if ($plan.Mode -cin @('frontend', 'backend') -and ($plan.FrameworkTests -or $null -eq $plan.ConsumerProjects -or
-            @($plan.ConsumerProjects).Count -ne 0 -or ($plan.Mode -ceq 'frontend' -and -not $plan.Jobs.'frontend-gates'))) {
+            @($plan.ConsumerProjects).Count -ne 0 -or $plan.Jobs.'package-consumption' -ne $plan.PackageDocumentation -or
+            ($plan.Mode -ceq 'frontend' -and -not $plan.Jobs.'frontend-gates'))) {
             throw 'Invalid template-stage responsibilities.'
         }
         if ($ExpectedTier -ceq 'full' -and ($plan.Mode -cne 'full' -or $plan.FrameworkTestSelection -cne 'all' -or

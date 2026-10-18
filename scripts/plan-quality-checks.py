@@ -522,7 +522,8 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             if not selected:
                 return finish(plan)
             jobs = dict(plan['Jobs'])
-            jobs.update({'frontend-gates': front or gate_document, 'test': False})
+            jobs.update({'frontend-gates': front or gate_document, 'test': False,
+                         'package-consumption': package_docs})
             # PG/OIDC and generation still retain their independent responsibilities.
             plan.update(Mode='frontend' if front else 'backend', Scenarios=selected, FrameworkTests=False,
                         ConsumerProjects=[], Jobs=jobs, GeneratedDocumentation=generated_docs,

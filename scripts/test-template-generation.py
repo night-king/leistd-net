@@ -593,6 +593,53 @@ def validate(output, values, config):
     return digests
 
 
+def diagnose_hive_failure(hive):
+    """Post-exit metadata only: a vanished owner cannot be inferred from this snapshot."""
+    state = {'hive': str(hive), 'files': [], 'owners': [], 'processScan': 'unavailable'}
+    paths = [hive / 'packages.json']
+    try:
+        paths += sorted(hive.rglob('*.lock'))
+    except OSError as error:
+        state['fileScanError'] = type(error).__name__
+    for path in paths:
+        item = {'path': str(path)}
+        try:
+            stat = path.stat()
+            item.update(size=stat.st_size, modifiedNs=stat.st_mtime_ns, inode=stat.st_ino)
+        except OSError as error:
+            item['error'] = type(error).__name__
+        state['files'].append(item)
+    proc = Path('/proc')
+    if proc.is_dir():
+        state['processScan'] = 'available'
+        targets = {str(path.absolute()) for path in paths}
+        try:
+            processes = list(proc.glob('[0-9]*'))
+        except OSError as error:
+            processes = []
+            state['processScan'] = type(error).__name__
+        for process in processes:
+            try:
+                descriptors = list((process / 'fd').iterdir())
+            except OSError:
+                continue
+            held = []
+            for descriptor in descriptors:
+                try:
+                    target = os.readlink(descriptor)
+                    if target.removesuffix(' (deleted)') in targets:
+                        held.append({'fd': descriptor.name, 'path': target})
+                except OSError:
+                    continue
+            if held:
+                try:
+                    command = (process / 'cmdline').read_bytes().decode('utf-8', errors='replace').rstrip('\0').split('\0')
+                except OSError:
+                    command = []
+                state['owners'].append({'pid': int(process.name), 'command': command, 'files': held})
+    print('Template hive failure diagnostics: ' + json.dumps(state, ensure_ascii=True), file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workers', type=int, default=4)
@@ -638,7 +685,10 @@ def main():
         output = root / 'generated' / str(index)
         if output.exists():
             shutil.rmtree(output)
-        result = subprocess.run(['dotnet', 'new', 'fullstack-app', '-n', 'Generation.Probe', '-o', str(output), *cli_arguments(config, values), '--debug:custom-hive', str(getattr(worker_state, 'hive', hive))], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        active_hive = getattr(worker_state, 'hive', hive)
+        result = subprocess.run(['dotnet', 'new', 'fullstack-app', '-n', 'Generation.Probe', '-o', str(output), *cli_arguments(config, values), '--debug:custom-hive', str(active_hive)], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode:
+            diagnose_hive_failure(active_hive)
         assert result.returncode == 0, f'{index}: {result.stdout}\n{result.stderr}'
         try:
             digest = validate(output, values, config)
