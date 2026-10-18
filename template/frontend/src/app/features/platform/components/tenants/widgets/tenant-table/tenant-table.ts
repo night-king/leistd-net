@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -36,6 +37,7 @@ import { ColumnDef, PaginationState } from '@tanstack/angular-table';
 
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
+import { ColumnValue } from '../../../../../../shared/directives/column-value';
 import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
@@ -45,6 +47,7 @@ import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
 import {
   ACTIONS_COLUMN_META,
+  hiddenDetailColumns,
   tableColumnVisibility,
   TITLE_COLUMN_META,
   TITLE_CONTENT_CLASS,
@@ -61,6 +64,8 @@ import { TenantOutputDto } from '../../../../dtos/tenant.dto';
 @Component({
   selector: 'app-tenant-table',
   imports: [
+    NgTemplateOutlet,
+    ColumnValue,
     StatusDot,
     TableFit,
     AppDate,
@@ -136,7 +141,7 @@ export class TenantTable {
   protected readonly titleContentClass = TITLE_CONTENT_CLASS;
   private readonly tableFit = viewChild(TableFit);
   /** 实际折叠档位：视口给上限，容器放不下再降一档（见 TableFit）。 */
-  private readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
+  protected readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
 
   // 后端租户列表不支持字段排序（契约只有 offset/limit/keyword），全部列不排序。
   protected readonly columns: ColumnDef<AppTableFeatures, TenantOutputDto>[] = [
@@ -151,25 +156,25 @@ export class TenantTable {
       accessorKey: 'displayName',
       id: 'displayName',
       enableSorting: false,
-      meta: { priority: 'secondary' },
+      meta: { priority: 'secondary', detail: true },
     },
     {
       accessorKey: 'description',
       id: 'description',
       enableSorting: false,
-      meta: { priority: 'tertiary' },
+      meta: { priority: 'tertiary', detail: true },
     },
     {
       accessorKey: 'isActive',
       id: 'status',
       enableSorting: false,
-      meta: { priority: 'secondary' },
+      meta: { priority: 'secondary', detail: true },
     },
     {
       accessorKey: 'creationTime',
       id: 'creationTime',
       enableSorting: false,
-      meta: { priority: 'tertiary' },
+      meta: { priority: 'tertiary', detail: true },
     },
     {
       id: 'actions',
@@ -200,10 +205,20 @@ export class TenantTable {
   readonly currentPage = computed(() => this.pagination().pageIndex + 1);
   readonly totalPages = computed(() => Math.max(1, this.table.getPageCount()));
 
+  /** 列标签的词条键：表头与展开详情共用，切换语言时两处一起更新。 */
+  protected readonly columnLabelKeys: Readonly<Record<string, string>> = {
+    name: 'tenants.colName',
+    displayName: 'tenants.colDisplayName',
+    description: 'tenants.colDescription',
+    status: 'tenants.colStatus',
+    creationTime: 'tenants.colCreatedAt',
+  };
+
   readonly hasCollapsedColumns = computed(() => this.foldLevel() !== 'desktop');
 
-  isColumnHidden(id: string): boolean {
-    return this.table.getColumn(id)?.getIsVisible() === false;
+  /** 展开详情里列出的列：被折叠的数据列，按列定义顺序。 */
+  protected detailColumns() {
+    return hiddenDetailColumns(this.table);
   }
 
   /** 每页条数变化：回到第一页并广播新的分页状态。 */

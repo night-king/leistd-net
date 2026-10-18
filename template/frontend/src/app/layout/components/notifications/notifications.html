@@ -108,7 +108,8 @@
                   class="focus-visible:ring-ring flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-md text-start focus-visible:outline-none focus-visible:ring-2"
                   (click)="onNotificationClick(n)"
                 >
-                  <span class="shrink-0 self-center">
+                  <!-- 图标放进 flex 盒：行内的 ng-icon 会带上行高与基线，比标题行偏下 -->
+                  <span class="flex shrink-0 self-center">
                     <ng-icon
                       [name]="notificationIcon(n.type)"
                       class="text-muted-foreground text-2xl"

@@ -149,7 +149,10 @@
       "label": "实时",
       "connected": "实时更新已连接",
       "reconnecting": "连接中断，正在重连…",
-      "disconnected": "实时更新已断开，刷新页面重试。"
+      "disconnected": "实时更新已断开，刷新页面重试。",
+      "connectedShort": "已连接",
+      "reconnectingShort": "正在重连…",
+      "disconnectedShort": "已断开"
     },
     "topbar": {
       "openNavigation": "打开导航",

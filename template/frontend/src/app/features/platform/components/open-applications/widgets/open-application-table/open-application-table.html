@@ -22,46 +22,25 @@
                       [attr.aria-sort]="sortAria(header.column.id)"
                     >
                       @switch (header.column.id) {
-                        @case ('clientId') {
-                          <button
-                            type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
-                            (click)="toggleSort('clientId')"
-                          >
-                            {{ t('openApp.table.colApp') }}
-                            <ng-icon [name]="sortIcon('clientId')" class="text-sm" />
-                          </button>
-                        }
-                        @case ('type') {
-                          <span class="whitespace-nowrap">{{ t('openApp.table.colType') }}</span>
-                        }
-                        @case ('permissions') {
-                          <span class="whitespace-nowrap">{{
-                            t('openApp.table.colPermissions')
-                          }}</span>
-                        }
-                        @case ('redirectUris') {
-                          <span class="whitespace-nowrap">{{
-                            t('openApp.table.colRedirectUris')
-                          }}</span>
-                        }
-                        @case ('security') {
-                          <span class="whitespace-nowrap">{{
-                            t('openApp.table.colSecurity')
-                          }}</span>
-                        }
-                        @case ('creationTime') {
-                          <button
-                            type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
-                            (click)="toggleSort('creationTime')"
-                          >
-                            {{ t('openApp.table.colCreatedAt') }}
-                            <ng-icon [name]="sortIcon('creationTime')" class="text-sm" />
-                          </button>
-                        }
                         @case ('actions') {
                           <span class="sr-only">{{ t('common.actions') }}</span>
+                        }
+                        @default {
+                          <!-- 表头与展开详情取同一份列标签；能排序的列由排序按钮承载标签 -->
+                          @if (header.column.getCanSort()) {
+                            <button
+                              type="button"
+                              class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
+                              (click)="toggleSort(header.column.id)"
+                            >
+                              {{ t(columnLabelKeys[header.column.id]) }}
+                              <ng-icon [name]="sortIcon(header.column.id)" class="text-sm" />
+                            </button>
+                          } @else {
+                            <span class="whitespace-nowrap">{{
+                              t(columnLabelKeys[header.column.id])
+                            }}</span>
+                          }
                         }
                       }
                     </th>
@@ -110,16 +89,18 @@
                                   />
                                 </button>
                               }
-                              <!-- 最窄一档名称与 Client ID 上下两行，各自多留一些宽度 -->
+                              <!-- 最窄一档名称与 Client ID 上下两行，各自多留一些宽度；竖排时不拉伸，要限宽才会截断 -->
                               <div
                                 class="flex min-w-0 items-center gap-2 in-data-[table-fit=mobile]:flex-col in-data-[table-fit=mobile]:items-start in-data-[table-fit=mobile]:gap-0"
                               >
-                                <span class="text-foreground text-sm font-medium truncate">
+                                <span
+                                  class="text-foreground max-w-full text-sm font-medium truncate"
+                                >
                                   {{ row.original.displayName || row.original.clientId }}
                                 </span>
                                 @if (row.original.displayName) {
                                   <span
-                                    class="text-xs text-muted-foreground font-mono truncate"
+                                    class="max-w-full text-xs text-muted-foreground font-mono truncate"
                                     [hlmTooltip]="row.original.clientId"
                                   >
                                     {{ row.original.clientId }}
@@ -127,143 +108,6 @@
                                 }
                               </div>
                             </div>
-                          }
-                          @case ('type') {
-                            <div class="flex items-center gap-1.5 whitespace-nowrap">
-                              <span hlmBadge variant="secondary">{{
-                                t(applicationTypeKeys[row.original.applicationType])
-                              }}</span>
-                              <span
-                                hlmBadge
-                                [variant]="getClientTypeVariant(row.original.clientType)"
-                                >{{ row.original.clientType }}</span
-                              >
-                            </div>
-                          }
-                          @case ('permissions') {
-                            <!-- 每行独立 popover：以真实按钮为锚点，定位与焦点回归可靠。 -->
-                            <hlm-popover>
-                              <button
-                                type="button"
-                                class="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground cursor-pointer whitespace-nowrap border border-border"
-                                hlmPopoverTrigger
-                              >
-                                <ng-icon name="lucideShield" class="text-xs" />
-                                <span class="truncate">{{
-                                  grantSummary(row.original) ||
-                                    t('openApp.permission.notConfigured')
-                                }}</span>
-                                <span class="text-muted-foreground"
-                                  >({{ row.original.permissions.length }})</span
-                                >
-                              </button>
-                              <hlm-popover-content
-                                *hlmPopoverPortal
-                                class="min-w-72 max-w-xl"
-                                [appPopoverAria]="t('openApp.section.authorization')"
-                              >
-                                <div class="text-sm font-semibold">
-                                  {{ t('openApp.section.authorization') }}
-                                </div>
-                                <div class="flex max-h-80 flex-col gap-2 overflow-y-auto">
-                                  @for (item of row.original.permissions; track item) {
-                                    <div
-                                      class="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
-                                    >
-                                      {{ item }}
-                                    </div>
-                                  }
-                                </div>
-                              </hlm-popover-content>
-                            </hlm-popover>
-                          }
-                          @case ('redirectUris') {
-                            @if (row.original.redirectUris.length > 0) {
-                              <div
-                                class="flex max-w-[22rem] items-center gap-1 overflow-hidden whitespace-nowrap"
-                              >
-                                @for (uri of getVisibleRedirectUris(row.original); track uri) {
-                                  <span
-                                    class="min-w-0 truncate rounded-md bg-muted px-2 py-1 text-xs border border-border font-mono"
-                                    [hlmTooltip]="uri"
-                                  >
-                                    {{ uri }}
-                                  </span>
-                                }
-                                @if (getHiddenRedirectUris(row.original).length > 0) {
-                                  <hlm-popover align="end">
-                                    <button
-                                      type="button"
-                                      hlmBadge
-                                      variant="outline"
-                                      class="cursor-pointer shrink-0"
-                                      hlmPopoverTrigger
-                                    >
-                                      +{{ getHiddenRedirectUris(row.original).length }}
-                                    </button>
-                                    <hlm-popover-content
-                                      *hlmPopoverPortal
-                                      class="min-w-72 max-w-xl"
-                                      [appPopoverAria]="t('openApp.table.colRedirectUris')"
-                                    >
-                                      <div class="text-sm font-semibold">
-                                        {{ t('openApp.table.colRedirectUris') }}
-                                      </div>
-                                      <div class="flex max-h-80 flex-col gap-2 overflow-y-auto">
-                                        @for (
-                                          item of getHiddenRedirectUris(row.original);
-                                          track item
-                                        ) {
-                                          <div
-                                            class="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
-                                          >
-                                            {{ item }}
-                                          </div>
-                                        }
-                                      </div>
-                                    </hlm-popover-content>
-                                  </hlm-popover>
-                                }
-                              </div>
-                            } @else {
-                              <span class="text-xs text-muted-foreground">-</span>
-                            }
-                          }
-                          @case ('security') {
-                            <div class="flex items-center gap-1.5 whitespace-nowrap">
-                              <span
-                                hlmBadge
-                                [variant]="hasPkce(row.original) ? 'success' : 'destructive'"
-                                >{{
-                                  hasPkce(row.original) ? 'PKCE' : t('openApp.table.noPkce')
-                                }}</span
-                              >
-                              <span
-                                hlmBadge
-                                [variant]="row.original.hasClientSecret ? 'secondary' : 'outline'"
-                                class="hidden @min-[1560px]:inline-flex"
-                                >{{
-                                  row.original.hasClientSecret
-                                    ? t('openApp.table.secretSet')
-                                    : t('openApp.table.noSecret')
-                                }}</span
-                              >
-                            </div>
-                          }
-                          @case ('creationTime') {
-                            <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
-                            <span
-                              tabindex="0"
-                              class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                              [hlmTooltip]="
-                                row.original.creationTime
-                                  | appDate: 'full' : displayTimeZone() : displayLocale()
-                              "
-                              >{{
-                                row.original.creationTime
-                                  | appDate: 'short' : displayTimeZone() : displayLocale()
-                              }}</span
-                            >
                           }
                           @case ('actions') {
                             <!-- 操作列（3 项 ≤ 3）：桌面端全部平铺；<sm 收进 … 菜单省列宽。
@@ -360,11 +204,21 @@
                               </ng-template>
                             </div>
                           }
+                          @default {
+                            <ng-container
+                              [ngTemplateOutlet]="columnValue"
+                              [ngTemplateOutletContext]="{
+                                $implicit: row.original,
+                                id: cell.column.id,
+                                mode: 'cell',
+                              }"
+                            />
+                          }
                         }
                       </td>
                     }
                   </tr>
-                  <!-- 行展开：呈现在移动端/平板端被隐藏的列，避免「隐藏=丢数据」。 -->
+                  <!-- 行展开：按列定义顺序列出被折叠的数据列（meta.detail），再接不对应列的附加项 -->
                   @if (hasCollapsedColumns() && row.getIsExpanded()) {
                     <tr hlmTr class="bg-muted/30 hover:bg-muted/30">
                       <td
@@ -372,113 +226,39 @@
                         [attr.colspan]="table.getVisibleLeafColumns().length"
                         class="px-4 pb-3 pt-2"
                       >
+                        <!-- 表格单元格默认不折行；详情是内容，长文本在这里折行 -->
                         <dl
-                          class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
+                          class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm whitespace-normal"
+                          data-testid="open-app-detail"
                         >
-                          <!-- 最窄一档主列会截断名称与 Client ID，展开时给出全文；更宽时主列完整，不重复 -->
-                          <dt class="text-muted-foreground hidden in-data-[table-fit=mobile]:block">
-                            {{ t('openApp.table.colApp') }}
-                          </dt>
-                          <dd
-                            class="hidden min-w-0 in-data-[table-fit=mobile]:block"
-                            data-testid="open-app-detail-identity"
-                          >
-                            <span class="block font-medium wrap-anywhere">{{
-                              row.original.displayName || row.original.clientId
-                            }}</span>
-                            @if (row.original.displayName) {
-                              <span
-                                class="text-muted-foreground block font-mono text-xs break-all"
-                                >{{ row.original.clientId }}</span
-                              >
-                            }
-                          </dd>
-                          @if (isColumnHidden('permissions')) {
+                          @for (column of detailColumns(); track column.id) {
                             <dt class="text-muted-foreground">
-                              {{ t('openApp.table.colPermissions') }}
+                              {{ t(columnLabelKeys[column.id]) }}
                             </dt>
-                            <dd>
-                              <hlm-popover>
-                                <button
-                                  type="button"
-                                  class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground cursor-pointer"
-                                  hlmPopoverTrigger
-                                >
-                                  <ng-icon name="lucideShield" class="text-xs" />
-                                  <span class="truncate">{{
-                                    grantSummary(row.original) ||
-                                      t('openApp.permission.notConfigured')
-                                  }}</span>
-                                  <span>({{ row.original.permissions.length }})</span>
-                                </button>
-                                <hlm-popover-content
-                                  *hlmPopoverPortal
-                                  class="min-w-72 max-w-xl"
-                                  [appPopoverAria]="t('openApp.section.authorization')"
-                                >
-                                  <div class="text-sm font-semibold">
-                                    {{ t('openApp.section.authorization') }}
-                                  </div>
-                                  <div class="flex max-h-80 flex-col gap-2 overflow-y-auto">
-                                    @for (item of row.original.permissions; track item) {
-                                      <div
-                                        class="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground font-mono"
-                                      >
-                                        {{ item }}
-                                      </div>
-                                    }
-                                  </div>
-                                </hlm-popover-content>
-                              </hlm-popover>
+                            <dd class="min-w-0" [attr.data-detail-column]="column.id">
+                              <ng-container
+                                [ngTemplateOutlet]="columnValue"
+                                [ngTemplateOutletContext]="{
+                                  $implicit: row.original,
+                                  id: column.id,
+                                  mode: 'detail',
+                                }"
+                              />
                             </dd>
                           }
-                          @if (isColumnHidden('redirectUris')) {
-                            <dt class="text-muted-foreground">
-                              {{ t('openApp.table.colRedirectUris') }}
-                            </dt>
-                            <dd class="flex flex-wrap gap-1">
-                              @for (uri of row.original.redirectUris; track uri) {
+                          <!-- 附加项：最窄一档（data-table-fit=mobile）主列截断名称与 Client ID，这里给出全文；更宽时主列完整，不重复 -->
+                          @if (foldLevel() === 'mobile') {
+                            <dt class="text-muted-foreground">{{ t('openApp.table.colApp') }}</dt>
+                            <dd class="min-w-0" data-testid="open-app-detail-identity">
+                              <span class="block font-medium wrap-anywhere">{{
+                                row.original.displayName || row.original.clientId
+                              }}</span>
+                              @if (row.original.displayName) {
                                 <span
-                                  class="rounded-md border border-border bg-muted px-2 py-1 text-xs font-mono break-all"
-                                  >{{ uri }}</span
+                                  class="text-muted-foreground block font-mono text-xs break-all"
+                                  >{{ row.original.clientId }}</span
                                 >
-                              } @empty {
-                                <span class="text-muted-foreground">-</span>
                               }
-                            </dd>
-                          }
-                          @if (isColumnHidden('security')) {
-                            <dt class="text-muted-foreground">
-                              {{ t('openApp.table.colSecurity') }}
-                            </dt>
-                            <dd class="flex flex-wrap gap-1.5">
-                              <span
-                                hlmBadge
-                                [variant]="hasPkce(row.original) ? 'success' : 'destructive'"
-                                >{{
-                                  hasPkce(row.original) ? 'PKCE' : t('openApp.table.noPkce')
-                                }}</span
-                              >
-                              <span
-                                hlmBadge
-                                [variant]="row.original.hasClientSecret ? 'secondary' : 'outline'"
-                                >{{
-                                  row.original.hasClientSecret
-                                    ? t('openApp.table.secretSet')
-                                    : t('openApp.table.noSecret')
-                                }}</span
-                              >
-                            </dd>
-                          }
-                          @if (isColumnHidden('creationTime')) {
-                            <dt class="text-muted-foreground">
-                              {{ t('openApp.table.colCreatedAt') }}
-                            </dt>
-                            <dd class="text-muted-foreground">
-                              {{
-                                row.original.creationTime
-                                  | appDate: 'full' : displayTimeZone() : displayLocale()
-                              }}
                             </dd>
                           }
                         </dl>
@@ -539,6 +319,158 @@
             </tbody>
           </table>
         </div>
+        <!-- 各数据列的值：单元格（cell）与展开详情（detail）共用；详情给完整时刻、全部回调地址与全部安全标记 -->
+        <ng-template
+          #columnValue
+          [appColumnValue]="applications()"
+          let-app
+          let-id="id"
+          let-mode="mode"
+        >
+          @switch (id) {
+            @case ('type') {
+              <div class="flex items-center gap-1.5 whitespace-nowrap">
+                <span hlmBadge variant="secondary">{{
+                  t(applicationTypeKeys[app.applicationType])
+                }}</span>
+                <span hlmBadge [variant]="getClientTypeVariant(app.clientType)">{{
+                  app.clientType
+                }}</span>
+              </div>
+            }
+            @case ('permissions') {
+              @if (app.permissions.length > 0) {
+                <!-- 摘要是授权方式与权限总数，面板列出全部权限（含非授权方式的权限） -->
+                <app-readonly-list-popover
+                  [items]="getPermissionListItems(app)"
+                  [mono]="true"
+                  [triggerLabel]="
+                    t('openApp.popover.permissionsTrigger', {
+                      name: app.displayName || app.clientId,
+                      count: (app.permissions.length | appNumber: 'integer' : displayLocale()),
+                    })
+                  "
+                  [title]="t('openApp.section.authorization')"
+                  [subtitle]="app.displayName || app.clientId"
+                  [filterLabel]="t('openApp.popover.filterPermissions')"
+                  [emptyText]="t('openApp.popover.noMatches')"
+                >
+                  <span
+                    class="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground whitespace-nowrap"
+                    [class]="mode === 'detail' ? 'max-w-full' : 'max-w-[14rem]'"
+                    data-testid="open-app-permissions-summary"
+                  >
+                    <ng-icon name="lucideShield" class="shrink-0 text-xs" />
+                    <span class="truncate">{{
+                      grantSummary(app) || t('openApp.permission.notConfigured')
+                    }}</span>
+                    <span class="shrink-0"
+                      >({{ app.permissions.length | appNumber: 'integer' : displayLocale() }})</span
+                    >
+                  </span>
+                </app-readonly-list-popover>
+              } @else {
+                <span
+                  class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground whitespace-nowrap"
+                  data-testid="open-app-permissions-summary"
+                >
+                  <ng-icon name="lucideShield" class="shrink-0 text-xs" />
+                  {{ t('openApp.permission.notConfigured') }}
+                </span>
+              }
+            }
+            @case ('redirectUris') {
+              @if (mode === 'detail') {
+                <div class="flex flex-wrap gap-1">
+                  @for (uri of app.redirectUris; track $index) {
+                    <span
+                      class="rounded-md border border-border bg-muted px-2 py-1 text-xs font-mono break-all"
+                      >{{ uri }}</span
+                    >
+                  } @empty {
+                    <span class="text-muted-foreground">-</span>
+                  }
+                </div>
+              } @else if (app.redirectUris.length > 0) {
+                <!-- 整个摘要就是面板入口：只有一条地址、没有 "+N" 时也能打开读全文。地址截断，"+N" 不收缩 -->
+                <app-readonly-list-popover
+                  class="max-w-[22rem]"
+                  [items]="getRedirectUriListItems(app)"
+                  [mono]="true"
+                  [triggerLabel]="
+                    t('openApp.popover.redirectUrisTrigger', {
+                      name: app.displayName || app.clientId,
+                      count: (app.redirectUris.length | appNumber: 'integer' : displayLocale()),
+                    })
+                  "
+                  [title]="t('openApp.table.colRedirectUris')"
+                  [subtitle]="app.displayName || app.clientId"
+                  [filterLabel]="t('openApp.popover.filterRedirectUris')"
+                  [emptyText]="t('openApp.popover.noMatches')"
+                >
+                  @for (uri of getVisibleRedirectUris(app); track $index) {
+                    <span
+                      class="min-w-0 truncate rounded-md border border-border bg-muted px-2 py-1 text-xs font-mono"
+                      [title]="uri"
+                      >{{ uri }}</span
+                    >
+                  }
+                  @if (getHiddenRedirectUris(app).length > 0) {
+                    <span
+                      hlmBadge
+                      variant="outline"
+                      class="shrink-0 tabular-nums"
+                      data-testid="open-app-redirect-uris-more"
+                      >+{{
+                        getHiddenRedirectUris(app).length | appNumber: 'integer' : displayLocale()
+                      }}</span
+                    >
+                  }
+                </app-readonly-list-popover>
+              } @else {
+                <span class="text-xs text-muted-foreground">-</span>
+              }
+            }
+            @case ('security') {
+              <div
+                class="flex items-center gap-1.5"
+                [class]="mode === 'detail' ? 'flex-wrap' : 'whitespace-nowrap'"
+              >
+                <span hlmBadge [variant]="hasPkce(app) ? 'success' : 'destructive'">{{
+                  hasPkce(app) ? 'PKCE' : t('openApp.table.noPkce')
+                }}</span>
+                <!-- 列里只在很宽的容器显示，详情里总是给出 -->
+                <span
+                  hlmBadge
+                  [variant]="app.hasClientSecret ? 'secondary' : 'outline'"
+                  [class]="mode === 'detail' ? '' : 'hidden @min-[1560px]:inline-flex'"
+                  >{{
+                    app.hasClientSecret ? t('openApp.table.secretSet') : t('openApp.table.noSecret')
+                  }}</span
+                >
+              </div>
+            }
+            @case ('creationTime') {
+              @if (mode === 'detail') {
+                <span class="text-muted-foreground">{{
+                  app.creationTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                }}</span>
+              } @else {
+                <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
+                <span
+                  tabindex="0"
+                  class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  [hlmTooltip]="
+                    app.creationTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                  "
+                  >{{
+                    app.creationTime | appDate: 'short' : displayTimeZone() : displayLocale()
+                  }}</span
+                >
+              }
+            }
+          }
+        </ng-template>
       }
     </div>
 

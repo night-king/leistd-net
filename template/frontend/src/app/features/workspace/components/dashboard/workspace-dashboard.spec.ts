@@ -182,6 +182,42 @@ describe('WorkspaceDashboard', () => {
     ]);
   });
 
+  // 图标由工作台自己整组注册（测试不在父级预先提供）：漏注册不会报错，列表里只剩一块空白
+  it('renders the type icon of a notification centred in its row', async () => {
+    await setup();
+    TestBed.inject(SignalRService).notifications.set([
+      {
+        id: 'icon',
+        title: 'Sign-in from a new device',
+        //#if (LocalIdentity)
+        type: 'Security',
+        //#else
+        type: 'System',
+        //#endif
+        isRead: false,
+        creationTime: new Date().toISOString(),
+      },
+    ]);
+    fixture.detectChanges();
+
+    const toggle = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="workbench-notification-toggle"]',
+    )!;
+    const icon = toggle.querySelector('ng-icon')!;
+    const svg = icon.querySelector('svg');
+    expect(svg, 'the icon must be registered by the dashboard itself').not.toBeNull();
+    const svgBox = svg!.getBoundingClientRect();
+    const iconBox = icon.getBoundingClientRect();
+    const toggleBox = toggle.getBoundingClientRect();
+    expect(svgBox.width).toBeGreaterThan(0);
+    expect(
+      Math.abs(svgBox.left + svgBox.width / 2 - (iconBox.left + iconBox.width / 2)),
+    ).toBeLessThan(1);
+    expect(
+      Math.abs(svgBox.top + svgBox.height / 2 - (toggleBox.top + toggleBox.height / 2)),
+    ).toBeLessThan(1);
+  });
+
   // 短标题、无正文时按钮高度只由图标决定，触屏下仍要补足 44px
   it('gives a one-line notification a 44px target on touch screens', async () => {
     await setCoarsePointer(true);

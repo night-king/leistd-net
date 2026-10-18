@@ -18,23 +18,14 @@
                   @for (header of headerGroup.headers; track header.id) {
                     <th hlmTh [class]="header.column.columnDef.meta?.headClass ?? 'first:ps-4'">
                       @switch (header.column.id) {
-                        @case ('name') {
-                          <span class="whitespace-nowrap">{{ t('tenants.colName') }}</span>
-                        }
-                        @case ('displayName') {
-                          <span class="whitespace-nowrap">{{ t('tenants.colDisplayName') }}</span>
-                        }
-                        @case ('description') {
-                          <span class="whitespace-nowrap">{{ t('tenants.colDescription') }}</span>
-                        }
-                        @case ('status') {
-                          <span class="whitespace-nowrap">{{ t('tenants.colStatus') }}</span>
-                        }
-                        @case ('creationTime') {
-                          <span class="whitespace-nowrap">{{ t('tenants.colCreatedAt') }}</span>
-                        }
                         @case ('actions') {
                           <span class="sr-only">{{ t('common.actions') }}</span>
+                        }
+                        @default {
+                          <!-- 表头与展开详情取同一份列标签 -->
+                          <span class="whitespace-nowrap">{{
+                            t(columnLabelKeys[header.column.id])
+                          }}</span>
                         }
                       }
                     </th>
@@ -87,34 +78,6 @@
                                 row.original.name
                               }}</span>
                             </div>
-                          }
-                          @case ('displayName') {
-                            <span class="whitespace-nowrap text-sm">{{
-                              row.original.displayName || '-'
-                            }}</span>
-                          }
-                          @case ('description') {
-                            <span
-                              class="block max-w-[22rem] truncate text-sm text-muted-foreground"
-                              >{{ row.original.description || '-' }}</span
-                            >
-                          }
-                          @case ('status') {
-                            @if (row.original.isActive) {
-                              <span hlmBadge appStatusDot variant="success">{{
-                                t('tenants.active')
-                              }}</span>
-                            } @else {
-                              <span hlmBadge appStatusDot variant="secondary">{{
-                                t('tenants.inactive')
-                              }}</span>
-                            }
-                          }
-                          @case ('creationTime') {
-                            <span class="text-xs text-muted-foreground whitespace-nowrap">{{
-                              row.original.creationTime
-                                | appDate: 'short' : displayTimeZone() : displayLocale()
-                            }}</span>
                           }
                           @case ('actions') {
                             <!-- 操作列（5 项 > 3）：桌面端显示 2 个高频操作 + … 溢出菜单；<sm 全部收进菜单省列宽。
@@ -236,11 +199,21 @@
                               </ng-template>
                             </div>
                           }
+                          @default {
+                            <ng-container
+                              [ngTemplateOutlet]="columnValue"
+                              [ngTemplateOutletContext]="{
+                                $implicit: row.original,
+                                id: cell.column.id,
+                                mode: 'cell',
+                              }"
+                            />
+                          }
                         }
                       </td>
                     }
                   </tr>
-                  <!-- 行展开：呈现在移动端/平板端被隐藏的列，避免「隐藏=丢数据」。 -->
+                  <!-- 行展开：按列定义顺序列出被折叠的数据列（meta.detail） -->
                   @if (hasCollapsedColumns() && row.getIsExpanded()) {
                     <tr hlmTr class="bg-muted/30 hover:bg-muted/30">
                       <td
@@ -248,32 +221,24 @@
                         [attr.colspan]="table.getVisibleLeafColumns().length"
                         class="px-4 pb-3 pt-2"
                       >
+                        <!-- 表格单元格默认不折行；详情是内容，长文本在这里折行 -->
                         <dl
-                          class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
+                          class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm whitespace-normal"
+                          data-testid="tenant-detail"
                         >
-                          @if (isColumnHidden('displayName')) {
-                            <dt class="text-muted-foreground">{{ t('tenants.colDisplayName') }}</dt>
-                            <dd class="min-w-0">{{ row.original.displayName || '-' }}</dd>
-                          }
-                          @if (isColumnHidden('description')) {
-                            <dt class="text-muted-foreground">{{ t('tenants.colDescription') }}</dt>
-                            <dd class="min-w-0">{{ row.original.description || '-' }}</dd>
-                          }
-                          @if (isColumnHidden('status')) {
-                            <dt class="text-muted-foreground">{{ t('tenants.colStatus') }}</dt>
-                            <dd class="min-w-0">
-                              {{
-                                row.original.isActive ? t('tenants.active') : t('tenants.inactive')
-                              }}
-                            </dd>
-                          }
-                          @if (isColumnHidden('creationTime')) {
-                            <dt class="text-muted-foreground">{{ t('tenants.colCreatedAt') }}</dt>
-                            <dd class="text-muted-foreground">
-                              {{
-                                row.original.creationTime
-                                  | appDate: 'full' : displayTimeZone() : displayLocale()
-                              }}
+                          @for (column of detailColumns(); track column.id) {
+                            <dt class="text-muted-foreground">
+                              {{ t(columnLabelKeys[column.id]) }}
+                            </dt>
+                            <dd class="min-w-0" [attr.data-detail-column]="column.id">
+                              <ng-container
+                                [ngTemplateOutlet]="columnValue"
+                                [ngTemplateOutletContext]="{
+                                  $implicit: row.original,
+                                  id: column.id,
+                                  mode: 'detail',
+                                }"
+                              />
                             </dd>
                           }
                         </dl>
@@ -334,6 +299,51 @@
             </tbody>
           </table>
         </div>
+        <!-- 各数据列的值：单元格（cell）与展开详情（detail）共用；详情给完整描述与完整时刻 -->
+        <ng-template
+          #columnValue
+          [appColumnValue]="tenants()"
+          let-tenant
+          let-id="id"
+          let-mode="mode"
+        >
+          @switch (id) {
+            @case ('displayName') {
+              <span
+                class="text-sm"
+                [class]="mode === 'detail' ? 'wrap-anywhere' : 'whitespace-nowrap'"
+                >{{ tenant.displayName || '-' }}</span
+              >
+            }
+            @case ('description') {
+              <span
+                class="text-sm text-muted-foreground"
+                [class]="mode === 'detail' ? 'block wrap-anywhere' : 'block max-w-[22rem] truncate'"
+                >{{ tenant.description || '-' }}</span
+              >
+            }
+            @case ('status') {
+              @if (tenant.isActive) {
+                <span hlmBadge appStatusDot variant="success">{{ t('tenants.active') }}</span>
+              } @else {
+                <span hlmBadge appStatusDot variant="secondary">{{ t('tenants.inactive') }}</span>
+              }
+            }
+            @case ('creationTime') {
+              <span
+                class="text-xs text-muted-foreground"
+                [class.whitespace-nowrap]="mode === 'cell'"
+                >{{
+                  tenant.creationTime
+                    | appDate
+                      : (mode === 'detail' ? 'full' : 'short')
+                      : displayTimeZone()
+                      : displayLocale()
+                }}</span
+              >
+            }
+          }
+        </ng-template>
       }
     </div>
 

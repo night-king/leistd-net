@@ -29,12 +29,10 @@ import {
   lucideChevronRight,
   lucideCog,
   lucideFileText,
-  lucideInfo,
   lucideLayers,
   lucideLock,
   lucideMonitor,
   lucideSearch,
-  lucideShieldAlert,
   lucideSlidersHorizontal,
   lucideSmartphone,
   lucideTablet,
@@ -61,7 +59,10 @@ import { AuthorizationService } from '../../../../core/services/authorization-se
 import { CommandPaletteService } from '../../../../core/services/command-palette-service';
 import { LayoutService } from '../../../../core/services/layout-service';
 //#if (IncludeNotifications)
-import { NotificationService } from '../../../../core/services/notification-service';
+import {
+  NOTIFICATION_ICONS,
+  NotificationService,
+} from '../../../../core/services/notification-service';
 //#endif
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 //#if (LocalIdentity || IncludeNotifications)
@@ -135,8 +136,11 @@ const DEVICE_ICONS: Record<DeviceKind, string> = {
   ],
   // prettier-ignore
   providers: [provideIcons({
+    //#if (IncludeNotifications)
+    ...NOTIFICATION_ICONS,
+    //#endif
     lucideActivity, lucideBell, lucideCheck, lucideChevronRight, lucideCog, lucideFileText,
-    lucideInfo, lucideLayers, lucideLock, lucideMonitor, lucideSearch, lucideShieldAlert,
+    lucideLayers, lucideLock, lucideMonitor, lucideSearch,
     lucideSlidersHorizontal, lucideSmartphone, lucideTablet, lucideTriangleAlert, lucideUser,
   })],
   templateUrl: './workspace-dashboard.html',

@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -34,6 +35,7 @@ import { ColumnDef, PaginationState, SortingState } from '@tanstack/angular-tabl
 
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
+import { ColumnValue } from '../../../../../../shared/directives/column-value';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
 import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
@@ -42,6 +44,7 @@ import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
 import {
   ACTIONS_COLUMN_META,
+  hiddenDetailColumns,
   tableColumnVisibility,
   TITLE_COLUMN_META,
   TITLE_CONTENT_CLASS,
@@ -64,6 +67,8 @@ import { RoleOutputDto } from '../../../../dtos/role.dto';
 @Component({
   selector: 'app-role-table',
   imports: [
+    NgTemplateOutlet,
+    ColumnValue,
     TableFit,
     AppDate,
     AppNumber,
@@ -136,7 +141,7 @@ export class RoleTable {
   protected readonly titleContentClass = TITLE_CONTENT_CLASS;
   private readonly tableFit = viewChild(TableFit);
   /** 实际折叠档位：视口给上限，容器放不下再降一档（见 TableFit）。 */
-  private readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
+  protected readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
 
   protected readonly columns: ColumnDef<AppTableFeatures, RoleOutputDto>[] = [
     {
@@ -149,16 +154,24 @@ export class RoleTable {
       accessorKey: 'userCount',
       id: 'userCount',
       enableSorting: false,
-      meta: { priority: 'secondary' },
+      meta: { priority: 'secondary', detail: true },
     },
     {
       accessorKey: 'permissionCount',
       id: 'permissionCount',
       enableSorting: false,
-      meta: { priority: 'secondary' },
+      meta: { priority: 'secondary', detail: true },
     },
-    { accessorKey: 'sort', id: 'sort', meta: { priority: 'tertiary' } },
-    { accessorKey: 'creationTime', id: 'creationTime', meta: { priority: 'tertiary' } },
+    {
+      accessorKey: 'sort',
+      id: 'sort',
+      meta: { priority: 'tertiary', detail: true },
+    },
+    {
+      accessorKey: 'creationTime',
+      id: 'creationTime',
+      meta: { priority: 'tertiary', detail: true },
+    },
     {
       id: 'actions',
       enableSorting: false,
@@ -192,10 +205,20 @@ export class RoleTable {
   readonly currentPage = computed(() => this.pagination().pageIndex + 1);
   readonly totalPages = computed(() => Math.max(1, this.table.getPageCount()));
 
+  /** 列标签的词条键：表头与展开详情共用，切换语言时两处一起更新。 */
+  protected readonly columnLabelKeys: Readonly<Record<string, string>> = {
+    displayName: 'roles.colName',
+    userCount: 'roles.colUsers',
+    permissionCount: 'roles.colPermissions',
+    sort: 'roles.colSort',
+    creationTime: 'roles.colCreatedAt',
+  };
+
   readonly hasCollapsedColumns = computed(() => this.foldLevel() !== 'desktop');
 
-  isColumnHidden(id: string): boolean {
-    return this.table.getColumn(id)?.getIsVisible() === false;
+  /** 展开详情里列出的列：被折叠的数据列，按列定义顺序。 */
+  protected detailColumns() {
+    return hiddenDetailColumns(this.table);
   }
 
   toggleSort(columnId: string): void {

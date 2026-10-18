@@ -1,5 +1,11 @@
 import type { AppColumnMeta, AppTableFeatures } from './table-features';
-import type { ColumnDef, ColumnVisibilityState, RowData } from '@tanstack/table-core';
+import type {
+  Column,
+  ColumnDef,
+  ColumnVisibilityState,
+  RowData,
+  Table,
+} from '@tanstack/table-core';
 
 export type TableViewport = 'mobile' | 'tablet' | 'desktop';
 
@@ -52,4 +58,16 @@ export function tableColumnVisibility<TData extends RowData>(
       return [[id, visible]];
     }),
   );
+}
+
+/**
+ * 行展开详情要列出的列：登记了 `meta.detail` 且当前被折叠隐藏的列，按列定义顺序。
+ * 详情的标题与表头取同一份标签，值与单元格取同一个值模板（详情形态给完整内容）。
+ */
+export function hiddenDetailColumns<TData extends RowData>(
+  table: Table<AppTableFeatures, TData>,
+): Column<AppTableFeatures, TData, unknown>[] {
+  return table
+    .getAllLeafColumns()
+    .filter((column) => column.columnDef.meta?.detail === true && !column.getIsVisible());
 }

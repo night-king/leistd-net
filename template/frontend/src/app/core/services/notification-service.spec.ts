@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 
-import { NotificationService } from './notification-service';
+import { NOTIFICATION_ICONS, NotificationService } from './notification-service';
 import { SignalRService } from './signalr-service';
 import { NotificationOutputDto } from '../../shared/dtos/notification.dto';
 
@@ -183,5 +183,22 @@ describe('NotificationService', () => {
     requestB.flush([]);
     await loadB;
     expect(service.loading()).toBe(false);
+  });
+
+  // 键与后端 AppNotificationTypes 的值逐字对应；大小写不同、未登记或与对象原型同名的类型都落到兜底图标
+  it('maps notification types to icons case-sensitively and falls back for anything else', () => {
+    //#if (LocalIdentity)
+    expect(service.getIcon('Security')).toBe('lucideShieldAlert');
+    //#endif
+    expect(service.getIcon('security')).toBe('lucideInfo');
+    expect(service.getIcon('System')).toBe('lucideInfo');
+    expect(service.getIcon('toString')).toBe('lucideInfo');
+  });
+
+  it('exports every icon getIcon can return so consumers register them as one set', () => {
+    for (const type of ['System', 'Security', 'security', 'Unknown', 'toString']) {
+      const name = service.getIcon(type);
+      expect(NOTIFICATION_ICONS[name], name).toEqual(expect.stringContaining('<svg'));
+    }
   });
 });

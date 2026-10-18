@@ -149,7 +149,10 @@
       "label": "Real-time",
       "connected": "Live updates connected",
       "reconnecting": "Connection lost, reconnecting…",
-      "disconnected": "Live updates offline. Refresh to retry."
+      "disconnected": "Live updates offline. Refresh to retry.",
+      "connectedShort": "Connected",
+      "reconnectingShort": "Reconnecting…",
+      "disconnectedShort": "Offline"
     },
     "topbar": {
       "openNavigation": "Open navigation",

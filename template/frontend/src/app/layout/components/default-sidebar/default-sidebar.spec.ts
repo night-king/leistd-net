@@ -4,7 +4,13 @@ import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 //#if (IncludeLocalization)
-import { Translation } from '@jsverse/transloco';
+// prettier-ignore
+import {
+  Translation,
+  //#if (IncludeRealTime)
+  TranslocoService,
+  //#endif
+} from '@jsverse/transloco';
 //#endif
 import { HlmSidebarImports, HlmSidebarService } from '@spartan-ng/helm/sidebar';
 //#if (IncludeLocalization)
@@ -12,11 +18,21 @@ import { Subject } from 'rxjs';
 //#endif
 
 import { DefaultSidebar } from './default-sidebar';
+//#if (IncludeLocalization && IncludeRealTime)
+import enTexts from '../../../../../public/i18n/en.json';
+import zhCnTexts from '../../../../../public/i18n/zh-CN.json';
+//#endif
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
 //#endif
 import { AuthorizationService } from '../../../core/services/authorization-service';
 import { LayoutService } from '../../../core/services/layout-service';
+//#if (IncludeRealTime)
+import {
+  type RealtimeConnectionStatus,
+  SignalRService,
+} from '../../../core/services/signalr-service';
+//#endif
 import {
   PERMISSIONS,
   PLATFORM_ENTRY_PERMISSIONS,
@@ -246,3 +262,118 @@ describe('DefaultSidebar touch targets', () => {
     expect(search.getAttribute('aria-label')).toBe(searchLabel);
   });
 });
+//#if (IncludeRealTime)
+
+/**
+ * 侧栏底部的实时状态是标签，按最长语言也要一行放下：可见的是短状态，完整说明在可聚焦的提示与读屏文本里。
+ * 渲染用的是正式词条（多语言形态为 `public/i18n` 的全局词条，否则为组件的英文表），期望文案在这里逐字写出、
+ * 不从词条推导：正式词条改长、模板改回整句都会让这组用例变红。
+ */
+describe('DefaultSidebar real-time status', () => {
+  interface Expected {
+    readonly status: RealtimeConnectionStatus;
+    readonly short: string;
+    readonly full: string;
+  }
+
+  const ENGLISH_STATES: readonly Expected[] = [
+    { status: 'connected', short: 'Connected', full: 'Live updates connected' },
+    { status: 'reconnecting', short: 'Reconnecting…', full: 'Connection lost, reconnecting…' },
+    { status: 'disconnected', short: 'Offline', full: 'Live updates offline. Refresh to retry.' },
+  ];
+  //#if (IncludeLocalization)
+  const CHINESE_STATES: readonly Expected[] = [
+    { status: 'connected', short: '已连接', full: '实时更新已连接' },
+    { status: 'reconnecting', short: '正在重连…', full: '连接中断，正在重连…' },
+    { status: 'disconnected', short: '已断开', full: '实时更新已断开，刷新页面重试。' },
+  ];
+  //#endif
+
+  const status = signal<RealtimeConnectionStatus>('idle');
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      // prettier-ignore
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: SignalRService, useValue: { connectionStatus: status } },
+        //#if (IncludeLocalization)
+        ...provideTranslocoTesting(['en', 'zh-CN']),
+        //#endif
+      ],
+    });
+    //#if (IncludeLocalization)
+    const transloco = TestBed.inject(TranslocoService);
+    transloco.setTranslation(enTexts, 'en');
+    transloco.setTranslation(zhCnTexts, 'zh-CN');
+    //#endif
+    onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
+  });
+
+  async function render(expected: Expected): Promise<HTMLElement> {
+    status.set(expected.status);
+    const fixture = TestBed.createComponent(SidebarHost);
+    // 折叠状态会跨用例留在浏览器里（上面的触屏用例把侧栏收成了图标轨），这里按展开的侧栏宽度量
+    TestBed.inject(HlmSidebarService).setOpen(true);
+    fixture.autoDetectChanges();
+    await fixture.whenStable();
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+    return (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-testid="realtime-status"]',
+    )!;
+  }
+
+  async function expectOneLineStatus(expected: Expected): Promise<void> {
+    const box = await render(expected);
+    const text = box.querySelector<HTMLElement>('[data-testid="realtime-status-text"]')!;
+    const badge = box.querySelector<HTMLElement>('[hlmBadge]')!;
+    // 量的是真实渲染的状态框：收起或隐藏时下面的尺寸断言全都会空过
+    expect(text.getBoundingClientRect().width, expected.status).toBeGreaterThan(0);
+
+    expect(text.textContent!.trim(), expected.status).toBe(expected.short);
+    // 短词完整可见：没有被 truncate 截成省略号
+    expect(text.scrollWidth, expected.status).toBeLessThanOrEqual(text.clientWidth);
+    // 一行：状态框只比徽章高出内边距与边框
+    const lineHeight = Number.parseFloat(getComputedStyle(text).lineHeight);
+    expect(text.getBoundingClientRect().height, expected.status).toBeLessThan(lineHeight * 1.5);
+    expect(
+      box.getBoundingClientRect().height - badge.getBoundingClientRect().height,
+      expected.status,
+    ).toBeLessThanOrEqual(18.5);
+    // 常驻状态区里给读屏的完整说明，不放在可聚焦元素里
+    const full = box.querySelector<HTMLElement>('.sr-only')!;
+    expect(full.textContent!.trim(), expected.status).toBe(expected.full);
+    expect(text.contains(full)).toBe(false);
+  }
+
+  for (const expected of ENGLISH_STATES) {
+    it(`keeps the ${expected.status} status on one line in English`, async () => {
+      await expectOneLineStatus(expected);
+    });
+  }
+  //#if (IncludeLocalization)
+
+  for (const expected of CHINESE_STATES) {
+    it(`keeps the ${expected.status} status on one line in Chinese`, async () => {
+      TestBed.inject(TranslocoService).setActiveLang('zh-CN');
+      await expectOneLineStatus(expected);
+    });
+  }
+  //#endif
+
+  // 聚焦时读到短状态，提示作为描述给出完整说明：名称与描述不是同一句，不会读两遍
+  it('describes the short status with the full sentence when focused', async () => {
+    const box = await render(ENGLISH_STATES[2]);
+    const text = box.querySelector<HTMLElement>('[data-testid="realtime-status-text"]')!;
+
+    // 聚焦引起的页面滚动会让提示立即收起，这里只验证聚焦本身
+    text.focus({ preventScroll: true });
+    await expect.poll(() => text.getAttribute('aria-describedby')).not.toBeNull();
+    const description = document.getElementById(text.getAttribute('aria-describedby')!)!;
+    expect(description.textContent!.trim()).toBe('Live updates offline. Refresh to retry.');
+    expect(text.textContent!.trim()).toBe('Offline');
+  });
+});
+//#endif

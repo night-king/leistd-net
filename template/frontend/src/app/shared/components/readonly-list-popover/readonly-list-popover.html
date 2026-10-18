@@ -1,0 +1,87 @@
+<!-- hlm-popover 是宿主与按钮之间的一层，要一起可收缩，按钮的 max-w-full 才以宿主宽度为准 -->
+<hlm-popover align="start" class="flex max-w-full min-w-0" (closed)="reset()">
+  <!-- 粗指针下按钮本体补到 44px：伪元素伸出的热区在行高不足的表格里会压到表头或邻行（如只读权限下没有行操作撑高） -->
+  <button
+    type="button"
+    hlmPopoverTrigger
+    data-readonly-list-trigger
+    class="focus-visible:ring-ring/50 flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-start outline-none focus-visible:ring-[3px] pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+    [attr.aria-label]="triggerLabel()"
+  >
+    <ng-content />
+  </button>
+  <!-- 整个面板按视口限高，列表在剩余高度里自己滚动，标题与筛选框始终可见 -->
+  <hlm-popover-content
+    *hlmPopoverPortal
+    class="max-h-[min(28rem,calc(100dvh-2rem))] w-80 max-w-[calc(100vw-2rem)] gap-0 p-0"
+    data-testid="readonly-list-panel"
+    [appPopoverAria]="title()"
+  >
+    <div class="flex flex-col gap-0.5 px-3 pt-3 pb-2">
+      <div class="flex items-baseline justify-between gap-2">
+        <span class="text-sm font-medium">{{ title() }}</span>
+        <span class="text-muted-foreground text-xs tabular-nums">{{ items().length }}</span>
+      </div>
+      @if (subtitle()) {
+        <span class="text-muted-foreground text-xs wrap-anywhere">{{ subtitle() }}</span>
+      }
+    </div>
+
+    @if (showFilter()) {
+      <div class="px-2 pb-2">
+        <label class="sr-only" [for]="filterId">{{ filterLabel() }}</label>
+        <hlm-input-group>
+          <hlm-input-group-addon>
+            <ng-icon name="lucideSearch" />
+          </hlm-input-group-addon>
+          <input
+            hlmInputGroupInput
+            type="search"
+            autocomplete="off"
+            data-testid="readonly-list-filter"
+            [id]="filterId"
+            [placeholder]="filterLabel()"
+            [value]="query()"
+            (input)="onFilterInput($event)"
+          />
+        </hlm-input-group>
+      </div>
+    }
+
+    <div hlmSeparator></div>
+
+    <ul
+      #list
+      hlmItemGroup
+      tabindex="0"
+      class="focus-visible:ring-ring/50 min-h-0 flex-1 gap-0 overflow-y-auto rounded-b-md p-1 outline-none focus-visible:ring-[3px] focus-visible:ring-inset has-data-[size=xs]:gap-0"
+      data-testid="readonly-list"
+      [style.mask-image]="fadeBottom() ? fadeMask : null"
+      [attr.aria-label]="title()"
+      (scroll)="updateFade(list)"
+    >
+      @for (item of visibleItems(); track item.id) {
+        <li hlmItem size="xs" class="flex-nowrap items-start gap-2.5 px-2 py-1.5">
+          <span
+            class="bg-muted-foreground/50 mt-[0.4375rem] size-1.5 shrink-0 rounded-full"
+            aria-hidden="true"
+          ></span>
+          <span class="flex min-w-0 flex-1 flex-col">
+            <span
+              class="leading-5 wrap-anywhere"
+              [class]="mono() ? 'font-mono text-xs' : 'text-sm'"
+              >{{ item.label }}</span
+            >
+            @if (item.detail && item.detail !== item.label) {
+              <span class="text-muted-foreground font-mono text-xs leading-4 wrap-anywhere">{{
+                item.detail
+              }}</span>
+            }
+          </span>
+        </li>
+      } @empty {
+        <li class="text-muted-foreground py-6 text-center text-sm">{{ emptyText() }}</li>
+      }
+    </ul>
+  </hlm-popover-content>
+</hlm-popover>

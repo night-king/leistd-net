@@ -62,7 +62,10 @@
   },
   "popover": {
     "noRoles": "No roles",
-    "rolesTitle": "Roles ({{count}})"
+    "rolesTitle": "Roles",
+    "rolesTrigger": "View all roles of {{name}} ({{count}})",
+    "filterRoles": "Filter roles",
+    "noMatchingRoles": "No matching roles"
   },
   "tooltip": {
     "disable": "Disable",

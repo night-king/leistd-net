@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -28,15 +29,18 @@ import {
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
-import { HlmPopoverImports } from '@spartan-ng/helm/popover';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTableImports } from '@spartan-ng/helm/table';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { ColumnDef, PaginationState, SortingState } from '@tanstack/angular-table';
 
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
+import {
+  type ReadonlyListItem,
+  ReadonlyListPopover,
+} from '../../../../../../shared/components/readonly-list-popover/readonly-list-popover';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
-import { PopoverAria } from '../../../../../../shared/directives/popover-aria';
+import { ColumnValue } from '../../../../../../shared/directives/column-value';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
 import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
@@ -45,6 +49,7 @@ import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
 import {
   ACTIONS_COLUMN_META,
+  hiddenDetailColumns,
   tableColumnVisibility,
   TITLE_COLUMN_META,
   TITLE_CONTENT_CLASS,
@@ -77,6 +82,9 @@ type BadgeVariant = 'secondary' | 'outline';
 @Component({
   selector: 'app-open-application-table',
   imports: [
+    NgTemplateOutlet,
+    ColumnValue,
+    ReadonlyListPopover,
     TableFit,
     AppDate,
     AppNumber,
@@ -86,8 +94,6 @@ type BadgeVariant = 'secondary' | 'outline';
     HlmSpinner,
     TablePaginator,
     ...HlmDropdownMenuImports,
-    ...HlmPopoverImports,
-    PopoverAria,
     ...HlmTableImports,
     ...HlmTooltipImports,
     //#if (IncludeLocalization)
@@ -154,8 +160,8 @@ export class OpenApplicationTable {
   /** 主列内容外层：最窄一档下长名称截断，不撑宽表格（见 TITLE_COLUMN_META）。 */
   protected readonly titleContentClass = TITLE_CONTENT_CLASS;
   private readonly tableFit = viewChild(TableFit);
-  /** 实际折叠档位：视口给上限，容器放不下再降一档（见 TableFit）。 */
-  private readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
+  /** 实际折叠档位：视口给上限，容器放不下再降一档（见 TableFit，与容器上的 data-table-fit 同值）。 */
+  protected readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
 
   protected readonly columns: ColumnDef<AppTableFeatures, OpenApplicationOutputDto>[] = [
     {
@@ -175,21 +181,25 @@ export class OpenApplicationTable {
       accessorKey: 'permissions',
       id: 'permissions',
       enableSorting: false,
-      meta: { priority: 'secondary' },
+      meta: { priority: 'secondary', detail: true },
     },
     {
       accessorKey: 'redirectUris',
       id: 'redirectUris',
       enableSorting: false,
-      meta: { priority: 'tertiary' },
+      meta: { priority: 'tertiary', detail: true },
     },
     {
       accessorKey: 'requirements',
       id: 'security',
       enableSorting: false,
-      meta: { priority: 'secondary' },
+      meta: { priority: 'secondary', detail: true },
     },
-    { accessorKey: 'creationTime', id: 'creationTime', meta: { priority: 'tertiary' } },
+    {
+      accessorKey: 'creationTime',
+      id: 'creationTime',
+      meta: { priority: 'tertiary', detail: true },
+    },
     {
       id: 'actions',
       enableSorting: false,
@@ -202,10 +212,21 @@ export class OpenApplicationTable {
     tableColumnVisibility(this.columns, this.foldLevel()),
   );
 
+  /** 列标签的词条键：表头与展开详情共用，切换语言时两处一起更新。 */
+  protected readonly columnLabelKeys: Readonly<Record<string, string>> = {
+    clientId: 'openApp.table.colApp',
+    type: 'openApp.table.colType',
+    permissions: 'openApp.table.colPermissions',
+    redirectUris: 'openApp.table.colRedirectUris',
+    security: 'openApp.table.colSecurity',
+    creationTime: 'openApp.table.colCreatedAt',
+  };
+
   readonly hasCollapsedColumns = computed(() => this.foldLevel() !== 'desktop');
 
-  isColumnHidden(id: string): boolean {
-    return this.table.getColumn(id)?.getIsVisible() === false;
+  /** 展开详情里列出的列：被折叠的数据列，按列定义顺序。 */
+  protected detailColumns() {
+    return hiddenDetailColumns(this.table);
   }
 
   protected readonly table = injectAppTable(() => ({
@@ -255,6 +276,16 @@ export class OpenApplicationTable {
 
   getHiddenRedirectUris(application: OpenApplicationOutputDto): string[] {
     return application.redirectUris.slice(1);
+  }
+
+  /** 回调地址面板：全部地址，按位置标识（地址可能重复登记）。 */
+  getRedirectUriListItems(application: OpenApplicationOutputDto): ReadonlyListItem[] {
+    return application.redirectUris.map((uri, index) => ({ id: `${index}`, label: uri }));
+  }
+
+  /** 授权能力面板：全部权限，含授权方式以外的端点与范围权限。 */
+  getPermissionListItems(application: OpenApplicationOutputDto): ReadonlyListItem[] {
+    return application.permissions.map((permission) => ({ id: permission, label: permission }));
   }
 
   getClientTypeVariant(value: string): BadgeVariant {
@@ -309,5 +340,11 @@ const ENGLISH: Record<string, string> = {
   'openApp.appType.web': 'Web',
   'openApp.appType.native': 'Desktop/Native',
   'openApp.appType.service': 'Service',
+  'openApp.popover.permissionsTrigger':
+    'View all authorization capabilities of {{name}} ({{count}})',
+  'openApp.popover.redirectUrisTrigger': 'View all redirect URIs of {{name}} ({{count}})',
+  'openApp.popover.filterPermissions': 'Filter capabilities',
+  'openApp.popover.filterRedirectUris': 'Filter redirect URIs',
+  'openApp.popover.noMatches': 'No matching entries',
 };
 //#endif

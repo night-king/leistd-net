@@ -1,20 +1,42 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
+// prettier-ignore
+import {
+  lucideInfo,
+  //#if (LocalIdentity)
+  lucideShieldAlert,
+  //#endif
+} from '@ng-icons/lucide';
 import { lastValueFrom } from 'rxjs';
 
 import { SignalRService } from './signalr-service';
 import { NotificationOutputDto } from '../../shared/dtos/notification.dto';
 
+/** 一个图标：键是 lucide 图标名，值是图标数据，用简写 `{ lucideXxx }` 写出，名称与数据同源。 */
+type NotificationIcon = Readonly<Record<string, string>>;
+
 /**
- * 各通知类型的图标。类型由后端业务定义（见 `AppNotificationTypes`），新增类型时在这里补一行；
- * 没登记的（包括默认的系统通知）用通用图标。
+ * 各通知类型的图标。键必须与后端 `AppNotificationTypes` 的值完全一致（区分大小写），新增类型时在这里补一行；
+ * 没登记的（包括默认的系统通知）用兜底图标。
  */
 // prettier-ignore
-const TYPE_ICONS: Readonly<Record<string, string>> = {
+const TYPE_ICONS: Readonly<Record<string, NotificationIcon>> = {
   //#if (LocalIdentity)
-  Security: 'lucideShieldAlert',
+  Security: { lucideShieldAlert },
   //#endif
 };
+
+const FALLBACK_ICON: NotificationIcon = { lucideInfo };
+
+/**
+ * `getIcon` 可能返回的全部图标，由上面的映射与兜底派生。显示通知图标的组件在自己的
+ * `provideIcons({ ...NOTIFICATION_ICONS, ... })` 里整组注册：漏注册的图标只在控制台警告、渲染为空。
+ */
+export const NOTIFICATION_ICONS: NotificationIcon = Object.assign(
+  {},
+  FALLBACK_ICON,
+  ...Object.values(TYPE_ICONS),
+);
 
 /** 通知管理：通知列表与已读（HTTP）+ SignalR 实时推送桥接。 */
 @Injectable({ providedIn: 'root' })
@@ -150,6 +172,7 @@ export class NotificationService {
 
   /** 通知类型图标（lucide 图标名；仅区分形状，颜色统一由视图控制）。 */
   getIcon(type: string): string {
-    return TYPE_ICONS[type] ?? 'lucideInfo';
+    const icon = Object.hasOwn(TYPE_ICONS, type) ? TYPE_ICONS[type] : FALLBACK_ICON;
+    return Object.keys(icon)[0];
   }
 }

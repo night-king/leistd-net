@@ -139,6 +139,11 @@
     "emptyFilteredHint": "请调整搜索或筛选条件"
   },
   "popover": {
-    "empty": "暂无配置"
+    "empty": "暂无配置",
+    "permissionsTrigger": "查看 {{name}} 的全部授权能力（{{count}} 项）",
+    "redirectUrisTrigger": "查看 {{name}} 的全部回调地址（{{count}} 个）",
+    "filterPermissions": "筛选授权能力",
+    "filterRedirectUris": "筛选回调地址",
+    "noMatches": "没有匹配的条目"
   }
 }
