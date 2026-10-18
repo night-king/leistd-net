@@ -232,11 +232,12 @@ describe('ReadonlyListPopover', () => {
       await setCoarsePointer(true);
       fixture.componentInstance.offsetTop.set(40);
       const trigger = await render(roles(2));
-      // 视觉高度保持徽章行的高度，命中区来自伪元素
-      expect(trigger.getBoundingClientRect().height).toBeLessThan(44);
+      // 按钮本体就是 44px 的目标，不靠伸出盒子的伪元素：伸出的部分在矮行里会压到邻行
+      expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 
       expectTouchTarget(trigger);
-      await tapAt(trigger, 0, -21);
+      // 点按钮上沿内 1px：以中心为原点，向上半个高度
+      await tapAt(trigger, 0, -(trigger.getBoundingClientRect().height / 2 - 1));
       await expect.poll(() => panel()).not.toBeNull();
     });
   });

@@ -1,11 +1,11 @@
 <!-- hlm-popover 是宿主与按钮之间的一层，要一起可收缩，按钮的 max-w-full 才以宿主宽度为准 -->
 <hlm-popover align="start" class="flex max-w-full min-w-0" (closed)="reset()">
-  <!-- 粗指针下命中区由 styles.css 按 data-readonly-list-trigger 用伪元素补足 44px，视觉尺寸不变 -->
+  <!-- 粗指针下按钮本体补到 44px：伪元素伸出的热区在行高不足的表格里会压到表头或邻行（如只读权限下没有行操作撑高） -->
   <button
     type="button"
     hlmPopoverTrigger
     data-readonly-list-trigger
-    class="focus-visible:ring-ring/50 flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-start outline-none focus-visible:ring-[3px]"
+    class="focus-visible:ring-ring/50 flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-start outline-none focus-visible:ring-[3px] pointer-coarse:min-h-11 pointer-coarse:min-w-11"
     [attr.aria-label]="triggerLabel()"
   >
     <ng-content />

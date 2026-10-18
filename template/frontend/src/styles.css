@@ -315,23 +315,6 @@ body {
     height: calc(var(--spacing) * 11);
   }
 
-  /* 只读列表面板的摘要按钮（徽章行、授权方式摘要）：视觉高度不变，命中区同样以中心铺开，不足 44px 的轴补到 44px */
-  [data-readonly-list-trigger] {
-    position: relative;
-  }
-
-  [data-readonly-list-trigger]::after {
-    content: '';
-
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    translate: -50% -50%;
-
-    width: max(100%, calc(var(--spacing) * 11));
-    height: max(100%, calc(var(--spacing) * 11));
-  }
-
   :is([data-slot='table-head'], [data-slot='table-cell']):has([role='checkbox']) {
     padding-inline-end: calc(var(--spacing) * 3.5);
   }

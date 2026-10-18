@@ -18,6 +18,10 @@ import { Subject } from 'rxjs';
 //#endif
 
 import { DefaultSidebar } from './default-sidebar';
+//#if (IncludeLocalization && IncludeRealTime)
+import enTexts from '../../../../../public/i18n/en.json';
+import zhCnTexts from '../../../../../public/i18n/zh-CN.json';
+//#endif
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
 //#endif
@@ -262,7 +266,8 @@ describe('DefaultSidebar touch targets', () => {
 
 /**
  * 侧栏底部的实时状态是标签，按最长语言也要一行放下：可见的是短状态，完整说明在可聚焦的提示与读屏文本里。
- * 期望文案在这里逐字写出，不从组件用的词条键推导；词条改长、改回整句都会让这组用例变红。
+ * 渲染用的是正式词条（多语言形态为 `public/i18n` 的全局词条，否则为组件的英文表），期望文案在这里逐字写出、
+ * 不从词条推导：正式词条改长、模板改回整句都会让这组用例变红。
  */
 describe('DefaultSidebar real-time status', () => {
   interface Expected {
@@ -282,16 +287,6 @@ describe('DefaultSidebar real-time status', () => {
     { status: 'reconnecting', short: '正在重连…', full: '连接中断，正在重连…' },
     { status: 'disconnected', short: '已断开', full: '实时更新已断开，刷新页面重试。' },
   ];
-
-  /** 与 `public/i18n` 的全局词条同文，供空词条的测试装配使用。 */
-  function realtimeTranslation(label: string, states: readonly Expected[]): Translation {
-    const texts: Record<string, string> = { label };
-    for (const { status, short, full } of states) {
-      texts[status] = full;
-      texts[`${status}Short`] = short;
-    }
-    return { layout: { realtime: texts } };
-  }
   //#endif
 
   const status = signal<RealtimeConnectionStatus>('idle');
@@ -311,8 +306,8 @@ describe('DefaultSidebar real-time status', () => {
     });
     //#if (IncludeLocalization)
     const transloco = TestBed.inject(TranslocoService);
-    transloco.setTranslation(realtimeTranslation('Real-time', ENGLISH_STATES), 'en');
-    transloco.setTranslation(realtimeTranslation('实时', CHINESE_STATES), 'zh-CN');
+    transloco.setTranslation(enTexts, 'en');
+    transloco.setTranslation(zhCnTexts, 'zh-CN');
     //#endif
     onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
   });

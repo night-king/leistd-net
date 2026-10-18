@@ -194,21 +194,25 @@ describe('TenantTable', () => {
     expect(component.hasCollapsedColumns()).toBe(true);
   });
 
-  // 展开详情按列定义顺序列出被收起的数据列：平板先收三级列（描述、创建时间），手机再收二级列；
-  // 名称是租户的业务标识、操作列是唯一入口，两者在各档都留在主行，不进详情
-  it('lists the collapsed data columns in definition order in the expanded row', async () => {
+  // 展开详情按列定义顺序列出被收起的数据列：平板先收三级列（描述、创建时间），手机再收二级列。
+  // 名称是租户的业务标识、操作列是唯一入口，两者在各档都留在主行且可用——详情里不出现它们
+  // 证明不了这一点（它们本来就不登记详情），所以逐档在主行里核对
+  it('keeps the name and actions columns in the row while collapsing data columns in order', async () => {
     const [table] = await fixture.getDeferBlocks();
     await table.render(DeferBlockState.Complete);
     fixture.detectChanges();
+    expectNameAndActionsInRows();
 
     viewport.next(viewportState(true, false));
     await fixture.whenStable();
+    expectNameAndActionsInRows();
     expandButtons()[0].click();
     await fixture.whenStable();
     expect(detailColumns()).toEqual(['description', 'creationTime']);
 
     viewport.next(viewportState(false, false));
     await fixture.whenStable();
+    expectNameAndActionsInRows();
     expect(detailColumns()).toEqual(['displayName', 'description', 'status', 'creationTime']);
   });
 
@@ -239,6 +243,29 @@ describe('TenantTable', () => {
     return Array.from(host.querySelectorAll('tbody ng-icon[name="lucideChevronRight"]')).map(
       (icon) => icon.closest('button')!,
     );
+  }
+
+  /** 每个数据行的首格是租户名称，末格是可见可点的操作菜单入口；表头的首末格与之对应。 */
+  function expectNameAndActionsInRows(): void {
+    const host = fixture.nativeElement as HTMLElement;
+    const headers = Array.from(host.querySelectorAll('thead th'));
+    expect(headers[0].textContent).toMatch(/Name|tenants\.colName/);
+    expect(headers.at(-1)!.textContent).toMatch(/Actions|common\.actions/);
+    const rows = Array.from(host.querySelectorAll('tbody tr')).filter((row) =>
+      row.querySelector('ng-icon[name="lucideChevronRight"], ng-icon[name="lucideEllipsis"]'),
+    );
+    expect(rows.map((row) => row.querySelector('td')!.textContent!.trim())).toEqual([
+      'acme',
+      'globex',
+    ]);
+    for (const row of rows) {
+      const trigger = row
+        .querySelector('td:last-child ng-icon[name="lucideEllipsis"]')
+        ?.closest('button');
+      expect(trigger, 'row action menu trigger').toBeTruthy();
+      expect(trigger!.getBoundingClientRect().width).toBeGreaterThan(0);
+      expect(trigger!.disabled).toBe(false);
+    }
   }
 
   function detailColumns(): (string | null)[] {

@@ -732,9 +732,12 @@ describe('UserTable', () => {
         await setCoarsePointer(false);
       });
 
-      // 伪元素把徽章行的命中区补到 44px：不被表格滚动区裁掉、与上下两行互不覆盖，点外沿打开的是本行的面板
-      it('gives each summary button a 44px target that opens its own row', async () => {
+      // 摘要按钮本体是 44px 目标：不被表格滚动区裁掉、与上下两行互不覆盖，点上下外沿打开的都是本行的面板。
+      // 只读权限下没有行操作按钮撑高行，是行高最紧的情形
+      it('gives each summary button a 44px target that opens its own row, also read-only', async () => {
         await setCoarsePointer(true);
+        fixture.componentRef.setInput('canUpdate', false);
+        fixture.componentRef.setInput('canDelete', false);
         await renderRoles([
           withRoles('1', 'alice', LONG_ROLES.slice(0, 3)),
           withRoles('2', 'bob', LONG_ROLES.slice(3, 6)),
@@ -742,16 +745,34 @@ describe('UserTable', () => {
 
         expectTouchTarget(rolesTrigger(0));
         expectTouchTarget(rolesTrigger(1));
-        const height = rolesTrigger(1).getBoundingClientRect().height;
-        await tapAt(rolesTrigger(1), 0, -(22 - height / 2) + 0.5);
-        const panel = await expect
-          .poll(() => document.querySelector<HTMLElement>('[data-testid="readonly-list-panel"]'))
-          .not.toBeNull()
-          .then(() => document.querySelector<HTMLElement>('[data-testid="readonly-list-panel"]')!);
+        // tapAt 以元素中心为原点：外沿在中心上下各半个高度处，内缩 1px
+        const edge = (row: number) => rolesTrigger(row).getBoundingClientRect().height / 2 - 1;
+
+        await tapAt(rolesTrigger(1), 0, -edge(1));
+        let panel = await openedPanel();
         expect(panel.textContent).toContain('bob');
         expect(panelLabels(panel)).toEqual(LONG_ROLES.slice(3, 6));
+        await closePanel();
+
+        await tapAt(rolesTrigger(0), 0, edge(0));
+        panel = await openedPanel();
+        expect(panel.textContent).toContain('alice');
+        expect(panelLabels(panel)).toEqual(LONG_ROLES.slice(0, 3));
       });
     });
+
+    async function openedPanel(): Promise<HTMLElement> {
+      const find = () => document.querySelector<HTMLElement>('[data-testid="readonly-list-panel"]');
+      await expect.poll(find).not.toBeNull();
+      return find()!;
+    }
+
+    async function closePanel(): Promise<void> {
+      await userEvent.keyboard('{Escape}');
+      await expect
+        .poll(() => document.querySelector('[data-testid="readonly-list-panel"]'))
+        .toBeNull();
+    }
   });
 
   describe('expanded row', () => {

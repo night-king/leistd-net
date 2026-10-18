@@ -14,6 +14,11 @@ import { OpenApplicationTable } from './open-application-table';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
+import {
+  expectTouchTarget,
+  setCoarsePointer,
+  tapAt,
+} from '../../../../../../shared/utils/coarse-pointer.testing';
 import { expectAriaSortOnSortedHeaderOnly } from '../../../../../../shared/utils/table-sorting.testing';
 import { OpenApplicationOutputDto } from '../../../../dtos/open-application.dto';
 
@@ -132,8 +137,12 @@ describe('OpenApplicationTable', () => {
     await page.viewport(1800, 900);
     viewport.next(desktop(true));
     host.style.width = '1600px';
+    // 中途改视口要等 iframe 重排、ResizeObserver 回调与变更检测依次完成，整套并发时可能超过默认 1 秒；
+    // 只放宽等待时长，判据不变
     await expect
-      .poll(() => host.querySelector('[data-table-fit]')?.getAttribute('data-table-fit'))
+      .poll(() => host.querySelector('[data-table-fit]')?.getAttribute('data-table-fit'), {
+        timeout: 5000,
+      })
       .not.toBe('mobile');
     // 没有收起的列时展开行整个不渲染；渲染时这一项也不显示
     const wide = host.querySelector<HTMLElement>('[data-testid="open-app-detail-identity"]');
@@ -250,6 +259,72 @@ describe('OpenApplicationTable', () => {
         cell.querySelector<HTMLElement>('[data-readonly-list-trigger]')!,
       );
       expect(panelLabels(panel)).toEqual([LONG_URI]);
+    });
+
+    // 只读权限下没有行操作按钮撑高行，行高只由摘要决定：两个摘要按钮本体都要是 44px 目标，
+    // 首行不压表头、两行互不覆盖，点上下外沿打开的都是本行的面板
+    describe('on coarse pointers with read-only permissions', () => {
+      afterEach(async () => {
+        await setCoarsePointer(false);
+      });
+
+      const apps = (): OpenApplicationOutputDto[] => [
+        {
+          ...application('portal', 'Portal'),
+          permissions: ['gt:authorization_code', 'ept:token'],
+          redirectUris: [LONG_URI, 'https://portal.example.test/cb'],
+        },
+        {
+          ...application('partner', 'Partner'),
+          permissions: ['gt:client_credentials', 'ept:introspection'],
+          redirectUris: ['https://partner.example.test/cb', 'https://partner.example.test/cb2'],
+        },
+      ];
+
+      for (const [column, header] of [
+        ['permissions', 'Capabilities|colPermissions'],
+        ['redirect URIs', 'Redirect URIs|colRedirectUris'],
+      ]) {
+        it(`opens the ${column} panel of its own row from either outer edge`, async () => {
+          await setCoarsePointer(true);
+          fixture.componentRef.setInput('canUpdate', false);
+          fixture.componentRef.setInput('canDelete', false);
+          fixture.componentRef.setInput('canResetSecret', false);
+          const host = await render(apps());
+          const index = Array.from(host.querySelectorAll('th')).findIndex((th) =>
+            new RegExp(header).test(th.textContent ?? ''),
+          );
+          const trigger = (row: number) =>
+            host
+              .querySelectorAll('tbody tr')
+              [row].querySelectorAll('td')
+              [index].querySelector<HTMLElement>('[data-readonly-list-trigger]')!;
+
+          expectTouchTarget(trigger(0));
+          expectTouchTarget(trigger(1));
+          // tapAt 以元素中心为原点：外沿在中心上下各半个高度处，内缩 1px
+          const edge = (row: number) => trigger(row).getBoundingClientRect().height / 2 - 1;
+
+          await tapAt(trigger(1), 0, -edge(1));
+          let panel = await openedPanel();
+          expect(panel.textContent).toContain('Partner');
+          await userEvent.keyboard('{Escape}');
+          await expect
+            .poll(() => document.querySelector('[data-testid="readonly-list-panel"]'))
+            .toBeNull();
+
+          await tapAt(trigger(0), 0, edge(0));
+          panel = await openedPanel();
+          expect(panel.textContent).toContain('Portal');
+        });
+      }
+
+      async function openedPanel(): Promise<HTMLElement> {
+        const find = () =>
+          document.querySelector<HTMLElement>('[data-testid="readonly-list-panel"]');
+        await expect.poll(find).not.toBeNull();
+        return find()!;
+      }
     });
 
     // 旧面板只列被隐藏的那几条；现在 "+N" 只是入口，面板列出全部地址
