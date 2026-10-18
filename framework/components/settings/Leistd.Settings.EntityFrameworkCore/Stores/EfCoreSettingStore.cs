@@ -34,6 +34,7 @@ public class EfCoreSettingStore<TDbContext>(
     public bool CanAccessHostScope => currentTenant.Id is null;
 
     /// <inheritdoc />
+    /// <remarks>不跟踪地查询：同一上下文里已跟踪的旧实体不会遮住数据库的当前值。</remarks>
     public async Task<IReadOnlyDictionary<string, string>> GetAllAsync(
         SettingScopes scope,
         string? userId,
@@ -43,6 +44,7 @@ public class EfCoreSettingStore<TDbContext>(
         var scopeKey = BuildScopeKey(scope, userId);
 
         return await dbContext.Set<SettingRecord>()
+            .AsNoTracking()
             .Where(x => x.ScopeKey == scopeKey)
             .ToDictionaryAsync(x => x.Name, x => x.Value, StringComparer.Ordinal, cancellationToken);
     }

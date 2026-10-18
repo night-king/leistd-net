@@ -460,6 +460,7 @@
             "backend/tests/CompanyName.ProjectName.IntegrationTests/NotificationPreferencesTests.cs",
             "backend/src/CompanyName.ProjectName.Application/Settings/Validators/NotificationRetentionSettingValidator.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/NotificationRetentionSettingsTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/NotificationRetentionConcurrencyTests.cs",
             "frontend/src/app/layout/components/notifications/**",
             "frontend/src/app/core/services/notification-service.ts",
             "frontend/src/app/core/services/notification-service.spec.ts",

@@ -9,6 +9,8 @@ namespace Leistd.Settings.Validation;
 /// <para>清除（值为 <see langword="null"/>）也调用它，<see cref="SettingValueValidationContext.Value"/> 是清除后会生效的明文值
 /// （用户层回落到租户层值，否则为代码默认值），跨设置的约束因此不会被一次清除绕过；清除后没有任何值时不调用。</para>
 /// <para>不合法时抛带码的 <c>BusinessException</c>，写入随之中止。</para>
+/// <para>默认写入入口在按租户取得的锁与本次写入的事务内调用校验器：经 <see cref="Resolution.ISettingProvider"/> 读另一项设置，
+/// 读到的是锁内最新已提交的值，跨设置的约束不会被两次并发写入各自用旧值绕过（范围见 <see cref="ISettingManager.SetAsync"/>）。</para>
 /// </remarks>
 /// <example>
 /// <code>

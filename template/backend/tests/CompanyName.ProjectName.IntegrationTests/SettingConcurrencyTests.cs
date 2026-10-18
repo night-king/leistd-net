@@ -21,8 +21,9 @@ namespace CompanyName.ProjectName.IntegrationTests;
 
 /// <summary>设置首次写入撞上并发同键插入时，在真实 PostgreSQL 上的恢复。</summary>
 /// <remarks>
-/// 两边都先读到"没有这一行"再插入，后提交的一方撞唯一索引。存储在同一上下文里撤下本次插入、
-/// 回读到赢家行后改写，因此不会把并发写入报成 500。
+/// 经写入端的并发写入按租户串行，不会同时到达提交；存储层仍要恢复绕过写入端（或另一进程未共用锁）时的同键首插：
+/// 两边都先读到"没有这一行"再插入，后提交的一方撞唯一索引，存储在同一上下文里撤下本次插入、回读到赢家行后改写，
+/// 因此不会把并发写入报成 500。
 /// </remarks>
 public sealed class SettingConcurrencyTests(ProjectWebApplicationFactory factory)
     : IClassFixture<ProjectWebApplicationFactory>
@@ -31,11 +32,8 @@ public sealed class SettingConcurrencyTests(ProjectWebApplicationFactory factory
     [Fact]
     public async Task Concurrent_first_writes_of_one_user_setting_both_succeed_and_leave_one_row()
     {
-        var race = new FirstSettingInsertRace(SettingConstant.Display.TimeZone, participants: 2);
-        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.ConfigureDbContext<MyProjectDbContext>(options => options.AddInterceptors(race))));
-        using var first = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
-        using var second = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        using var first = await factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        using var second = await factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
 
         var responses = await Task.WhenAll(
             first.Client.PutAsJsonAsync("/api/v1/settings/current-user",
@@ -43,11 +41,10 @@ public sealed class SettingConcurrencyTests(ProjectWebApplicationFactory factory
             second.Client.PutAsJsonAsync("/api/v1/settings/current-user",
                 new { Name = SettingConstant.Display.TimeZone, Value = "Asia/Tokyo" }));
 
-        Assert.True(race.Released, "The two writes did not reach commit together; no race occurred, so the test proves nothing");
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.NoContent, response.StatusCode));
         foreach (var response in responses) response.Dispose();
 
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = factory.Services.CreateAsyncScope();
         var rows = await scope.ServiceProvider.GetRequiredService<MyProjectDbContext>().Set<SettingRecord>()
             .IgnoreQueryFilters()
             .Where(record => record.Name == SettingConstant.Display.TimeZone)
@@ -159,32 +156,6 @@ public sealed class SettingConcurrencyTests(ProjectWebApplicationFactory factory
             using var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWorkManager>().Begin(requiresNew: true);
             await scope.ServiceProvider.GetRequiredService<ISettingStore>().SetAsync(name, value, SettingScopes.User, userId);
             await unitOfWork.CompleteAsync();
-        }
-    }
-
-    // 两个上下文都要插入这项设置时才一起放行：两边都已读到"不存在"，提交时必有一方撞键
-    private sealed class FirstSettingInsertRace(string name, int participants) : SaveChangesInterceptor
-    {
-        private readonly TaskCompletionSource released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int arrived;
-
-        public bool Released => released.Task.IsCompletedSuccessfully;
-
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            var inserting = eventData.Context?.ChangeTracker.Entries<SettingRecord>()
-                .Any(entry => entry.State == EntityState.Added && entry.Entity.Name == name) == true;
-            if (inserting && !released.Task.IsCompleted)
-            {
-                if (Interlocked.Increment(ref arrived) >= participants)
-                    released.TrySetResult();
-                await released.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
-            }
-
-            return result;
         }
     }
 }

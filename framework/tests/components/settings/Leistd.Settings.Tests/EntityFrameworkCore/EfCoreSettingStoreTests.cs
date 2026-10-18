@@ -270,6 +270,30 @@ public sealed class EfCoreSettingStoreTests : IDisposable
         Assert.Equal(viaTenant, viaHost);
     }
 
+    /// <summary>同一上下文已跟踪了旧实体时，读取仍返回数据库的当前值。</summary>
+    /// <remarks>
+    /// 跟踪查询遇到已跟踪的实体不会用数据库值覆盖它；写入入口的跨设置校验经这里读另一项设置，
+    /// 宿主沿用同一上下文时读到旧值就会放过违序的一组。另一个上下文扮演已提交的别的请求。
+    /// </remarks>
+    [Fact]
+    public async Task Reading_returns_the_database_value_over_an_entity_already_tracked_by_the_context()
+    {
+        await _store.SetAsync("Display.Language", "en-US", SettingScopes.Tenant, null);
+        var tracked = await _db.Settings.SingleAsync(x => x.Name == "Display.Language");
+
+        await using (var other = new SettingDbContext(new DbContextOptionsBuilder<SettingDbContext>().UseSqlite(_connection).Options))
+        {
+            var row = await other.Settings.SingleAsync(x => x.Name == "Display.Language");
+            row.Value = "ja-JP";
+            await other.SaveChangesAsync();
+        }
+
+        var values = await _store.GetAllAsync(SettingScopes.Tenant, null);
+
+        Assert.Equal("ja-JP", values["Display.Language"]);
+        Assert.Equal("en-US", tracked.Value);
+    }
+
     public void Dispose()
     {
         _db.Dispose();

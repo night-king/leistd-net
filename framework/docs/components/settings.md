@@ -47,7 +47,10 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 }
 ```
 
-**前置**：宿主须已注册 `AddUnitOfWork()` 与 `AddUnitOfWorkEfCore()`——存储经 `IDbContextProvider<TDbContext>` 取上下文。
+**前置**：宿主须已注册 `AddUnitOfWork()` 与 `AddUnitOfWorkEfCore()`——存储经 `IDbContextProvider<TDbContext>` 取当前工作单元的上下文并参与其事务；
+还须注册分布式锁：单副本 `AddMemoryLocalLock()`，多副本 `AddRedisDistributedLock(...)`（进程内锁不跨副本互斥）。
+默认写入入口靠这两者按租户串行、独立提交（见[实现行为](#实现行为)）。只读设置的宿主同样要注册：`AddSettingsCore()` 总会登记默认写入入口，
+经 Host 启动时缺任何一项即启动失败；宿主替换了 `ISettingManager` 时不检查。
 
 `AddSettingsCore()` 已登记本组件错误码的非默认 HTTP 状态（具体映射见[接口参考](#接口参考)），宿主不需要另行组合。
 
@@ -171,7 +174,7 @@ await settingManager.SetAsync("Display.TimeZone", null, SettingScopes.User, user
 var wantsEmail = await settings.GetOrNullForUserAsync("Notifications.System.Email", recipientId, ct);
 ```
 
-要在写入后做别的事（审计、同步），处理 `SettingChangedEvent`；在工作单元内写入时，它在提交后分发：
+要在写入后做别的事（审计、同步），处理 `SettingChangedEvent`；它在本次写入提交后分发，调用方外层随后回滚也不影响它：
 
 ```csharp
 public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : IEventHandler<SettingChangedEvent>
@@ -205,13 +208,13 @@ public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : I
 | `ISettingProvider.GetAsync<T>(name, ct)` | 读取并转换类型 |
 | `ISettingProvider.GetAllAsync(visibleToClientsOnly?, ct)` | 读取全部生效值 |
 | `ISettingProvider.GetOrNullForUserAsync(name, userId, ct)` | 读取指定用户在当前租户下的生效值 |
-| `ISettingManager.SetAsync(name, value, scope, userId?, ct)` | 写入；`value` 为 `null` 时清除该层级 |
-| `ISettingStore` | 持久化契约；只按层级读写原始字符串，不做校验与回落 |
+| `ISettingManager.SetAsync(name, value, scope, userId?, ct)` | 写入；`value` 为 `null` 时清除该层级。默认实现按租户串行、每次独立提交 |
+| `ISettingStore` | 持久化契约；只按层级读写原始字符串，不做校验与回落；须经当前工作单元读写并参与其事务 |
 | `ISettingManagementService` | 设置页用例：`GetAsync`、`SetForCurrentUserAsync`、`SetForCurrentTenantAsync` |
 | `SettingOutputDto` / `SetSettingInputDto` | 设置页的读写形状 |
 | `SettingErrorCodes` | 组件抛出的错误码，默认中英译文随包分发 |
 | 默认 HTTP 状态 | 组件默认状态：宿主限定与身份拒绝 → 403，不可见设置 → 404。由 `AddSettingsCore()` 自动登记；宿主 `MapCode` 可覆盖 |
-| `AddSettingsCore(services, configure?)` | 注册定义管理器、解析器、写入入口与设置页用例；`SettingManagementOptions` 给翻译资源与默认分组 |
+| `AddSettingsCore(services, configure?)` | 注册定义管理器、解析器、写入入口、设置页用例与写入依赖的启动检查；`SettingManagementOptions` 给翻译资源与默认分组 |
 | `AddSettingsEfCore<TDbContext>(services)` | 注册 EF Core 存储；内部调用 `AddSettingsCore()` |
 | `ConfigureSettings(modelBuilder)` | 映射 `SettingRecord` 实体 |
 | `MapSettings(configure)` | AspNetCore 包：`GET /`、`PUT /current-user`、`PUT /current-tenant`；`AccessPolicy` 与 `TenantWritePolicy` 均必填（组件不套宿主默认策略），`GroupPolicies` 可选（分组 → 策略名），端点名前缀 `SettingEndpoints.NamePrefix` |
@@ -231,14 +234,21 @@ public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : I
   它与宿主的租户级共用同一行（`ScopeKey` 为 `host:t`），读写只允许在宿主上下文，租户上下文下存储就地抛异常。
 - 进程级设置不接在回落链上：宿主上下文读宿主那一行，没有值才用代码默认值；租户上下文下 `GetOrNullAsync` 抛 `HostScopeUnavailableException`，
   `GetAllAsync` 不包含它，不返回代码默认值。存储由 `ISettingStore.CanAccessHostScope` 回答可达性。
-- 同一作用域先写后读读到新值：经 `ISettingManager` 写入后，同一作用域 `ISettingProvider` 的记忆化结果即作废。
+- 写入按租户串行、独立提交：默认写入入口先取 `IDistributedLock`（键 `settings:{租户 Id}`，宿主为 `settings:host`，Redis 锁的 `KeyPrefix` 照常加在前面；用户层与租户层共用一把），
+  再以 `requiresNew` 开一个事务型工作单元（隔离级别与超时沿用宿主的工作单元默认选项）。锁内依次：作废同一作用域 `ISettingProvider` 的记忆化 →
+  取值校验与 `ISettingValueValidator` → 存储写入 → 再次作废记忆化 → 发布 `SettingChangedEvent`（进入本次工作单元的提交后队列）→ 提交；
+  提交与提交后处理器都结束之后才释放锁。校验器经 `ISettingProvider` 读另一项设置时，读到的是锁内最新已提交的值；同一作用域先写后读读到新值。
+- 不并入调用方的工作单元：返回即已提交，外层随后回滚不撤销设置；同一外层里的两次写入各自提交，后一次失败不撤销前一次。
+  校验或存储失败时本次回滚，不落库、不发事件。锁获取失败或等待中取消原样上抛；`ILockHandle.LockLost` 与调用方取消合并，传给锁内的读写、校验器与提交前检查；
+  提交开始之后沿用工作单元的不可逆边界。
 - 写入校验顺序：空串（`Setting:EmptyValueRejected`，清除只用 `null`）→ 值类型与区间（`BooleanRequired`、`IntegerRequired`、`ValueOutOfRange`）→
   候选值（`ValueNotAllowed`，按序号比较）→ 宿主注册的 `ISettingValueValidator`；任何一步不过都不落库、不发事件。
   清除不做值元数据校验，但以清除后会生效的明文值调用 `ISettingValueValidator`：用户层回落到当前租户的租户层值（定义允许时），否则为代码默认值；
   租户层与宿主层为代码默认值（被绑定的宿主级设置即部署基线）。跨设置的约束因此不会被一次清除绕过；清除后没有任何值时不调用校验器。
   宿主机密设置的部署配置回落在消费端完成，校验器拿不到它。
   错误提示的 `{Name}` 按 `Setting:{设置名}` 查 `LocalizationResource`，查不到用定义上的 `DisplayName`，再没有才用设置名；`Setting:Undefined`、`Setting:NotAvailable` 回显调用方传入的名字。
-- 写入后发布 `SettingChangedEvent`（注册了本地事件总线时），事件不带值。没有事件总线时，宿主级设置写入后要等下一轮周期刷新才在本进程生效。
+- 写入提交后分发 `SettingChangedEvent`（注册了本地事件总线时），事件不带值。处理器运行时锁仍被持有；处理器失败时值已提交，异常上抛给写入方，
+  不代表写入被回滚，也不重试。没有事件总线时，宿主级设置写入后要等下一轮周期刷新才在本进程生效。
 - 设置页用例按层给出原始覆盖值，不给回落后的生效值。只处理 `IsVisibleToClients` 的设置（不可见的读不到、写入 404）；租户上下文不下发进程级设置，
   写入它返回 403（`Setting:HostOnly`）；进程级设置的值放在 `TenantValue`；机密设置不下发任何值，只给 `HasSecretValue`。
 - 管理授权由端点判定：`CanManage = 定义允许租户或进程级 && TenantWritePolicy 通过 && (分组未登记策略 || 分组策略通过)`，一次请求内按分组复用授权结果。
@@ -293,7 +303,14 @@ public sealed class SettingChangeLogger(ILogger<SettingChangeLogger> logger) : I
 - 跨请求的变更下一请求可见，请求内不可见；不使用分布式缓存。
 - `ISettingStore` 只能有一个实现，为第二个 DbContext 注册时在注册期拒绝。
 - 管理员在运行期维护的第三方集成客户端凭据（发信账号与口令、外部登录的 Client ID 与 Client Secret）可以做成宿主级设置，其中的口令与密钥定义为机密设置；连接串、签名与摘要密钥留在配置提供程序与密钥管理服务。机密设置的界面应只写不回显。
-- 业务写入经 `ISettingManager`；直接操作存储或实体会绕过定义校验。
+- 业务写入经 `ISettingManager`；直接操作存储或实体会绕过定义校验，也不受按租户串行的保护。
+- 串行保证的范围：同一锁域内、相关写入都经默认写入入口、读取器与存储按当前工作单元新鲜读取时，候选值校验到提交之间不会插入另一次写入。
+  直接写 `ISettingStore`、外部 SQL、宿主换成自带缓存的读取器都不在其内；它也不维护"其他用户的生效组合"这类规则（例如租户改了默认值，
+  让某个已覆盖另一项的用户组合违序），校验器只看当前写入者的视角。
+- 需要设置与业务数据同一事务时不要依赖外层工作单元：设置总是独立提交，外层回滚不会撤销它。
+- 同一租户的写入互相等待，包括各用户的个人偏好；提交后处理器（审计、宿主级设置的即时应用）在锁内运行，会延长持锁时间。
+  处理器里不要同步等待同一租户的另一次 `SetAsync`：它要等当前写入释放锁，而当前写入在等处理器结束。
+- 自定义 `ISettingStore` 须经当前工作单元读写并参与它的事务，读取反映数据库当前值、不复用已跟踪实体或自带缓存；否则写入失败不会整体回滚，串行校验也可能读到旧值。
 - 只声明运行期可改的业务偏好，以及管理员运行期维护的第三方集成客户端凭据；连接串、签名密钥、认证协议参数（回调路径、scope、颁发者、证书）属于部署期配置。已经是实体字段的东西不要再定义成设置。
 - 框架认识的值域（类型、区间、候选）写进定义，其余规则（时区、邮箱地址、开启前提）实现 `ISettingValueValidator`，不要只在界面上限制。
 - 宿主级设置刷新需要调度器：宿主未注册 `AddInProcessBackgroundJobs()` 之类的调度器时，其它实例上的修改只在重启后生效。

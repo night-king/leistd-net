@@ -9,6 +9,8 @@ using Leistd.Settings.Management;
 using Leistd.Settings.Resolution;
 using Leistd.Settings.Stores;
 using Leistd.Settings.Options;
+using Leistd.Settings.Registration;
+using Microsoft.Extensions.Hosting;
 
 namespace Leistd.Settings;
 
@@ -24,7 +26,11 @@ public static class DependencyInjection
     /// <para>机密设置（<see cref="ISettingDefinition.IsEncrypted"/>）用宿主的 Data Protection 加解密：
     /// 宿主须 <c>AddDataProtection()</c> 并配置持久化、可共享的密钥环；没注册时只有读写机密设置会失败，
     /// 不定义机密设置的宿主不受影响。</para>
-    /// <para>可重复调用：服务只注册一次，<paramref name="configure"/> 每次都叠加。</para>
+    /// <para>默认写入入口 <see cref="DefaultSettingManager"/> 按租户取 <c>IDistributedLock</c>、每次写入在独立的事务型工作单元里提交，
+    /// 宿主因此须注册锁（单副本 <c>AddMemoryLocalLock()</c>，多副本 <c>AddRedisDistributedLock(...)</c>，否则副本之间不互斥）
+    /// 与工作单元（<c>AddUnitOfWork()</c>）。只读设置的宿主同样如此：本方法总会登记默认写入入口。
+    /// 经 Host 启动时缺任何一项即启动失败；宿主替换了 <see cref="ISettingManager"/> 时不检查这两项。</para>
+    /// <para>可重复调用：服务与启动检查只注册一次，<paramref name="configure"/> 每次都叠加。</para>
     /// </remarks>
     /// <example>
     /// <code>
@@ -42,6 +48,9 @@ public static class DependencyInjection
         services.TryAddScoped<ISettingProvider, DefaultSettingProvider>();
         services.TryAddTransient<ISettingManager, DefaultSettingManager>();
         services.TryAddTransient<ISettingManagementService, SettingManagementService>();
+        // 检查要看宿主最终的登记（替换发生在本方法之后），因此持有登记集合本身而不是此刻的快照
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SettingManagerDependencyCheck>(
+            sp => new SettingManagerDependencyCheck(sp.GetRequiredService<IServiceScopeFactory>(), services)));
         services.AddOptions<SettingManagementOptions>();
         if (configure is not null)
         {

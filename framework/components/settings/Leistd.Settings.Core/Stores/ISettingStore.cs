@@ -8,6 +8,9 @@ namespace Leistd.Settings.Stores;
 /// <remarks>
 /// 不做定义校验与层级回落——那是 <see cref="ISettingManager"/> 与 <see cref="ISettingProvider"/> 的职责。
 /// 租户隔离由实现所在的数据过滤器承担，本契约不带租户参数。
+/// <para>默认写入入口在独立的事务型工作单元里调用本存储的读与写：实现须经当前工作单元读写并参与它的事务
+/// （EF 实现经 <c>IDbContextProvider&lt;TDbContext&gt;</c> 取上下文），读取须反映数据库的当前值，不复用已跟踪的实体或自带缓存。
+/// 不满足时，写入失败不会整体回滚，按租户串行的跨设置校验也可能读到旧值。</para>
 /// </remarks>
 public interface ISettingStore
 {
