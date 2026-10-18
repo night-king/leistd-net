@@ -194,24 +194,22 @@ describe('TenantTable', () => {
     expect(component.hasCollapsedColumns()).toBe(true);
   });
 
-  it('collapses columns by priority while keeping locked columns at every viewport', () => {
-    expect(component.isColumnHidden('displayName')).toBe(false);
-    expect(component.isColumnHidden('creationTime')).toBe(false);
+  // 展开详情按列定义顺序列出被收起的数据列：平板先收三级列（描述、创建时间），手机再收二级列；
+  // 名称是租户的业务标识、操作列是唯一入口，两者在各档都留在主行，不进详情
+  it('lists the collapsed data columns in definition order in the expanded row', async () => {
+    const [table] = await fixture.getDeferBlocks();
+    await table.render(DeferBlockState.Complete);
+    fixture.detectChanges();
 
     viewport.next(viewportState(true, false));
-    fixture.detectChanges();
-
-    // 平板先让三级列（创建时间）出局，二级列还留着。
-    expect(component.isColumnHidden('creationTime')).toBe(true);
-    expect(component.isColumnHidden('displayName')).toBe(false);
+    await fixture.whenStable();
+    expandButtons()[0].click();
+    await fixture.whenStable();
+    expect(detailColumns()).toEqual(['description', 'creationTime']);
 
     viewport.next(viewportState(false, false));
-    fixture.detectChanges();
-
-    expect(component.isColumnHidden('displayName')).toBe(true);
-    // 名称是租户的业务标识、操作列是唯一入口，两者收起来这张表就没用了。
-    expect(component.isColumnHidden('name')).toBe(false);
-    expect(component.isColumnHidden('actions')).toBe(false);
+    await fixture.whenStable();
+    expect(detailColumns()).toEqual(['displayName', 'description', 'status', 'creationTime']);
   });
 
   // 展开状态用 TanStack 的行展开，按行 id 记：数据刷新（同一批行换了新对象、换了顺序）后
@@ -240,6 +238,13 @@ describe('TenantTable', () => {
     const host = fixture.nativeElement as HTMLElement;
     return Array.from(host.querySelectorAll('tbody ng-icon[name="lucideChevronRight"]')).map(
       (icon) => icon.closest('button')!,
+    );
+  }
+
+  function detailColumns(): (string | null)[] {
+    const host = fixture.nativeElement as HTMLElement;
+    return Array.from(host.querySelectorAll('[data-detail-column]')).map((dd) =>
+      dd.getAttribute('data-detail-column'),
     );
   }
 

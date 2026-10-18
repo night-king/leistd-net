@@ -22,44 +22,25 @@
                       [attr.aria-sort]="sortAria(header.column.id)"
                     >
                       @switch (header.column.id) {
-                        @case ('displayName') {
-                          <button
-                            type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
-                            (click)="toggleSort('displayName')"
-                          >
-                            {{ t('roles.colName') }}
-                            <ng-icon [name]="sortIcon('displayName')" class="text-sm" />
-                          </button>
-                        }
-                        @case ('userCount') {
-                          <span class="whitespace-nowrap">{{ t('roles.colUsers') }}</span>
-                        }
-                        @case ('permissionCount') {
-                          <span class="whitespace-nowrap">{{ t('roles.colPermissions') }}</span>
-                        }
-                        @case ('sort') {
-                          <button
-                            type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
-                            (click)="toggleSort('sort')"
-                          >
-                            {{ t('roles.colSort') }}
-                            <ng-icon [name]="sortIcon('sort')" class="text-sm" />
-                          </button>
-                        }
-                        @case ('creationTime') {
-                          <button
-                            type="button"
-                            class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
-                            (click)="toggleSort('creationTime')"
-                          >
-                            {{ t('roles.colCreatedAt') }}
-                            <ng-icon [name]="sortIcon('creationTime')" class="text-sm" />
-                          </button>
-                        }
                         @case ('actions') {
                           <span class="sr-only">{{ t('common.actions') }}</span>
+                        }
+                        @default {
+                          <!-- 表头与展开详情取同一份列标签；能排序的列由排序按钮承载标签 -->
+                          @if (header.column.getCanSort()) {
+                            <button
+                              type="button"
+                              class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
+                              (click)="toggleSort(header.column.id)"
+                            >
+                              {{ t(columnLabelKeys[header.column.id]) }}
+                              <ng-icon [name]="sortIcon(header.column.id)" class="text-sm" />
+                            </button>
+                          } @else {
+                            <span class="whitespace-nowrap">{{
+                              t(columnLabelKeys[header.column.id])
+                            }}</span>
+                          }
                         }
                       }
                     </th>
@@ -127,36 +108,6 @@
                                 }}</span>
                               </div>
                             </div>
-                          }
-                          @case ('userCount') {
-                            <span class="whitespace-nowrap text-sm">{{
-                              row.original.userCount
-                            }}</span>
-                          }
-                          @case ('permissionCount') {
-                            <span class="whitespace-nowrap text-sm">{{
-                              row.original.permissionCount
-                            }}</span>
-                          }
-                          @case ('sort') {
-                            <span class="text-xs text-muted-foreground whitespace-nowrap">{{
-                              row.original.sort
-                            }}</span>
-                          }
-                          @case ('creationTime') {
-                            <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
-                            <span
-                              tabindex="0"
-                              class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                              [hlmTooltip]="
-                                row.original.creationTime
-                                  | appDate: 'full' : displayTimeZone() : displayLocale()
-                              "
-                              >{{
-                                row.original.creationTime
-                                  | appDate: 'short' : displayTimeZone() : displayLocale()
-                              }}</span
-                            >
                           }
                           @case ('actions') {
                             <!-- 操作列（3 项 ≤ 3）：桌面端全部平铺；<sm 收进 … 菜单省列宽。
@@ -274,11 +225,21 @@
                               </ng-template>
                             </div>
                           }
+                          @default {
+                            <ng-container
+                              [ngTemplateOutlet]="columnValue"
+                              [ngTemplateOutletContext]="{
+                                $implicit: row.original,
+                                id: cell.column.id,
+                                mode: 'cell',
+                              }"
+                            />
+                          }
                         }
                       </td>
                     }
                   </tr>
-                  <!-- 行展开：呈现在移动端/平板端被隐藏的列，避免「隐藏=丢数据」。 -->
+                  <!-- 行展开：按列定义顺序列出被折叠的数据列（meta.detail） -->
                   @if (hasCollapsedColumns() && row.getIsExpanded()) {
                     <tr hlmTr class="bg-muted/30 hover:bg-muted/30">
                       <td
@@ -286,28 +247,24 @@
                         [attr.colspan]="table.getVisibleLeafColumns().length"
                         class="px-4 pb-3 pt-2"
                       >
+                        <!-- 表格单元格默认不折行；详情是内容，长文本在这里折行 -->
                         <dl
-                          class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm"
+                          class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm whitespace-normal"
+                          data-testid="role-detail"
                         >
-                          @if (isColumnHidden('userCount')) {
-                            <dt class="text-muted-foreground">{{ t('roles.colUsers') }}</dt>
-                            <dd class="min-w-0">{{ row.original.userCount }}</dd>
-                          }
-                          @if (isColumnHidden('permissionCount')) {
-                            <dt class="text-muted-foreground">{{ t('roles.colPermissions') }}</dt>
-                            <dd class="min-w-0">{{ row.original.permissionCount }}</dd>
-                          }
-                          @if (isColumnHidden('sort')) {
-                            <dt class="text-muted-foreground">{{ t('roles.colSort') }}</dt>
-                            <dd class="text-muted-foreground">{{ row.original.sort }}</dd>
-                          }
-                          @if (isColumnHidden('creationTime')) {
-                            <dt class="text-muted-foreground">{{ t('roles.colCreatedAt') }}</dt>
-                            <dd class="text-muted-foreground">
-                              {{
-                                row.original.creationTime
-                                  | appDate: 'full' : displayTimeZone() : displayLocale()
-                              }}
+                          @for (column of detailColumns(); track column.id) {
+                            <dt class="text-muted-foreground">
+                              {{ t(columnLabelKeys[column.id]) }}
+                            </dt>
+                            <dd class="min-w-0" [attr.data-detail-column]="column.id">
+                              <ng-container
+                                [ngTemplateOutlet]="columnValue"
+                                [ngTemplateOutletContext]="{
+                                  $implicit: row.original,
+                                  id: column.id,
+                                  mode: 'detail',
+                                }"
+                              />
                             </dd>
                           }
                         </dl>
@@ -364,6 +321,39 @@
             </tbody>
           </table>
         </div>
+        <!-- 各数据列的值：单元格（cell）与展开详情（detail）共用；详情给完整时刻 -->
+        <ng-template #columnValue [appColumnValue]="roles()" let-role let-id="id" let-mode="mode">
+          @switch (id) {
+            @case ('userCount') {
+              <span class="whitespace-nowrap text-sm">{{ role.userCount }}</span>
+            }
+            @case ('permissionCount') {
+              <span class="whitespace-nowrap text-sm">{{ role.permissionCount }}</span>
+            }
+            @case ('sort') {
+              <span class="text-xs text-muted-foreground whitespace-nowrap">{{ role.sort }}</span>
+            }
+            @case ('creationTime') {
+              @if (mode === 'detail') {
+                <span class="text-muted-foreground">{{
+                  role.creationTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                }}</span>
+              } @else {
+                <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
+                <span
+                  tabindex="0"
+                  class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  [hlmTooltip]="
+                    role.creationTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                  "
+                  >{{
+                    role.creationTime | appDate: 'short' : displayTimeZone() : displayLocale()
+                  }}</span
+                >
+              }
+            }
+          }
+        </ng-template>
       }
     </div>
 

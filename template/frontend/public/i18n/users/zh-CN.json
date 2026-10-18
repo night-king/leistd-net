@@ -62,7 +62,10 @@
   },
   "popover": {
     "noRoles": "暂无角色",
-    "rolesTitle": "角色 ({{count}})"
+    "rolesTitle": "角色",
+    "rolesTrigger": "查看 {{name}} 的全部角色（{{count}} 个）",
+    "filterRoles": "筛选角色",
+    "noMatchingRoles": "没有匹配的角色"
   },
   "tooltip": {
     "disable": "禁用",

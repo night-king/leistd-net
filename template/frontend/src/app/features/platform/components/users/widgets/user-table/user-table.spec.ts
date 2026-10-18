@@ -9,7 +9,7 @@ import { TranslocoService } from '@jsverse/transloco';
 //#endif
 import { PaginationState, RowSelectionState, SortingState } from '@tanstack/angular-table';
 import { BehaviorSubject } from 'rxjs';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 
 import { UserTable } from './user-table';
 //#if (IncludeLocalization)
@@ -167,6 +167,9 @@ describe('UserTable', () => {
   });
 
   it('puts aria-sort only on the header of the sorted column', async () => {
+    // 邮箱是三级列，容器放得下全部列时才显示
+    await page.viewport(1600, 900);
+    onTestFinished(() => page.viewport(1280, 800));
     // 表格包在 @defer 里，测试环境不会自己渲染它
     const [table] = await fixture.getDeferBlocks();
     await table.render(DeferBlockState.Complete);
@@ -593,6 +596,298 @@ describe('UserTable', () => {
     // 没有收起的列时展开行整个不渲染；渲染时这一项也不显示
     const wide = host().querySelector<HTMLElement>('[data-testid="user-detail-identity"]');
     expect(wide === null || getComputedStyle(wide).display === 'none').toBe(true);
+  });
+
+  describe('roles column', () => {
+    const LONG_ROLES = [
+      'Regional Compliance Reviewer',
+      'Cross-Border Settlement Approver',
+      'Customer Onboarding Coordinator',
+      'Treasury Operations Supervisor',
+      'Internal Audit Liaison Officer',
+      'Product Catalogue Maintainer',
+      'Partner Programme Administrator',
+      'Data Protection Request Handler',
+      'Field Service Dispatch Planner',
+      'Procurement Contract Reviewer',
+      'Quality Assurance Sign-off Lead',
+      'Incident Response On-call Engineer',
+      'Billing Dispute Resolution Agent',
+    ];
+
+    function withRoles(id: string, username: string, names: string[]): UserManagementOutputDto {
+      return {
+        ...user(id, username),
+        roles: names.map((displayName, index) => ({
+          id: `${id}-${index}`,
+          name: `role-${index}`,
+          displayName,
+        })),
+      };
+    }
+
+    async function renderRoles(users: UserManagementOutputDto[]): Promise<void> {
+      //#if (IncludeLocalization)
+      TestBed.inject(TranslocoService).setTranslation(
+        {
+          popover: {
+            rolesTitle: 'Roles',
+            rolesTrigger: 'View all roles of {{name}} ({{count}})',
+            filterRoles: 'Filter roles',
+            noMatchingRoles: 'No matching roles',
+          },
+        },
+        'users/en',
+        { merge: true },
+      );
+      //#endif
+      fixture.componentRef.setInput('users', users);
+      const [table] = await fixture.getDeferBlocks();
+      await table.render(DeferBlockState.Complete);
+      fixture.autoDetectChanges();
+      await fixture.whenStable();
+      onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
+    }
+
+    function rolesTrigger(row: number): HTMLButtonElement {
+      return host().querySelectorAll<HTMLButtonElement>('tbody [data-readonly-list-trigger]')[row];
+    }
+
+    async function openRoles(row: number): Promise<HTMLElement> {
+      await userEvent.click(rolesTrigger(row));
+      await expect
+        .poll(() => document.querySelector('[data-testid="readonly-list-panel"]'))
+        .not.toBeNull();
+      return document.querySelector<HTMLElement>('[data-testid="readonly-list-panel"]')!;
+    }
+
+    function panelLabels(panel: HTMLElement): string[] {
+      return Array.from(
+        panel.querySelectorAll('[data-testid="readonly-list"] li > span + span'),
+      ).map((span) => span.firstElementChild!.textContent!.trim());
+    }
+
+    // 旧写法把徽章与 "+N" 一起塞进定宽、裁切溢出的容器：英文下 "+N" 被挤出视野，中文下第一个徽章从左侧被切掉。
+    // 每个徽章都要整个留在单元格里，且没被祖先裁掉
+    it('keeps every role badge and the remaining count visible inside the cell', async () => {
+      await renderRoles([withRoles('1', 'alice', LONG_ROLES)]);
+
+      const more = host().querySelector<HTMLElement>('[data-testid="user-roles-more"]')!;
+      expect(more.textContent!.trim()).toBe('+11');
+      more.scrollIntoView({ block: 'center', inline: 'center' });
+      const cell = more.closest('td')!.getBoundingClientRect();
+      const badges = Array.from(rolesTrigger(0).querySelectorAll<HTMLElement>('[hlmBadge]'));
+      expect(badges).toHaveLength(3);
+      for (const badge of badges) {
+        const box = badge.getBoundingClientRect();
+        const label = badge.textContent!.trim();
+        expect(box.width, label).toBeGreaterThan(0);
+        expect(box.left, label).toBeGreaterThanOrEqual(cell.left);
+        expect(box.right, label).toBeLessThanOrEqual(cell.right);
+        // 盒子在单元格里还不够：被祖先裁掉的部分点不到，中心与左右两侧内缩处都要命中徽章自己
+        // （不取四角：徽章是圆角，角上的点本来就落在外面）
+        const centerY = box.top + box.height / 2;
+        for (const x of [box.left + 2, box.left + box.width / 2, box.right - 2]) {
+          const hit = document.elementFromPoint(x, centerY);
+          expect(hit !== null && badge.contains(hit), `${label} hit at ${x},${centerY}`).toBe(true);
+        }
+      }
+    });
+
+    it('names the summary button after the user and lists every role in the panel', async () => {
+      await renderRoles([withRoles('1', 'alice', LONG_ROLES)]);
+
+      expect(rolesTrigger(0).getAttribute('aria-label')).toBe('View all roles of alice (13)');
+      const panel = await openRoles(0);
+      expect(panelLabels(panel)).toEqual(LONG_ROLES);
+    });
+
+    // 没有 "+N" 时被截断的名称也要读得到全文：整个摘要都是面板入口
+    it('opens the full names from a cell with only one or two long roles', async () => {
+      await renderRoles([
+        withRoles('1', 'alice', [LONG_ROLES[0]]),
+        withRoles('2', 'bob', LONG_ROLES.slice(0, 2)),
+      ]);
+      expect(host().querySelector('[data-testid="user-roles-more"]')).toBeNull();
+
+      let panel = await openRoles(0);
+      expect(panelLabels(panel)).toEqual([LONG_ROLES[0]]);
+      await userEvent.keyboard('{Escape}');
+      await expect
+        .poll(() => document.querySelector('[data-testid="readonly-list-panel"]'))
+        .toBeNull();
+
+      panel = await openRoles(1);
+      expect(panelLabels(panel)).toEqual(LONG_ROLES.slice(0, 2));
+    });
+
+    it('shows a dash instead of a panel for a user without roles', async () => {
+      await renderRoles([user('1', 'alice')]);
+
+      expect(rolesTrigger(0)).toBeUndefined();
+    });
+
+    describe('on coarse pointers', () => {
+      afterEach(async () => {
+        await setCoarsePointer(false);
+      });
+
+      // 伪元素把徽章行的命中区补到 44px：不被表格滚动区裁掉、与上下两行互不覆盖，点外沿打开的是本行的面板
+      it('gives each summary button a 44px target that opens its own row', async () => {
+        await setCoarsePointer(true);
+        await renderRoles([
+          withRoles('1', 'alice', LONG_ROLES.slice(0, 3)),
+          withRoles('2', 'bob', LONG_ROLES.slice(3, 6)),
+        ]);
+
+        expectTouchTarget(rolesTrigger(0));
+        expectTouchTarget(rolesTrigger(1));
+        const height = rolesTrigger(1).getBoundingClientRect().height;
+        await tapAt(rolesTrigger(1), 0, -(22 - height / 2) + 0.5);
+        const panel = await expect
+          .poll(() => document.querySelector<HTMLElement>('[data-testid="readonly-list-panel"]'))
+          .not.toBeNull()
+          .then(() => document.querySelector<HTMLElement>('[data-testid="readonly-list-panel"]')!);
+        expect(panel.textContent).toContain('bob');
+        expect(panelLabels(panel)).toEqual(LONG_ROLES.slice(3, 6));
+      });
+    });
+  });
+
+  describe('expanded row', () => {
+    const LONG_EMAIL =
+      'regional.compliance.reviewer.for.cross.border.settlement@subsidiary.example.test';
+    const LONG_ROLE = 'Regional Compliance Reviewer for Cross-Border Settlement Operations';
+
+    async function renderExpanded(
+      tablet: boolean,
+      row: UserManagementOutputDto = user('1', 'alice'),
+    ): Promise<HTMLElement> {
+      viewport.next(
+        tablet
+          ? {
+              matches: true,
+              breakpoints: { '(min-width: 768px)': true, '(min-width: 1024px)': false },
+            }
+          : desktop(false),
+      );
+      fixture.componentRef.setInput('users', [row]);
+      const [table] = await fixture.getDeferBlocks();
+      await table.render(DeferBlockState.Complete);
+      fixture.autoDetectChanges();
+      await fixture.whenStable();
+      expandButtons()[0].click();
+      await fixture.whenStable();
+      return host().querySelector<HTMLElement>('[data-testid="user-detail"]')!;
+    }
+
+    /** 文字整段排在元素自己与所在详情格里，没有被截断或溢出到外面（徽章默认单行裁切）。 */
+    function expectTextInside(element: HTMLElement, container: HTMLElement): void {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const text = range.getBoundingClientRect();
+      for (const box of [element.getBoundingClientRect(), container.getBoundingClientRect()]) {
+        expect(text.left).toBeGreaterThanOrEqual(box.left - 0.5);
+        expect(text.right).toBeLessThanOrEqual(box.right + 0.5);
+        expect(text.bottom).toBeLessThanOrEqual(box.bottom + 0.5);
+      }
+    }
+
+    function detailColumns(detail: HTMLElement): (string | null)[] {
+      return Array.from(detail.querySelectorAll('[data-detail-column]')).map((dd) =>
+        dd.getAttribute('data-detail-column'),
+      );
+    }
+
+    // 平板收起三级列（邮箱、创建时间），最近登录留在主行；手机再收起二级列
+    it('lists the collapsed data columns in definition order', async () => {
+      await page.viewport(1100, 800);
+      onTestFinished(() => page.viewport(1280, 800));
+      let detail = await renderExpanded(true);
+      expect(detailColumns(detail)).toEqual(['email', 'creationTime']);
+
+      viewport.next(desktop(false));
+      await fixture.whenStable();
+      detail = host().querySelector<HTMLElement>('[data-testid="user-detail"]')!;
+      //#if (LocalIdentity)
+      expect(detailColumns(detail)).toEqual(['email', 'roles', 'lastLoginTime', 'creationTime']);
+      //#else
+      expect(detailColumns(detail)).toEqual(['email', 'roles', 'creationTime']);
+      //#endif
+    });
+
+    // 选择列由页面按批量操作打开、在窄屏仍保留；它不是数据列，开着关着都不进详情
+    it('never lists the select or actions column, selectable or not', async () => {
+      fixture.componentRef.setInput('selectable', true);
+      let detail = await renderExpanded(false);
+      expect(detailColumns(detail)).not.toContain('select');
+      expect(detailColumns(detail)).not.toContain('actions');
+
+      fixture.componentRef.setInput('selectable', false);
+      await fixture.whenStable();
+      detail = host().querySelector<HTMLElement>('[data-testid="user-detail"]')!;
+      expect(detailColumns(detail)).not.toContain('select');
+      expect(detail.textContent).not.toContain('users.batch.selectAll');
+    });
+
+    // 详情是完整内容：时刻带秒、角色全部列出且长名称整段可读、邮箱不截断
+    it('gives the full time, every role and the whole email', async () => {
+      await page.viewport(390, 844);
+      onTestFinished(() => page.viewport(1280, 800));
+      host().style.display = 'block';
+      host().style.width = '356px';
+      const detail = await renderExpanded(false, {
+        ...user('1', 'alice'),
+        email: LONG_EMAIL,
+        creationTime: '2026-01-01T08:09:07Z',
+        roles: [
+          { id: 'r1', name: 'reviewer', displayName: LONG_ROLE },
+          { id: 'r2', name: 'auditor', displayName: 'Auditor' },
+          { id: 'r3', name: 'viewer', displayName: 'Viewer' },
+        ],
+      });
+      const value = (id: string) =>
+        detail.querySelector<HTMLElement>(`[data-detail-column="${id}"]`)!;
+
+      expect(value('creationTime').textContent).toMatch(/:09:07/);
+
+      const roles = Array.from(value('roles').querySelectorAll<HTMLElement>('[hlmBadge]'));
+      expect(roles.map((badge) => badge.textContent!.trim())).toEqual([
+        LONG_ROLE,
+        'Auditor',
+        'Viewer',
+      ]);
+      expectTextInside(roles[0], value('roles'));
+
+      const email = value('email').firstElementChild as HTMLElement;
+      expect(email.textContent!.trim()).toBe(LONG_EMAIL);
+      expectTextInside(email, value('email'));
+    });
+    //#if (IncludeLocalization)
+
+    // 表头与详情标题取同一份标签：切换语言时两处一起更新
+    it('updates the header and the detail labels together when the language changes', async () => {
+      const transloco = TestBed.inject(TranslocoService);
+      transloco.setAvailableLangs(['en', 'zh-CN']);
+      transloco.setTranslation({ table: { colEmail: 'Email' } }, 'users/en', { merge: true });
+      transloco.setTranslation({ users: { table: { colEmail: '邮箱' } } }, 'zh-CN');
+      const detail = await renderExpanded(false);
+      const headers = () =>
+        Array.from(host().querySelectorAll('th')).map((th) => th.textContent!.trim());
+      const labels = () =>
+        Array.from(detail.querySelectorAll('dt')).map((dt) => dt.textContent!.trim());
+      expect(labels()).toContain('Email');
+
+      transloco.setActiveLang('zh-CN');
+      await fixture.whenStable();
+      expect(labels()).toContain('邮箱');
+
+      await page.viewport(1800, 900);
+      onTestFinished(() => page.viewport(1280, 800));
+      viewport.next(desktop(true));
+      await expect.poll(() => headers()).toContain('邮箱');
+    });
+    //#endif
   });
 
   function host(): HTMLElement {

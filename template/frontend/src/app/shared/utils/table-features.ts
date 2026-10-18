@@ -15,6 +15,11 @@ export type TableColumnPriority = 'primary' | 'secondary' | 'tertiary';
 export interface AppColumnMeta {
   locked?: boolean;
   priority: TableColumnPriority;
+  /**
+   * 数据列被折叠隐藏时进入行展开详情（见 `hiddenDetailColumns`）。选择、操作这类非数据列不登记；
+   * 始终显示的列登记了也不会出现。
+   */
+  detail?: boolean;
   headClass?: string;
   cellClass?: string;
 }

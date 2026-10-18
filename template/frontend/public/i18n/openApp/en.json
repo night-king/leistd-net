@@ -139,6 +139,11 @@
     "emptyFilteredHint": "Adjust the search or filters"
   },
   "popover": {
-    "empty": "Nothing configured"
+    "empty": "Nothing configured",
+    "permissionsTrigger": "View all authorization capabilities of {{name}} ({{count}})",
+    "redirectUrisTrigger": "View all redirect URIs of {{name}} ({{count}})",
+    "filterPermissions": "Filter capabilities",
+    "filterRedirectUris": "Filter redirect URIs",
+    "noMatches": "No matching entries"
   }
 }

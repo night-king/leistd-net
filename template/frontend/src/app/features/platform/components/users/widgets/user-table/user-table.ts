@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -36,7 +37,6 @@ import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmCheckbox } from '@spartan-ng/helm/checkbox';
 import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
-import { HlmPopoverImports } from '@spartan-ng/helm/popover';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTableImports } from '@spartan-ng/helm/table';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
@@ -49,8 +49,12 @@ import {
 
 import { AuthService } from '../../../../../../core/services/auth-service';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
+import {
+  type ReadonlyListItem,
+  ReadonlyListPopover,
+} from '../../../../../../shared/components/readonly-list-popover/readonly-list-popover';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
-import { PopoverAria } from '../../../../../../shared/directives/popover-aria';
+import { ColumnValue } from '../../../../../../shared/directives/column-value';
 import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
@@ -60,6 +64,7 @@ import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
 import {
   ACTIONS_COLUMN_META,
+  hiddenDetailColumns,
   tableColumnVisibility,
   TITLE_COLUMN_META,
   TITLE_CONTENT_CLASS,
@@ -84,6 +89,9 @@ type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
 @Component({
   selector: 'app-user-table',
   imports: [
+    NgTemplateOutlet,
+    ColumnValue,
+    ReadonlyListPopover,
     StatusDot,
     TableFit,
     AppDate,
@@ -96,8 +104,6 @@ type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
     TablePaginator,
     ...HlmAvatarImports,
     ...HlmDropdownMenuImports,
-    ...HlmPopoverImports,
-    PopoverAria,
     ...HlmTableImports,
     ...HlmTooltipImports,
     //#if (IncludeLocalization)
@@ -188,8 +194,8 @@ export class UserTable {
   /** 主列内容外层：最窄一档下长名称截断，不撑宽表格（见 TITLE_COLUMN_META）。 */
   protected readonly titleContentClass = TITLE_CONTENT_CLASS;
   private readonly tableFit = viewChild(TableFit);
-  /** 实际折叠档位：视口给上限，容器放不下再降一档（见 TableFit）。 */
-  private readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
+  /** 实际折叠档位：视口给上限，容器放不下再降一档（见 TableFit，与容器上的 data-table-fit 同值）。 */
+  protected readonly foldLevel = computed(() => this.tableFit()?.level() ?? this.tableViewport());
 
   protected readonly columns: ColumnDef<AppTableFeatures, UserManagementOutputDto>[] = [
     {
@@ -204,8 +210,14 @@ export class UserTable {
       enableHiding: false,
       meta: TITLE_COLUMN_META,
     },
-    { accessorKey: 'email', id: 'email', meta: { priority: 'secondary' } },
-    { accessorKey: 'roles', id: 'roles', enableSorting: false, meta: { priority: 'secondary' } },
+    // 用户列已有显示名与用户名可供识别，邮箱先让位；平板宽度留着"最近登录"，便于发现长期不用的账号
+    { accessorKey: 'email', id: 'email', meta: { priority: 'tertiary', detail: true } },
+    {
+      accessorKey: 'roles',
+      id: 'roles',
+      enableSorting: false,
+      meta: { priority: 'secondary', detail: true },
+    },
     {
       accessorKey: 'isActive',
       id: 'status',
@@ -214,9 +226,17 @@ export class UserTable {
       meta: { priority: 'primary', locked: true },
     },
     //#if (LocalIdentity)
-    { accessorKey: 'lastLoginTime', id: 'lastLoginTime', meta: { priority: 'tertiary' } },
+    {
+      accessorKey: 'lastLoginTime',
+      id: 'lastLoginTime',
+      meta: { priority: 'secondary', detail: true },
+    },
     //#endif
-    { accessorKey: 'creationTime', id: 'creationTime', meta: { priority: 'tertiary' } },
+    {
+      accessorKey: 'creationTime',
+      id: 'creationTime',
+      meta: { priority: 'tertiary', detail: true },
+    },
     {
       id: 'actions',
       enableSorting: false,
@@ -230,10 +250,23 @@ export class UserTable {
     select: this.selectable(),
   }));
 
+  /** 列标签的词条键：表头与展开详情共用，切换语言时两处一起更新。 */
+  protected readonly columnLabelKeys: Readonly<Record<string, string>> = {
+    username: 'users.table.colUser',
+    email: 'users.table.colEmail',
+    roles: 'users.table.colRole',
+    status: 'users.table.colStatus',
+    //#if (LocalIdentity)
+    lastLoginTime: 'users.table.colLastLogin',
+    //#endif
+    creationTime: 'users.table.colCreatedAt',
+  };
+
   readonly hasCollapsedColumns = computed(() => this.foldLevel() !== 'desktop');
 
-  isColumnHidden(id: string): boolean {
-    return this.table.getColumn(id)?.getIsVisible() === false;
+  /** 展开详情里列出的列：被折叠的数据列，按列定义顺序。 */
+  protected detailColumns() {
+    return hiddenDetailColumns(this.table);
   }
 
   protected readonly table = injectAppTable(() => ({
@@ -287,6 +320,15 @@ export class UserTable {
     return (user.roles ?? []).slice(2);
   }
 
+  /** 面板列出全部角色：显示名为主，稳定名称与之不同时附在下面。 */
+  getRoleListItems(user: UserManagementOutputDto): ReadonlyListItem[] {
+    return (user.roles ?? []).map((role) => ({
+      id: role.id,
+      label: role.displayName,
+      detail: role.name,
+    }));
+  }
+
   isSuperAdmin(user: UserManagementOutputDto): boolean {
     return user.isSuperAdmin;
   }
@@ -326,7 +368,10 @@ const ENGLISH: Record<string, string> = {
   'users.batch.selectAll': 'Select all users on this page',
   'users.batch.selectRow': 'Select {{name}}',
   'common.details': 'View details',
-  'users.popover.rolesTitle': 'Roles ({{count}})',
+  'users.popover.rolesTitle': 'Roles',
+  'users.popover.rolesTrigger': 'View all roles of {{name}} ({{count}})',
+  'users.popover.filterRoles': 'Filter roles',
+  'users.popover.noMatchingRoles': 'No matching roles',
   'users.status.active': 'Active',
   'users.status.inactive': 'Disabled',
   'users.status.lockedUntil': 'Locked until {{time}}',
