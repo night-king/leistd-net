@@ -9,6 +9,8 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Xunit.SkippableFact" />
+    <!-- 断线取消要在 SignalR dispatcher 的日志出口观察 -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
   </ItemGroup>
 
   <ItemGroup>

@@ -8,17 +8,21 @@ internal sealed class RecordingGroupManager : IGroupManager
 {
     public List<(string ConnectionId, string GroupName)> Added { get; } = [];
     public List<(string ConnectionId, string GroupName)> Removed { get; } = [];
+    public List<CancellationToken> Tokens { get; } = [];
+    public Exception? Failure { get; set; }
 
     public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
     {
         Added.Add((connectionId, groupName));
-        return Task.CompletedTask;
+        Tokens.Add(cancellationToken);
+        return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
     }
 
     public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
     {
         Removed.Add((connectionId, groupName));
-        return Task.CompletedTask;
+        Tokens.Add(cancellationToken);
+        return Failure is null ? Task.CompletedTask : Task.FromException(Failure);
     }
 }
 

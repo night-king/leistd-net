@@ -66,6 +66,37 @@ public class RealTimeSignalRTests
         await Assert.ThrowsAsync<HubException>(() => hub.Subscribe("private-resource"));
     }
 
+    // 背板能据此在断线时提前结束组操作的等待；当前 Redis 背板不使用该令牌，见组件文档。
+    [Theory]
+    [InlineData("Subscribe")]
+    [InlineData("Unsubscribe")]
+    public async Task Group_operations_receive_the_connection_aborted_token(string method)
+    {
+        using var connection = new CancellationTokenSource();
+        var hub = NewHub(new AllowAllRealTimeSubscriptionAuthorizer(), out var groups, connection.Token);
+
+        await (method == "Subscribe" ? hub.Subscribe("catalog:public") : hub.Unsubscribe("catalog:public"));
+
+        Assert.Equal(connection.Token, Assert.Single(groups.Tokens));
+    }
+
+    // 只有取消在连接已中止时降级；授权拒绝与其他故障即使发生在断线后也照常抛出。
+    [Theory]
+    [InlineData("denied")]
+    [InlineData("subscribe-failure")]
+    [InlineData("unsubscribe-failure")]
+    public async Task Non_cancellation_failures_propagate_even_after_the_connection_closed(string failure)
+    {
+        using var connection = new CancellationTokenSource();
+        await connection.CancelAsync();
+        var hub = NewHub(failure == "denied" ? new DenyingAuthorizer() : new AllowAllRealTimeSubscriptionAuthorizer(), out var groups, connection.Token);
+        groups.Failure = new InvalidOperationException("Backplane unavailable.");
+
+        if (failure == "denied") await Assert.ThrowsAsync<HubException>(() => hub.Subscribe("private-resource"));
+        else if (failure == "subscribe-failure") await Assert.ThrowsAsync<InvalidOperationException>(() => hub.Subscribe("catalog:public"));
+        else await Assert.ThrowsAsync<InvalidOperationException>(() => hub.Unsubscribe("catalog:public"));
+    }
+
     [Fact]
     public void AddRealTimeSignalR_registers_realtime_services_and_leaves_hub_options_to_host()
     {
@@ -114,7 +145,8 @@ public class RealTimeSignalRTests
     private sealed record TestEvent(string Value);
     private static RealTimeHub NewHub(
         IRealTimeSubscriptionAuthorizer authorizer,
-        out RecordingGroupManager groups)
+        out RecordingGroupManager groups,
+        CancellationToken connectionAborted = default)
     {
         groups = new RecordingGroupManager();
         return new RealTimeHub(
@@ -122,7 +154,7 @@ public class RealTimeSignalRTests
             authorizer,
             NullLogger<RealTimeHub>.Instance)
         {
-            Context = new TestHubCallerContext(connectionId: "conn-test", userIdentifier: "user-1"),
+            Context = new TestHubCallerContext(connectionId: "conn-test", userIdentifier: "user-1", connectionAborted: connectionAborted),
             Groups = groups
         };
     }
