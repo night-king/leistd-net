@@ -8,6 +8,7 @@ import { provideIcons } from '@ng-icons/core';
 import {
   lucideActivity,
   lucideArchive,
+  lucideGlobe,
   //#if (ExternalLogin)
   lucideLogIn,
   //#endif
@@ -37,6 +38,7 @@ import { SettingsPanelLink, SettingsShell } from '../../widgets/settings-shell/s
  * 面板本身由后端分组决定，这里**不是**面板清单。
  */
 const GROUP_ICONS: Readonly<Record<string, string>> = {
+  Display: 'lucideGlobe',
   Registration: 'lucideUserPlus',
   Security: 'lucideShieldCheck',
   Email: 'lucideMail',
@@ -60,6 +62,7 @@ const GROUP_ICONS: Readonly<Record<string, string>> = {
     provideIcons({
       lucideActivity,
       lucideArchive,
+      lucideGlobe,
       //#if (ExternalLogin)
       lucideLogIn,
       //#endif
@@ -200,6 +203,8 @@ export class SystemSettings {
 /** 不含本地化时各分组的说明，与 `en.json` 的 `groupDescriptions` 同步；未登记的分组没有说明。 */
 // prettier-ignore
 const GROUP_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  Display:
+    'Default time zone for everyone here; each person can override it in their preferences. Leave blank to use the deployment default, or follow each device when the deployment sets none',
   //#if (LocalIdentity)
   //#if (ExternalLogin)
   Registration:

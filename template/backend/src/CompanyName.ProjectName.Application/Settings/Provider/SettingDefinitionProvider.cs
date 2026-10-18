@@ -1,9 +1,10 @@
+using CompanyName.ProjectName.Application.Settings.Options;
 using Leistd.Settings.Definitions;
+using Microsoft.Extensions.Options;
 #if (LocalIdentity)
 using System.Globalization;
 using CompanyName.ProjectName.Application.Users.Options;
 using CompanyName.ProjectName.Domain.Auth.Options;
-using Microsoft.Extensions.Options;
 #endif
 
 namespace CompanyName.ProjectName.Application.Settings.Provider;
@@ -20,12 +21,14 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// 存键会让界面直接显示 <c>Setting:Display.Language</c> 这样的内部标识。
 /// 本地化项目按 <c>Setting:{name}</c> 查词条翻译，查不到才回落到这里的文案——
 /// 键由名称推导，不必在定义里再抄一遍。</para>
-/// <para>设置页的面板顺序取接口里各分组首次出现的先后，接口按这里的定义顺序返回；因此各段按管理员的使用频率排：
-/// 注册、登录与会话、外部登录、邮件发送，运维与数据保留在最后。</para>
+/// <para>设置页的面板顺序取接口里各分组首次出现的先后，接口按这里的定义顺序返回。显示（语言与时区）在最前：
+/// 它同时是个人偏好的第一段；系统设置其余各段按管理员的使用频率排：注册、登录与会话、外部登录、邮件发送，
+/// 运维与数据保留在最后。</para>
 /// </remarks>
 /// <para>值域（布尔、整数区间、候选值）声明在定义上：设置组件在写入端据此校验，设置页据此渲染控件。
 /// 覆盖部署配置的宿主级设置（日志级别、审计、发信参数、外部登录）不写默认值——设置组件按绑定取部署基线
 /// （见 Api 的 <c>HostSettingBindings</c>），清除覆盖值即回落到部署配置，而不是回落到一个写死的值。</para>
+/// <param name="displayDefaults">界面语言与时区的部署基线：两项的代码默认值取自它，空为跟随设备。</param>
 #if (LocalIdentity)
 /// <param name="registrationOptions">
 /// 注册策略的部署基线：注册类设置的代码默认值取自它，因此 <c>appsettings</c> 仍是
@@ -33,42 +36,40 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// </param>
 /// <param name="sessionOptions">会话空闲时限的部署基线（组合根按会话 Cookie 的有效期配置）。</param>
 public class SettingDefinitionProvider(
+    IOptions<DisplayDefaultsOptions> displayDefaults,
     IOptions<UserRegistrationOptions> registrationOptions,
     IOptions<UserSessionOptions> sessionOptions) : ISettingDefinitionProvider
 {
 #else
-public class SettingDefinitionProvider : ISettingDefinitionProvider
+public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayDefaults) : ISettingDefinitionProvider
 {
 #endif
     /// <inheritdoc />
     public void Define(ISettingDefinitionContext context)
     {
+        var display = displayDefaults.Value;
 #if (IncludeLocalization)
-        // 界面语言：**只有用户级**，没有租户默认值。
+        // 界面语言：组织给默认、个人可覆盖。解析顺序 个人 → 组织 → 部署基线 → 设备。
         //
-        // 浏览器本来就知道这台机器偏好哪种语言（navigator.language，HTML 标准），
-        // 那份信息比任何租户级默认值都准——同一个租户里既有说中文的也有说英文的，
-        // 给它设一个"全租户默认语言"只会让另一半人每次登录都先看到不对的语言再自己改回来。
-        //
-        // 代码默认值刻意留空，含义是"跟随系统"：客户端在没有用户覆盖时按浏览器语言渲染，
-        // 匹配不上支持列表才回落到 DEFAULT_LANG。写死 "en" 会让浏览器是中文的人也拿到英文。
+        // 默认值（部署基线）通常留空，含义是"跟随系统"：同一组织里既有说中文的也有说英文的，
+        // 浏览器的语言偏好（navigator.languages）比统一默认更准；写死 "en" 会让中文浏览器登录后也被切成英文。
+        // 组织值用于有统一工作语言的组织，也让服务端在没有浏览器可参考时（发给收件人的邮件、提醒）有据可依。
         context.Add(
             SettingConstant.Display.Language,
-            defaultValue: null,
-            scopes: SettingScopes.User,
+            defaultValue: Normalize(display.Language),
+            scopes: SettingScopes.All,
             displayName: "Language",
             group: SettingConstant.Groups.Display)
             .WithAllowedValues(SettingConstant.Display.SupportedLanguages)
             .IsVisibleToClients = true;
 
 #endif
-        // 时区同理：`Intl.DateTimeFormat().resolvedOptions().timeZone` 直接给出这台机器的
-        // IANA 时区名（ECMA-402，2017 年起各端普遍可用），比租户默认值准得多。
-        // 留空即"跟随系统"：浏览器用自己的时区，服务端产出文本时回落到 UTC（见 UserTimeZoneProvider）。
+        // 时区同理：组织给默认、个人可覆盖。都没设时浏览器用自己的时区
+        // （`Intl.DateTimeFormat().resolvedOptions().timeZone`），服务端产出文本时回落到 UTC（见 UserTimeZoneProvider）。
         context.Add(
             SettingConstant.Display.TimeZone,
-            defaultValue: null,
-            scopes: SettingScopes.User,
+            defaultValue: Normalize(display.TimeZone),
+            scopes: SettingScopes.All,
             displayName: "Time zone",
             group: SettingConstant.Groups.Display).IsVisibleToClients = true;
 
@@ -285,6 +286,9 @@ public class SettingDefinitionProvider : ISettingDefinitionProvider
 #endif
 #endif
     }
+
+    // 部署基线空白即"未配置"：作为默认值时与没有默认值等价，交给设备决定
+    private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 #if (IncludeNotifications)
 
     private static void AddNotificationPreference(

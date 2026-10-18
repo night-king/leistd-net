@@ -68,9 +68,9 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     name: 'Display.Language',
     displayName: 'Language',
     group: 'Display',
-    // 留空即"跟随系统"：客户端按浏览器语言渲染，租户没有默认值可给
+    // 组织给默认、个人可覆盖；默认值即部署基线，留空为"跟随系统"（客户端按设备语言渲染）
     defaultValue: null,
-    allowsTenantScope: false,
+    allowsTenantScope: true,
     allowsUserScope: true,
   },
   //#endif
@@ -79,7 +79,7 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     displayName: 'Time zone',
     group: 'Display',
     defaultValue: null,
-    allowsTenantScope: false,
+    allowsTenantScope: true,
     allowsUserScope: true,
   },
   // 进程级：两个层级标记都是 false，只有 allowsHostScope。与真实后端一样，租户上下文下

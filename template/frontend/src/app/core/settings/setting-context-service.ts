@@ -19,6 +19,11 @@ export class SettingContextService {
   private readonly languageService = inject(LanguageService);
   //#endif
   private readonly settings = signal<readonly SettingOutputDto[]>([]);
+  /** 每次载入与清空都换一代：只有最新一代的响应能写快照，晚到的旧响应与清空前发出的请求一律作废。 */
+  private generation = 0;
+
+  /** 当前快照（只读）。设置页据此跟上页外的写入，例如页头的语言切换。 */
+  readonly snapshot = this.settings.asReadonly();
 
   /** 展示时区（IANA 名），未设置时为 `undefined`，按浏览器本地时区展示；时间统一在此读取后换算。 */
   readonly timeZone = computed(() => this.valueOf(SETTINGS.display.timeZone));
@@ -34,7 +39,13 @@ export class SettingContextService {
    * 保存后的刷新失败必须让用户看见。
    */
   async load(): Promise<readonly SettingOutputDto[]> {
+    const generation = ++this.generation;
     const settings = await firstValueFrom(this.settingService.getSettings());
+    // 期间又有更新的载入或已清空（主体离开）：不覆盖，交出当前快照
+    if (generation !== this.generation) {
+      return this.settings();
+    }
+
     this.settings.set(settings);
     return settings;
   }
@@ -60,6 +71,7 @@ export class SettingContextService {
   }
 
   clear(): void {
+    this.generation++;
     this.settings.set([]);
   }
 

@@ -25,6 +25,8 @@ export class SessionContextService {
   //#if (IncludeLocalization)
   private readonly languageService = inject(LanguageService);
   //#endif
+  /** 每次刷新与清理都换一代：只有最新一次刷新能应用派生状态，晚到的旧刷新与主体离开前发出的刷新一律作废。 */
+  private generation = 0;
 
   /**
    * 主体确立后建立会话上下文：权限与设置就位，并应用由设置派生的界面状态。
@@ -48,7 +50,11 @@ export class SessionContextService {
    * 而非 `SettingContextService.load()`：只刷新数据不重新应用，界面会停在旧值。
    */
   async refreshSettings(): Promise<readonly SettingOutputDto[]> {
+    const generation = ++this.generation;
     const settings = await this.settingContext.load();
+    if (generation !== this.generation) {
+      return settings;
+    }
     //#if (IncludeLocalization)
     // 等账户语言的词条到达再返回：启动流结束外壳才渲染，这样首帧就是账户语言且带着词条——
     // 不等的话外壳先空白一下，渲染后立即发出的一次性提示（如退出模拟）还会取到裸键。
@@ -66,6 +72,7 @@ export class SessionContextService {
 
   /** 清掉跟着主体走的设置状态；新增跟主体走的派生状态时只改这里。 */
   private clearSettings(): Promise<void> {
+    this.generation++;
     this.settingContext.clear();
     //#if (IncludeLocalization)
     // 语言不在快照里：它已经应用到 LanguageService 上了，清快照收不回来，

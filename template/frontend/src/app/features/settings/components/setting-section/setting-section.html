@@ -168,7 +168,13 @@
               class="w-full justify-between font-normal"
             >
               <hlm-combobox-value
-                [placeholder]="inheritedLabelOf(setting, scope(), t('settings.followSystem'))"
+                [placeholder]="
+                  inheritedLabelOf(setting, scope(), {
+                    followSystem: t('settings.followSystem'),
+                    followOrganization: t('settings.followOrganization'),
+                    deploymentDefault: t('settings.deploymentDefault'),
+                  })
+                "
               />
             </hlm-combobox-trigger>
             <hlm-combobox-content *hlmComboboxPortal>
@@ -210,7 +216,13 @@
           >
             <hlm-select-trigger [buttonId]="setting.name" class="w-full">
               <hlm-select-value
-                [placeholder]="inheritedLabelOf(setting, scope(), t('settings.followSystem'))"
+                [placeholder]="
+                  inheritedLabelOf(setting, scope(), {
+                    followSystem: t('settings.followSystem'),
+                    followOrganization: t('settings.followOrganization'),
+                    deploymentDefault: t('settings.deploymentDefault'),
+                  })
+                "
               />
             </hlm-select-trigger>
             <hlm-select-content *hlmSelectPortal>

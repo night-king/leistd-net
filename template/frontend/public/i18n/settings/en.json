@@ -11,6 +11,8 @@
   "timeZoneToggle": "Show time zones",
   "browserTimeZone": "browser",
   "followSystem": "Follows your system",
+  "followOrganization": "Follows your organization",
+  "deploymentDefault": "Deployment default",
   "hostScope": {
     //#if (IncludeMultiTenancy)
     "note": ". Applies to all tenants",
@@ -56,10 +58,11 @@
     },
     "preferences": {
       "title": "Preferences",
-      "description": "Language, time zone and appearance. Language and time zone apply to you only; leave blank to follow your system"
+      "description": "Language, time zone and appearance. Language and time zone apply to you only; leave blank to follow your organization, or your system when neither the organization nor the deployment sets one"
     }
   },
   "groupDescriptions": {
+    "Display": "Default language and time zone for everyone here; each person can override them in their preferences. Leave blank to use the deployment default, or follow each device when the deployment sets none",
     //#if (LocalIdentity)
     //#if (ExternalLogin)
     "Registration": "Whether self sign-up is open (external sign-in can still create accounts), how new accounts are verified and how long codes stay valid",

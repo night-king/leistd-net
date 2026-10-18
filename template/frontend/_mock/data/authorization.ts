@@ -158,6 +158,7 @@ export const PERMISSION_DEFINITIONS = [
         parentName: undefined,
         // 每个系统设置分组一条子权限，与后端 SettingGroupPermissions 一一对应
         children: [
+          leaf(PERMISSIONS.settings.display, 'Display', PERMISSIONS.settings.default),
           //#if (LocalIdentity)
           leaf(PERMISSIONS.settings.registration, 'Registration', PERMISSIONS.settings.default),
           leaf(PERMISSIONS.settings.security, 'Sign-in & sessions', PERMISSIONS.settings.default),

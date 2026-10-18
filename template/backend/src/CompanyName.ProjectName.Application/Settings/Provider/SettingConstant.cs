@@ -58,7 +58,7 @@ public static class SettingConstant
         public const string Other = "Other";
     }
 
-    /// <summary>界面显示偏好。</summary>
+    /// <summary>界面显示：组织给默认，个人可覆盖。</summary>
     public static class Display
     {
 #if (IncludeLocalization)

@@ -340,10 +340,15 @@ export class SettingSection {
   }
 
   /**
-   * 「跟随系统」时实际生效的值。语言与时区没有租户或代码默认值，占位符须显示探测到的值，
-   * 否则空框看着像没配置。
+   * 「跟随系统」时本设备上实际生效的值：语言与时区三层都没设时，占位符须显示探测到的值，
+   * 否则空框看着像没配置。只对个人页有意义——系统页的"跟随系统"指组织里每台设备各自决定，
+   * 管理员自己这台设备的探测值不是组织的值，显示出来会误导。
    */
-  protected systemDefaultOf(setting: SettingOutputDto): string {
+  protected systemDefaultOf(setting: SettingOutputDto, scope: SettingScope): string {
+    if (scope !== 'account') {
+      return '';
+    }
+
     if (setting.name === SETTINGS.display.timeZone) {
       return browserTimeZone() ?? '';
     }
@@ -397,21 +402,34 @@ export class SettingSection {
   /**
    * 继承值的展示文案：有候选项时换成标签，避免同一控件上出现「中文」与 `zh-CN` 两种写法。
    *
-   * @param followSystemLabel 「跟随系统」的文案，由模板按当前语言传入。
+   * 语言与时区还要说清值从哪来（个人 → 组织 → 部署基线 → 设备）：个人页继承到的是"跟随组织"
+   * （组织值或部署基线），系统页继承到的是"部署默认"；都没有时跟随系统。
+   *
+   * @param labels 来源文案，由模板按当前语言传入。
    */
   protected inheritedLabelOf(
     setting: SettingOutputDto,
     scope: SettingScope,
-    followSystemLabel: string,
+    labels: { followSystem: string; followOrganization: string; deploymentDefault: string },
   ): string {
     const inherited = this.inheritedOf(setting, scope);
+    const followsDevice = isDeviceDefaulted(setting);
     if (inherited.length > 0) {
-      return this.labelOf(setting, inherited);
+      const label = this.labelOf(setting, inherited);
+      if (!followsDevice) {
+        return label;
+      }
+
+      return `${scope === 'account' ? labels.followOrganization : labels.deploymentDefault} · ${label}`;
     }
 
     // 没有继承值时看有没有"跟随系统"探测到的值：空占位符会让正在生效的值看不见。
-    const system = this.systemDefaultOf(setting);
-    return system.length === 0 ? '' : `${followSystemLabel} · ${this.labelOf(setting, system)}`;
+    const system = this.systemDefaultOf(setting, scope);
+    if (system.length > 0) {
+      return `${labels.followSystem} · ${this.labelOf(setting, system)}`;
+    }
+
+    return followsDevice ? labels.followSystem : '';
   }
 
   protected onInput(setting: SettingOutputDto, scope: SettingScope, event: Event): void {
@@ -448,7 +466,7 @@ export class SettingSection {
 
   /** 本层没设值时实际生效的那个值（继承来的，或跟随系统探测到的）。 */
   protected systemOrInheritedValue(setting: SettingOutputDto, scope: SettingScope): string {
-    return this.inheritedOf(setting, scope) || this.systemDefaultOf(setting);
+    return this.inheritedOf(setting, scope) || this.systemDefaultOf(setting, scope);
   }
 
   // 同一项设置在两个作用域里各有独立草稿：同名共用一份会让个人偏好的未保存输入
@@ -486,8 +504,8 @@ export class SettingSection {
         //#endif
 
         // 走会话上下文而非 load()：语言由设置派生，只刷新数据不会重新应用；
-        // 同一份快照也用于刷新本页，避免两次请求结果不一致。
-        this.pageState.settings.set([...(await this.sessionContext.refreshSettings())]);
+        // 本页的快照就是会话快照，刷新完即已更新。
+        await this.sessionContext.refreshSettings();
 
         // 快照到手后才丢草稿，否则 PUT 成功而 GET 失败时界面会退回旧值。
         // 只丢仍等于本次写入值的草稿：回车提交后用户可以接着改，新输入不能被抹掉。
@@ -543,6 +561,17 @@ export class SettingSection {
   }
 }
 
+/** 组织与部署都没设时由设备决定的设置（语言与时区）：占位文案要说清值从哪层来。 */
+function isDeviceDefaulted(setting: SettingOutputDto): boolean {
+  //#if (IncludeLocalization)
+  if (setting.name === SETTINGS.display.language) {
+    return true;
+  }
+
+  //#endif
+  return setting.name === SETTINGS.display.timeZone;
+}
+
 /** 整组都是进程级设置（与每行"全实例生效"徽章同一判据）；空组不算，没有行可说明。 */
 function isHostScopeOnly(settings: readonly SettingOutputDto[]): boolean {
   return settings.length > 0 && settings.every((setting) => setting.allowsHostScope);
@@ -552,6 +581,8 @@ function isHostScopeOnly(settings: readonly SettingOutputDto[]): boolean {
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
   'settings.followSystem': 'Follows your system',
+  'settings.followOrganization': 'Follows your organization',
+  'settings.deploymentDefault': 'Deployment default',
   'settings.timeZoneSearch': 'Search city or UTC offset',
   'settings.timeZoneToggle': 'Show time zones',
   'settings.timeZoneEmpty': 'No matching time zone',

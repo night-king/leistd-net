@@ -317,7 +317,7 @@ public sealed class SettingsContractTests(ProjectWebApplicationFactory factory)
     }
 
 #endif
-    /// <summary>系统设置的面板顺序取接口里各分组首次出现的先后：按管理员的使用频率排，运维与数据保留在最后。</summary>
+    /// <summary>系统设置的面板顺序取接口里各分组首次出现的先后：显示在最前（与个人偏好一致），其余按管理员的使用频率排，运维与数据保留在最后。</summary>
     [Fact]
     public async Task System_setting_groups_are_listed_in_panel_order()
     {
@@ -331,7 +331,7 @@ public sealed class SettingsContractTests(ProjectWebApplicationFactory factory)
             .Distinct()
             .ToList();
 
-        List<string> expected = [];
+        List<string> expected = [SettingConstant.Groups.Display];
 #if (LocalIdentity)
         expected.Add(SettingConstant.Groups.Registration);
         expected.Add(SettingConstant.Groups.Security);

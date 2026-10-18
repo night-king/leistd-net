@@ -123,7 +123,7 @@ frontend/
 
 ## 9. 日期、时区与数字
 
-时间以 UTC 传输与存储，只在展示时按会话时区换算。时区取自 `Display.TimeZone`（IANA 名，写入端已校验），书写方式取自界面语言，两者由 `SettingContextService` 提供。
+时间以 UTC 传输与存储，只在展示时按会话时区换算。时区取自 `Display.TimeZone`（IANA 名，写入端已校验），按个人 → 组织 → 部署基线取值，都没有时用浏览器时区；书写方式取自界面语言（同一条链，最后是设备偏好）。两者由 `SettingContextService` 提供。
 
 - 实际生效的展示时区只有一处判定：`shared/utils/zoned-time` 的 `resolveDisplayTimeZone`（设置值能被当前 `Intl` 使用就用它，否则浏览器时区），`appDate` 与按时区请求数据的地方共用。请求按日历区间统计时带这个值（见 [API 规范 §6.2](./api.md#62-按日历区间统计)），坐标轴与提示按响应回显的时区格式化。
 - 日历日用 `YYYY-MM-DD` 字符串表示；日期选择器给出的浏览器本地 `Date` 按年月日取，不经 `toISOString()`（那是 UTC，会折偏一天）。

@@ -42,6 +42,11 @@
 <!--#else-->
 - 未配置 `ConnectionStrings:Redis` 不阻止单实例启动，分布式锁回落到进程内并输出 Warning；纯 API 不注册浏览器会话、Data Protection 或其 `KeysPath` 配置。多副本必须配置 Redis。
 <!--#endif-->
+<!--#if (IncludeLocalization)-->
+- 界面语言与时区的全部署默认值在 `DisplayDefaults`（`Language`、`TimeZone`，后者为 IANA 名）：空为跟随用户设备，各组织可在系统设置里另设、个人可再覆盖。非空值不合法时启动失败并指出键名；它是启动期基线，修改后重启各实例并保持一致。
+<!--#else-->
+- 展示时区的全部署默认值在 `DisplayDefaults:TimeZone`（IANA 名）：空为跟随用户设备，各组织可在系统设置里另设、个人可再覆盖。非空值不合法时启动失败并指出键名；它是启动期基线，修改后重启各实例并保持一致。
+<!--#endif-->
 - TLS 在网关或 ingress 终结时，所有形态（含 Standalone）都须配置 `ForwardedHeaders:KnownProxies` / `KnownNetworks` 还原原始协议与主机。
 <!--#if (SpaFrontend)-->
   浏览器写请求的 Origin 校验同样依赖这些转发头；来源拒绝返回 Problem Details，Warning 日志给出收到的 Origin 与计算出的本源。
