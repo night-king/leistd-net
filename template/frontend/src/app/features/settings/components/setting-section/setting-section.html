@@ -76,6 +76,13 @@
        左边是标签（其后接生效范围与写入状态）与说明，右边是控件与恢复按钮。输入类控件在列表够宽时固定宽度、右端对齐，
        不够宽时落到标签下方；开关没有宽度，始终左右排。每项只有一个 Field，开关经 aria-describedby 显式关联描述。 -->
   <ng-template #settingRow let-setting>
+    <!-- 语言与时区的继承来源：占位只写生效值，来源写在标签后面（见 inheritedSourceOf） -->
+    @let sourceLabels =
+      {
+        followSystem: t('settings.followSystem'),
+        followOrganization: t('settings.followOrganization'),
+        deploymentDefault: t('settings.deploymentDefault'),
+      };
     <hlm-field [orientation]="isBoolean(setting) ? 'horizontal' : 'responsive'">
       <!-- min-w-0 + wrap-anywhere：内容列可收缩，长标签与长错误（设置标识、地址这类连续文本）在列内折行，
            不把右侧控件挤出面板 -->
@@ -104,7 +111,7 @@
             class="inline-flex flex-wrap items-center gap-x-2 text-xs leading-4"
             [id]="descriptionIdOf(setting)"
           >
-            <!-- 写入状态接在标签后面，与刚操作的控件同一行。 -->
+            <!-- 写入状态接在标签后面，与刚操作的控件同一行；没有状态时这里写继承来源。 -->
             @if (stateOf(setting, scope()); as state) {
               @switch (state.status) {
                 @case ('saving') {
@@ -131,6 +138,8 @@
                   </span>
                 }
               }
+            } @else if (inheritedSourceOf(setting, scope(), sourceLabels); as source) {
+              <span class="text-muted-foreground" data-testid="setting-source">{{ source }}</span>
             }
           </hlm-field-description>
         </div>
@@ -147,7 +156,6 @@
           <hlm-switch
             [inputId]="setting.name"
             [checked]="isChecked(setting, scope())"
-            [disabled]="isRowSaving(setting, scope())"
             [aria-describedby]="descriptionIdOf(setting)"
             [attr.data-testid]="'setting-switch-' + setting.name"
             (checkedChange)="onToggle(setting, scope(), $event)"
@@ -156,25 +164,20 @@
           <hlm-combobox
             class="flex-1 @md/field-group:w-64 @md/field-group:flex-none"
             [value]="draftOf(setting, scope())"
-            [disabled]="isRowSaving(setting, scope())"
             [filter]="timeZoneFilter"
             [itemToString]="timeZoneToString"
             [attr.data-testid]="'setting-combobox-' + setting.name"
             (valueChange)="onSelect(setting, scope(), $event)"
           >
             <!-- justify-between + font-normal 是官方用法：触发器是 hlmBtn，默认居中且加粗。 -->
+            <!-- 值放不下时单行省略（styles.css 统一处理），悬停提示给出全文 -->
             <hlm-combobox-trigger
               [buttonId]="setting.name"
               class="w-full justify-between font-normal"
+              [attr.title]="displayTextOf(setting, scope(), sourceLabels) || null"
             >
               <hlm-combobox-value
-                [placeholder]="
-                  inheritedLabelOf(setting, scope(), {
-                    followSystem: t('settings.followSystem'),
-                    followOrganization: t('settings.followOrganization'),
-                    deploymentDefault: t('settings.deploymentDefault'),
-                  })
-                "
+                [placeholder]="inheritedLabelOf(setting, scope(), sourceLabels)"
               />
             </hlm-combobox-trigger>
             <hlm-combobox-content *hlmComboboxPortal>
@@ -189,13 +192,15 @@
                     <div hlmComboboxLabel>{{ group.region }}</div>
                     @for (zone of group.zones; track zone.value) {
                       <hlm-combobox-item [value]="zone.value">
-                        <span class="truncate">{{ zone.city }}</span>
+                        <!-- 城市名不截断：触发器上放不下的时区名，展开后在这里能看到全名。放不下时按词折行，
+                             不收窄到比单词还窄（徽章文案较长时也不会把城市名挤没） -->
+                        <span class="break-words">{{ zone.city }}</span>
                         @if (zone.isBrowser) {
                           <span hlmBadge variant="secondary">
                             {{ t('settings.browserTimeZone') }}
                           </span>
                         }
-                        <span class="text-muted-foreground ms-auto ps-2 text-xs">
+                        <span class="text-muted-foreground ms-auto shrink-0 ps-2 text-xs">
                           {{ zone.offsetLabel }}
                         </span>
                       </hlm-combobox-item>
@@ -209,21 +214,16 @@
           <hlm-select
             class="flex-1 @md/field-group:w-64 @md/field-group:flex-none"
             [value]="draftOf(setting, scope())"
-            [disabled]="isRowSaving(setting, scope())"
             [itemToString]="labelFnOf(setting)"
             [attr.data-testid]="'setting-select-' + setting.name"
             (valueChange)="onSelect(setting, scope(), $event)"
           >
-            <hlm-select-trigger [buttonId]="setting.name" class="w-full">
-              <hlm-select-value
-                [placeholder]="
-                  inheritedLabelOf(setting, scope(), {
-                    followSystem: t('settings.followSystem'),
-                    followOrganization: t('settings.followOrganization'),
-                    deploymentDefault: t('settings.deploymentDefault'),
-                  })
-                "
-              />
+            <hlm-select-trigger
+              [buttonId]="setting.name"
+              class="w-full"
+              [attr.title]="displayTextOf(setting, scope(), sourceLabels) || null"
+            >
+              <hlm-select-value [placeholder]="inheritedLabelOf(setting, scope(), sourceLabels)" />
             </hlm-select-trigger>
             <hlm-select-content *hlmSelectPortal>
               @for (choice of choices; track choice.value) {
@@ -232,8 +232,8 @@
             </hlm-select-content>
           </hlm-select>
         } @else {
-          <!-- 数值型把上下界交给浏览器（值域以服务端为准）。用 change 提交；刻意不随写入禁用：
-             提交时光标常在框里，禁用会弹走焦点。 -->
+          <!-- 数值型把上下界交给浏览器（值域以服务端为准）。用 change 提交；与本行其他控件一样
+             不随写入禁用（见 write）：提交时光标常在框里，禁用会弹走焦点。 -->
           <input
             hlmInput
             class="flex-1 @md/field-group:w-64 @md/field-group:flex-none"
@@ -262,7 +262,6 @@
           size="icon-sm"
           variant="ghost"
           [attr.data-testid]="'setting-reset-' + setting.name"
-          [disabled]="isRowSaving(setting, scope())"
           [attr.aria-label]="t('settings.reset')"
           [hlmTooltip]="t('settings.reset')"
           (click)="reset(setting, scope())"
