@@ -198,7 +198,7 @@ pwsh scripts/test-template-matrix.ps1 -SkipPack -Scenarios <失败场景> -Front
 
 ## 10. 验证
 
-按改动选择本地验证见[质量检查与验证分工](../framework/quality-assurance.md#本地验证配方)的配方表；测试分层、端到端分工与 lint 缓存口径见[模板质量验证](./quality-assurance.md)。检查删除/替换必须逐项完成接替与变异验收。
+按改动选择本地验证见[质量检查与验证分工](../framework/quality-assurance.md#本地验证配方)的配方表；测试分层、端到端分工与 lint 缓存口径见[模板质量验证](./quality-assurance.md)。删除检查或测试按[删除与替换的验收](../framework/quality-assurance.md#删除与替换的验收)。
 
 `test-template-postgresql-e2e.ps1` 在真实 PostgreSQL 上验证本地 Framework 包→Identity/Resource 生成→DbMigrator→API→Shared/Dedicated 隔离的整条链路，要求本机 Docker 与 PowerShell（psql 用容器自带的）。矩阵与该脚本默认各自打包当前 Framework 源码。
 

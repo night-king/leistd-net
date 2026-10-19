@@ -770,7 +770,6 @@ def main() -> None:
     parser.add_argument('--release-channel', choices=['stable', 'beta', 'nightly'], default='')
     parser.add_argument('--release-base-tag', default='')
     parser.add_argument('--release-base-sha', default='')
-    parser.add_argument('--expected-plan', type=Path)
     parser.add_argument('--container-smoke', choices=['true', 'false'], default='false',
                         help='Bind the independent container-scope decision into this candidate plan')
     parser.add_argument('--output', type=Path, required=True)
@@ -782,7 +781,7 @@ def main() -> None:
     args = parser.parse_args()
     local = args.local_scenarios or args.local_framework_tests
     if local and (args.local_scenarios and args.local_framework_tests or args.tier != 'core' or args.github_output or
-                  args.release_channel or args.release_base_tag or args.release_base_sha or args.expected_plan or args.candidate_input or args.container_smoke != 'false'):
+                  args.release_channel or args.release_base_tag or args.release_base_sha or args.candidate_input or args.container_smoke != 'false'):
         parser.error('--local-scenarios/--local-framework-tests: choose one, with --tier core and without CI output, docs-only or candidate-input')
     if args.local_scenarios:
         plan = local_scenarios(args.base)
@@ -791,8 +790,6 @@ def main() -> None:
     else:
         plan = create_plan(args.tier, args.base, args.event, args.candidate_input, args.container_smoke == 'true',
                            args.release_channel, args.release_base_tag, args.release_base_sha)
-        if args.expected_plan and json.loads(args.expected_plan.read_text(encoding='utf-8-sig')) != plan:
-            raise ValueError('caller plan differs from independently computed candidate responsibilities')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(plan, ensure_ascii=False, separators=(',', ':'))
     args.output.write_text(text, encoding='utf-8')

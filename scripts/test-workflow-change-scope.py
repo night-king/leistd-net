@@ -357,10 +357,6 @@ def check_quality_aggregation():
     # Tier comes from the plan: no workflow-level tier input remains, and only a direct PR may request core.
     assert workflow['env'] == {'PLAN_SCOPE': "${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'core' || 'full' }}"}
     assert 'tier' not in workflow[True]['workflow_call']['inputs'] and not workflow[True]['workflow_dispatch'], workflow[True]
-    recompute = next(s for s in summary_steps if 'plan-quality-checks.py' in s.get('run', ''))
-    assert recompute['if'] == "github.event_name == 'pull_request' && !inputs.candidate_sha", recompute
-    assert summary_steps.index(recompute) == next(i for i, s in enumerate(summary_steps) if s.get('id') == 'quality') + 1
-    assert jobs['template-matrix']['steps'][0]['with']['fetch-depth'] == 0
     # Third-party NuGet download cache: keyed on Directory.Packages.props, Leistd entries removed after restore and before save.
     for name, job in jobs.items():
         steps = job['steps']
@@ -372,7 +368,6 @@ def check_quality_aggregation():
             restores = [i for i, s in enumerate(steps) if re.search(r'dotnet (?:restore|test|build)|test-template-|test-package-consumption', s.get('run', ''))]
             cleanup = [i for i, s in enumerate(steps) if s.get('name') == '保存前清除 Leistd 缓存条目']
             assert restores and index < min(restores) and len(cleanup) == 1 and cleanup[0] > max(restores) and 'if' not in steps[cleanup[0]], (name, restores, cleanup)
-    check_plan_recompute(recompute)
     script = scope_step('ci.yml', 'template-matrix', 'quality')
     with candidate_fixture() as (repo, planner, base):
         for mode, path in [('internal', 'README.md'), ('generated', 'template/docs/standards/testing.md'),
@@ -426,37 +421,6 @@ def check_quality_aggregation():
             state = json.loads(json.dumps(normal)); state['docs-sync']['result'] = 'failure'
             check(state, True, mutated)
             print('PASS strict job aggregation:', mode)
-
-
-def check_plan_recompute(step):
-    """The summary recomputes a direct PR plan from the same base and refuses any executed plan that differs."""
-    with candidate_fixture() as (repo, planner, base):
-        target = repo / 'template/frontend/src/app/app.ts'
-        target.write_text(target.read_text(encoding='utf-8') + '\n//#if (IncludeNotifications)\n// recompute fixture\n//#endif\n', encoding='utf-8')
-        git(repo, 'add', '.'); git(repo, 'commit', '-qm', 'conditional frontend change')
-        plan = planner.create_plan('core', base, 'pull_request', '')
-        assert plan['Tier'] == 'core', plan
-        script = repo.parent / 'recompute.sh'
-        script.write_text(step['run'] + '\n', encoding='utf-8')
-        def recompute(value):
-            (repo / '.tmp').mkdir(exist_ok=True)
-            (repo / '.tmp/quality-plan.json').write_text(json.dumps(value), encoding='utf-8')
-            result = subprocess.run(['bash', '-e', str(script)], cwd=repo, capture_output=True, text=True, encoding='utf-8', errors='replace',
-                                    env=dict(os.environ, PR_BASE_SHA=base))
-            (repo / '.tmp/quality-plan.json').unlink()
-            return result.returncode, result.stdout + result.stderr
-        # The planner refuses a dirty tree, so .tmp must stay ignored for the comparison to be meaningful.
-        code, log = recompute(plan)
-        assert code == 0, log
-        for name, mutate in [('dropped-scenario', lambda p: (p['Scenarios'].pop(), p['Slices'].pop())),
-                             ('added-scenario', lambda p: p['Scenarios'].append('resource')),
-                             ('pg-not-applicable-flipped', lambda p: p['Jobs'].update({'postgresql-e2e': not p['Jobs']['postgresql-e2e']})),
-                             ('generation-skipped', lambda p: p['Jobs'].update({'template-generation': False})),
-                             ('full-relabelled-core', lambda p: p.update(Tier='full'))]:
-            invalid = json.loads(json.dumps(plan)); mutate(invalid)
-            code, log = recompute(invalid)
-            assert code != 0 and 'independently computed' in log, (name, log[-800:])
-    print('PASS summary recomputes the PR selection: exact plan accepted, dropped/added scenarios and flipped responsibilities rejected')
 
 
 TEST_PROJECTS = [

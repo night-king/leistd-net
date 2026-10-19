@@ -1,6 +1,6 @@
 # Receipts are checked against this independently supplied candidate plan.
 # Tier full: every registered scenario and responsibility (only a verified documentation push may narrow).
-# Tier core: a narrowed direct-PR plan; its exact selection is recomputed by the summary, here only its shape.
+# Tier core: a narrowed direct-PR plan; its selection comes from the planner, here only its shape.
 function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
     $plan = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $head = git rev-parse HEAD

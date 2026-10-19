@@ -5,6 +5,8 @@ description: 在 leistd-net 仓库中处理跨 framework、template、skills、d
 
 # 维护 leistd-net 仓库
 
+文中 `docs/`、`template/` 等路径都相对仓库根。
+
 ## 先确定交付面
 
 涉及跨层边界时读取 `docs/architecture/collaboration-scenarios.md`，再按变更范围选择：
@@ -18,11 +20,11 @@ description: 在 leistd-net 仓库中处理跨 framework、template、skills、d
 
 跨多个交付面且需要任务分解时使用一份实施计划，分别完成受影响层的验证。
 
-注释与文档按所属交付面读取[框架规范](../../../docs/framework/development-guide.md#4-文档注释)或[项目通用规范](../../../template/docs/standards/coding-common.md#1-语言与敏感信息)，前端再读[前端规范](../../../template/docs/standards/coding-frontend.md#3-命名)。规则只维护在这些入口，Skill 不复制。
+注释与文档按所属交付面读取`docs/framework/development-guide.md#4-文档注释`或`template/docs/standards/coding-common.md#1-语言与敏感信息`，前端再读`template/docs/standards/coding-frontend.md#3-命名`。规则只维护在这些入口，Skill 不复制。
 
 ## 方案与实施计划
 
-评估、计划、报告与稳定规范的归属和生命周期，以及 `framework/docs/`、`template/` 两个分发载荷不得写入的仓库信息，以 [`docs/README.md`](../../../docs/README.md) 为准。
+评估、计划、报告与稳定规范的归属和生命周期，以及 `framework/docs/`、`template/` 两个分发载荷不得写入的仓库信息，以 `docs/README.md` 为准。
 
 ## 工作流
 
@@ -32,7 +34,7 @@ description: 在 leistd-net 仓库中处理跨 framework、template、skills、d
 4. 实施聚焦变更，并分别完成构建、测试、文档检查、打包或模板生成验证。
 5. 汇总各交付面的真实结果、未验证项和残余风险；只有长期共享信息才更新稳定文档。
 
-要求 Git 提交或推送时只暂存本任务文件，核对相关验证、`docs/framework/versioning.md` 的提交格式及目标分支触发的 workflow；不把实现完成当作已经提交或发布。等待具体 CI run 按[证据复用](../../../docs/framework/quality-assurance.md#证据复用)的后台等待规则，期间推进不依赖它的工作；不按固定时长等待，也不重复运行已成功的相同验证。
+要求 Git 提交或推送时只暂存本任务文件，核对相关验证、`docs/framework/versioning.md` 的提交格式及目标分支触发的 workflow；不把实现完成当作已经提交或发布。等待具体 CI run 按`docs/framework/quality-assurance.md#证据复用`的后台等待规则，期间推进不依赖它的工作；不按固定时长等待，也不重复运行已成功的相同验证。
 
 实际发布或恢复时，按 `docs/framework/versioning.md` 和 `.github/workflows/release.yml` 核对候选 SHA、版本、同一 SHA 的质量结果、包源、tag 与 Release；部分发布先查实际状态，再按版本规范恢复。
 
@@ -42,4 +44,4 @@ description: 在 leistd-net 仓库中处理跨 framework、template、skills、d
 
 ## 验证入口
 
-各交付面的本地验证按[本地验证配方](../../../docs/framework/quality-assurance.md#本地验证配方)选择，已有证据是否仍然有效按[证据复用](../../../docs/framework/quality-assurance.md#证据复用)判断。
+各交付面的本地验证按`docs/framework/quality-assurance.md#本地验证配方`选择，已有证据是否仍然有效按`docs/framework/quality-assurance.md#证据复用`判断。审查与失败重跑按`docs/framework/quality-assurance.md#审查与失败后的重跑`，交付时据此提醒用户审查。
