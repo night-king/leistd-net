@@ -13,6 +13,7 @@ import { HlmSelectScrollUp } from './hlm-select-scroll-up';
 
 @Component({
   selector: 'hlm-select-content',
+  exportAs: 'hlmSelectContent',
   imports: [HlmSelectScrollUp, HlmSelectScrollDown, BrnSelectList],
   changeDetection: ChangeDetectionStrategy.OnPush,
   hostDirectives: [BrnSelectContent],
