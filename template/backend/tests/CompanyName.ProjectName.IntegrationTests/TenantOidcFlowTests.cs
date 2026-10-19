@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CompanyName.ProjectName.Application.OpenApplications.Dtos;
 using CompanyName.ProjectName.Application.Auth.Options;
 using Leistd.MultiTenancy.AspNetCore.Options;
@@ -14,7 +15,11 @@ using Leistd.Security.Claims;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
+using OpenIddict.Server;
 
 namespace CompanyName.ProjectName.IntegrationTests;
 
@@ -185,13 +190,187 @@ public sealed class TenantOidcFlowTests(ProjectWebApplicationFactory factory)
         Assert.Equal(ReadClaim(source.AccessToken, "exp"), ReadClaim(token!.AccessToken, "exp"));
     }
 
-    private static async Task<(string Id, string Secret)> CreateExchangeClientAsync(HttpClient admin, string id)
+    private const string ExchangeSource = "orders-api";
+    private const string ExchangeSourceScope = "orders.read";
+    private const string ExchangeTarget = "https://api.example.test/billing";
+    private const string ExchangeTargetScope = "billing.read";
+    private const string AccessTokenType = "urn:ietf:params:oauth:token-type:access_token";
+
+    /// <summary>交换令牌只带目标的受众与 scope、记下调用方为 act，主体与租户按配置的 claim 名写回，资料从身份库重新取，不带角色。</summary>
+    [Fact]
+    public async Task Token_exchange_issues_a_single_hop_token_for_the_target_only()
+    {
+        var owner = NewExchangeOwner();
+        using var host = ExchangeHost(owner);
+        using var hostAdmin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var tenantName = $"xchg{Guid.CreateVersion7():N}"[..16];
+        var tenantId = await CreateTenantAsync(hostAdmin.Client, tenantName);
+        var presenter = await CreateClientAsync(hostAdmin.Client, ExchangeSourceScope);
+        var exchanger = await CreateExchangeClientAsync(hostAdmin.Client, owner);
+        using var tenantSession = await LoginTenantAdminAsync(host, tenantId);
+        var source = await AuthorizeAndExchangeAsync(host, tenantSession, presenter.ClientId, presenter.ClientSecret, ExchangeSourceScope);
+
+        var (status, body) = await ExchangeAsync(host, exchanger, source.AccessToken);
+
+        Assert.True(status == HttpStatusCode.OK, body);
+        using var response = JsonDocument.Parse(body);
+        Assert.Equal(AccessTokenType, response.RootElement.GetProperty("issued_token_type").GetString());
+        Assert.False(response.RootElement.TryGetProperty("refresh_token", out _));
+        var issued = Payload(response.RootElement.GetProperty("access_token").GetString()!);
+        var original = Payload(source.AccessToken);
+        Assert.Equal(original.GetProperty("user_id").GetString(), issued.GetProperty("user_id").GetString());
+        Assert.Equal(tenantId.ToString(), issued.GetProperty("org_id").GetString());
+        Assert.Equal([ExchangeTarget], ReadAudiences(response.RootElement.GetProperty("access_token").GetString()!));
+        Assert.Equal(ExchangeTargetScope, issued.GetProperty("scope").GetString());
+        Assert.Equal(ClientSubject.Format(owner), issued.GetProperty("act").GetProperty("sub").GetString());
+        // 租户管理员持有 Admin 角色：交换令牌的声明全部发往访问令牌，角色只能靠显式移除挡住
+        Assert.False(issued.TryGetProperty(OpenIddictConstants.Claims.Role, out _));
+        // 源令牌没申请 profile、email；Resource 投影要的资料仍从身份库取来
+        Assert.Equal("admin", issued.GetProperty("preferred_username").GetString());
+        Assert.Equal($"admin@{tenantName}.example.com", issued.GetProperty("email").GetString());
+    }
+
+    /// <summary>
+    /// 单跳规则的每一条都有自己的拒绝：目标只能是一个登记过的资源与它的 scope，只换访问令牌，不收 actor_token，
+    /// 调用方须有交换权限并拥有源令牌的受众；源令牌不能已是交换所得、不能是机器主体、不能过期，租户里须有这个用户。
+    /// </summary>
+    /// <remarks>
+    /// 改动源令牌的用例用签发方自己的签名密钥重签：原样重签的对照照常换得到，拒绝才归因于被改的那一处。
+    /// 宿主超级管理员作源主体：交换令牌同样不带超级管理员标记。
+    /// </remarks>
+    [Fact]
+    public async Task Token_exchange_rejects_requests_outside_the_single_hop_rules()
+    {
+        var owner = NewExchangeOwner();
+        using var host = ExchangeHost(owner);
+        using var hostAdmin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var tenantId = await CreateTenantAsync(hostAdmin.Client, $"xchg{Guid.CreateVersion7():N}"[..16]);
+        var presenter = await CreateClientAsync(hostAdmin.Client, ExchangeSourceScope, ExchangeTargetScope);
+        // 调用方也有源资源的 scope 权限：scope 与 audience 对不上时，只能由交换端点自己的规则拒绝
+        var exchanger = await CreateExchangeClientAsync(hostAdmin.Client, owner, "scp:" + ExchangeSourceScope);
+        var withoutExchange = await CreateClientAsync(hostAdmin.Client, ExchangeTargetScope);
+        var source = (await AuthorizeAndExchangeAsync(host, hostAdmin, presenter.ClientId, presenter.ClientSecret, ExchangeSourceScope)).AccessToken;
+        var targetAudience = (await AuthorizeAndExchangeAsync(host, hostAdmin, presenter.ClientId, presenter.ClientSecret, ExchangeTargetScope)).AccessToken;
+
+        var (controlStatus, controlBody) = await ExchangeAsync(host, exchanger, Resign(host, source, _ => { }));
+        Assert.True(controlStatus == HttpStatusCode.OK, controlBody);
+        using (var control = JsonDocument.Parse(controlBody))
+        {
+            Assert.True(Payload(source).TryGetProperty(CustomClaimTypes.IsSuperAdmin, out _));
+            Assert.False(Payload(control.RootElement.GetProperty("access_token").GetString()!).TryGetProperty(CustomClaimTypes.IsSuperAdmin, out _));
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var cases = new (string Name, string Subject, (string Id, string Secret) Caller, Action<Dictionary<string, string>>? Change, string? Error)[]
+        {
+            ("unknown-audience", source, exchanger, form => form["audience"] = "unknown-api", null),
+            ("source-resource-as-target", source, exchanger, form => { form["audience"] = ExchangeSource; form["scope"] = ExchangeSourceScope; }, null),
+            ("scope-of-another-resource", source, exchanger, form => form["scope"] = ExchangeSourceScope, null),
+            ("refresh-token-requested", source, exchanger, form => form["requested_token_type"] = "urn:ietf:params:oauth:token-type:refresh_token", null),
+            ("id-token-requested", source, exchanger, form => form["requested_token_type"] = "urn:ietf:params:oauth:token-type:id_token", null),
+            ("id-token-subject", source, exchanger, form => form["subject_token_type"] = "urn:ietf:params:oauth:token-type:id_token", null),
+            ("actor-token", source, exchanger, form => { form["actor_token"] = source; form["actor_token_type"] = AccessTokenType; }, null),
+            ("unregistered-resource", source, exchanger, form => form["resource"] = "https://billing.example.com/", OpenIddictConstants.Errors.InvalidTarget),
+            ("caller-without-exchange-permission", source, withoutExchange, null, null),
+            ("caller-does-not-own-the-subject-audience", targetAudience, exchanger, null, null),
+            ("already-exchanged-subject", Resign(host, source, claims =>
+                claims["act"] = new JsonObject { ["sub"] = ClientSubject.Format("previous-api") }), exchanger, null, null),
+            ("machine-subject", Resign(host, source, claims =>
+            {
+                claims["sub"] = ClientSubject.Format("orders-machine");
+                claims["user_id"] = ClientSubject.Format("orders-machine");
+                claims["org_id"] = tenantId.ToString();
+            }), exchanger, null, null),
+            // 带着令牌登记时有效期以登记为准（OpenIddict 从库里恢复），所以去掉登记，只看令牌自己的 exp
+            ("expired-subject", Resign(host, source, claims =>
+            {
+                claims.Remove("oi_tkn_id");
+                claims["iat"] = now.AddMinutes(-20).ToUnixTimeSeconds();
+                claims["nbf"] = now.AddMinutes(-20).ToUnixTimeSeconds();
+                claims["exp"] = now.AddMinutes(-10).ToUnixTimeSeconds();
+            }), exchanger, null, null),
+            ("user-not-in-the-claimed-tenant", Resign(host, source, claims => claims["org_id"] = tenantId.ToString()), exchanger, null, null),
+        };
+        foreach (var (name, subject, caller, change, error) in cases)
+        {
+            var (status, body) = await ExchangeAsync(host, caller, subject, change);
+            Assert.True(status == HttpStatusCode.BadRequest, $"{name}: {(int)status} {body}");
+            if (error is not null)
+            {
+                using var json = JsonDocument.Parse(body);
+                Assert.Equal(error, json.RootElement.GetProperty("error").GetString());
+            }
+        }
+    }
+
+    private static string NewExchangeOwner() => "orders-api-" + Guid.CreateVersion7().ToString("N")[..12];
+
+    // 主体与租户换成别的 claim 名：交换令牌必须按配置写回，不能退回默认名
+    private WebApplicationFactory<Program> ExchangeHost(string owner) => Factory.WithWebHostBuilder(builder =>
+    {
+        builder.UseSetting("OAuth:ApiResources:0:Name", ExchangeSource);
+        builder.UseSetting("OAuth:ApiResources:0:Scope", ExchangeSourceScope);
+        builder.UseSetting("OAuth:ApiResources:0:OwnerClientId", owner);
+        builder.UseSetting("OAuth:ApiResources:1:Name", ExchangeTarget);
+        builder.UseSetting("OAuth:ApiResources:1:Scope", ExchangeTargetScope);
+        builder.ConfigureTestServices(services => services.Configure<ClaimTypeOptions>(options =>
+        {
+            options.UserIds = ["user_id"];
+            options.TenantId = "org_id";
+        }));
+    });
+
+    private static async Task<(HttpStatusCode Status, string Body)> ExchangeAsync(
+        WebApplicationFactory<Program> host, (string Id, string Secret) caller, string subject,
+        Action<Dictionary<string, string>>? change = null)
+    {
+        var form = new Dictionary<string, string>
+        {
+            ["grant_type"] = "urn:ietf:params:oauth:grant-type:token-exchange",
+            ["client_id"] = caller.Id, ["client_secret"] = caller.Secret,
+            ["subject_token"] = subject, ["subject_token_type"] = AccessTokenType,
+            ["requested_token_type"] = AccessTokenType,
+            ["audience"] = ExchangeTarget, ["scope"] = ExchangeTargetScope
+        };
+        change?.Invoke(form);
+        using var client = CreateHttpsClient(host);
+        using var response = await client.PostAsync("/connect/token", new FormUrlEncodedContent(form));
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>按签发方自己的签名密钥重签访问令牌：保留原令牌的全部声明（含 OpenIddict 的令牌登记），只改 <paramref name="change"/> 给出的几处。</summary>
+    private static string Resign(WebApplicationFactory<Program> host, string accessToken, Action<JsonObject> change)
+    {
+        var claims = JsonNode.Parse(Base64Url.DecodeFromChars(accessToken.Split('.')[1]))!.AsObject();
+        change(claims);
+        var credentials = host.Services.GetRequiredService<IOptionsMonitor<OpenIddictServerOptions>>().CurrentValue.SigningCredentials[0];
+        DateTime? Time(string name) => claims[name] is { } value
+            ? DateTimeOffset.FromUnixTimeSeconds(value.GetValue<long>()).UtcDateTime : null;
+        var descriptor = new SecurityTokenDescriptor
+        {
+            TokenType = "at+jwt",
+            Issuer = claims["iss"]!.GetValue<string>(),
+            IssuedAt = Time("iat"), NotBefore = Time("nbf") ?? Time("iat"), Expires = Time("exp"),
+            SigningCredentials = credentials,
+            Claims = claims.Where(claim => claim.Key is not ("iss" or "iat" or "nbf" or "exp"))
+                .ToDictionary(claim => claim.Key, claim => (object)JsonSerializer.Deserialize<JsonElement>(claim.Value!.ToJsonString()))
+        };
+        return new JsonWebTokenHandler().CreateToken(descriptor);
+    }
+
+    private static JsonElement Payload(string accessToken)
+    {
+        using var json = JsonDocument.Parse(Base64Url.DecodeFromChars(accessToken.Split('.')[1]));
+        return json.RootElement.Clone();
+    }
+
+    private static async Task<(string Id, string Secret)> CreateExchangeClientAsync(HttpClient admin, string id, params string[] extraPermissions)
     {
         using var created = await admin.PostAsJsonAsync("/api/v1/open-applications", new
         {
             sessionBound = false,
             clientId = id, displayName = id, applicationType = "service", clientType = "confidential",
-            permissions = new[] { "ept:token", "gt:urn:ietf:params:oauth:grant-type:token-exchange", "scp:billing.read", "aud:https://api.example.test/billing" },
+            permissions = (string[])["ept:token", "gt:urn:ietf:params:oauth:grant-type:token-exchange", "scp:billing.read", "aud:https://api.example.test/billing", .. extraPermissions],
             requirements = Array.Empty<string>(), redirectUris = Array.Empty<string>(), postLogoutRedirectUris = Array.Empty<string>()
         });
         Assert.True(created.IsSuccessStatusCode, await created.Content.ReadAsStringAsync());
@@ -237,6 +416,35 @@ public sealed class TenantOidcFlowTests(ProjectWebApplicationFactory factory)
 
     [Fact]
     public Task A_tenant_user_can_exchange_a_code_read_userinfo_and_refresh() => RunTenantFlowAsync(Factory);
+
+    /// <summary>租户停用后，它的用户拿刷新令牌换不到新令牌：带浏览器会话的 Resource 到期续期被拒，会话随之收敛。</summary>
+    [Fact]
+    public async Task A_deactivated_tenant_cannot_refresh_its_tokens()
+    {
+        using var hostAdmin = await ProjectWebApplicationFactory.LoginAsync(
+            Factory, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var tenantId = await CreateTenantAsync(hostAdmin.Client, $"stop{Guid.CreateVersion7():N}"[..16]);
+        var (clientId, clientSecret) = await CreateClientAsync(hostAdmin.Client, ApiScope);
+        using var tenantSession = await LoginTenantAdminAsync(Factory, tenantId);
+        var tokens = await AuthorizeAndExchangeAsync(Factory, tenantSession, clientId, clientSecret, ApiScope);
+        using var client = CreateHttpsClient(Factory);
+        async Task<HttpResponseMessage> RefreshAsync(string refreshToken) => await client.PostAsync("/connect/token",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken,
+                ["client_id"] = clientId, ["client_secret"] = clientSecret
+            }));
+
+        // 对照：租户在用时照常续期（刷新令牌轮换，下面用新的那个）
+        using var renewed = await RefreshAsync(tokens.RefreshToken!);
+        Assert.True(renewed.IsSuccessStatusCode, await renewed.Content.ReadAsStringAsync());
+        var latest = (await renewed.Content.ReadFromJsonAsync<TokenResponse>())!.RefreshToken!;
+        using var deactivated = await hostAdmin.Client.PutAsJsonAsync($"/api/v1/tenants/{tenantId}/activation", new { IsActive = false });
+        Assert.Equal(HttpStatusCode.OK, deactivated.StatusCode);
+
+        using var rejected = await RefreshAsync(latest);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+    }
 
     /// <summary>宿主把主体标识换成别的 claim 名：签发、换码、userinfo、资源服务判定自然人与机器主体都按它走。</summary>
     /// <remarks>令牌只签 sub 的话，换码按配置读不到用户、资源服务判不出自然人，链路在签发方自己这里就断了。</remarks>

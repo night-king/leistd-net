@@ -1,6 +1,6 @@
 # 同步模板
 
-把项目同步到新的 `Leistd.Templates` 版本，或让没有来源标记的已有项目一次性接入。合并规则与退出码以 [`scripts/sync-template.ps1`](../../../../scripts/sync-template.ps1) 的帮助（`Get-Help scripts/sync-template.ps1 -Full`）为准。
+把项目同步到新的 `Leistd.Templates` 版本，或让没有来源标记的已有项目一次性接入。合并规则与退出码以 `scripts/sync-template.ps1` 的帮助（`Get-Help scripts/sync-template.ps1 -Full`）为准。
 
 ## 同步到新版本
 

@@ -23,6 +23,7 @@ import {
   restricted,
   signIn,
 } from './support/accounts';
+import { json } from './support/http';
 
 // 名称随项目生成；拼路径而不是写成一个长字面量，换了项目名也不改变格式化结果
 const project = 'CompanyName.ProjectName';
@@ -155,17 +156,6 @@ async function seedRestrictedAccount(baseURL: string): Promise<void> {
   } finally {
     await context.dispose();
   }
-}
-
-async function json<T = unknown>(response: {
-  ok(): boolean;
-  status(): number;
-  url(): string;
-  text(): Promise<string>;
-}): Promise<T> {
-  const body = await response.text();
-  if (!response.ok()) throw new Error(`${response.status()} ${response.url()}: ${body}`);
-  return (body ? JSON.parse(body) : undefined) as T;
 }
 
 /** 请求退出并等它结束；超时后强制结束，不让清理卡住。 */

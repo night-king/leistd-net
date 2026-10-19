@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { admin, authStatePath, restricted } from './support/accounts';
 
 // 同一页面按权限显示操作：受限角色只有查看权限，看得到列表、看不到新建入口
-test.describe('administrator', () => {
+test.describe('administrator', { tag: '@auth' }, () => {
   test.use({ storageState: authStatePath(admin()) });
 
   test('can create roles', async ({ page }) => {
@@ -13,7 +13,7 @@ test.describe('administrator', () => {
   });
 });
 
-test.describe('restricted user', () => {
+test.describe('restricted user', { tag: '@auth' }, () => {
   test.use({ storageState: authStatePath(restricted()) });
 
   test('sees roles without the create action', async ({ page }) => {
