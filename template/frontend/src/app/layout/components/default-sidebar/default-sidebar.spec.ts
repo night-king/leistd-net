@@ -293,8 +293,8 @@ describe('DefaultSidebar pseudo locale', () => {
     });
   }
 });
-//#endif
 
+//#endif
 /** 折叠成图标轨时按钮原本只有 32px 见方；触屏下侧栏加宽，按钮宽高都到 44px 且整块可点。 */
 describe('DefaultSidebar touch targets', () => {
   afterEach(() => setCoarsePointer(false));
