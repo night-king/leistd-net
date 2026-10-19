@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | L0 编辑循环 | 每次小改动 | ≤ 1 分钟 | 受影响项目构建 + `dotnet test <测试项目> --filter "FullyQualifiedName~<类>"`；改了某道闸门就用 `check-all.ps1 -Only <闸门名>` 单跑它 |
 | L1 阶段完成 / 推送前 | 完整改动形成后 | 框架与模板的局部改动在工作区已预热时中位 ≤ 5 分钟 | 下表配方给出的定向检查；不为预算跳过配方里的检查 |
-| L2 PR CI | 每次推送 PR | 墙钟 ≤ 8.5 分钟 | 完整静态闸门；依据同候选验证计划执行必要框架测试、包内容/消费、登记路径命中时的 PostgreSQL/OIDC，以及 `core` 档的[增量保证](#pr-增量保证)；未知、共享或无法证明的输入退回 `full` |
+| L2 PR CI | 每次推送 PR | 墙钟 ≤ 8.5 分钟 | 完整静态闸门；依据同候选验证计划执行必要框架测试、包内容/消费、登记路径命中时的 PostgreSQL/OIDC，以及 `core` 档的[增量保证](#pr-增量保证)；未知、共享或无法证明的输入跑代表场景冒烟，不退回 `full` |
 | L3 全集 | 代码/共享输入推送、工作日夜间与实际发布；已验证基线的纯文档推送按下述责任执行 | 不设严格预算 | 同 L2，模板跑 `full` 档全部场景；发布等待同 SHA 的 L3 结果 |
 
 ### 本地验证配方
@@ -28,7 +28,7 @@ L1 按改动选择配方。仓库维护的配方只在这里维护，仓库 Skil
 
 - **闸门**：`scripts/check-all.ps1 -Only '<闸门名>,<闸门名>'` 只跑所选闸门，名称以 `-List` 的输出为准。完整的 `check-all.ps1` 由 CI 的静态作业承担；本地需要时也可整体运行，外部闸门并行执行，本机实测约 40 秒（串行约 85 秒）。
 - **随包文档**：`framework/docs/` 的改动加打包内容检查；`template/docs/` 与项目 Skill 的改动加 `test-template-matrix.ps1 -Scenarios <场景> -GenerateOnly` 的生成产物检查（文件集合、条件裁剪、文档引用与章节锚点）。影响运行契约时按上表对应的源码行执行。
-- **条件块与 `template.json`**：提交改动后运行选择器，再只生成它给出的场景。`Selection` 为 `selector` 时是 PR 会执行的场景（生成文档的条件分支也计入）；为 `full` 时说明改动无法收窄（如 `template.json` 变化），本地仍只做 `-GenerateOnly`，完整阶段交给 CI 的 full。
+- **条件块与 `template.json`**：提交改动后运行选择器，再只生成它给出的场景。`Selection` 为 `selector` 时是 PR 会执行的场景（生成文档的条件分支也计入）；为 `representative` 时改动无法收窄（如 `template.json` 变化），清单与 PR 相同，是四个代表场景加可证明的分支补选，其余场景由合入后的 full 生成；为 `full` 只出现在脏树或选择期间 HEAD 变化时，先形成提交再选择。
 
   ```powershell
   $taskBase = git merge-base origin/develop HEAD
@@ -99,7 +99,7 @@ foreach ($project in (Get-Content .tmp/local-framework-tests.json -Raw | Convert
 
 ## PR 的内部文档例外
 
-文档与代码使用 [计划器](../../scripts/plan-quality-checks.py) 的唯一输入分类，读取完整 base→候选差异；删除和跨边界移动计入两端。未知路径、空差异、force push、无法确认依赖或基准均完整验证。直接 PR 可按责任缩小；手动、定时和实际发布候选完整执行。
+文档与代码使用 [计划器](../../scripts/plan-quality-checks.py) 的唯一输入分类，读取完整 base→候选差异；删除和跨边界移动计入两端。未知路径、空差异、force push、无法确认依赖或基准时，直接 PR 跑[代表场景冒烟](#pr-增量保证)，其他触发方式完整验证。直接 PR 可按责任缩小；手动、定时和实际发布候选完整执行。
 
 | 文档输入 | 必过责任 |
 | --- | --- |
@@ -156,7 +156,7 @@ PR 墙钟中位 ≤ 510 秒、各路径总交付成本中位低于基线的目�
 
 ### 同候选输入计划
 
-选择与发布输入分类唯一实现为 `scripts/plan-quality-checks.py`。直接 PR 的完整 base→候选差异非空且全部输入都已建模时，计划收窄为 `core` 档；文档责任另取并集。场景的选择规则见[PR 增量保证](#pr-增量保证)：
+选择与发布输入分类唯一实现为 `scripts/plan-quality-checks.py`。直接 PR 的计划一律是 `core` 档：完整 base→候选差异非空且全部输入都已建模时按选择器收窄（`ScenarioSelection=selector`），否则是代表场景冒烟（`representative`）；文档责任另取并集。其他触发方式的计划都是 `full`（`all`），没有场景的文档计划记为 `none`。场景的选择规则见[PR 增量保证](#pr-增量保证)：
 
 | 输入 | Framework 测试 | 包内容/隔离消费 | 模板场景与阶段 | 形态生成 | 独立 PG/OIDC |
 | --- | --- | --- | --- | --- | --- |
@@ -164,7 +164,7 @@ PR 墙钟中位 ≤ 510 秒、各路径总交付成本中位低于基线的目�
 | 仅模板 backend/src 或 tests 的 C# | 不适用，输入未变 | 不适用，框架输入未变；同改随包文档时按文档责任执行 | 选择器给出的场景；生成/形态、audit、restore/build、真实运行时、后端单元/集成 | 执行 | 命中登记路径才执行 |
 | 前后端同改 | 不适用 | 同上 | 选择器给出的场景，完整阶段 | 执行 | 命中登记路径才执行 |
 | Framework 组件/DDD/测试项目内的文件 | 改动项目反向依赖闭包内的测试项目 | 全部内容；该包与候选 nuspec 反向传递依赖的隔离消费 | `core` 全部场景完整阶段（下游冒烟） | 不执行 | 命中登记的框架家族才执行 |
-| `template.json`、共享配置/依赖、脚本/workflow、未知输入、无效基线 | 全量 | 全部内容与全部消费 | `full` 全部场景/阶段；适用容器 | 执行 | 执行 |
+| `template.json`、共享配置/依赖、脚本/workflow、未知输入、无效基线 | 全量 | 全部内容与全部消费 | `core` 全部场景完整阶段，加可证明的条件分支补选；适用容器 | 执行 | 命中登记路径才执行；基线无法确定时执行 |
 | 手动/定时/发布 | 全量 | 全部内容与全部消费 | `full` 全部场景/阶段 | 执行 | 执行 |
 
 包内容的输入闭包不含模板源码，已证明仅改模板前端或后端时不重复核对基线已验证的包内容；候选 Framework 仍重新打包，供场景与端到端从同一候选 feed 消费。随包文档同改时取责任并集，保留包内容验证。
@@ -179,7 +179,7 @@ Framework 测试清单 `FrameworkTestProjects` 由 `framework/**/*.csproj` 的 `
 
 计划可在本地生成以检查选择结果：`python scripts/plan-quality-checks.py --tier core --event pull_request --base <完整SHA> --output .tmp/quality-plan.json`；容器适用时增加 `--container-smoke true`。这只是查看计划，按[本地不做](#本地不做)不据此在本地执行 `core` 档，复现 CI 失败只跑失败的场景。CI 给矩阵传计划自身的档位（`-Tier <计划的 Tier> -ValidationPlanPath <计划>`），`-Slice` 必须取计划中的 key；矩阵不带计划时不自动推测 base，按完整阶段执行；不能将计划与手动跳过、`-Scenarios` 或手选容器场景混用，full 运行阶段不接受裁剪计划；已验证基线的非发布文档推送仅执行登记文档责任。修改选择规则或回执时运行 `python scripts/test-quality-validation-plan.py`：它实际生成全部登记产品做前后对照，核对省略阶段的输入、改动输出都由选中场景生成，并运行选择器反例与错误回执；这是维护回归入口，不加入每日静态闸门。
 
-范围裁剪必须基于 PR base/merge-base 到 head 的完整差异及实际依赖，不用单一 `HEAD^` 代替多提交 PR。无法确定范围时全量执行；随包文档、props、lock、脚本与 workflow 都是质量输入。只有接替责任和变异证据完整时才削减组合入口的重复工作。
+范围裁剪必须基于 PR base/merge-base 到 head 的完整差异及实际依赖，不用单一 `HEAD^` 代替多提交 PR。无法确定范围时，直接 PR 跑代表场景冒烟、框架测试与消费取全集，其他触发方式全量执行；随包文档、props、lock、脚本与 workflow 都是质量输入。只有接替责任和变异证据完整时才削减组合入口的重复工作。
 
 独立 `test-template-matrix.ps1` 默认先执行 symbols、using-guards、async-boundaries 三项源码预检，再打包、生成并审计实际生成的锁文件；预检职责不由生成编译替代。同一 CI 候选的源码预检由 `docs-sync` 完整运行 `check-all.ps1` 承担，矩阵传入 `-SkipSourcePreflight` 省略重复扫描，并核对总入口仍登记了这三个预检入口。所有作业显式 checkout 相同候选 SHA；生成可与静态检查并行，必过汇总必须等待并按计划核对范围、静态、打包、Framework 测试、包消费、PostgreSQL、OIDC 与模板分片的成功或不适用，再核对本档完整回执。独立人工矩阵默认在生成前预检，不使用该 CI 开关。清单存在不能代替缺陷注入和失败传播验证。
 
@@ -189,7 +189,7 @@ Framework 测试清单 `FrameworkTestProjects` 由 `framework/**/*.csproj` 的 `
 
 | 责任 | 判据 | 汇总核对 |
 | --- | --- | --- |
-| full 全部登记场景 | 所有场景 Backend（含后端单元与集成测试）与 Runtime 为 pass；有前端的场景 Lint/Frontend/Test（Test 为前端测试）为 pass，且真实 Chromium 执行的用例数 > 0；无前端场景这三项为 not-applicable；登记 Verify 的本地身份场景另执行 Playwright 端到端且用例数 > 0；两步验证与确认身份的浏览器主路径在这批用例里，仓库不另设浏览器闭环 | `check-template-matrix-results.ps1`：回执 `BrowserTests` 取自 Vitest 汇总行，Test 为 pass 时须 > 0，否则须为 0；`E2ETests` 取自 Playwright 汇总行，本地身份场景 Verify 为 pass 时须 > 0，否则须为 0 |
+| full 全部登记场景 | 所有场景 Backend（含后端单元与集成测试）与 Runtime 为 pass；有前端的场景 Lint/Frontend/Test（Test 为前端测试）为 pass，且真实 Chromium 执行的用例数 > 0；无前端场景这三项为 not-applicable；登记 Verify 的本地身份场景另执行 Playwright 端到端且用例数 > 0；两步验证与确认身份的浏览器主路径在这批用例里，仓库不另设浏览器闭环 | `check-template-matrix-results.ps1`：回执 `BrowserTests` 取自 Vitest 汇总行，Test 为 pass 时须 > 0，否则须为 0；`E2ETests` 取自 Playwright 汇总行，是最终通过的用例数（passed 加重试后通过的 flaky，每个用例计一次），本地身份场景 Verify 为 pass 时须 > 0，否则须为 0 |
 | 两个容器场景 | `$ContainerScenarios`（`standalone-external-login`、`resource-capabilities-03`）都执行容器阶段且为 pass | 同上，`Container=pass`，缺少场景结果同样拒绝 |
 | PG 端到端、OIDC HTTP 端到端 | 作业为 success，且执行的断言数 > 0 | 作业状态；`check-quality-proof.ps1 -Kind postgresql/oidc` 核对 `e2e-proof.json` 的 `Assertions` |
 | 生成证明 | 320 个形态、768 组互不相同的原始输入映射到这 320 个形态、三种角色的等价比对、4 个 Ci 变体、全部 `verify.ps1` 变体的步骤与失败传播 | `check-quality-proof.ps1 -Kind generation` 核对四片 `generation-results.json`：同一候选与源码摘要（与检出的模板源码逐文件比对）、形态无缺号无重复、对照片各项齐全，每个形态的 `verify.ps1` 键都被对照片核对过 |
@@ -199,16 +199,16 @@ Framework 测试清单 `FrameworkTestProjects` 由 `framework/**/*.csproj` 的 `
 
 ### PR 增量保证
 
-PR 有意不承担全局覆盖，放行候选必须完整：这是责任迁移，不是等价接替。只在非代表场景出现的缺陷可能到 develop 的 full 才被发现，它们不会进入任何发布物。选择规则只在 `plan-quality-checks.py` 实现，条件求值复用 `check-template-scenario-coverage.py` 的求值器（文件级 sources/modifiers、嵌套 `#if/#elif/#else` 与 computed 符号），不另写第二套。
+PR 有意不承担全局覆盖，放行候选必须完整：这是责任迁移，不是等价接替。只在非代表场景出现的缺陷可能到 develop 的 full 才被发现，它们不会进入任何发布物。直接 PR 不再退回 `full`，模板全集不在 PR 与合入后重复执行；代表场景、打包和部分静态检查仍会在两个阶段各跑一次，夜间、手动与失败重跑另有完整执行。选择规则只在 `plan-quality-checks.py` 实现，条件求值复用 `check-template-scenario-coverage.py` 的求值器（文件级 sources/modifiers、嵌套 `#if/#elif/#else` 与 computed 符号），不另写第二套。
 
 - **场景**：`core` 与受影响产品的交集。受影响产品是 base 树和 head 树里改动文件的文件级生产场景的并集，删除和重命名计入两端。
 - **追加的最小场景集合**：每个改动文件至少生成一次；有文件级条件的文件，被裁掉的一侧也至少生成一次；被改动的每个顶层条件块，其每一臂（含嵌套块、每个 `elif` 臂，以及没有 `#else` 时的空臂）在开启侧至少生成一次。只计当前模式下阶段适用的场景（前端模式只计含前端的场景）；`core` 已满足的不再追加，其余取最少的追加场景，`core` 优先，再按登记顺序。
-- **退回 full**：`template.json` 有任何变化（含 sources、modifiers、symbols、computed）、共享构建配置、未建模或未知输入、无效基线、脏树，以及任何证明过程出错。
+- **代表场景冒烟**：`template.json` 有任何变化（含 sources、modifiers、symbols、computed）、共享构建配置、未建模或未知输入、无效基线、选择为空，以及任何证明过程出错时，计划仍是 `core` 档，`ScenarioSelection=representative`、`Mode=full`：`core` 全部场景跑完整阶段（不沿用前端/后端的阶段裁剪），适用时含容器；`template.json` 未变时追加可证明的条件分支补选；框架测试与包消费取全集，形态生成与静态闸门照常，PostgreSQL/OIDC 仍按登记路径。它只承诺代表场景冒烟，不承诺每个改动分支都被生成。代价是 CI 脚本或共享配置改坏时，可能合入 develop 后才在 full 暴露；develop 推送挂着 beta 发布，坏候选不会发布。计划验证拒绝缺少代表场景、阶段裁剪或框架/消费收窄的代表计划；脏树仍完整验证，本地先形成提交。
 - **无条件源码**（不含条件块、也没有文件级条件的文件）只保证 `core` 内的消费者。共享声明可能破坏只存在于非 `core` 场景的消费者，这类缺陷由 develop 的 full 发现，是接受的代价；夹具 `selector-shared-declaration` 写明了这一点。
 - **只改框架**：取 `core` 全部场景作为下游冒烟，不跑形态生成。
 - **PostgreSQL/OIDC**：只有改动命中计划器登记的路径（`POSTGRESQL_INPUT`：持久化、迁移、租户、DbMigrator、DataProtection 与 data、multi-tenancy、unit-of-work、DDD Infrastructure 家族，以及各家族的 `*.EntityFrameworkCore` 项目；`OIDC_INPUT`：认证、令牌、Connect、OpenIddict、开放应用、Security、会话、服务调用与租户，以及 authorization、security、service-client、multi-tenancy 家族）时才在 PR 上运行，否则计划记为不适用，由放行前的 full 承担。
 
-反例在 `scripts/test-quality-validation-plan.py`：嵌套叶子、`elif` 各臂、computed 符号与 computed 变化、被裁掉的一侧、删除与重命名、sources/modifiers/symbols 变化，每例都选中正确的场景或退回 full，并按行独立复算选择是否满足保证。develop 的 full 失败沿用 Actions 的失败通知，不另建 issue 机制。
+反例在 `scripts/test-quality-validation-plan.py`：嵌套叶子、`elif` 各臂、computed 符号与 computed 变化、被裁掉的一侧、删除与重命名、sources/modifiers/symbols 变化，每例都选中正确的场景或改跑代表场景冒烟，并按行独立复算选择是否满足保证；同一未知输入在直接 PR 上是代表场景冒烟，在各发布通道上是 full，降档后的发布计划被拒绝。develop 的 full 失败沿用 Actions 的失败通知，不另建 issue 机制。
 
 ### 成本观测
 

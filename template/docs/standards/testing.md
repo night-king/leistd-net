@@ -137,7 +137,7 @@ npm run build
 - HTTP 调用使用 mock，除非当前任务明确执行前后端集成验证。
 - 表单覆盖校验、提交、防重复操作和失败反馈。
 <!--#if (LocalIdentity)-->
-- 端到端：`npm run e2e`（Playwright），需先完成后端 Release 与前端构建；环境由 `frontend/e2e/global-setup.ts` 自建。只有登录用例走界面，其余复用接口登录的会话；按 role/label 定位，失败 trace 在 `test-results/`。按分组运行：`npx playwright test --grep @组名`。
+- 端到端：`npm run e2e`（Playwright），需先完成后端 Release 与前端构建；环境由 `frontend/e2e/global-setup.ts` 自建。只有登录用例走界面，其余复用接口登录的会话；按 role/label 定位。本地不重试，失败 trace 在 `test-results/`；CI 上失败用例最多重试两次并在首次重试时抓 trace，重试后才通过的标为 flaky，不阻断但要排查，报告与 trace 在 CI 产物里。按分组运行：`npx playwright test --grep @组名`。
 <!--#endif-->
 
 <!--#endif-->

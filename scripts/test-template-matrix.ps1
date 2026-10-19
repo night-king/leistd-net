@@ -165,37 +165,32 @@ function Invoke-ExternalCapture([string]$Command, [string[]]$Arguments, [string]
     }
 }
 
-# 与 Invoke-External 同形，输出照常逐行显示，同时从 Vitest 汇总行读出通过的前端单测用例数（解析见 test-count-summary.ps1），
-# 传 -ExpectE2E 时另从 Playwright 汇总行读出通过的端到端用例数（verify 的 frontend-e2e 步骤）。
-# 回执记录这两个数，汇总要求对应阶段为 pass 时大于 0：一次没有执行任何用例的运行也会退出 0。
-# 每种汇总行必须恰好一条（不期望端到端时必须没有）。浏览器由调用方保证是 Chromium（逐阶段传 --browsers，
+# 与 Invoke-External 同形，输出照常逐行显示，同时从 Vitest 汇总行读出通过的前端单测用例数，
+# 传 -ExpectE2E 时另从 Playwright 汇总行读出最终通过的端到端用例数（verify 的 frontend-e2e 步骤，含重试后通过的 flaky）。
+# 判据见 test-count-summary.ps1 的 Get-BrowserTestCounts：退出码非零先失败；回执记录这两个数，汇总要求对应阶段为 pass 时大于 0，
+# 一次没有执行任何用例的运行也会退出 0。浏览器由调用方保证是 Chromium（逐阶段传 --browsers，
 # verify 路径核对 angular.json）；非交互输出里 Vitest 不逐文件打印浏览器实例名，不能从输出判定浏览器。
 function Invoke-ExternalCountingBrowserTests([string]$Command, [string[]]$Arguments, [string]$WorkingDirectory = $repoRoot, [switch]$ExpectE2E) {
     Write-Host "> $Command $($Arguments -join ' ')" -ForegroundColor DarkGray
     Push-Location $WorkingDirectory
     try {
-        $summaries = [Collections.Generic.List[int]]::new()
-        $e2eSummaries = [Collections.Generic.List[int]]::new()
+        $lines = [Collections.Generic.List[string]]::new()
         & $Command @Arguments 2>&1 | ForEach-Object {
             $line = [string]$_
             Write-Host $line
-            $summary = Get-TestCountSummary $line
-            if ($summary.Kind -ceq 'vitest') { $summaries.Add($summary.Passed) }
-            if ($summary.Kind -ceq 'playwright') { $e2eSummaries.Add($summary.Passed) }
+            $lines.Add($line)
         }
         if ($LASTEXITCODE -ne 0) {
             throw "Command failed with exit code ${LASTEXITCODE}: $Command $($Arguments -join ' ')"
         }
-        if ($summaries.Count -ne 1 -or $summaries[0] -le 0) {
-            throw "Frontend tests reported no executed test count (summaries: $($summaries -join ', '))."
+        $counts = Get-BrowserTestCounts $lines.ToArray() $LASTEXITCODE $ExpectE2E.IsPresent
+        # 重试后才通过的端到端用例不阻断，但在日志与 GitHub 运行摘要里标出，报告与 trace 在本片的 e2e-report 产物里
+        if ($counts.Flaky -gt 0) {
+            $message = "$($counts.Flaky) E2E test(s) passed only after retries (flaky); see the Playwright report."
+            Write-Host "⚠️ $message" -ForegroundColor Yellow
+            if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=Flaky E2E::$message" }
         }
-        if ($ExpectE2E -and ($e2eSummaries.Count -ne 1 -or $e2eSummaries[0] -le 0)) {
-            throw "E2E tests reported no executed test count (summaries: $($e2eSummaries -join ', '))."
-        }
-        if (-not $ExpectE2E -and $e2eSummaries.Count -ne 0) {
-            throw "Unexpected E2E summary in a run without E2E tests: $($e2eSummaries -join ', ')."
-        }
-        return [PSCustomObject]@{ Browser = $summaries[0]; E2E = if ($ExpectE2E) { $e2eSummaries[0] } else { 0 } }
+        return $counts
     }
     finally {
         Pop-Location

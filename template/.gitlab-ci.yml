@@ -38,9 +38,9 @@ verify:
   script:
     - pwsh -NoProfile -File scripts/verify.ps1
 #if (LocalIdentity)
-  # 端到端测试失败时保留 Playwright 报告、trace 与 API 日志
+  # 保留 Playwright 报告、trace 与 API 日志：成功时也保留，重试后才通过的 flaky 用例据此诊断
   artifacts:
-    when: on_failure
+    when: always
     expire_in: 1 week
     paths:
       - frontend/playwright-report/

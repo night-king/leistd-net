@@ -44,7 +44,7 @@ def main():
     scenarios = planner.coverage.load_scenarios()
     core = [name for name, info in scenarios.items() if 'core' in info['Slices']]
     def core_plan(**changes):
-        value = dict(complete, Tier='core', Scenarios=core, ContainerSmoke=False, **changes)
+        value = dict(complete, Tier='core', ScenarioSelection='selector', Scenarios=core, ContainerSmoke=False, **changes)
         value['Slices'] = planner.execution_slices(scenarios, value['Scenarios'], 'core', value['Mode'], value['ContainerSmoke'])
         return value
     baseline = core_plan()
@@ -75,7 +75,7 @@ def main():
     assert content_only['Jobs']['package-consumption'] == content_only['PackageDocumentation']
     log=run('template-inputs-content-only',content_only,args.feed)
     assert 'Consumer build not applicable' in log and 'Consumers.slnx' not in log
-    documentation=dict(content_only,Mode='documentation',Scenarios=[],Slices=[],PackageDocumentation=True, Jobs={name:name in ('framework-pack','package-consumption') for name in baseline['Jobs']})
+    documentation=dict(content_only,Mode='documentation',ScenarioSelection='none',Scenarios=[],Slices=[],PackageDocumentation=True, Jobs={name:name in ('framework-pack','package-consumption') for name in baseline['Jobs']})
     log=run('documentation-without-empty-consumer-builds',documentation,args.feed)
     assert 'Consumer build not applicable' in log and 'Doc snippets compiled:' in log and 'Consumers.slnx' not in log
     proof=json.loads((ROOT/'.tmp/package-consumer/package-results.json').read_text(encoding='utf-8-sig'))

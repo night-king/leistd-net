@@ -94,7 +94,7 @@ def main():
     run('proof-plan', [sys.executable, 'scripts/plan-quality-checks.py', '--tier', 'core', '--output', str(plan_file)])
     baseline = json.loads(plan_file.read_text(encoding='utf-8'))
     documentation_plan = dict(baseline, Tier='core', Mode='documentation', FrameworkTests=False, FrameworkTestProjects=[],
-                              FrameworkTestSelection='none', ConsumerProjects=[], Scenarios=[], Slices=[], ContainerSmoke=False,
+                              FrameworkTestSelection='none', ConsumerProjects=[], ScenarioSelection='none', Scenarios=[], Slices=[], ContainerSmoke=False,
                               GeneratedDocumentation=True, PackageDocumentation=False,
                               Jobs={name:name == 'template-generation' for name in baseline['Jobs']})
     plan_file.write_text(json.dumps(documentation_plan), encoding='utf-8')
