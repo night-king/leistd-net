@@ -112,8 +112,9 @@ CONFIG_PATH = 'template/.template.config/template.json'
 JOB_NAMES = ('frontend-gates', 'framework-pack', 'package-consumption', 'template-generation',
              'template-slices', 'test', 'postgresql-e2e', 'oidc-e2e')
 INTERNAL_DOCUMENT = re.compile(r'(?:README\.md|(?:docs|\.agents|skills)/.+\.md|framework/README\.md)')
-# Repository configuration read only by GitHub services (Dependabot): no build, test or package consumes it.
-REPOSITORY_CONFIG = re.compile(r'\.github/dependabot\.yml')
+# Repository configuration read only by maintainer services (Dependabot, the root MCP servers for agents) and
+# static gates: no build, test or package consumes it. validate-skills checks the MCP pin in every docs-sync run.
+REPOSITORY_CONFIG = re.compile(r'\.github/dependabot\.yml|\.mcp\.json')
 # Template channel inputs: the generated payload and its packaging project (template-package/).
 # They publish Leistd.Templates only; the packaging project is otherwise an unknown input (full validation).
 TEMPLATE_RELEASE_INPUTS = ('template/', 'template-package/')

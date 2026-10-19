@@ -166,10 +166,11 @@ def check_existing_scopes():
             git(repo, 'reset', '--hard', base)
             append_input(repo, path)
             assert planner.needs_release(base, git(repo, 'rev-parse', 'HEAD'))[0], path
-        # Dependabot 配置只由 GitHub 服务读取：不产出包，不触发发布
-        git(repo, 'reset', '--hard', base)
-        append_input(repo, '.github/dependabot.yml')
-        assert not planner.needs_release(base, git(repo, 'rev-parse', 'HEAD'))[0], '.github/dependabot.yml'
+        # Dependabot 与根 MCP 配置只由维护者服务和静态闸门读取：不产出包，不触发发布
+        for path in ['.github/dependabot.yml', '.mcp.json']:
+            git(repo, 'reset', '--hard', base)
+            append_input(repo, path)
+            assert not planner.needs_release(base, git(repo, 'rev-parse', 'HEAD'))[0], path
         # A main-only stable tag is not an ancestor of develop.
         git(repo, 'reset', '--hard', base)
         append_input(repo, 'VERSION')
