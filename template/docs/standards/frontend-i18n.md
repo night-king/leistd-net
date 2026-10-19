@@ -40,3 +40,8 @@
 - **事件发生时的一次性文案**（toast、确认框）直接 `transloco.translate()`：语言激活前与路由进入前词条已加载，取到的总是真实文案，不需要随语言重算。要留在界面上的文案（写进 signal、随后渲染的错误说明）存键，由模板 `t` 取，否则切换语言时它停在旧语言。
 - 业务错误文案：改后端资源（见 [API 规范](./api.md#41-异常本地化)），**不在前端加**。
 - 货币/数字用 Angular `CurrencyPipe`/`DecimalPipe`。注意 **`LOCALE_ID` 是启动期注入、不随运行时语言切换自动改变**；如需格式也跟随切换，需自行传 locale 参数或重建相关视图，别假设它会自动联动。
+
+## 5. 伪语言与加语言
+
+- **伪语言**：`frontend/src/app/core/i18n/pseudo-locale.testing.ts` 由英文词条生成，只用于单测：字母换成带附加符号的同形字，连同方括号补到标签容量 max(⌈英文近似列宽 × 1.3⌉, 14 列)（CJK 记 2 列）。容量是默认测试预算，不是像素容量；来自词条的静态标签没有方括号即为写死文案。
+- **加语言**：同一改动里加前后端词条，改语言清单（`frontend/src/app/core/services/language-service.ts` 的 `SUPPORTED_LANGS`、`LANG_OPTIONS`，`app.config.ts` 的 `availableLangs`，`frontend/_mock/api/setting.ts`，后端 `SettingConstant.SupportedLanguages`），把 `scripts/check-i18n.py` 写死 en/zh-CN 的键与占位符比较扩到全部语言，用缺键、错占位符夹具证伪。比英文宽的语言可加长度门禁，上限取标签容量，句子类词条按键排除。

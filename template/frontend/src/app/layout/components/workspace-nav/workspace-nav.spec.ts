@@ -1,10 +1,15 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+//#if (IncludeLocalization)
+import { TranslocoService } from '@jsverse/transloco';
+//#endif
 import { userEvent } from 'vitest/browser';
 
 import { fitCount, WorkspaceNav } from './workspace-nav';
 //#if (IncludeLocalization)
+import enTexts from '../../../../../public/i18n/en.json';
+import { lineCount, pseudoCatalog } from '../../../core/i18n/pseudo-locale.testing';
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
 //#endif
 import { expectTouchTarget, setCoarsePointer } from '../../../shared/utils/coarse-pointer.testing';
@@ -226,3 +231,70 @@ describe('WorkspaceNav overflow', () => {
     });
   });
 });
+//#if (IncludeLocalization)
+
+/**
+ * 伪语言按标签容量放宽菜单与「更多」的文案（frontend-i18n.md §5）：放不下的项收进「更多」，
+ * 平铺的项单行、连同「更多」不超出导航区，收起的项在菜单里是完整文案。
+ */
+describe('WorkspaceNav pseudo locale', () => {
+  // 侧栏词条里的多词标签当作菜单项：来自本形态的正式词条，长度就是真实菜单的长度；
+  // 只取带空格、不以句号结尾的，有断行机会，折行才测得出来
+  const pseudo = pseudoCatalog(enTexts);
+  const labels = Object.values(pseudo.layout.sidebar).filter(
+    (value): value is string =>
+      typeof value === 'string' && value.includes(' ') && !/[.。]~*\]$/.test(value),
+  );
+  const groups = signal<MenuGroup[]>([
+    {
+      label: pseudo.layout.sidebar.groupWork,
+      items: labels.map((label, index) => ({
+        label,
+        icon: 'lucideGauge',
+        route: `/workspace/item-${index}`,
+      })),
+    },
+  ]);
+
+  it('moves what does not fit into the more menu and keeps the rest on one line', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: NavigationService, useValue: { menuGroups: groups, isItemActive: () => false } },
+        ...provideTranslocoTesting(),
+      ],
+    });
+    TestBed.inject(TranslocoService).setTranslation(pseudo, 'en');
+    const fixture = TestBed.createComponent(TestHost);
+    fixture.componentInstance.width.set(900);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await fixture.whenStable();
+    const root: HTMLElement = fixture.nativeElement;
+
+    const links = Array.from(root.querySelectorAll<HTMLElement>('nav a[hlmNavigationMenuLink]'));
+    expect(links.length).toBeGreaterThan(1);
+    expect(links.length).toBeLessThan(labels.length);
+    expect(links.map((link) => link.textContent!.trim())).toEqual(labels.slice(0, links.length));
+    for (const link of links) {
+      expect(lineCount(link), link.textContent!).toBe(1);
+    }
+
+    const more = root.querySelector<HTMLElement>('[data-testid="workspace-nav-more"]')!;
+    expect(more.textContent!.trim()).toBe(pseudo.layout.topbar.more);
+    expect(lineCount(more)).toBe(1);
+    const nav = root.querySelector('nav[hlmNavigationMenu]')!.getBoundingClientRect();
+    expect(more.getBoundingClientRect().right).toBeLessThanOrEqual(nav.right + 0.5);
+    const box = root.firstElementChild as HTMLElement;
+    expect(box.scrollWidth).toBeLessThanOrEqual(box.clientWidth);
+
+    more.click();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await fixture.whenStable();
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+    const folded = Array.from(document.querySelectorAll<HTMLElement>('[hlmDropdownMenuItem]')).map(
+      (item) => item.textContent!.trim(),
+    );
+    expect(folded).toEqual(labels.slice(links.length));
+  });
+});
+//#endif

@@ -49,6 +49,7 @@ import { HlmKbdImports } from '@spartan-ng/helm/kbd';
 //#if (LocalIdentity || IncludeNotifications)
 import { HlmSkeleton } from '@spartan-ng/helm/skeleton';
 //#endif
+import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { interval } from 'rxjs';
 
 //#if (IncludeNotifications)
@@ -70,6 +71,9 @@ import { RelativeTimeLabel } from '../../../../shared/components/relative-time-l
 //#endif
 //#if (LocalIdentity)
 import { StatusDot } from '../../../../shared/directives/status-dot';
+//#endif
+import { TruncatedTooltip } from '../../../../shared/directives/truncated-tooltip';
+//#if (LocalIdentity)
 import {
   TwoFactorStatusOutputDto,
   UserSessionOutputDto,
@@ -120,6 +124,7 @@ const DEVICE_ICONS: Record<DeviceKind, string> = {
     HlmButton,
     ...HlmCardImports,
     ...HlmKbdImports,
+    ...HlmTooltipImports,
     //#if (LocalIdentity || IncludeNotifications)
     HlmSkeleton,
     RelativeTimeLabel,
@@ -127,6 +132,7 @@ const DEVICE_ICONS: Record<DeviceKind, string> = {
     //#if (LocalIdentity)
     StatusDot,
     //#endif
+    TruncatedTooltip,
     //#if (IncludeNotifications)
     AppNumber,
     //#endif
