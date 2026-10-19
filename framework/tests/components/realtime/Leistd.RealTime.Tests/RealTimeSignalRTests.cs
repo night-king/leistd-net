@@ -58,12 +58,14 @@ public class RealTimeSignalRTests
         Assert.Contains(groups.Added, x => x.GroupName == "resource:catalog:public");
     }
 
+    // 拒绝是预期结局：以 false 告知调用方、不入组，不抛异常（SignalR 会把异常记成 Error 级的调用失败）
     [Fact]
     public async Task Subscribe_denies_forbidden_resource()
     {
-        var hub = NewHub(new DenyingAuthorizer(), out _);
+        var hub = NewHub(new DenyingAuthorizer(), out var groups);
 
-        await Assert.ThrowsAsync<HubException>(() => hub.Subscribe("private-resource"));
+        Assert.False(await hub.Subscribe("private-resource"));
+        Assert.Empty(groups.Tokens);
     }
 
     // 背板能据此在断线时提前结束组操作的等待；当前 Redis 背板不使用该令牌，见组件文档。
@@ -80,21 +82,24 @@ public class RealTimeSignalRTests
         Assert.Equal(connection.Token, Assert.Single(groups.Tokens));
     }
 
-    // 只有取消在连接已中止时降级；授权拒绝与其他故障即使发生在断线后也照常抛出。
+    // 只有取消在连接已中止时降级；授权器自身的故障与组操作故障即使发生在断线后也照常抛出。
+    // 授权拒绝不在此列：它是返回 false 的正常结果，见 Subscribe_denies_forbidden_resource。
     [Theory]
-    [InlineData("denied")]
+    [InlineData("authorizer-failure")]
     [InlineData("subscribe-failure")]
     [InlineData("unsubscribe-failure")]
     public async Task Non_cancellation_failures_propagate_even_after_the_connection_closed(string failure)
     {
         using var connection = new CancellationTokenSource();
         await connection.CancelAsync();
-        var hub = NewHub(failure == "denied" ? new DenyingAuthorizer() : new AllowAllRealTimeSubscriptionAuthorizer(), out var groups, connection.Token);
+        IRealTimeSubscriptionAuthorizer authorizer = failure == "authorizer-failure"
+            ? new FailingAuthorizer()
+            : new AllowAllRealTimeSubscriptionAuthorizer();
+        var hub = NewHub(authorizer, out var groups, connection.Token);
         groups.Failure = new InvalidOperationException("Backplane unavailable.");
 
-        if (failure == "denied") await Assert.ThrowsAsync<HubException>(() => hub.Subscribe("private-resource"));
-        else if (failure == "subscribe-failure") await Assert.ThrowsAsync<InvalidOperationException>(() => hub.Subscribe("catalog:public"));
-        else await Assert.ThrowsAsync<InvalidOperationException>(() => hub.Unsubscribe("catalog:public"));
+        if (failure == "unsubscribe-failure") await Assert.ThrowsAsync<InvalidOperationException>(() => hub.Unsubscribe("catalog:public"));
+        else await Assert.ThrowsAsync<InvalidOperationException>(() => hub.Subscribe("catalog:public"));
     }
 
     [Fact]
