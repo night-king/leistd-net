@@ -86,9 +86,12 @@ function Assert-GeneratedDocumentation([string]$ProjectRoot) {
     # 规范文件集合的唯一登记处：前端专属规范随 SpaFrontend 裁剪（template.json 的 !SpaFrontend 排除项），
     # frontend-i18n.md 另随 IncludeLocalization 裁剪（!IncludeLocalization 排除项），前端词条目录与它同进退。
     $hasFrontendI18n = Test-Path -LiteralPath (Join-Path $ProjectRoot "frontend/public/i18n")
-    $expectedStandards = @("api.md", "auth.md", "coding-backend.md", "coding-common.md", "project-structure.md",
-        "service-invocation.md", "tech-stack.md", "testing.md")
-    if ($hasFrontend) { $expectedStandards += @("coding-frontend.md", "frontend-ui.md", "frontend-spartan.md") }
+    $expectedStandards = @("api.md", "api-batch-statistics.md", "auth.md", "background-jobs.md", "coding-backend.md",
+        "coding-common.md", "project-structure.md", "service-invocation.md", "settings.md", "tech-stack.md", "testing.md")
+    if ($hasFrontend) {
+        $expectedStandards += @("coding-frontend.md", "frontend-ui.md", "frontend-lists.md", "frontend-forms.md",
+            "frontend-navigation.md", "frontend-routing.md", "frontend-data.md", "frontend-spartan.md")
+    }
     if ($hasFrontendI18n) { $expectedStandards += "frontend-i18n.md" }
     $requiredFiles += @($expectedStandards | ForEach-Object { "docs/standards/$_" })
     if (-not $hasFrontend) {

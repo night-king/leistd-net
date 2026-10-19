@@ -491,17 +491,7 @@ dotnet test framework/Leistd.Framework.slnx -c Release \
 
 ## 8. 提交前自检
 
-按变更范围选择验证入口；文档、XML、行为与包契约变更分别执行相关检查，无需每次全部运行。
-
-```bash
-dotnet build framework/Leistd.Framework.slnx -c Release          # 0 错误
-# 测试：L1 运行 plan-quality-checks.py --local-framework-tests 选出的受影响测试项目，全集留给 L3（见 quality-assurance.md）
-pwsh scripts/check-all.ps1                                       # 全部静态闸门
-pwsh framework/build/pack-local-feed.ps1                         # 本地 NuGet feed（先清空再打包，PDB 内嵌）
-pwsh framework/build/test-package-consumption.ps1                # 包内容、还原、构建与组件文档示例编译
-```
-
-测试项目的选择与执行命令见[质量规范 §框架与真实依赖](./quality-assurance.md#框架与真实依赖)，本文件不复述选择规则。
+按变更范围选择验证，配方见[质量规范的本地验证配方](./quality-assurance.md#本地验证配方)，测试项目的选择与执行命令见[§框架与真实依赖](./quality-assurance.md#框架与真实依赖)；本文件不复述。
 
 静态闸门清单只以 `pwsh scripts/check-all.ps1 -List` 的输出为准，CI 也只调它一处；新增闸门加进该脚本，本文件不跟着列。
 需要构建产物或运行环境的验证（矩阵、PostgreSQL E2E、包消费）不在其中，各有自己的入口。

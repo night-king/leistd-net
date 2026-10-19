@@ -11,6 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "candidate-feed.ps1")
 $tempRoot = Join-Path $repoRoot ".tmp"
 $feedRoot = if ($FeedPath) {
     [IO.Path]::GetFullPath($FeedPath, $repoRoot)
@@ -227,6 +228,7 @@ function Invoke-DocSnippetCompilation {
     $failSolution = Join-Path $snippetRoot "SelfTest.slnx"
     New-SnippetSolution $failSolution @($failing.Path)
     Invoke-External "dotnet" @("restore", $failSolution, "--configfile", $nugetConfigPath) $snippetRoot
+    Assert-CandidatePackages $packagesRoot $candidateFeed
     foreach ($item in $failing) {
         Write-Host "> dotnet build $($item.Path) (expected to fail)" -ForegroundColor DarkGray
         $output = (& dotnet build $item.Path -c $Configuration --no-restore 2>&1 | Out-String)
@@ -253,12 +255,18 @@ $packageFiles = @(Get-ChildItem -LiteralPath $feedRoot -File -Filter "*.nupkg")
 if ($packageFiles.Count -eq 0) {
     throw "No nupkg files were found in $feedRoot. Run dotnet pack first."
 }
+# 消费的候选版本取自 candidate.json；restore 后的断言核对每个 Leistd.* 都是这个版本、来自本包源
+$candidateFeed = Read-CandidateManifest $feedRoot
 
 $sourceProjects = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'framework') -Recurse -File -Filter 'Leistd.*.csproj' |
     Where-Object { $_.FullName -notmatch '[\\/](obj|bin|tests)[\\/]' })
 $packages = @($packageFiles | ForEach-Object { Get-PackageMetadata $_ })
 $allPackageCount = $packages.Count
 $feedPackages = $packages
+$foreignVersions = @($packages | Where-Object Version -cne $candidateFeed.CandidateVersion)
+if ($foreignVersions.Count -gt 0) {
+    throw "Package versions differ from candidate $($candidateFeed.CandidateVersion): $(($foreignVersions | ForEach-Object { "$($_.Id) $($_.Version)" }) -join ', ')"
+}
 
 # feed 里不得存在没有对应源码项目的包。持久化 feed 会保留已被删除的组件——
 # 消费它等于在验证一个仓库里已经不存在的东西，而它带来的告警（例如已删组件的
@@ -303,7 +311,7 @@ if ($ValidationPlanPath) {
     . (Join-Path $repoRoot 'scripts/template-matrix-scenarios.ps1')
     . (Join-Path $repoRoot 'scripts/quality-validation-plan.ps1')
     $declaredTier = (Get-Content -LiteralPath $ValidationPlanPath -Raw | ConvertFrom-Json).Tier
-    if ($declaredTier -cnotin @('pr', 'full')) { throw 'Invalid consumer plan tier.' }
+    if ($declaredTier -cnotin @('core', 'full')) { throw 'Invalid consumer plan tier.' }
     $validationPlan = Read-QualityValidationPlan $ValidationPlanPath $declaredTier
     if (-not $validationPlan.Jobs.'package-consumption') { throw 'Plan has no package consumer responsibility.' }
     foreach ($package in $packages) {
@@ -408,6 +416,7 @@ foreach ($package in $packages | Sort-Object Id) {
 $solutionPath = Join-Path $consumerRoot "Consumers.slnx"
 $solution.Save($solutionPath)
 Invoke-External "dotnet" @("restore", $solutionPath, "--configfile", $nugetConfigPath) $consumerRoot
+Assert-CandidatePackages $packagesRoot $candidateFeed
 # Bound parallel compilation on small runners; any project failure fails the batch.
 Invoke-External "dotnet" @("build", $solutionPath, "-c", $Configuration, "--no-restore", "-maxcpucount:4") $consumerRoot
 

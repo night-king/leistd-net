@@ -17,14 +17,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--generation-root', type=Path, required=True)
+    parser.add_argument('--generation-root', type=Path, required=True,
+                        help='Directory holding the four generation shard roots 0, 1, 2 and control')
     parser.add_argument('--frontend-tools', type=Path, required=True)
     parser.add_argument('--feed', type=Path)
     args = parser.parse_args()
     output = ROOT / '.tmp/documentation-mutations'
     output.mkdir(parents=True, exist_ok=True)
     project = output / 'project'
-    source = args.generation_root.resolve() / 'generated/0'
+    shards = ['0', '1', '2', 'control']
+    roots = {shard: args.generation_root.resolve() / shard for shard in shards}
+    source = roots['0'] / 'generated/0'
     projects_file = output / 'projects.json'
     projects_file.write_text(json.dumps([str(project)]), encoding='utf-8')
     def reset():
@@ -88,28 +91,46 @@ def main():
     document.write_text(text[:heading] + ''.join(lines), encoding='utf-8')
     run('markdown-only-spartan-registry-defect', gate, False)
     plan_file = output / 'quality-plan.json'
-    run('proof-plan', [sys.executable, 'scripts/plan-quality-checks.py', '--tier', 'pr', '--output', str(plan_file)])
+    run('proof-plan', [sys.executable, 'scripts/plan-quality-checks.py', '--tier', 'core', '--output', str(plan_file)])
     baseline = json.loads(plan_file.read_text(encoding='utf-8'))
-    documentation_plan = dict(baseline, Mode='documentation', FrameworkTests=False, FrameworkTestProjects=[],
+    documentation_plan = dict(baseline, Tier='core', Mode='documentation', FrameworkTests=False, FrameworkTestProjects=[],
                               FrameworkTestSelection='none', ConsumerProjects=[], Scenarios=[], Slices=[], ContainerSmoke=False,
                               GeneratedDocumentation=True, PackageDocumentation=False,
                               Jobs={name:name == 'template-generation' for name in baseline['Jobs']})
-    proof = json.loads((args.generation_root / 'documentation-results.json').read_text(encoding='utf-8'))
     plan_file.write_text(json.dumps(documentation_plan), encoding='utf-8')
-    proofs = output / 'proofs'; proofs.mkdir(exist_ok=True)
-    proof_file = proofs / 'proof.json'
+    proofs = output / 'proofs'
+    receipts = {shard: json.loads((roots[shard] / 'documentation-results.json').read_text(encoding='utf-8')) for shard in shards}
+    def write_proofs(values):
+        if proofs.exists(): shutil.rmtree(proofs)
+        for index, value in enumerate(values):
+            (proofs / f'generated-documentation-proof-{index}').mkdir(parents=True)
+            (proofs / f'generated-documentation-proof-{index}' / 'documentation-results.json').write_text(json.dumps(value), encoding='utf-8')
+    def mutated(shard, field, value):
+        values = json.loads(json.dumps(receipts))
+        if value is None: values[shard].pop(field)
+        else: values[shard][field] = value
+        return list(values.values())
     checker = ['pwsh', 'scripts/check-quality-proof.ps1', '-ValidationPlanPath', str(plan_file), '-Kind', 'documentation', '-ResultsPath', str(proofs)]
-    proof_file.write_text(json.dumps(proof), encoding='utf-8'); run('documentation-proof-valid', checker)
-    for field, value in [('CandidateSha', 'a' * 40), ('Version', 2), ('Result', 'cancelled'), ('Result', 'failure'),
-                         ('EffectiveShapes', 0), ('CiVariants', 0), ('Projects', 0), ('MarkdownFiles', 0), ('Skills', 0),
-                         ('FrontendMarkdownFiles', 0), ('FormattedContents', 0)]:
-        invalid = dict(proof); invalid[field] = value
-        proof_file.write_text(json.dumps(invalid), encoding='utf-8')
-        run('invalid-proof-' + field + '-' + str(value), checker, False)
-    proof_file.unlink(); run('missing-proof', checker, False)
-    proof_file.write_text(json.dumps(proof), encoding='utf-8')
-    duplicate = proofs / 'duplicate.json'; duplicate.write_text(json.dumps(proof), encoding='utf-8')
-    run('duplicate-proof', checker, False); duplicate.unlink()
+    write_proofs(receipts.values()); run('documentation-proof-valid', checker)
+    for shard, field, value in [('control', 'CandidateSha', 'a' * 40), ('0', 'Version', 2), ('1', 'Result', 'cancelled'), ('2', 'Result', 'failure'),
+                                ('control', 'EffectiveShapes', 0), ('control', 'CiVariants', 3), ('0', 'CiVariants', 1), ('1', 'Projects', 0),
+                                ('2', 'MarkdownFiles', 0), ('control', 'Skills', 0), ('0', 'FrontendMarkdownFiles', 0), ('1', 'FormattedContents', 0),
+                                ('2', 'ShapeIndexes', []), ('control', 'ShapeIndexes', [0]), ('0', 'Shard', '1'), ('1', 'Shard', None)]:
+        write_proofs(mutated(shard, field, value))
+        run(f'invalid-proof-{shard}-{field}-{value}', checker, False)
+    duplicated = json.loads(json.dumps(receipts)); duplicated['1']['ShapeIndexes'] = duplicated['1']['ShapeIndexes'][1:] + duplicated['0']['ShapeIndexes'][:1]
+    write_proofs(duplicated.values()); run('invalid-proof-duplicate-shape-index', checker, False)
+    for shard in shards:
+        write_proofs([value for name, value in receipts.items() if name != shard]); run(f'missing-proof-shard-{shard}', checker, False)
+    write_proofs([*receipts.values(), receipts['0']]); run('duplicate-proof', checker, False)
+    # The actual generation proofs of the same shards satisfy the release summary's generation check.
+    generation_proofs = output / 'generation-proofs'
+    if generation_proofs.exists(): shutil.rmtree(generation_proofs)
+    for shard in shards:
+        (generation_proofs / shard).mkdir(parents=True)
+        shutil.copy2(roots[shard] / 'generation-results.json', generation_proofs / shard / 'generation-results.json')
+    run('generation-proof-valid', ['pwsh', 'scripts/check-quality-proof.ps1', '-ValidationPlanPath', str(plan_file),
+                                   '-Kind', 'generation', '-ResultsPath', str(generation_proofs)])
     if args.feed:
         fixture = output / 'package-fixture'
         if fixture.exists(): shutil.rmtree(fixture)

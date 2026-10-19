@@ -110,15 +110,17 @@ export const next = 1;
 
 ### 3.5 标准场景矩阵
 
-场景、档位、分片及形态断言唯一维护在 `scripts/template-matrix-scenarios.ps1`。保留原有回归场景，同时覆盖最小本地身份、Resource 纯 API、单租户、日志模式、邮件关闭及通知/实时交互。PR 档覆盖全部可达条件行和有效能力两两取值；高阶交互由关键场景与真实端到端补齐，full 档执行全部登记场景。
+场景、档位、分片及形态断言唯一维护在 `scripts/template-matrix-scenarios.ps1`。保留原有回归场景，同时覆盖最小本地身份、Resource 纯 API、单租户、日志模式、邮件关闭及通知/实时交互。
 
-登记 `Verify` 的场景（有/无前端、开/关本地化、三种 `Ci`）在完整阶段直接运行生成项目的 `verify.ps1` 完成构建与测试，矩阵补运行时冒烟、spec 发现范围与产物断言；其余场景与按前后端拆分的阶段由矩阵逐步执行，因为 `verify` 不提供子集开关。每个场景都核对 `verify -List` 与矩阵阶段一致，两处步骤不会漂移。`verify` 含生产依赖审计（`npm audit --omit=dev --audit-level=high --package-lock-only`，有限重试，与矩阵同口径，无前端形态不生成该步），走 `verify` 的场景不再由矩阵重复审计；测试诊断闸门在每个场景的生成检查中执行，不论是否走 `verify`。
+档位与覆盖口径：`full` 档执行全部登记场景，登记场景覆盖全部可达条件行和有效能力两两取值（`check-template-scenario-coverage.py` 在 `full` 上判定），高阶交互由关键场景与真实端到端补齐；它在合入后、夜间与每次放行前运行。`core` 档是 PR 的代表场景，PR 只保证改动文件的 `core` 消费者，以及被改条件块的每一臂、条件文件被裁掉的一侧各生成一次（规则见[PR 增量保证](../framework/quality-assurance.md#pr-增量保证)）。因此改共享声明时，只存在于非 `core` 场景的消费者要到 develop 的 `full` 才验证；修改条件块或 `template.json` 前，按[本地验证配方](../framework/quality-assurance.md#本地验证配方)用选择器算出场景做 `-GenerateOnly`。
 
-能力参数原始输入共 768 组，有效形态共 320 组。`test-template-generation.py` 以默认 `Ci` 实际生成全部有效形态，另以有无前端两类形态核对 `Ci` 三种取值只改变 CI 文件集合及描述它们的文档，并在每种 `verify.ps1` 产物上核对步骤清单与失败即停；检查资产、JSON、项目结构、迁移与依赖不变量，并以实际生成结果验证角色无效参数的代表性内容等价。随机 UserSecretsId 是唯一排除的非确定性字段。轻量生成不能替代矩阵编译、数据库运行或浏览器验证。
+登记 `Verify` 的场景（有/无前端、开/关本地化、三种 `Ci`）在完整阶段直接运行生成项目的 `verify.ps1` 完成构建与测试，矩阵补运行时冒烟、spec 发现范围与产物断言；其余场景与按前后端拆分的阶段由矩阵逐步执行。`verify -Fast` 是生成项目的本地快速检查（静态脚本、构建、单元测试与 lint），矩阵只用默认模式。每个场景都核对 `verify -List` 的两种模式：默认模式与矩阵阶段一致，`-Fast` 恰好是其中静态检查、还原与构建、单元测试项目和前端 lint 组成的子序列，两处步骤不会漂移。`verify` 含生产依赖审计（`npm audit --omit=dev --audit-level=high --package-lock-only`，有限重试，与矩阵同口径，无前端形态不生成该步），走 `verify` 的场景不再由矩阵重复审计；测试诊断闸门在每个场景的生成检查中执行，不论是否走 `verify`。
+
+能力参数原始输入共 768 组，有效形态共 320 组。`test-template-generation.py` 分四片运行（`--shard 0|1|2|control`）：三片按序号取模以默认 `Ci` 实际生成全部有效形态，对照片以有无前端两类形态核对 `Ci` 三种取值只改变 CI 文件集合及描述它们的文档，并在每种 `verify.ps1` 产物上核对步骤清单与失败即停；检查资产、JSON、项目结构、迁移与依赖不变量，并以实际生成结果验证角色无效参数的代表性内容等价。随机 UserSecretsId 是唯一排除的非确定性字段。轻量生成不能替代矩阵编译、数据库运行或浏览器验证。
 
 生成检查还验证 TypeScript 相对模块与组件模板/样式资产闭包，防止文件已裁掉但调用方仍引用。词条源码可用模板条件指令包住可选键；源码检查只识别这些指令并校验完整词条集合，不接受普通 JSON 注释或非法内容。全部有效形态的实际词条产物必须是严格 JSON，en/zh 键和占位符逐形态一致；条件结构与符号由独立源码闸门验证。
 
-Standalone 场景专门检验条件独立性：`identity` 与 `resource` 里 `LocalIdentity` 和 `OpenIddictServer` 恰好同真同假，只有 Standalone 形态把两者分开（PR 档由 `standalone-external-login` 承担）。新增能力时不得只验证 `identity` 和 `resource`。
+Standalone 场景专门检验条件独立性：`identity` 与 `resource` 里 `LocalIdentity` 和 `OpenIddictServer` 恰好同真同假，只有 Standalone 形态把两者分开（`core` 档由 `standalone-external-login` 承担）。新增能力时不得只验证 `identity` 和 `resource`。
 
 场景断言分两类，缺一不可：`Present`/`Absent` 与 `RequiredTokens` 证明"留下的是对的那一份"，`ForbiddenTokens` 证明"不该留的没留下"。只查缺失会漏掉"两份都在"的情形。
 
@@ -141,25 +143,29 @@ Identity 形态用 `MapTenantConnections` 映射端点，Resource 形态用 `Lei
 ## 4. Skill 与规范
 
 - Skill、生成项目规范与入口文件的分工以 [三层交付与 AI 协作](../architecture/collaboration-scenarios.md#2-skill-边界) 为准。
-- `template/docs/README.md` 是生成项目唯一文档索引，含按任务读取表；改动 `template/docs/` 时同步该表，核心规范以约 10,000 字符为精简提示值，超出先删重复与冗长示例，再按独立任务主题拆分。调整规范结构或篇幅时运行 `python3 scripts/measure-template-read-cost.py --check`：它按读取表统计五类典型任务去重后的读取字符数（含项目 Skill 的 `SKILL.md` 与所需 reference），超过登记的上限即失败；有意放宽时连同理由修改上限。
-- `template/docs/standards/` 只保存工程事实，不重复 Skill 流程；不携带固定需求、规范或报告模板，不预建按需目录。
+- `template/docs/README.md` 是生成项目唯一文档索引，含按任务读取表；改动 `template/docs/` 时同步该表，核心规范以约 10,000 字符为精简提示值，超出先删重复与冗长示例，再按独立任务主题拆分。`scripts/check-all.ps1` 运行 `python3 scripts/measure-template-read-cost.py --check`：它按读取表统计五类典型任务去重后的读取字符数（含项目 Skill 的 `SKILL.md` 与所需 reference、Spartan 必读 rules），超过登记的上限即失败。拆出专题文件时同步读取表、脚本里的任务模型，以及 `scripts/generated-project-checks.ps1` 的规范文件登记（前端专题另加进 `template.json` 的 `!SpaFrontend` 排除项）；不靠少登记必读文件达标，有意放宽时连同理由修改上限。
+- `template/docs/standards/` 只保存工程事实，不重复 Skill 流程；不携带固定需求、规范或报告模板，不预建按需目录。它是生成项目的规范基线，随模板版本整体更新；项目自己的规则写入生成项目的 docs/project/（按需创建，不预建），冲突时以项目规则为准，优先级写在 `template/docs/README.md`。
 - 修改任何 Skill 时使用官方 `skill-creator` 并运行 `scripts/validate-skills.ps1`。
 - 前端 UI 走 Spartan UI：选型依据见 [`docs/architecture/frontend-ui-library.md`](../architecture/frontend-ui-library.md)，组件用法见生成项目 [前端界面规范](../../template/docs/standards/frontend-ui.md)；确认组件 API 按「`spartan` skill → 本地 `libs/ui` 源码与锁定版本 → 匹配版本的官方文档」，不臆造 Helm/Brain API。`@spartan-ng/mcp` 是仓库维护者的可选工具（根 `.mcp.json`），模板不内置。
 - 生成项目 [Spartan 维护约定](../../template/docs/standards/frontend-spartan.md) 的定制登记表由 `scripts/check-spartan-customizations.mjs` 核对，边界是组件集合：用锁定版本的 Spartan CLI 还原上游后，与上游有差异的组件集合必须等于登记表列出的组件集合；它不核对行内改动描述，改 helm 组件或升级时人工逐项核对描述与源码一致。
 
 ## 5. 本地框架联调
 
-先在仓库根目录打包，再由模板矩阵通过一次性 NuGet 配置消费：
+先在仓库根目录打包候选版本（`<VERSION 下一补丁>-local.<时间戳>`，见 [版本规范](../framework/versioning.md#候选包版本)），再在模板开发工作区里消费：
 
 ```powershell
 pwsh framework/build/pack-local-feed.ps1
-pwsh scripts/test-template-matrix.ps1 -SkipPack
+pwsh scripts/template-dev-workspace.ps1 -Scenario <场景>          # 首次：生成、restore、npm ci
+pwsh scripts/template-dev-workspace.ps1 -Scenario <场景> -Sync    # 改了模板源码或重新打包之后
 ```
 
-需要人工观看前端测试运行时，改用有头 Chromium（CI 仍默认无头的 `chromiumHeadless`）：
+工作区的同步规则、防丢改动与锁见[质量规范的模板开发工作区](../framework/quality-assurance.md#模板开发工作区)。重新打包会换候选版本，下次 `-Sync` 自动重新 restore。工作区里手工执行的 `dotnet build`/`dotnet test` 不必带 `--no-restore`：工作区的 `Directory.Build.rsp` 同时以 `-p` 与 `-restoreProperty` 传入候选版本，隐式 restore 也取到候选包。
+
+复现 CI 的矩阵失败时，用同一份包源跑失败的场景；需要人工观看前端测试运行时，改用有头 Chromium（CI 仍默认无头的 `chromiumHeadless`）：
 
 ```powershell
-pwsh scripts/test-template-matrix.ps1 -SkipPack -FrontendBrowser chromium
+pwsh scripts/test-template-matrix.ps1 -SkipPack -Scenarios <失败场景>
+pwsh scripts/test-template-matrix.ps1 -SkipPack -Scenarios <失败场景> -FrontendBrowser chromium
 ```
 
 不在仓库 `NuGet.Config` 或生成项目中固化本地源。
@@ -192,13 +198,15 @@ pwsh scripts/test-template-matrix.ps1 -SkipPack -FrontendBrowser chromium
 
 ## 10. 验证
 
-按改动选择档位与入口见[质量检查与验证分工](../framework/quality-assurance.md#分层执行与时间预算)的 L1 表；测试分层、端到端分工与 lint 缓存口径见[模板质量验证](./quality-assurance.md)。检查删除/替换必须逐项完成接替与变异验收。
+按改动选择本地验证见[质量检查与验证分工](../framework/quality-assurance.md#本地验证配方)的配方表；测试分层、端到端分工与 lint 缓存口径见[模板质量验证](./quality-assurance.md)。检查删除/替换必须逐项完成接替与变异验收。
 
 `test-template-postgresql-e2e.ps1` 在真实 PostgreSQL 上验证本地 Framework 包→Identity/Resource 生成→DbMigrator→API→Shared/Dedicated 隔离的整条链路，要求本机 Docker 与 PowerShell（psql 用容器自带的）。矩阵与该脚本默认各自打包当前 Framework 源码。
 
-每次运行使用独立的 run 目录 `.tmp/runs/<run-id>/`（`<run-id>` = PID+时间戳），其下含 `generated-template/`、`local-feed/`、`template-hive/`、`nuget-cache/` 与一次性 NuGet 配置——生成物、包源和 `globalPackagesFolder` 都不跨 run 写入，因此**多个 AI/终端可并行执行**。不得共享解包目录后再“定点清理 Leistd.*”：本地包会在版本号不变时重新 pack，清理会在另一个并发 build 期间抽走 DLL。NuGet 自身的 HTTP 缓存仍会避免重复下载。启动时只清理超过 2 小时未活动且非当前 run 的旧目录（据 `.run.lock` 判活），绝不删正在运行的 run。CI 发布目录仍使用 `framework/artifacts`。
+每次运行使用独立的 run 目录 `.tmp/runs/<run-id>/`（`<run-id>` = PID+时间戳），其下含 `generated-template/`、`local-feed/`、`template-hive/`、`nuget-cache/` 与一次性 NuGet 配置——生成物、包源和 `globalPackagesFolder` 都不跨 run 写入，因此**多个 AI/终端可并行执行**。不得共享解包目录后再“定点清理 Leistd.*”：清理会在另一个并发 build 期间抽走 DLL。生成目录上层的 `Directory.Build.rsp` 把包源 `candidate.json` 的候选版本传给生成项目（含其 `verify` 子进程）；restore 后核对每个 `Leistd.*` 都是候选版本、来自本 run 的包源，矩阵回执记录 `CandidateVersion`。NuGet 自身的 HTTP 缓存仍会避免重复下载。启动时只清理超过 2 小时未活动且非当前 run 的旧目录（据 `.run.lock` 判活），绝不删正在运行的 run。CI 发布目录仍使用 `framework/artifacts`。
 
-重复调试同一份已 pack 的本地包时可用 `-SkipPack`（读取共享的 `.tmp/local-feed`）；Framework 包内容变化后必须重新 pack，不得让旧的同版本包掩盖源码改动。
+模板开发工作区是常驻目录 `.tmp/dev/<场景>/`，不在上述清理范围：`project/` 是生成项目，旁边是工作区专用的 `nuget-packages/`（解包目录，候选版本变化时清掉旧的 `leistd.*` 再 restore）、`template-hive/`、`NuGet.Config`、`Directory.Build.rsp`、同步记录 `workspace.json`，以及判定 `.gitignore` 用的空仓库 `ignore-probe/`。工作区随工作树隔离，每个工作树由一个会话使用，不设锁。不再需要时直接删除该场景目录。
+
+重复调试同一份已 pack 的本地包时可用 `-SkipPack`（读取共享的 `.tmp/local-feed` 及其 `candidate.json`）；Framework 包内容变化后必须重新 pack，每次 pack 产生新的候选版本，旧包不会以同版本号混入。
 
 ## 11. 删除与精简
 

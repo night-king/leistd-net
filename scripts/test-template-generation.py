@@ -9,6 +9,13 @@
 
 CI 交付参数 `Ci` 不是能力：全部形态按默认值生成，有无前端两类形态另生成其余取值，核对差异只落在
 CI 薄壳与描述它的文档；每种 `scripts/verify.ps1` 产物核对步骤清单与失败即停（命令换成记录调用的替身）。
+
+证明拆成互不引用产物的四片（`--shard`）：
+- `0`/`1`/`2`：320 个有效形态按序号取模分片，逐个生成并校验，记录每个形态的摘要与 verify.ps1 键；
+- `control`：768 组原始输入映射、角色等价比较、Ci 变体与全部 verify.ps1 变体的步骤与失败传播，
+  所需的代表形态由本片自行重新生成。
+汇总（check-quality-proof.ps1 -Kind generation）核对四片同一候选与源码摘要、形态无缺号无重复、
+对照片各项证明齐全，并交叉核对代表形态摘要与每个形态的 verify.ps1 键都被对照片覆盖。
 """
 from __future__ import annotations
 
@@ -44,11 +51,34 @@ def cli_arguments(config, values):
     return args
 
 
-def normalize(content, config):
+MARKER = '.leistd/template.json'
+GUID = rb'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+
+def normalize(content, config, relative=''):
     # Only template-declared random GUID substitutions are ignored; business GUIDs remain evidence.
     for original in config.get('guids', []):
         content = re.sub(rb'(<UserSecretsId>)[^<]+(</UserSecretsId>)', rb'\1TEMPLATE-GUID\2', content)
+    if relative == MARKER:
+        # 来源标记记录原始输入：角色等价与 Ci 变体比较的是产物字节，标记的 parameters 另由 check_marker 逐项核对
+        content = re.sub(GUID, b'TEMPLATE-GUID', content)
+        content = re.sub(rb'"parameters": \{[^}]*\}', b'"parameters": "RAW-INPUT"', content)
     return content
+
+
+def check_marker(output, values, config, sdk):
+    """来源标记：源码安装的占位身份、生成名称、全部原始参数取值、各项目实际的 UserSecretsId 与生成时的 SDK。"""
+    marker = json.loads((output / MARKER).read_text(encoding='utf-8'))
+    assert marker['schemaVersion'] == 1 and marker['package'] == {'id': 'Leistd.Templates', 'version': '0.0.0-source', 'sourceSha': '0' * 40}, f'Marker package: {marker}'
+    assert marker['name'] == 'Generation.Probe' and marker['sdkVersion'] == sdk, f'Marker name/SDK: {marker}'
+    parameters = {name: values[name] for name, symbol in config['symbols'].items() if symbol.get('type') == 'parameter'}
+    assert marker['parameters'] == parameters and all(type(marker['parameters'][n]) is type(v) for n, v in parameters.items()), f'Marker parameters: {marker["parameters"]} != {parameters}'
+    secrets = {}
+    for project in output.rglob('*.csproj'):
+        found = re.search(r'<UserSecretsId>([^<]+)</UserSecretsId>', project.read_text(encoding='utf-8'))
+        if found:
+            secrets[project.relative_to(output).as_posix()] = found[1]
+    assert secrets and marker['userSecretsIds'] == secrets, f'Marker UserSecretsIds: {marker["userSecretsIds"]} != {secrets}'
 
 
 def validate_relative_modules(output, files):
@@ -407,7 +437,9 @@ public sealed class EndpointOptions { public string? Path { get; init; } }
     return 0
 
 
-VERIFY_CHECKED = set()
+# 已核对的 verify.ps1 变体：键为脚本内容与步骤清单，值写入生成证明（步骤与失败传播）
+VERIFY_CHECKED = {}
+SHAPE_SHARDS = 3
 VERIFY_LOCK = threading.Lock()
 SHIM_COMMANDS = ('dotnet', 'npm', 'python3', 'py')
 
@@ -418,7 +450,14 @@ def expected_verify_steps(values):
     steps += ['check-operation-action-i18n'] if values['SpaFrontend'] and values['IncludeOperationRecords'] else []
     steps += ['check-test-diagnostics', 'backend-restore', 'backend-build', 'backend-test:Generation.Probe.UnitTests', 'backend-test:Generation.Probe.IntegrationTests']
     steps += ['frontend-audit', 'frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build'] if values['SpaFrontend'] else []
+    steps += ['frontend-e2e'] if values['LocalIdentity'] else []
     return steps
+
+
+def expected_fast_steps(values):
+    """-Fast：静态检查、还原与构建、单元测试、前端 lint；不含集成测试、依赖审计、安装、前端单测、构建与端到端。"""
+    excluded = {'backend-test:Generation.Probe.IntegrationTests', 'frontend-audit', 'frontend-install', 'frontend-test', 'frontend-build', 'frontend-e2e'}
+    return [step for step in expected_verify_steps(values) if step not in excluded]
 
 
 def check_gitlab_ci(text):
@@ -441,14 +480,22 @@ def check_gitlab_ci(text):
     assert job['script'] == ['pwsh -NoProfile -File scripts/verify.ps1'], f'GitLab CI script: {job["script"]}'
 
 
+def verify_key(output, values):
+    """verify.ps1 变体的身份：脚本内容摘要与预期步骤清单（形态片记录，对照片据此证明已覆盖）。"""
+    script = output / 'scripts/verify.ps1'
+    return {'Script': hashlib.sha256(script.read_bytes()).hexdigest(), 'Steps': expected_verify_steps(values)}
+
+
 def check_verify_script(output, values):
-    """scripts/verify.ps1：步骤清单符合启用的能力；注入失败时以该步退出码退出，后续步骤不执行。
+    """scripts/verify.ps1：两种模式的步骤清单符合启用的能力；注入失败时以该步退出码退出，后续步骤不执行；
+    -Fast 恰好执行它列出的步骤，有前端而缺 node_modules 时不执行任何步骤即失败。
 
     命令换成记录调用的替身（PATH 最前），判据只看实际被调用的命令序列与退出码。
     同一脚本内容与相同相关取值只核对一次。
     """
     script = output / 'scripts/verify.ps1'
     expected = expected_verify_steps(values)
+    expected_fast = expected_fast_steps(values)
     key = (hashlib.sha256(script.read_bytes()).hexdigest(), tuple(expected))
     with VERIFY_LOCK:
         if key in VERIFY_CHECKED:
@@ -457,8 +504,13 @@ def check_verify_script(output, values):
     assert pwsh, 'pwsh is required to check scripts/verify.ps1'
     listed = subprocess.run([pwsh, '-NoProfile', '-File', str(script), '-List'], capture_output=True, text=True, encoding='utf-8', errors='replace')
     assert listed.returncode == 0, f'verify -List failed: {listed.stdout}{listed.stderr}'
-    rows = [line.split('\t') for line in listed.stdout.splitlines() if line.strip()]
+    listed_rows = [line.split('\t') for line in listed.stdout.splitlines() if line.strip()]
+    assert {row[0] for row in listed_rows} <= {'full', 'fast'}, f'verify -List modes: {sorted({row[0] for row in listed_rows})}'
+    rows = [row[1:] for row in listed_rows if row[0] == 'full']
+    fast_rows = [row[1:] for row in listed_rows if row[0] == 'fast']
     assert [row[0] for row in rows] == expected, f'verify steps {[row[0] for row in rows]} != {expected}'
+    assert [row[0] for row in fast_rows] == expected_fast, f'verify -Fast steps {[row[0] for row in fast_rows]} != {expected_fast}'
+    assert all(row in rows for row in fast_rows), 'verify -Fast rows must be the same steps as the full mode'
     with tempfile.TemporaryDirectory(dir=output.parent) as shim_root:
         shims = Path(shim_root)
         for name in SHIM_COMMANDS:
@@ -470,24 +522,49 @@ def check_verify_script(output, values):
                 shim.chmod(0o755)
         commands = [row[2] for row in rows]
         failing = len(commands) // 2
+        # 依赖审计步骤失败时有限重试（同一命令调用多次）；取中点时落在它上面就顺延一步，判据仍是"失败即停"
+        if rows[failing][0] == 'frontend-audit':
+            failing += 1
         log = shims / 'calls.log'
         environment = dict(os.environ, PATH=str(shims) + os.pathsep + os.environ.get('PATH', ''), SHIM_LOG=str(log), SHIM_FAIL=commands[failing])
         run = subprocess.run([pwsh, '-NoProfile', '-File', str(script)], capture_output=True, text=True, encoding='utf-8', errors='replace', env=environment)
         calls = log.read_text(encoding='utf-8').splitlines() if log.exists() else []
+        # -Fast：全部步骤成功时恰好调用列出的命令；有前端时先证明缺依赖会在任何步骤之前失败
+        fast_environment = dict(environment, SHIM_FAIL='')
+        node_modules = output / 'frontend/node_modules'
+        if values['SpaFrontend']:
+            assert not node_modules.exists(), 'generated output must not contain frontend/node_modules'
+            missing_log = log.with_name('missing.log')
+            missing = subprocess.run([pwsh, '-NoProfile', '-File', str(script), '-Fast'], capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                     env=dict(fast_environment, SHIM_LOG=str(missing_log)))
+            assert missing.returncode == 1 and 'npm ci' in missing.stdout and not missing_log.exists(), \
+                f'verify -Fast without node_modules must fail before any step: {missing.returncode} {missing.stdout}{missing.stderr}'
+            node_modules.mkdir()
+        try:
+            fast_log = log.with_name('fast.log')
+            fast = subprocess.run([pwsh, '-NoProfile', '-File', str(script), '-Fast'], capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                  env=dict(fast_environment, SHIM_LOG=str(fast_log)))
+            fast_calls = fast_log.read_text(encoding='utf-8').splitlines() if fast_log.exists() else []
+        finally:
+            if values['SpaFrontend']:
+                node_modules.rmdir()
     assert run.returncode == 7, f'verify must exit with the failing step code 7, got {run.returncode}: {run.stdout}{run.stderr}'
     assert calls == commands[:failing + 1], f'verify must stop at the failing step: ran {calls}, expected {commands[:failing + 1]}'
+    assert fast.returncode == 0, f'verify -Fast with all steps passing must succeed: {fast.stdout}{fast.stderr}'
+    assert fast_calls == [row[2] for row in fast_rows], f'verify -Fast must run exactly its listed steps: ran {fast_calls}'
     with VERIFY_LOCK:
-        VERIFY_CHECKED.add(key)
+        VERIFY_CHECKED[key] = {'Key': verify_key(output, values), 'Steps': expected, 'FailingStep': rows[failing][0],
+                               'ExitCode': run.returncode, 'Calls': len(calls)}
 
 
-def validate(output, values, config):
+def validate(output, values, config, verify=True, sdk=None):
     digests = {}
     for path in sorted(output.rglob('*')):
         if not path.is_file():
             continue
         content = path.read_bytes()
         relative = path.relative_to(output).as_posix()
-        digests[relative] = hashlib.sha256(normalize(content, config)).hexdigest()
+        digests[relative] = hashlib.sha256(normalize(content, config, relative)).hexdigest()
         if path.suffix == '.csproj':
             ElementTree.fromstring(content)
         if path.suffix in ('.cs', '.ts'):
@@ -499,6 +576,10 @@ def validate(output, values, config):
         if path.suffix in ('.cs', '.ts', '.json', '.csproj', '.html', '.mjs', '.md', '.yml', '.ps1'):
             assert not re.search(rb'^\s*(?://|<!--|/\*)?\s*#(?:if|else|endif|elif)\b', content, re.M), f'Unprocessed condition: {relative}'
     validate_relative_modules(output, digests)
+    assert MARKER in digests, 'Missing source marker'
+    for script in ('scripts/template-marker.ps1', 'scripts/sync-template.ps1'):
+        assert script in digests, f'Template sync script must ship with every shape: {script}'
+    check_marker(output, values, config, sdk)
     for relative in digests:
         if relative.startswith('frontend/public/i18n/') and relative.endswith('/en.json'):
             chinese = posixpath.join(posixpath.dirname(relative), 'zh-CN.json')
@@ -536,10 +617,15 @@ def validate(output, values, config):
             assert '\t' not in wrapper, f'CI wrapper YAML must not contain tabs: {ci_file}'
             assert 'scripts/verify.ps1' in wrapper, f'CI wrapper must call verify: {ci_file}'
             assert ('playwright' in wrapper) == values['SpaFrontend'], f'CI wrapper browser setup applicability: {ci_file}'
+            assert ('frontend/playwright-report/' in wrapper) == values['LocalIdentity'], f'CI wrapper E2E report upload applicability: {ci_file}'
     if values['Ci'] == 'gitlab':
         check_gitlab_ci((output / ci_files['gitlab']).read_text(encoding='utf-8'))
     assert not any(p.startswith('.github/') and p != ci_files['github'] for p in digests), 'Unexpected files under .github'
-    check_verify_script(output, values)
+    # 浏览器端到端随本地身份形态下发（有登录界面与可预置账号）；测试规范的命令说明同进退
+    assert ('frontend/playwright.config.ts' in digests) == values['LocalIdentity'], 'E2E project applicability'
+    assert ('npm run e2e' in testing) == values['LocalIdentity'], 'E2E command instructions applicability'
+    if verify:
+        check_verify_script(output, values)
     assert ('单实例配 `KeysPath`' in deployment) == values['SpaFrontend'], 'Browser session deployment prerequisite applicability'
     assert ('/api/v1/auth/signin' in invocation) == (values['OpenIddictServer'] or values['ResourceBrowserSession']), 'Browser relying-party instructions applicability'
     assert ('tenant-routing.read' in invocation) == values['IncludeMultiTenancy'], 'Tenant machine scope instructions applicability'
@@ -640,14 +726,33 @@ def diagnose_hive_failure(hive):
     print('Template hive failure diagnostics: ' + json.dumps(state, ensure_ascii=True), file=sys.stderr)
 
 
+def shape_digest(digest):
+    """一个生成形态的整体摘要：逐文件摘要按路径排序后再取摘要。"""
+    return hashlib.sha256(json.dumps(sorted(digest.items()), separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def verify_signature(config, values):
+    """verify.ps1 模板源在这组取值下保留哪些行：同一签名生成同一脚本，对照片每个签名核对一次。"""
+    path = 'template/scripts/verify.ps1'
+    text = (ROOT / path).read_text(encoding='utf-8')
+    matches = [(condition, model.file_conditions(relative, modifiers)) for relative, _, condition, modifiers in model.iter_sources(config, [path])]
+    assert matches, 'verify.ps1 is not a template source'
+    return tuple(any(model.generated(values, frames, condition, excludes) for condition, excludes in matches)
+                 for _, frames in model.line_contexts(text)), tuple(expected_verify_steps(values))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--workers', type=int, default=4)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--shard', choices=[*map(str, range(SHAPE_SHARDS)), 'control'],
+                        help='0..2：按序号取模的形态片；control：输入映射、角色等价、Ci 变体与 verify 检查')
     parser.add_argument('--self-test', action='store_true', help='只运行部署资产判据的夹具自检')
     args = parser.parse_args()
     if args.self_test:
         raise SystemExit(self_test())
+    if args.shard is None:
+        parser.error('--shard is required (0, 1, 2 or control)')
     assert 1 <= args.workers <= 8
     gitlab_failures = self_test_gitlab_ci()
     assert not gitlab_failures, f'GitLab 薄壳判据自检失败：{gitlab_failures}'
@@ -668,8 +773,11 @@ def main():
     root = root.resolve()
     assert root.is_relative_to((ROOT / '.tmp').resolve())
     root.mkdir(parents=True, exist_ok=True)
+    (root / 'generation-results.json').unlink(missing_ok=True)
     hive = root / 'hive'
     subprocess.run(['dotnet', 'new', 'install', str(ROOT / 'template'), '--debug:custom-hive', str(hive), '--force'], check=True, capture_output=True)
+    # 标记记录 dotnet new 所用的 SDK：与生成命令同一工作目录取版本（同一 global.json）
+    sdk = subprocess.check_output(['dotnet', '--version'], text=True, encoding='utf-8').strip()
     worker_state = threading.local()
 
     def initialize_worker():
@@ -680,7 +788,7 @@ def main():
         shutil.copytree(hive, worker_hive)
         worker_state.hive = worker_hive
 
-    def generate(item):
+    def generate(item, verify=True):
         index, values = item
         output = root / 'generated' / str(index)
         if output.exists():
@@ -691,45 +799,75 @@ def main():
             diagnose_hive_failure(active_hive)
         assert result.returncode == 0, f'{index}: {result.stdout}\n{result.stderr}'
         try:
-            digest = validate(output, values, config)
+            digest = validate(output, values, config, verify, sdk)
         except Exception as exc:
             raise AssertionError(f'{index}: {dict(zip(model.EFFECTIVE_DIMENSIONS, model.effective_shape(values)))}: {exc}') from exc
         return index, digest
 
     representatives = [group[0] for group in groups.values()]
-    with ThreadPoolExecutor(max_workers=args.workers, initializer=initialize_worker) as pool:
-        digests = dict(pool.map(generate, enumerate(representatives)))
-    comparisons = []
-    # Both sparse and all-feature endpoints of each role exercise all ignored input values.
-    for role in ('Identity', 'Standalone', 'Resource'):
-        indexes = [i for i, v in enumerate(representatives) if v['ServiceRole'] == role]
-        for index in (indexes[0], indexes[-1]):
-            group = groups[model.effective_shape(representatives[index])]
-            for variant in group[1:]:
-                variant_id = len(representatives) + len(comparisons)
-                _, digest = generate((variant_id, variant))
-                assert digest == digests[index], f'Ignored role parameter changed actual bytes: {role}/{variant_id}'
-                comparisons.append({'variant': variant_id, 'representative': index})
-    # Ci 取值只改变 CI 薄壳与描述它的文档；有无前端两类形态各比一次
-    ci_variants = []
-    ci_dependent = {'.github/workflows/ci.yml', '.gitlab-ci.yml', 'README.md', 'docs/standards/testing.md', 'docs/standards/project-structure.md'}
-    for frontend in (True, False):
-        index = next(i for i, v in enumerate(representatives) if v['SpaFrontend'] == frontend)
-        for choice in [c['choice'] for c in config['symbols']['Ci']['choices'] if c['choice'] != default_ci]:
-            variant_id = len(representatives) + len(comparisons) + len(ci_variants)
-            _, digest = generate((variant_id, dict(representatives[index], Ci=choice)))
-            changed = {path for path in digest.keys() | digests[index].keys() if digest.get(path) != digests[index].get(path)}
+    report = {'Version': 1, 'Result': 'pass', 'Shard': args.shard, 'ShapeShards': SHAPE_SHARDS,
+              'CandidateSha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, encoding='utf-8', errors='replace').strip(),
+              'TemplateSourceDigests': candidate_sources, 'EffectiveShapes': len(groups)}
+    if args.shard != 'control':
+        # 形态片：只生成序号落在本片的代表形态；verify.ps1 只记身份，执行核对归对照片
+        indexes = [i for i in range(len(representatives)) if i % SHAPE_SHARDS == int(args.shard)]
+        def generate_shape(index):
+            _, digest = generate((index, representatives[index]), verify=False)
+            output = root / 'generated' / str(index)
+            return {'Index': index, 'Effective': list(model.effective_shape(representatives[index])), 'Files': len(digest),
+                    'Digest': shape_digest(digest), 'VerifyKey': verify_key(output, representatives[index])}
+        with ThreadPoolExecutor(max_workers=args.workers, initializer=initialize_worker) as pool:
+            shapes = list(pool.map(generate_shape, indexes))
+        report['Shapes'] = shapes
+        summary = f'shard {args.shard}: {len(shapes)} generated shapes of {len(groups)}'
+    else:
+        # 对照片：自行重新生成所需的代表形态，不引用形态片的产物。先确定全部工作项与编号，再并行生成。
+        role_variants = []
+        # Both sparse and all-feature endpoints of each role exercise all ignored input values.
+        for role in ('Identity', 'Standalone', 'Resource'):
+            indexes = [i for i, v in enumerate(representatives) if v['ServiceRole'] == role]
+            for index in (indexes[0], indexes[-1]):
+                for variant in groups[model.effective_shape(representatives[index])][1:]:
+                    role_variants.append((len(representatives) + len(role_variants), variant, index, role))
+        # Ci 取值只改变 CI 薄壳与描述它的文档；有无前端两类形态各比一次
+        ci_items = []
+        for frontend in (True, False):
+            index = next(i for i, v in enumerate(representatives) if v['SpaFrontend'] == frontend)
+            for choice in [c['choice'] for c in config['symbols']['Ci']['choices'] if c['choice'] != default_ci]:
+                ci_items.append((len(representatives) + len(role_variants) + len(ci_items), dict(representatives[index], Ci=choice), index, choice))
+        # verify.ps1：每个模板级签名（保留的行与预期步骤）取一个代表形态核对步骤清单与失败传播
+        signatures = {}
+        for index, values in enumerate(representatives):
+            signatures.setdefault(verify_signature(config, values), index)
+        needed = sorted({index for _, _, index, _ in role_variants + ci_items} | set(signatures.values()))
+        with ThreadPoolExecutor(max_workers=args.workers, initializer=initialize_worker) as pool:
+            digests = dict(pool.map(lambda index: generate((index, representatives[index])), needed))
+            role_digests = dict(pool.map(lambda item: generate((item[0], item[1]), verify=False), role_variants))
+            ci_digests = dict(pool.map(lambda item: generate((item[0], item[1])), ci_items))
+        comparisons = []
+        for variant_id, _, index, role in role_variants:
+            assert role_digests[variant_id] == digests[index], f'Ignored role parameter changed actual bytes: {role}/{variant_id}'
+            comparisons.append({'variant': variant_id, 'representative': index, 'role': role, 'Digest': shape_digest(role_digests[variant_id])})
+        ci_variants = []
+        ci_dependent = {'.github/workflows/ci.yml', '.gitlab-ci.yml', 'README.md', 'docs/standards/testing.md', 'docs/standards/project-structure.md'}
+        for variant_id, _, index, choice in ci_items:
+            digest, expected = ci_digests[variant_id], digests[index]
+            changed = {path for path in digest.keys() | expected.keys() if digest.get(path) != expected.get(path)}
             assert changed - ci_dependent == set(), f'Ci={choice} changed files outside the CI wrapper: {sorted(changed - ci_dependent)}'
             ci_variants.append({'variant': variant_id, 'representative': index, 'ci': choice, 'changed': sorted(changed)})
+        # 汇总要求两者相等：多出的变体说明签名没有区分出实际不同的脚本
+        assert len(VERIFY_CHECKED) == len(signatures), f'verify.ps1 variants checked {len(VERIFY_CHECKED)} != signatures {len(signatures)}'
+        report.update({'RawInputs': len(combinations),
+                       'InputMapping': [{'input': cli_arguments(config, v), 'effective': list(model.effective_shape(v))} for v in combinations],
+                       'Representatives': [{'Index': index, 'Effective': list(model.effective_shape(representatives[index])),
+                                            'Digest': shape_digest(digest)} for index, digest in sorted(digests.items())],
+                       'EquivalenceComparisons': comparisons, 'CiVariants': ci_variants,
+                       'VerifySignatures': len(signatures), 'VerifyChecks': list(VERIFY_CHECKED.values())})
+        summary = (f'control: {len(combinations)} input mappings, {len(comparisons)} actual equivalence comparisons, '
+                   f'{len(ci_variants)} Ci variants, {len(VERIFY_CHECKED)} verify.ps1 variants for {len(signatures)} signatures')
     assert candidate_sources == source_digests(), 'Template source changed during generation; evidence does not describe one candidate.'
-    report = {'candidateSha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, encoding='utf-8', errors='replace').strip(),
-              'templateSourceDigests': candidate_sources,
-              'rawInputs': len(combinations), 'effectiveShapes': len(groups), 'equivalenceComparisons': comparisons, 'ciVariants': ci_variants,
-              'inputMapping': [{'input': cli_arguments(config, v), 'effective': list(model.effective_shape(v))} for v in combinations],
-              'digests': digests}
-    (root / 'generation-results.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
-    print(f'PASS: {len(groups)} generated shapes, {len(combinations)} input mappings, {len(comparisons)} actual equivalence comparisons, '
-          f'{len(ci_variants)} Ci variants, {len(VERIFY_CHECKED)} verify.ps1 variants: {root}')
+    (root / 'generation-results.json').write_text(json.dumps(report, indent=1), encoding='utf-8')
+    print(f'PASS: {summary}: {root}')
 
 
 if __name__ == '__main__':

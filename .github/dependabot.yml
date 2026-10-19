@@ -1,0 +1,29 @@
+# 第三方依赖的版本更新 PR（规则见 docs/framework/versioning.md「依赖更新」）。
+# Leistd.* 由本仓库统一版本发布，不由 Dependabot 更新。
+# 不含 npm：模板前端两份 package.json 与锁文件里有 //#if 条件行，不是合法 JSON，
+# Dependabot 解析不了；就地重写锁文件还会丢掉条件行。前端依赖按模板的前端依赖维护规则更新。
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directories:
+      - /framework
+      - /template/backend
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: Leistd.*
+    groups:
+      nuget-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+      nuget-major:
+        patterns: ['*']
+        update-types: [major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']

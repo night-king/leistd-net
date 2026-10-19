@@ -39,8 +39,11 @@ $problems = New-Object System.Collections.Generic.List[string]
 # 变更日志与历史设计记录必须能提到被删掉的东西，否则就没法记录"删了什么"。
 $historicalPaths = @(
     "docs/framework/versioning.md",
-    # 按需提供的升级指南允许对照旧名与当前名称。
+    # 按需提供的升级指南允许对照旧名与当前名称：框架版本的，以及已发布模板版本（template-v*）的升级说明。
+    # 模板的变更说明本身是 template-v tag 的 Release 正文，不在仓库里；豁免只到这两个升级说明目录，
+    # template/ 载荷与 docs/template/ 的其他文档照常扫描。
     "docs/framework/upgrades/",
+    "docs/template/upgrades/",
     "docs/plans/",
     "docs/assessments/"
 )
@@ -239,6 +242,12 @@ if ($SelfTest) {
         @{ Rule = "round"; Text = "Assert.Equal(expected, Compute(p1));";                           ShouldMatch = $false }
         @{ Rule = "round"; Text = "var n2 = Next(n1);";                                             ShouldMatch = $false }
         @{ Rule = "round"; Text = "// HTTP2) 与 P4-27 这类带连字符的编号不是轮次短语";              ShouldMatch = $false }
+        # 豁免路径：只有升级说明目录；模板载荷与模板维护文档照常扫描
+        @{ Rule = "historical"; Text = "docs/template/upgrades/0.2.0.md";                           ShouldMatch = $true }
+        @{ Rule = "historical"; Text = "docs/framework/upgrades/0.13.0.md";                         ShouldMatch = $true }
+        @{ Rule = "historical"; Text = "docs/template/quality-assurance.md";                        ShouldMatch = $false }
+        @{ Rule = "historical"; Text = "template/docs/upgrades/0.2.0.md";                           ShouldMatch = $false }
+        @{ Rule = "historical"; Text = "docs/template/upgrades-notes.md";                           ShouldMatch = $false }
     )
 
     $failures = New-Object System.Collections.Generic.List[string]
@@ -271,6 +280,9 @@ if ($SelfTest) {
             foreach ($pattern in $roundRecordPatterns) {
                 if ($case.Text -match $pattern) { $matched = $true; break }
             }
+        }
+        elseif ($case.Rule -eq "historical") {
+            $matched = Test-Historical $case.Text
         }
         elseif ($case.Rule -eq "roadmap") {
             foreach ($phrase in $roadmapPhrases) {

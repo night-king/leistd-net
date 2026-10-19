@@ -1,9 +1,11 @@
 # Receipts are checked against this independently supplied candidate plan.
+# Tier full: every registered scenario and responsibility (only a verified documentation push may narrow).
+# Tier core: a narrowed direct-PR plan; its exact selection is recomputed by the summary, here only its shape.
 function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
     $plan = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $head = git rev-parse HEAD
     $jobNames = @('frontend-gates', 'framework-pack', 'package-consumption', 'template-generation', 'template-slices', 'test', 'postgresql-e2e', 'oidc-e2e')
-    if ($LASTEXITCODE -ne 0 -or $plan.Version -ne 3 -or $plan.CandidateSha -cne $head -or
+    if ($LASTEXITCODE -ne 0 -or $plan.Version -ne 3 -or $plan.CandidateSha -cne $head -or $ExpectedTier -cnotin $MatrixTiers -or
         $plan.Tier -cne $ExpectedTier -or $plan.Mode -cnotin @('full', 'frontend', 'backend', 'documentation') -or
         $plan.DocsOnly -isnot [bool] -or $plan.FrameworkTests -isnot [bool] -or $plan.ContainerSmoke -isnot [bool] -or
         $plan.ReleaseRequired -isnot [bool] -or $plan.GeneratedDocumentation -isnot [bool] -or $plan.PackageDocumentation -isnot [bool] -or
@@ -14,7 +16,16 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
     foreach ($name in $jobNames) {
         if ($plan.Jobs.$name -isnot [bool]) { throw "Invalid job responsibility: $name" }
     }
-    $registered = @(Get-TierScenarios $ExpectedTier)
+    # 模板通道：Changed 表示自上一个 template-v tag 起模板输入有变化；只有 push main（stable）发布，Required 才可能为真
+    $template = $plan.TemplateRelease
+    if ($template -isnot [pscustomobject] -or $template.Changed -isnot [bool] -or $template.Required -isnot [bool] -or
+        $template.BaseTag -isnot [string] -or $template.BaseSha -isnot [string] -or $template.Reason -isnot [string] -or
+        ($template.Required -and (-not $template.Changed -or $plan.ReleaseChannel -cne 'stable' -or $plan.Event -cne 'push')) -or
+        ($template.Changed -and $plan.ReleaseChannel -cnotin @('stable', 'beta'))) {
+        throw 'Invalid template release responsibility.'
+    }
+    $core = $ExpectedTier -ceq 'core'
+    $registered = @(Get-TierScenarios 'full')
     $selected = @($plan.Scenarios)
     if ($plan.Scenarios -isnot [array] -or ($null -ne $plan.ConsumerProjects -and $plan.ConsumerProjects -isnot [array]) -or
         $selected.Count -ne @($selected | Sort-Object -Unique -CaseSensitive).Count -or
@@ -24,7 +35,8 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
         ($plan.Jobs.'package-consumption' -and -not $plan.Jobs.'framework-pack') -or
         ($plan.GeneratedDocumentation -and -not $plan.Jobs.'template-generation') -or
         ($plan.PackageDocumentation -and -not $plan.Jobs.'package-consumption')) { throw 'Invalid quality plan responsibility set.' }
-    if ($plan.ReleaseRequired -and ($plan.Mode -cne 'full' -or $plan.Tier -cne 'full' -or
+    # 发布候选的放行责任：全部作业（含 PG/OIDC，不得不适用）、全部场景、全部框架测试与两个容器场景
+    if (($plan.ReleaseRequired -or $template.Required) -and ($plan.Mode -cne 'full' -or $plan.Tier -cne 'full' -or -not $plan.ContainerSmoke -or
         $plan.FrameworkTestSelection -cne 'all' -or $null -ne $plan.ConsumerProjects -or
         $selected.Count -ne $registered.Count -or @($jobNames | Where-Object { -not $plan.Jobs.$_ }).Count -gt 0)) {
         throw 'Publication requires full candidate validation.'
@@ -36,24 +48,29 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
             $plan.Jobs.'postgresql-e2e' -or $plan.Jobs.'oidc-e2e' -or
             $plan.Jobs.'template-generation' -ne $plan.GeneratedDocumentation -or
             $plan.Jobs.'framework-pack' -ne $plan.PackageDocumentation -or
-            ($ExpectedTier -ceq 'full' -and ($plan.Event -cne 'push' -or $plan.ReleaseChannel -cnotin @('stable', 'beta') -or $plan.QualityBaseline.Verified -isnot [bool] -or -not $plan.QualityBaseline.Verified))) {
+            (-not $core -and ($plan.Event -cne 'push' -or $plan.ReleaseChannel -cnotin @('stable', 'beta') -or $plan.QualityBaseline.Verified -isnot [bool] -or -not $plan.QualityBaseline.Verified))) {
             throw 'Invalid documentation responsibilities.'
         }
+    } elseif (-not $core) {
+        # full 档的运行时计划不得收窄：全部场景、全部作业、全部框架测试与消费者
+        if ($plan.Mode -cne 'full' -or $selected.Count -ne $registered.Count -or @($jobNames | Where-Object { -not $plan.Jobs.$_ }).Count -gt 0 -or
+            $plan.FrameworkTestSelection -cne 'all' -or $null -ne $plan.ConsumerProjects) {
+            throw 'Full-tier runtime plan may not narrow validation.'
+        }
     } else {
-        if ($selected.Count -eq 0 -or @($jobNames | Where-Object { $_ -cnotin @('test', 'frontend-gates', 'package-consumption') -and -not $plan.Jobs.$_ }).Count -gt 0) {
-            throw 'Runtime modes must retain independent dynamic jobs.'
+        if ($selected.Count -eq 0 -or -not $plan.Jobs.'framework-pack') {
+            throw 'Runtime modes must retain scenarios and the candidate package.'
         }
-        if ($plan.Mode -ceq 'full' -and (-not $plan.FrameworkTests -or -not $plan.Jobs.'frontend-gates' -or -not $plan.Jobs.'package-consumption' -or
-            $selected.Count -ne $registered.Count -or ($null -ne $plan.ConsumerProjects -and @($plan.ConsumerProjects).Count -eq 0))) {
-            throw 'Full mode must retain all scenarios and framework tests.'
-        }
-        if ($plan.Mode -cin @('frontend', 'backend') -and ($plan.FrameworkTests -or $null -eq $plan.ConsumerProjects -or
-            @($plan.ConsumerProjects).Count -ne 0 -or $plan.Jobs.'package-consumption' -ne $plan.PackageDocumentation -or
-            ($plan.Mode -ceq 'frontend' -and -not $plan.Jobs.'frontend-gates'))) {
+        if (-not $plan.FrameworkTests -and ($null -eq $plan.ConsumerProjects -or @($plan.ConsumerProjects).Count -ne 0 -or
+            $plan.Jobs.'package-consumption' -ne $plan.PackageDocumentation)) {
             throw 'Invalid template-stage responsibilities.'
         }
-        if ($ExpectedTier -ceq 'full' -and ($plan.Mode -cne 'full' -or $plan.FrameworkTestSelection -cne 'all' -or
-            $null -ne $plan.ConsumerProjects)) { throw 'Full-tier runtime plan may not narrow validation.' }
+        if (($plan.Mode -cin @('frontend', 'backend') -and $plan.FrameworkTests) -or
+            ($plan.Mode -ceq 'frontend' -and -not $plan.Jobs.'frontend-gates') -or
+            ($plan.FrameworkTests -and (-not $plan.Jobs.'package-consumption' -or -not $plan.PackageDocumentation -or
+                ($null -ne $plan.ConsumerProjects -and @($plan.ConsumerProjects).Count -eq 0)))) {
+            throw 'Invalid template-stage responsibilities.'
+        }
     }
     if ($plan.FrameworkTestProjects -isnot [array] -or $plan.FrameworkTestSelection -cnotin @('all', 'affected', 'none') -or
         ($plan.FrameworkTestSelection -ceq 'none') -ne (-not $plan.FrameworkTests) -or
@@ -63,11 +80,14 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
         throw 'Invalid framework test project list.'
     }
     if ($plan.ContainerSmoke -and $plan.Mode -cne 'full') { throw 'Container checks require full stages.' }
-    $logicalGroups = @($MatrixSlices[$ExpectedTier].Keys | Where-Object {
-        $logical = $_
-        @(Get-TierScenarios $ExpectedTier $logical | Where-Object { $_ -cin $selected }).Count -gt 0
-    })
-    $count = $logicalGroups.Count
+    # 执行组：core 每个选中场景一组（按登记顺序）；full 按登记分组保留成员与顺序
+    $expectedGroups = if ($core) { @($AllScenarios | Where-Object { $_ -cin $selected } | ForEach-Object { , @($_) }) } else {
+        @($MatrixSlices.full.Keys | ForEach-Object {
+            $members = @(Get-TierScenarios 'full' $_ | Where-Object { $_ -cin $selected })
+            if ($members.Count -gt 0) { , $members }
+        })
+    }
+    $count = $expectedGroups.Count
     if ($plan.Slices -isnot [array] -or @($plan.Slices).Count -ne $count) {
         throw 'Invalid quality plan execution group count.'
     }
@@ -80,8 +100,7 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
             @($group.Scenarios | Where-Object { $_ -cnotin $selected }).Count -gt 0) {
             throw 'Invalid quality plan execution group.'
         }
-        $expectedMembers = @(Get-TierScenarios $ExpectedTier $logicalGroups[$index] | Where-Object { $_ -cin $selected })
-        if (Compare-Object $expectedMembers @($group.Scenarios) -CaseSensitive -SyncWindow 0) {
+        if (Compare-Object @($expectedGroups[$index]) @($group.Scenarios) -CaseSensitive -SyncWindow 0) {
             throw 'Quality plan must preserve registered group members and order.'
         }
         $requiredContainers = @($group.Scenarios | Where-Object { $plan.ContainerSmoke -and $_ -cin $ContainerScenarios })

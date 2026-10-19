@@ -3,9 +3,9 @@ param(
     # 不给就跑全量：全量清单是 $AllScenarios（见下），不写死在这里，
     # 否则「加了场景定义却忘了加进清单」会让新场景静默不跑——下面有断言兜住
     [string[]]$Scenarios = @(),
-    # 档位：full 为全集，pr 为 PR 档子集（归属见 template-matrix-scenarios.ps1）。不能与人工场景选择混用；
+    # 档位：full 为全集，core 为 PR 代表场景（归属见 template-matrix-scenarios.ps1）。不能与人工场景选择混用；
     # 都不给时等同 full。
-    [ValidateSet("pr", "full")]
+    [ValidateSet("core", "full")]
     [string]$Tier,
     # 人工入口使用逻辑组；传入计划时必须使用该计划的实际执行组ID。
     [string]$Slice,
@@ -34,6 +34,8 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 . (Join-Path $PSScriptRoot "generated-project-checks.ps1")
 . (Join-Path $PSScriptRoot "docker-image.ps1")
+. (Join-Path $PSScriptRoot "test-count-summary.ps1")
+. (Join-Path $repoRoot "framework/build/candidate-feed.ps1")
 $tempRoot = Join-Path $repoRoot ".tmp"
 $tempPrefix = [IO.Path]::GetFullPath($tempRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 
@@ -49,13 +51,14 @@ $runRoot = Join-Path $tempRoot (Join-Path "runs" $runId)
 $env:MSBUILDDISABLENODEREUSE = "1"
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 
-# globalPackagesFolder 必须也按 run 隔离。本地 Leistd 包在开发期间会在版本号不变时重新 pack；
-# 共享解包目录并定点清理会在并发 build 期间抽走 DLL。每个 run 独立解包，NuGet HTTP 缓存仍可复用下载内容。
+# globalPackagesFolder 必须也按 run 隔离：共享解包目录并定点清理会在并发 build 期间抽走 DLL，
+# restore 后的候选包来源断言也只对本 run 解出的包有意义。每个 run 独立解包，NuGet HTTP 缓存仍可复用下载内容。
 $packagesRoot = Join-Path $runRoot "nuget-cache"
 # 本地 Leistd 包源位置随模式而定：
 #  - 正常模式（本轮 pack）：per-run 独立目录，两个并行 run 各 pack 各的，杜绝共享目录重置竞争（发现#1）。
 #  - -SkipPack：消费预先 pack 到共享 .tmp/local-feed 的包（CI 先 `pack-local-feed.ps1` 再 -SkipPack），
 #    只读复用、并发安全。
+#  两种模式都读包源里的 candidate.json：生成项目经外层 Directory.Build.rsp 消费其中的候选版本。
 $sharedFeedRoot = if ($LocalFeedPath) { [IO.Path]::GetFullPath($LocalFeedPath, $repoRoot) } else { Join-Path $tempRoot "local-feed" }
 if ($LocalFeedPath -and -not $SkipPack) { throw "-LocalFeedPath requires -SkipPack." }
 if ($LocalFeedPath) {
@@ -162,12 +165,50 @@ function Invoke-ExternalCapture([string]$Command, [string[]]$Arguments, [string]
     }
 }
 
-function Get-ScenarioProjectName([string]$Scenario) {
-    $suffix = (($Scenario -split '-') | ForEach-Object {
-        if ($_.Length -eq 0) { return }
-        $_.Substring(0, 1).ToUpperInvariant() + $_.Substring(1)
-    }) -join ''
-    return "Matrix.$suffix"
+# 与 Invoke-External 同形，输出照常逐行显示，同时从 Vitest 汇总行读出通过的前端单测用例数（解析见 test-count-summary.ps1），
+# 传 -ExpectE2E 时另从 Playwright 汇总行读出通过的端到端用例数（verify 的 frontend-e2e 步骤）。
+# 回执记录这两个数，汇总要求对应阶段为 pass 时大于 0：一次没有执行任何用例的运行也会退出 0。
+# 每种汇总行必须恰好一条（不期望端到端时必须没有）。浏览器由调用方保证是 Chromium（逐阶段传 --browsers，
+# verify 路径核对 angular.json）；非交互输出里 Vitest 不逐文件打印浏览器实例名，不能从输出判定浏览器。
+function Invoke-ExternalCountingBrowserTests([string]$Command, [string[]]$Arguments, [string]$WorkingDirectory = $repoRoot, [switch]$ExpectE2E) {
+    Write-Host "> $Command $($Arguments -join ' ')" -ForegroundColor DarkGray
+    Push-Location $WorkingDirectory
+    try {
+        $summaries = [Collections.Generic.List[int]]::new()
+        $e2eSummaries = [Collections.Generic.List[int]]::new()
+        & $Command @Arguments 2>&1 | ForEach-Object {
+            $line = [string]$_
+            Write-Host $line
+            $summary = Get-TestCountSummary $line
+            if ($summary.Kind -ceq 'vitest') { $summaries.Add($summary.Passed) }
+            if ($summary.Kind -ceq 'playwright') { $e2eSummaries.Add($summary.Passed) }
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Command failed with exit code ${LASTEXITCODE}: $Command $($Arguments -join ' ')"
+        }
+        if ($summaries.Count -ne 1 -or $summaries[0] -le 0) {
+            throw "Frontend tests reported no executed test count (summaries: $($summaries -join ', '))."
+        }
+        if ($ExpectE2E -and ($e2eSummaries.Count -ne 1 -or $e2eSummaries[0] -le 0)) {
+            throw "E2E tests reported no executed test count (summaries: $($e2eSummaries -join ', '))."
+        }
+        if (-not $ExpectE2E -and $e2eSummaries.Count -ne 0) {
+            throw "Unexpected E2E summary in a run without E2E tests: $($e2eSummaries -join ', ')."
+        }
+        return [PSCustomObject]@{ Browser = $summaries[0]; E2E = if ($ExpectE2E) { $e2eSummaries[0] } else { 0 } }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+# verify 的前端单测不传 --browsers，浏览器来自生成项目 angular.json 的 test 目标：必须只含 Chromium 实例
+function Assert-ChromiumTestBrowsers([string]$FrontendRoot) {
+    $angular = Get-Content -LiteralPath (Join-Path $FrontendRoot 'angular.json') -Raw | ConvertFrom-Json -AsHashtable
+    $browsers = @($angular.projects.Values | ForEach-Object { $_.architect.test.options.browsers })
+    if ($browsers.Count -eq 0 -or @($browsers | Where-Object { $_ -cnotin @('chromiumHeadless', 'chromium') }).Count -gt 0) {
+        throw "Frontend unit tests must run in Chromium; angular.json test browsers: $($browsers -join ', ')."
+    }
 }
 
 # 随模板分发的 i18n 闸门与本地化同进退（template.json 的 !IncludeLocalization 排除项），
@@ -306,11 +347,16 @@ function Assert-EveryFrontendSpecDiscovered([string]$FrontendRoot) {
 }
 
 
-# 生成项目的完整回归入口 scripts/verify.ps1：步骤清单须与矩阵按产物判定的阶段一致——
+# 生成项目的完整回归入口 scripts/verify.ps1：默认模式的步骤清单须与矩阵按产物判定的阶段一致——
 # 随包闸门按脚本是否随包、测试项目按矩阵的发现范围（backend 下全部 *Tests.csproj，单元测试在前）、前端按目录是否存在。
+# -Fast 须恰好是默认模式去掉单元测试以外的测试项目、前端审计、安装、单测、构建与端到端后的子序列。
 function Assert-VerifySteps([string]$ProjectRoot) {
     $listing = @(Invoke-ExternalCapture 'pwsh' @('-NoProfile', '-File', (Join-Path $ProjectRoot 'scripts/verify.ps1'), '-List') $ProjectRoot)
-    $actual = @($listing | Where-Object { $_.Trim() } | ForEach-Object { ($_ -split "`t")[0] })
+    $rows = @($listing | Where-Object { $_.Trim() } | ForEach-Object { , ($_ -split "`t") })
+    $unknownModes = @($rows | Where-Object { $_[0] -cnotin 'full', 'fast' } | ForEach-Object { $_[0] })
+    if ($unknownModes) { throw "scripts/verify.ps1 -List has rows outside the full/fast modes: $($unknownModes -join ', ')" }
+    $actual = @($rows | Where-Object { $_[0] -ceq 'full' } | ForEach-Object { $_[1] })
+    $actualFast = @($rows | Where-Object { $_[0] -ceq 'fast' } | ForEach-Object { $_[1] })
     $expected = [Collections.Generic.List[string]]::new()
     $expected.Add('check-error-codes')
     foreach ($gate in @('check-i18n', 'check-operation-action-i18n')) {
@@ -325,13 +371,25 @@ function Assert-VerifySteps([string]$ProjectRoot) {
     if (Test-Path -LiteralPath (Join-Path $ProjectRoot 'frontend')) {
         foreach ($stage in @('frontend-audit', 'frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build')) { $expected.Add($stage) }
     }
+    # 浏览器端到端只随本地身份形态（有登录界面与可预置的账号）下发；纯 API 与 Resource 前端都没有
+    $hasE2e = Test-Path -LiteralPath (Join-Path $ProjectRoot 'frontend/playwright.config.ts')
+    $localIdentity = @(Get-ChildItem -Path (Join-Path $ProjectRoot 'backend/src/*.Api/Controllers/AuthController.cs') -ErrorAction SilentlyContinue).Count -gt 0
+    if ($hasE2e -ne $localIdentity) {
+        throw "frontend/playwright.config.ts must ship exactly with local identity (local identity: $localIdentity)."
+    }
+    if ($hasE2e) { $expected.Add('frontend-e2e') }
     if (($actual -join '|') -cne ($expected -join '|')) {
         throw "scripts/verify.ps1 steps differ from the matrix stages.`n  verify: $($actual -join ', ')`n  matrix: $($expected -join ', ')"
+    }
+    $fullOnly = @('frontend-audit', 'frontend-install', 'frontend-test', 'frontend-build', 'frontend-e2e')
+    $expectedFast = @($expected | Where-Object { $_ -notin $fullOnly -and ($_ -notlike 'backend-test:*' -or $_ -like 'backend-test:*.UnitTests') })
+    if (($actualFast -join '|') -cne ($expectedFast -join '|')) {
+        throw "scripts/verify.ps1 -Fast steps differ from the expected subset.`n  verify: $($actualFast -join ', ')`n  expected: $($expectedFast -join ', ')"
     }
 }
 
 function Assert-ScenarioShape([string]$ProjectRoot, [string]$ProjectName, [hashtable]$Definition) {
-    foreach ($relativePath in $Definition.Present) {
+    foreach ($relativePath in @($CommonScenarioShape.Present) + @($Definition.Present)) {
         $expandedPath = $relativePath.Replace('{name}', $ProjectName)
         if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot $expandedPath))) {
             throw "Scenario '$($Definition.Name)' is missing expected path: $expandedPath"
@@ -358,8 +416,9 @@ function Assert-ScenarioShape([string]$ProjectRoot, [string]$ProjectName, [hasht
 
     # RequiredTokens：指定文件必须含指定片段。用于断言"剪裁后留下的是对的那一份"，
     # 与 ForbiddenTokens（不该留的没留下）互补——只查缺失会漏掉"两份都在"的情形
-    if ($Definition.RequiredTokens) {
-        foreach ($entry in $Definition.RequiredTokens.GetEnumerator()) {
+    foreach ($requiredTokens in @($CommonScenarioShape.RequiredTokens, $Definition.RequiredTokens)) {
+        if (-not $requiredTokens) { continue }
+        foreach ($entry in $requiredTokens.GetEnumerator()) {
             $relativePath = $entry.Key.Replace("{name}", $ProjectName)
             $filePath = Join-Path $ProjectRoot $relativePath
             if (-not (Test-Path -LiteralPath $filePath)) {
@@ -367,7 +426,7 @@ function Assert-ScenarioShape([string]$ProjectRoot, [string]$ProjectName, [hasht
             }
 
             $content = Get-Content -LiteralPath $filePath -Raw -Encoding UTF8
-            foreach ($token in $entry.Value) {
+            foreach ($token in @($entry.Value | ForEach-Object { $_.Replace("{name}", $ProjectName) })) {
                 if (-not ($content -and $content.Contains($token))) {
                     throw "Scenario '$($Definition.Name)' file $relativePath is missing required token '$token'"
                 }
@@ -664,6 +723,7 @@ function Invoke-RuntimeSmoke([string]$ProjectRoot, [string]$Configuration, [stri
 
 . (Join-Path $PSScriptRoot "template-matrix-scenarios.ps1")
 . (Join-Path $PSScriptRoot "quality-validation-plan.ps1")
+. (Join-Path $PSScriptRoot ".." "template" "scripts" "template-marker.ps1")
 $validationMode = 'full'
 $validationPlan = $null
 if ($ValidationPlanPath) {
@@ -779,6 +839,10 @@ $nugetConfig = @"
     <add key="local-feed" value="$escapedFeedRoot" />
     <add key="nuget.org" value="$nugetOrg" />
   </packageSources>
+  <packageSourceMapping>
+    <packageSource key="local-feed"><package pattern="Leistd.*" /></packageSource>
+    <packageSource key="nuget.org"><package pattern="*" /></packageSource>
+  </packageSourceMapping>
 </configuration>
 "@
 [IO.File]::WriteAllText($nugetConfigPath, $nugetConfig, [Text.UTF8Encoding]::new($false))
@@ -789,14 +853,23 @@ if ($GenerateOnly) {
     # 只生成：模板从源码目录安装，不消费 Leistd 包，无需本地包源
 }
 elseif (-not $SkipPack) {
-    Reset-Directory $feedRoot
-    Invoke-External "dotnet" @("pack", "framework/Leistd.Framework.slnx", "-c", $Configuration, "-o", $feedRoot)
+    Invoke-External "pwsh" @("-NoProfile", "-File", (Join-Path $repoRoot "framework/build/pack-local-feed.ps1"), "-Configuration", $Configuration, "-OutputPath", $feedRoot)
 }
 elseif (-not (Test-Path -LiteralPath $feedRoot)) {
     throw "-SkipPack requires an existing feed at '$feedRoot'（先 `pwsh framework/build/pack-local-feed.ps1`，或省略 -SkipPack 以重新 pack）."
 }
+$candidateFeed = $null
+if (-not $GenerateOnly) {
+    $candidateFeed = Read-CandidateManifest $feedRoot
+    # 生成项目（含其 verify.ps1 起的 restore/build/test 子进程）都在 generatedRoot 之下
+    Set-CandidateVersionOverride $generatedRoot $candidateFeed.CandidateVersion
+    Write-Host "候选 Framework 包：$($candidateFeed.CandidateVersion)（SDK $($candidateFeed.Sdk)）"
+}
 
 Invoke-External "dotnet" @("new", "--debug:custom-hive", $hiveRoot, "install", $templateRoot, "--force")
+# 来源标记记录生成时的 SDK：dotnet new 与这里同在仓库根执行，按同一 global.json 选 SDK
+Push-Location $repoRoot
+try { $generationSdk = (& dotnet --version).Trim() } finally { Pop-Location }
 
 $results = [System.Collections.Generic.List[object]]::new()
 try {
@@ -811,6 +884,8 @@ try {
         Invoke-External "dotnet" $newArguments
         Assert-GeneratedProject $projectRoot
         Assert-ScenarioShape $projectRoot $projectName $definition
+        # 从模板源码目录安装：标记记录占位的包版本与源提交
+        Assert-ScenarioMarker $projectRoot $scenario $projectName '0.0.0-source' ('0' * 40) $generationSdk
         Assert-VerifySteps $projectRoot
         if ($GenerateOnly) {
             $results.Add([PSCustomObject]@{
@@ -826,9 +901,12 @@ try {
         $frontendValidated = $false
         $lintValidated = $false
         $testValidated = $false
+        $browserTests = 0
+        $e2eTests = 0
         # 登记了 Verify 的场景在完整阶段由生成项目自己的 verify.ps1 完成构建与测试，矩阵只补运行时冒烟、
         # 前端 spec 发现范围与产物断言。verify 固定 Release、无头浏览器且前后端一起跑，人工改了这些开关时回到逐阶段执行。
-        # 包源：本 run 的 NuGet.Config 放在生成目录上层，verify 的 dotnet restore 按目录层级取到它（候选 Leistd 包）。
+        # 包源与版本：本 run 的 NuGet.Config 与 Directory.Build.rsp 放在生成目录上层，verify 的 dotnet 子进程按目录层级
+        # 取到它们（候选包源与候选版本）；verify 结束后同样断言解包目录里的 Leistd 包来源。
         $useVerify = $definition.Verify -and $validationMode -ceq 'full' -and -not $SkipFrontend -and
             $Configuration -ceq 'Release' -and $FrontendBrowser -ceq 'chromiumHeadless'
         if ($definition.Verify -and -not $useVerify) {
@@ -840,7 +918,18 @@ try {
         }
         if ($useVerify) {
             $env:HUSKY = "0"
-            Invoke-External 'pwsh' @('-NoProfile', '-File', (Join-Path $projectRoot 'scripts/verify.ps1')) $projectRoot
+            # 有前端时 verify 内含一次前端单测（浏览器取 angular.json），从同一份输出读出用例数
+            if ($definition.Frontend) {
+                Assert-ChromiumTestBrowsers (Join-Path $projectRoot "frontend")
+                $counts = Invoke-ExternalCountingBrowserTests 'pwsh' @('-NoProfile', '-File', (Join-Path $projectRoot 'scripts/verify.ps1')) $projectRoot `
+                    -ExpectE2E:(Test-ScenarioE2E $scenario)
+                $browserTests = $counts.Browser
+                $e2eTests = $counts.E2E
+            }
+            else {
+                Invoke-External 'pwsh' @('-NoProfile', '-File', (Join-Path $projectRoot 'scripts/verify.ps1')) $projectRoot
+            }
+            Assert-CandidatePackages $packagesRoot $candidateFeed
             $backendValidated = $true
             if (-not $SkipRuntime) {
                 Invoke-RuntimeSmoke $projectRoot $Configuration $scenario
@@ -861,6 +950,7 @@ try {
             $solution = Get-ChildItem -LiteralPath (Join-Path $projectRoot "backend") -Filter "*.sln" | Select-Object -First 1
             # --force 重建 project.assets.json；globalPackagesFolder 是本 run 私有目录，不会命中其他 run 的同版本 Leistd 内容。
             Invoke-External "dotnet" @("restore", $solution.FullName, "--configfile", $nugetConfigPath, "--force")
+            Assert-CandidatePackages $packagesRoot $candidateFeed
             # 警告即错误：backend/.editorconfig 的风格规则以 warning 交付，生成项目的构建线是 0 警告
             Invoke-External "dotnet" @("build", $solution.FullName, "-c", $Configuration, "--no-restore", "-p:TreatWarningsAsErrors=true")
 
@@ -901,7 +991,7 @@ try {
             # 先核对"磁盘上的每个 spec 都会被发现"，再真的跑。放在前面是因为它更快（--list-tests 不构建也不执行），
             # 而且这条不通过时后面那轮绿灯是假的。
             Assert-EveryFrontendSpecDiscovered $frontendRoot
-            Invoke-External "npm" @("test", "--", "--watch=false", "--browsers=$FrontendBrowser") $frontendRoot
+            $browserTests = (Invoke-ExternalCountingBrowserTests "npm" @("test", "--", "--watch=false", "--browsers=$FrontendBrowser") $frontendRoot).Browser
             $testValidated = $true
         }
 
@@ -927,6 +1017,9 @@ try {
 </configuration>
 '@
             [IO.File]::WriteAllText((Join-Path $projectRoot "backend/NuGet.Config"), $containerNuGetConfig)
+            # 构建上下文只拷入 backend/，外层的版本覆盖进不了镜像，同样放在 backend/ 下；
+            # Dockerfile 的 dotnet publish 走隐式 restore，需要 -ImplicitRestore 让 restore 阶段也用候选版本
+            Set-CandidateVersionOverride (Join-Path $projectRoot "backend") $candidateFeed.CandidateVersion -ImplicitRestore
             $apiImage = "leistd-template-smoke-api:$runId"
             $migratorImage = "leistd-template-smoke-migrator:$runId"
             try {
@@ -952,6 +1045,8 @@ try {
             Lint = if ($lintValidated) { 'pass' } elseif ($validationMode -ceq 'backend' -or -not $definition.Frontend) { 'not-applicable' } else { 'skipped' }
             Frontend = if ($frontendValidated) { 'pass' } elseif ($validationMode -ceq 'backend' -or -not $definition.Frontend) { 'not-applicable' } else { 'skipped' }
             Test = if ($testValidated) { 'pass' } elseif ($validationMode -ceq 'backend' -or -not $definition.Frontend) { 'not-applicable' } else { 'skipped' }
+            BrowserTests = $browserTests
+            E2ETests = $e2eTests
             Container = if ($containerValidated) { "pass" } else { "skipped" }
             Verify = if ($useVerify) { 'pass' } else { 'not-run' }
             Output = [IO.Path]::GetRelativePath($repoRoot, $projectRoot)
@@ -983,7 +1078,7 @@ foreach ($receiptSlice in $receiptSlices) {
     })
     if ($sliceResults.Count -eq 0) { continue }
     $resultFile = Join-Path $runRoot "matrix-$(if ($receiptSlice) { $receiptSlice } else { 'local' }).json"
-    [PSCustomObject]@{ Version = 2; Tier = $Tier; Slice = $receiptSlice; CandidateSha = (git rev-parse HEAD); Mode = $validationMode; Results = $sliceResults } |
+    [PSCustomObject]@{ Version = 3; Tier = $Tier; Slice = $receiptSlice; CandidateSha = (git rev-parse HEAD); CandidateVersion = $candidateFeed.CandidateVersion; Mode = $validationMode; Results = $sliceResults } |
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $resultFile -Encoding utf8
     Write-Host "Receipt: $resultFile"
 }

@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 . (Join-Path $PSScriptRoot "docker-image.ps1")
+. (Join-Path $repoRoot "framework/build/candidate-feed.ps1")
 $runId = "{0}-{1}" -f $PID, (Get-Date -Format "yyyyMMddHHmmssfff")
 $runRoot = Join-Path $repoRoot ".tmp/postgresql-e2e/$runId"
 # 开发环境以外（迁移作业默认即是）Data Protection 要求显式的持久密钥位置；API 与各 DbMigrator 也必须共用
@@ -27,6 +28,8 @@ $resourceRuntimePassword = "rs$([Guid]::NewGuid().ToString('N'))"
 $apiProcess = $null
 $apiStdoutTask = $null
 $apiStderrTask = $null
+# 通过的断言数写入证明；汇总要求大于 0，不能用一次什么都没断言的运行充当端到端证据
+$passedAssertions = 0
 
 function Invoke-External([string]$Command, [string[]]$Arguments, [string]$WorkingDirectory = $repoRoot) {
     Push-Location $WorkingDirectory
@@ -100,6 +103,7 @@ function Assert-Equal([string]$Expected, [string]$Actual, [string]$Message) {
     if ($Expected -ne $Actual) {
         throw "$Message Expected '$Expected', actual '$Actual'."
     }
+    $script:passedAssertions++
 }
 
 function Invoke-Migrator([string]$Assembly, [hashtable]$Environment, [switch]$Apply) {
@@ -112,13 +116,14 @@ function Invoke-Migrator([string]$Assembly, [hashtable]$Environment, [switch]$Ap
 try {
     New-Item -ItemType Directory -Path $runRoot, $hiveRoot, $generatedRoot, $packagesRoot -Force | Out-Null
     if (-not $SkipPack) {
-        New-Item -ItemType Directory -Path $feedRoot -Force | Out-Null
-        Invoke-External "dotnet" @("pack", "framework/Leistd.Framework.slnx", "-c", $Configuration, "-o", $feedRoot)
+        Invoke-External "pwsh" @("-NoProfile", "-File", (Join-Path $repoRoot "framework/build/pack-local-feed.ps1"), "-Configuration", $Configuration, "-OutputPath", $feedRoot)
     }
     elseif (-not (Test-Path -LiteralPath $feedRoot -PathType Container) -or
             -not (Get-ChildItem -LiteralPath $feedRoot -Filter "Leistd.*.nupkg" -File)) {
         throw "-SkipPack requires Leistd.*.nupkg packages in $feedRoot."
     }
+    $candidateFeed = Read-CandidateManifest $feedRoot
+    Set-CandidateVersionOverride $generatedRoot $candidateFeed.CandidateVersion
 
     $escapedFeed = [Security.SecurityElement]::Escape($feedRoot)
     $escapedPackages = [Security.SecurityElement]::Escape($packagesRoot)
@@ -131,6 +136,10 @@ try {
     <add key="local-feed" value="$escapedFeed" />
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
   </packageSources>
+  <packageSourceMapping>
+    <packageSource key="local-feed"><package pattern="Leistd.*" /></packageSource>
+    <packageSource key="nuget.org"><package pattern="*" /></packageSource>
+  </packageSourceMapping>
 </configuration>
 "@
     [IO.File]::WriteAllText($nugetConfigPath, $nugetConfig, [Text.UTF8Encoding]::new($false))
@@ -156,6 +165,7 @@ try {
         Invoke-External "dotnet" $newArguments
         $solution = Join-Path $project.Root "backend/$($project.Name).sln"
         Invoke-External "dotnet" @("restore", $solution, "--configfile", $nugetConfigPath, "--force")
+        Assert-CandidatePackages $packagesRoot $candidateFeed
         Invoke-External "dotnet" @("build", $solution, "-c", $Configuration, "--no-restore")
     }
 
@@ -562,7 +572,11 @@ GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA "e2e-resource" TO e2e_res
         -Uri "$baseUrl/api/v1/tenant-connections/$($dedicatedTenant.id)/default?expectedVersion=$version" | Out-Null
     Assert-Equal "0" (Invoke-Postgres "leistd_shared" ('SELECT count(*) FROM "e2e-identity"."TenantConnectionRecord" WHERE "TenantId" = ''{0}'';' -f $dedicatedTenant.id)) "Removing the registration left the row behind."
 
-    Write-Host "PostgreSQL template E2E passed: package -> generate -> migrate -> API -> shared/dedicated isolation." -ForegroundColor Green
+    # 只在全部断言通过后写证明；失败路径不留证明，汇总因缺少证明而拒绝
+    [IO.File]::WriteAllText((Join-Path $runRoot "e2e-proof.json"), ([ordered]@{
+        Version = 1; CandidateSha = (git -C $repoRoot rev-parse HEAD); Result = "pass"; Assertions = $passedAssertions
+    } | ConvertTo-Json -Compress))
+    Write-Host "PostgreSQL template E2E passed ($passedAssertions assertions): package -> generate -> migrate -> API -> shared/dedicated isolation." -ForegroundColor Green
     Write-Host "Artifacts: $runRoot"
 }
 catch {

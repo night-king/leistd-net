@@ -35,9 +35,9 @@
 
 ## 分发边界
 
-`framework/docs/`（随 NuGet 包）和 `template/`（随 `dotnet new`）是对外分发载荷，只写已经成立的公共契约与生成项目事实。以下 leistd-net 仓库信息不得进入分发载荷，只留在根 `docs/`、根 `.agents/skills/` 与 Git：
+`framework/docs/`（随 NuGet 包）和 `template/`（随 `Leistd.Templates` 模板包与 `dotnet new`）是对外分发载荷，只写已经成立的公共契约与生成项目事实。已发布版本的升级契约属于公共契约：从某个已发布版本升级到另一个已发布版本时消费者必须做的事（框架包的发布说明与按需的升级指南，模板 `template-v*` 的 Release 正文与按需的升级说明，见[版本与发布规范](./framework/versioning.md#模板包发布template-通道)），按版本写明即可。以下 leistd-net 仓库信息不得进入分发载荷，只留在根 `docs/`、根 `.agents/skills/` 与 Git：
 
-- 候选方案、选型过程、实施计划、未实施方案与迁移步骤；
+- 候选方案、选型过程、实施计划、未实施方案，以及尚未发布的版本之间的迁移步骤；
 - 分支、MR、提交、任务状态、阶段报告和历史结论；
 - 仓库内部验证过程，以及 `.tmp/local-feed`、模板矩阵等仅供维护者使用的命令和路径；
 - 尚未由当前源码和验证证明的未来技术栈或迁移说明。

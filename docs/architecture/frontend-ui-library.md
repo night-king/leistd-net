@@ -12,7 +12,7 @@
 - 数据表格：`@tanstack/angular-table` headless 引擎，展示层为自有组件。
 - 支持范围：紧跟 Angular 最近两个大版本；具体允许的 Angular 版本以锁定依赖中 Spartan Brain 的 `peerDependencies` 为准。
 
-表格裁剪、列表状态、HTTP 错误反馈与表单写法等执行规则见生成项目的[前端界面规范](../../template/docs/standards/frontend-ui.md)与[前端编码规范](../../template/docs/standards/coding-frontend.md)。
+表格裁剪与列表状态、表单写法、HTTP 错误反馈等执行规则见生成项目的[前端列表与表格规范](../../template/docs/standards/frontend-lists.md)、[前端表单规范](../../template/docs/standards/frontend-forms.md)与[前端编码规范](../../template/docs/standards/coding-frontend.md)，通用界面规则见[前端界面规范](../../template/docs/standards/frontend-ui.md)。
 
 ## 依据
 

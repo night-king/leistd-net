@@ -3,8 +3,8 @@
 
 口径：模板源码（含条件标记、全部功能开启）；每类任务按 docs/README.md 的按任务读取表与
 项目 Skill 的意图路由列出应读文件，连同这些文件要求先读的伴随文件（如 Spartan Skill 的
-rules），去重后累加字符数（Python len）。篇幅调整需要人工判断，本脚本不纳入 check-all，
-调整模板文档结构或篇幅时手动运行。
+rules）与按任务内容必读的专题，去重后累加字符数（Python len）。由 check-all 以 --check 运行，
+任一任务超过登记的上限即失败；超限时先去重、删冗长示例，再按独立任务主题拆分。
 """
 from __future__ import annotations
 
@@ -35,9 +35,11 @@ REQUIRED_COMPANIONS: dict[str, list[str]] = {
     SPARTAN: spartan_rules('styling.md', 'composition.md'),
 }
 
-# 任务 → 按任务内容必读、不随某个文件自动带出的规则：样例请求涉及表单，就要读 forms.md
+# 任务 → 按任务内容必读、不随某个文件自动带出的规则与专题：样例请求涉及表单，就要读 Spartan 的
+# forms.md 与表单专题；新增列表页要读列表与表格、导航专题（新页面要落菜单分组与页面标题）
 TASK_REQUIRED: dict[str, list[str]] = {
-    'ui-change': spartan_rules('forms.md'),
+    'ui-change': spartan_rules('forms.md') + standards('frontend-forms.md'),
+    'fullstack-crud': standards('frontend-lists.md', 'frontend-navigation.md'),
 }
 
 
@@ -47,10 +49,12 @@ TASKS: dict[str, tuple[str, list[str]]] = {
                      IMPLEMENT + standards('coding-common.md', 'coding-backend.md', 'api.md', 'testing.md')),
     'fullstack-crud': ('新增上述资源并加列表页',
                        IMPLEMENT + standards('coding-common.md', 'coding-backend.md', 'api.md', 'testing.md',
-                                             'coding-frontend.md', 'frontend-ui.md')
+                                             'coding-frontend.md', 'frontend-ui.md', 'frontend-lists.md',
+                                             'frontend-navigation.md')
                        + [SPARTAN] + spartan_rules('styling.md', 'composition.md')),
     'ui-change': ('调整现有页面布局与表单',
-                  IMPLEMENT + standards('coding-common.md', 'coding-frontend.md', 'frontend-ui.md', 'testing.md')
+                  IMPLEMENT + standards('coding-common.md', 'coding-frontend.md', 'frontend-ui.md', 'frontend-forms.md',
+                                        'testing.md')
                   + [SPARTAN] + spartan_rules('styling.md', 'composition.md', 'forms.md')),
     'new-text': ('新增界面文案',
                  COMMON + [SKILL + 'references/development.md']

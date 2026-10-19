@@ -17,6 +17,7 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
 | Dockerfile、Compose、部署入口 | 实际容器配置、`template/docs/deploy/README.md` | 镜像可构建、.NET 运行时层可用；实际启动另验 |
 | 缺陷修复 | 复现所需的生成场景、相关测试 | 在生成项目中先写修复前失败的回归测试，回归测试与修复一起写回模板源后重新生成受影响场景验证 |
 | 项目 Skill 或规范 | 生成项目入口、官方 `skill-creator`、`template/docs/README.md` | Skill 校验和代表性生成结果 |
+| 模板包、参数增删、来源标记或模板同步 | `template-package/`、`template/.leistd/template.json`、[模板包与来源标记](../../../docs/template/quality-assurance.md#模板包与来源标记) | `pwsh template-package/test-template-package.ps1`：包内容、隔离安装、标记与重建零差异；改 `template/scripts/sync-template.ps1`、标记库或升级闸门时 `pwsh template-package/test-template-sync.ps1` |
 
 模板通过 `PackageReference` 消费框架；`Api` 是组合根，Application 不依赖 Infrastructure。模板源可编辑不等于交付完成，必须验证实际生成结果。
 
@@ -28,7 +29,7 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
 
 ## 对外分发边界
 
-`template/` 是 `dotnet new` 对外发布载荷，只包含生成项目运行和持续开发真正需要的内容：当前源码、配置、测试、Mock、部署资产、工程规范和项目级 Skill。哪些仓库信息不得进入分发载荷见 [`docs/README.md` 分发边界](../../../docs/README.md#分发边界)。
+`template/` 是 `Leistd.Templates` 模板包（`dotnet new`）的对外发布载荷，只包含生成项目运行和持续开发真正需要的内容：当前源码、配置、测试、Mock、部署资产、工程规范和项目级 Skill。哪些仓库信息不得进入分发载荷见 [`docs/README.md` 分发边界](../../../docs/README.md#分发边界)。
 
 `template/.agents/skills/leistd-project-workflow/` 只描述生成后业务项目自身的分析、实现、审查、测试和部署协作，不承载 leistd-net 的 Framework/Template 维护流程。
 
@@ -41,8 +42,8 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
    确有缺口就反馈到框架组件，由那一层收口。
 3. 沿用最新同类模板实现，修改源码、测试和确有长期价值的文档。
 4. 框架包内容变化或无法确认现有包对应当前源码时，打包到 `.tmp/local-feed`；否则复用已验证的包，经 NuGet 路径消费。
-5. 在 `.tmp/` 下生成受影响场景，检查占位符、条件裁剪与格式；只改文案时不重复运行无关测试。
-6. 代码或配置变化时，对生成项目执行相关还原、构建与测试。
+5. 在[模板开发工作区](../../../docs/framework/quality-assurance.md#模板开发工作区)里同步受影响场景，检查占位符、条件裁剪与格式；只改文案时不重复运行无关测试。
+6. 代码或配置变化时，按下方验证入口在工作区里验证。
 7. 权限、审计、通知、实时或数据库变化时补充对应业务闭环验证。
 
 用户要求提交时只暂存本任务文件，核对生成场景与验证结果；提交格式按 `docs/framework/versioning.md` 的相关章节执行。仓库版本交付由 `maintaining-leistd-repository` 负责；Template 维护完成不等于生成项目已部署。
@@ -51,4 +52,4 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
 
 ## 验证入口
 
-按改动选择的入口、本地场景集合与真实依赖检查见[质量规范](../../../docs/framework/quality-assurance.md#分层执行与时间预算)的 L1 表；阶段完成验证实际生成产品，矩阵失败用对应场景复现。不在每次编辑后跑全集，也不凭示例手选一个场景认证全部变化；全集由合入后的 CI 承担。未执行的场景、档位和风险必须说明。
+本地只产出定向证据，按[本地验证配方](../../../docs/framework/quality-assurance.md#本地验证配方)选择，重复验证与等待 CI 按[证据复用](../../../docs/framework/quality-assurance.md#证据复用)；多场景完整阶段与全集由 CI 承担，矩阵失败用对应场景复现。未执行的场景、档位和风险必须说明。
