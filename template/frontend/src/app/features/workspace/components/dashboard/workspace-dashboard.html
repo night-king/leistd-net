@@ -97,7 +97,8 @@
         </section>
 
         <!-- 横排卡片、标签单行：列数按卡片最小宽度（13rem）自动排，下限按图标、间距与最长的英文标签
-             （Account & security）核算，宽屏 3 + 2、手机单列（规则见 docs/standards/frontend-navigation.md §2） -->
+             （Account & security）核算，宽屏 3 + 2、手机单列；更长的语言在窄卡上截断，截断时悬停或聚焦给出全文
+             （规则见 docs/standards/frontend-navigation.md §2） -->
         <section class="flex flex-col gap-3" data-testid="workbench-shortcuts">
           <h3 class="text-sm font-semibold">{{ t('workspace.dashboard.shortcuts.title') }}</h3>
           <nav
@@ -110,6 +111,8 @@
                 size="sm"
                 class="hover:ring-foreground/20 transition-shadow"
                 [routerLink]="link.route"
+                [hlmTooltip]="t(link.label)"
+                [appTruncatedTooltip]="label"
               >
                 <div hlmCardContent class="flex min-w-0 items-center gap-3">
                   <span
@@ -117,7 +120,7 @@
                   >
                     <ng-icon [name]="link.icon" />
                   </span>
-                  <span class="truncate text-sm font-medium">{{ t(link.label) }}</span>
+                  <span #label class="truncate text-sm font-medium">{{ t(link.label) }}</span>
                 </div>
               </a>
             }

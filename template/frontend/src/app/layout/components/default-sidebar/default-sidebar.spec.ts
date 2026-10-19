@@ -4,13 +4,7 @@ import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 //#if (IncludeLocalization)
-// prettier-ignore
-import {
-  Translation,
-  //#if (IncludeRealTime)
-  TranslocoService,
-  //#endif
-} from '@jsverse/transloco';
+import { Translation, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { HlmSidebarImports, HlmSidebarService } from '@spartan-ng/helm/sidebar';
 //#if (IncludeLocalization)
@@ -18,11 +12,14 @@ import { Subject } from 'rxjs';
 //#endif
 
 import { DefaultSidebar } from './default-sidebar';
-//#if (IncludeLocalization && IncludeRealTime)
+//#if (IncludeLocalization)
 import enTexts from '../../../../../public/i18n/en.json';
+//#endif
+//#if (IncludeLocalization && IncludeRealTime)
 import zhCnTexts from '../../../../../public/i18n/zh-CN.json';
 //#endif
 //#if (IncludeLocalization)
+import { lineCount, pseudoCatalog } from '../../../core/i18n/pseudo-locale.testing';
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
 //#endif
 import { AuthorizationService } from '../../../core/services/authorization-service';
@@ -222,6 +219,81 @@ describe('DefaultSidebar menu labels', () => {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class SidebarHost {}
+
+//#if (IncludeLocalization)
+/**
+ * 伪语言按标签容量放宽文案（frontend-i18n.md §5）：展开的侧栏里分组标题与菜单项仍完整放下；
+ * 品牌块的应用名随项目改名、长度不定，放不下时单行截断，不撑出侧栏。
+ */
+describe('DefaultSidebar pseudo locale', () => {
+  for (const platform of [true, false]) {
+    it(`fits the ${platform ? 'platform' : 'workspace'} menu into the expanded sidebar`, async () => {
+      TestBed.configureTestingModule({
+        // prettier-ignore
+        providers: [
+          provideRouter([]),
+          provideHttpClient(),
+          provideHttpClientTesting(),
+          {
+            provide: LayoutService,
+            useValue: {
+              isPlatform: signal(platform),
+              currentUrl: signal(platform ? '/platform' : '/workspace/dashboard'),
+              homeRoute: signal('/workspace/dashboard'),
+            },
+          },
+          {
+            provide: AuthorizationService,
+            useValue: { hasAny: () => true, canAccessPlatform: () => true },
+          },
+          ...provideTranslocoTesting(),
+        ],
+      });
+      TestBed.inject(TranslocoService).setTranslation(pseudoCatalog(enTexts), 'en');
+      const fixture = TestBed.createComponent(SidebarHost);
+      TestBed.inject(HlmSidebarService).setOpen(true);
+      fixture.autoDetectChanges();
+      await fixture.whenStable();
+      await Promise.all(document.getAnimations().map((animation) => animation.finished));
+      const host = fixture.nativeElement as HTMLElement;
+
+      const sidebar = Array.from(
+        host.querySelectorAll<HTMLElement>('[data-sidebar="sidebar"]'),
+      ).find((panel) => panel.getBoundingClientRect().width > 0)!;
+      const labels = Array.from(
+        sidebar.querySelectorAll<HTMLElement>(
+          '[data-sidebar="group-label"], [data-slot="sidebar-menu-button"] > span:last-child',
+        ),
+      );
+      expect(labels.length).toBeGreaterThan(0);
+      for (const label of labels) {
+        const text = label.textContent!.trim();
+        // 文案来自词条：伪语言的方括号在，写死的文案没有
+        expect(text).toMatch(/^\[.+\]$/);
+        expect(label.getBoundingClientRect().width, text).toBeGreaterThan(0);
+        // 完整放下：没被截断，也没折成两行
+        expect(label.scrollWidth, text).toBeLessThanOrEqual(label.clientWidth);
+        expect(lineCount(label), text).toBe(1);
+      }
+
+      // 品牌块两行：应用名与当前区域，都可见、各占一行
+      const brand = Array.from(
+        sidebar.querySelectorAll<HTMLElement>(
+          '[data-slot="sidebar-header"] [data-slot="sidebar-menu-button"] .grid > span',
+        ),
+      );
+      expect(brand).toHaveLength(2);
+      for (const line of brand) {
+        const box = line.getBoundingClientRect();
+        expect(box.width > 0 && box.height > 0, line.textContent!).toBe(true);
+        expect(line.textContent!.trim()).toMatch(/^\[.+\]$/);
+        expect(lineCount(line), line.textContent!).toBe(1);
+      }
+      expect(sidebar.scrollWidth).toBeLessThanOrEqual(sidebar.clientWidth);
+    });
+  }
+});
+//#endif
 
 /** 折叠成图标轨时按钮原本只有 32px 见方；触屏下侧栏加宽，按钮宽高都到 44px 且整块可点。 */
 describe('DefaultSidebar touch targets', () => {

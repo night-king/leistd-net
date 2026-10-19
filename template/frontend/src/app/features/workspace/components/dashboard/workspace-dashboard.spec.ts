@@ -3,6 +3,9 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+//#if (IncludeLocalization)
+import { TranslocoService } from '@jsverse/transloco';
+//#endif
 //#if (IncludeNotifications)
 import { toast } from '@spartan-ng/brain/sonner';
 //#endif
@@ -12,6 +15,9 @@ import { Observable, of, throwError } from 'rxjs';
 
 import { WorkspaceDashboard } from './workspace-dashboard';
 //#if (IncludeLocalization)
+import enTexts from '../../../../../../public/i18n/en.json';
+import enWorkspace from '../../../../../../public/i18n/workspace/en.json';
+import { pseudoCatalog } from '../../../../core/i18n/pseudo-locale.testing';
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
 import { AuthorizationService } from '../../../../core/services/authorization-service';
@@ -258,6 +264,67 @@ describe('WorkspaceDashboard', () => {
     const withAccess = await setup([PERMISSIONS.users.default]);
     expect(withAccess.shortcuts().map((link) => link.route)).toContain('/platform');
   });
+  //#if (IncludeLocalization)
+
+  /** 聚焦一张卡片后有没有出现提示；失焦后收起。延时由假时钟推进到期，"没出现"即未启用。 */
+  async function focusTooltip(card: HTMLElement): Promise<string | null> {
+    const tooltip = () => document.querySelector<HTMLElement>('[role="tooltip"]');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let text: string | null;
+    try {
+      card.focus();
+      await vi.advanceTimersByTimeAsync(0);
+      await fixture.whenStable();
+      text = tooltip()?.textContent?.trim() ?? null;
+      card.blur();
+      await vi.advanceTimersByTimeAsync(0);
+    } finally {
+      vi.useRealTimers();
+    }
+    await expect.poll(() => tooltip()).toBeNull();
+    return text;
+  }
+
+  // 伪语言按标签容量放宽文案（frontend-i18n.md §5）：卡片收到最小宽度 13rem 时标签仍单行、不撑出卡片，
+  // 截断的标签聚焦时给出全文，放得下的不提示
+  it('keeps pseudo-locale shortcut labels on one line at the minimum card width', async () => {
+    await setup([PERMISSIONS.users.default]);
+    TestBed.inject(TranslocoService).setTranslation(
+      pseudoCatalog({ ...enTexts, workspace: enWorkspace }),
+      'en',
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const host: HTMLElement = fixture.nativeElement;
+    const nav = host.querySelector<HTMLElement>('[data-testid="workbench-shortcuts"] nav')!;
+    nav.style.width = '13rem';
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await fixture.whenStable();
+
+    const cards = Array.from(nav.querySelectorAll<HTMLElement>('a[hlmCard]'));
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) {
+      const label = card.querySelector<HTMLElement>('.truncate')!;
+      const text = label.textContent!.trim();
+      // 文案来自词条：伪语言的方括号在，写死的文案没有
+      expect(text).toMatch(/^\[.+\]$/);
+      expect(label.getBoundingClientRect().width, text).toBeGreaterThan(0);
+      const lineHeight = Number.parseFloat(getComputedStyle(label).lineHeight);
+      expect(label.getBoundingClientRect().height, text).toBeLessThan(lineHeight * 1.5);
+      expect(card.scrollWidth, text).toBeLessThanOrEqual(card.clientWidth);
+      const truncated = label.scrollWidth > label.clientWidth;
+      expect(await focusTooltip(card), text).toBe(truncated ? text : null);
+    }
+    //#if (LocalIdentity)
+    // 受压确实发生：最长的英文标签（Account & security）按容量放宽后，在最小宽度的卡片里放不下
+    const security = nav.querySelector<HTMLElement>(
+      'a[href="/workspace/settings/security"] .truncate',
+    )!;
+    expect(security.scrollWidth).toBeGreaterThan(security.clientWidth);
+    //#endif
+    expect(nav.scrollWidth).toBeLessThanOrEqual(nav.clientWidth);
+  });
+  //#endif
   //#if (LocalIdentity)
 
   it('suggests turning on two-factor only when it is known to be off', async () => {
