@@ -72,6 +72,7 @@ def main():
             ('workflow', ['.github/workflows/ci.yml'], 'full'), ('unknown', ['unknown-input.cs'], 'full'),
             ('framework-source', [fw], 'full'),
             ('dependabot-config', ['.github/dependabot.yml'], 'documentation'),
+            ('mcp-config', ['.mcp.json'], 'documentation'),
             ('localized-frontend', ['template/.template.config/localization/frontend/src/app/app.spec.ts'], 'frontend'),
             ('frontend-roles-15', ['template/frontend/src/app/features/platform/components/roles/roles.ts'], 'frontend'),
             ('backend-signing-9', ['template/backend/tests/CompanyName.ProjectName.IntegrationTests/SigningKeyRotationTests.cs'], 'backend'),
