@@ -471,7 +471,7 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
 
         public static TService Create(TService inner, Func<MethodInfo, object?[]?, bool> shouldFail)
         {
-            var proxy = DispatchProxy.Create<TService, FaultProxy<TService>>();
+            var proxy = Create<TService, FaultProxy<TService>>();
             var state = (FaultProxy<TService>)(object)proxy;
             state.inner = inner;
             state.shouldFail = shouldFail;

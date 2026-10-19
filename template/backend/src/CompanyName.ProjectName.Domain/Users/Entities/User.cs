@@ -1,8 +1,8 @@
 #if (LocalIdentity)
 using System.Linq.Expressions;
 using CompanyName.ProjectName.Domain.Auth.Errors;
-using Leistd.ExceptionHandling;
 #endif
+using Leistd.ExceptionHandling;
 #if (ExternalLogin)
 using CompanyName.ProjectName.Domain.Users.Errors;
 #endif
@@ -166,7 +166,7 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>设置或清除头像。</summary>
-    /// <exception cref="Leistd.ExceptionHandling.BusinessException">取值不合规（见 <see cref="AvatarPolicy.EnsureValid"/>）。</exception>
+    /// <exception cref="BusinessException">取值不合规（见 <see cref="AvatarPolicy.EnsureValid"/>）。</exception>
     public void SetAvatar(string? avatar)
     {
         AvatarPolicy.EnsureValid(avatar);

@@ -6,12 +6,12 @@
 
 .DESCRIPTION
     步骤与 docs/standards/testing.md §1.1 的完整回归一致：随包静态检查、后端还原与构建（警告即错误）、
-    各测试项目（集成测试经 Testcontainers 启动 PostgreSQL，需要可用的 Docker），以及前端生产依赖审计、安装、lint、测试与构建；本地身份形态（Identity/Standalone）另跑浏览器端到端测试。
-    按顺序执行，任一步失败即停止，并以该步的退出码退出；依赖审计查询走网络，失败时有限重试。
+    构建之后的 IDE0001/IDE0002 风格检查（这两条构建期不执行）、各测试项目（集成测试经 Testcontainers 启动 PostgreSQL，需要可用的 Docker），以及前端安装、lint、测试与构建；本地身份形态（Identity/Standalone）另跑浏览器端到端测试。
+    按顺序执行，任一步失败即停止，并以该步的退出码退出。前端生产依赖审计不在这里，由 CI 在依赖变化时执行，本地改依赖后的命令见 testing.md。
     运行前提：.NET SDK、Python 3、Docker；有前端时另需 Node.js 与 Playwright Chromium（npx playwright install chromium）。
 
 .PARAMETER Fast
-    只跑随包静态检查、后端还原与构建、单元测试项目和前端 lint；不跑集成测试、端到端测试、依赖审计与前端依赖安装，
+    只跑随包静态检查、后端还原与构建与风格检查、单元测试项目和前端 lint；不跑集成测试、端到端测试与前端依赖安装，
     不需要 Docker。前端 lint 使用已安装的 node_modules，缺失时先在 frontend/ 执行 npm ci。
     用法与适用范围见 docs/standards/testing.md §1.1。
 
@@ -28,8 +28,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $python = if ($IsWindows) { 'py' } else { 'python3' }
 
 # Fast 标记该步骤也属于 -Fast；完整回归总是执行全部步骤
-function Step([string]$Name, [string]$Directory, [string]$Command, [string[]]$Arguments, [int]$Attempts = 1, [switch]$Fast) {
-    [PSCustomObject]@{ Name = $Name; Directory = $Directory; Command = $Command; Arguments = $Arguments; Attempts = $Attempts; Fast = [bool]$Fast }
+function Step([string]$Name, [string]$Directory, [string]$Command, [string[]]$Arguments, [switch]$Fast) {
+    [PSCustomObject]@{ Name = $Name; Directory = $Directory; Command = $Command; Arguments = $Arguments; Fast = [bool]$Fast }
 }
 
 $steps = [Collections.Generic.List[object]]::new()
@@ -43,6 +43,8 @@ $steps.Add((Step 'check-operation-action-i18n' '.' $python @('scripts/check-oper
 $steps.Add((Step 'check-test-diagnostics' '.' $python @('scripts/check-test-diagnostics.py') -Fast))
 $steps.Add((Step 'backend-restore' 'backend' 'dotnet' @('restore', 'CompanyName.ProjectName.sln') -Fast))
 $steps.Add((Step 'backend-build' 'backend' 'dotnet' @('build', 'CompanyName.ProjectName.sln', '-c', 'Release', '--no-restore', '-p:TreatWarningsAsErrors=true') -Fast))
+# IDE0001/IDE0002（可简化的全名）构建期不执行，只在这里用官方 dotnet format 核对
+$steps.Add((Step 'backend-format' 'backend' 'dotnet' @('format', 'style', 'CompanyName.ProjectName.sln', '--verify-no-changes', '--no-restore', '--diagnostics', 'IDE0001', 'IDE0002') -Fast))
 # 单元测试先于集成测试：前者秒级，失败时不必再等容器。新增的测试项目自动纳入。
 $testProjects = @(
     Get-ChildItem -LiteralPath (Join-Path $root 'backend/tests') -Filter '*.csproj' -Recurse |
@@ -55,9 +57,7 @@ foreach ($project in $testProjects) {
     $steps.Add((Step "backend-test:$($project.BaseName)" 'backend' 'dotnet' @('test', $relative, '-c', 'Release', '--no-build') -Fast:($project.BaseName -like '*.UnitTests')))
 }
 #if (SpaFrontend)
-# 门槛是生产依赖无 high/critical；审计查询走网络，失败时有限重试（退出码分不出网络错误与漏洞，真有漏洞时重试照样失败）。
-$steps.Add((Step 'frontend-audit' 'frontend' 'npm' @('audit', '--omit=dev', '--audit-level=high', '--package-lock-only') 3))
-$steps.Add((Step 'frontend-install' 'frontend' 'npm' @('ci')))
+$steps.Add((Step 'frontend-install' 'frontend' 'npm' @('ci', '--no-audit')))
 $steps.Add((Step 'frontend-lint' 'frontend' 'npm' @('run', 'lint') -Fast))
 $steps.Add((Step 'frontend-test' 'frontend' 'npm' @('test', '--', '--watch=false')))
 $steps.Add((Step 'frontend-build' 'frontend' 'npm' @('run', 'build')))
@@ -91,18 +91,13 @@ if ($Fast) {
 $started = [Diagnostics.Stopwatch]::StartNew()
 foreach ($step in $steps) {
     Write-Host "==> [$($step.Name)] $($step.Command) $($step.Arguments -join ' ')" -ForegroundColor Cyan
-    for ($attempt = 1; $attempt -le $step.Attempts; $attempt++) {
-        Push-Location -LiteralPath (Join-Path $root $step.Directory)
-        try {
-            & $step.Command @($step.Arguments)
-            $exitCode = $LASTEXITCODE
-        }
-        finally {
-            Pop-Location
-        }
-        if ($exitCode -eq 0 -or $attempt -eq $step.Attempts) { break }
-        Write-Host "Step '$($step.Name)' failed (exit code $exitCode); retrying ($($attempt + 1)/$($step.Attempts))." -ForegroundColor Yellow
-        Start-Sleep -Seconds (5 * $attempt)
+    Push-Location -LiteralPath (Join-Path $root $step.Directory)
+    try {
+        & $step.Command @($step.Arguments)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
     }
     if ($exitCode -ne 0) {
         Write-Host "Verification failed at step '$($step.Name)' (exit code $exitCode); remaining steps were not run." -ForegroundColor Red

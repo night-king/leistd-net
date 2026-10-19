@@ -344,7 +344,8 @@ function Assert-EveryFrontendSpecDiscovered([string]$FrontendRoot) {
 
 # 生成项目的完整回归入口 scripts/verify.ps1：默认模式的步骤清单须与矩阵按产物判定的阶段一致——
 # 随包闸门按脚本是否随包、测试项目按矩阵的发现范围（backend 下全部 *Tests.csproj，单元测试在前）、前端按目录是否存在。
-# -Fast 须恰好是默认模式去掉单元测试以外的测试项目、前端审计、安装、单测、构建与端到端后的子序列。
+# -Fast 须恰好是默认模式去掉单元测试以外的测试项目、前端安装、单测、构建与端到端后的子序列。
+# 前端生产依赖审计不在 verify 里（生成项目的 CI 在锁文件变化时执行），由矩阵按实际锁文件各审一次。
 function Assert-VerifySteps([string]$ProjectRoot) {
     $listing = @(Invoke-ExternalCapture 'pwsh' @('-NoProfile', '-File', (Join-Path $ProjectRoot 'scripts/verify.ps1'), '-List') $ProjectRoot)
     $rows = @($listing | Where-Object { $_.Trim() } | ForEach-Object { , ($_ -split "`t") })
@@ -360,11 +361,12 @@ function Assert-VerifySteps([string]$ProjectRoot) {
     $expected.Add('check-test-diagnostics')
     $expected.Add('backend-restore')
     $expected.Add('backend-build')
+    $expected.Add('backend-format')
     Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'backend') -Filter '*Tests.csproj' -Recurse |
         Sort-Object @{ Expression = { $_.BaseName -notlike '*.UnitTests' } }, BaseName |
         ForEach-Object { $expected.Add("backend-test:$($_.BaseName)") }
     if (Test-Path -LiteralPath (Join-Path $ProjectRoot 'frontend')) {
-        foreach ($stage in @('frontend-audit', 'frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build')) { $expected.Add($stage) }
+        foreach ($stage in @('frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build')) { $expected.Add($stage) }
     }
     # 浏览器端到端只随本地身份形态（有登录界面与可预置的账号）下发；纯 API 与 Resource 前端都没有
     $hasE2e = Test-Path -LiteralPath (Join-Path $ProjectRoot 'frontend/playwright.config.ts')
@@ -376,7 +378,7 @@ function Assert-VerifySteps([string]$ProjectRoot) {
     if (($actual -join '|') -cne ($expected -join '|')) {
         throw "scripts/verify.ps1 steps differ from the matrix stages.`n  verify: $($actual -join ', ')`n  matrix: $($expected -join ', ')"
     }
-    $fullOnly = @('frontend-audit', 'frontend-install', 'frontend-test', 'frontend-build', 'frontend-e2e')
+    $fullOnly = @('frontend-install', 'frontend-test', 'frontend-build', 'frontend-e2e')
     $expectedFast = @($expected | Where-Object { $_ -notin $fullOnly -and ($_ -notlike 'backend-test:*' -or $_ -like 'backend-test:*.UnitTests') })
     if (($actualFast -join '|') -cne ($expectedFast -join '|')) {
         throw "scripts/verify.ps1 -Fast steps differ from the expected subset.`n  verify: $($actualFast -join ', ')`n  expected: $($expectedFast -join ', ')"
@@ -907,8 +909,8 @@ try {
         if ($definition.Verify -and -not $useVerify) {
             Write-Warning "Scenario '$scenario' runs matrix stages instead of scripts/verify.ps1 (mode, configuration, browser or frontend skip differs)."
         }
-        # verify 自带同口径的生产依赖审计步骤；逐阶段路径由矩阵执行，同一锁文件只审计一次。
-        if (-not $useVerify -and -not $SkipFrontend -and $definition.Frontend) {
+        # 生产依赖审计不在 verify 里：不论是否走 verify，矩阵都审计实际生成的锁文件，相同内容（默认与本地化两套）只审一次。
+        if (-not $SkipFrontend -and $definition.Frontend) {
             Assert-FrontendDependencySecurity (Join-Path $projectRoot 'frontend')
         }
         if ($useVerify) {
@@ -965,7 +967,7 @@ try {
         if (-not $useVerify -and -not $SkipFrontend -and $definition.Frontend -and $validationMode -cne 'backend') {
             $frontendRoot = Join-Path $projectRoot "frontend"
             $env:HUSKY = "0"
-            Invoke-External "npm" @("ci") $frontendRoot
+            Invoke-External "npm" @("ci", "--no-audit") $frontendRoot
             Invoke-External "npx" @("ng", "g", "@spartan-ng/cli:info", "--json") $frontendRoot
             # healthcheck 末尾会无条件询问"是否升级依赖"，默认 N。
             # 该 CLI 没有能覆盖这个提示的非交互开关——实测 --interactive=false、--defaults

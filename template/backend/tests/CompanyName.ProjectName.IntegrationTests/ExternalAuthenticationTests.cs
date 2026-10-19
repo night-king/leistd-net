@@ -683,7 +683,7 @@ public sealed class ExternalAuthenticationTests
 
         public static IRepository<User, Guid> Create(IRepository<User, Guid> inner)
         {
-            var proxy = DispatchProxy.Create<IRepository<User, Guid>, EveryUsernameTaken>();
+            var proxy = Create<IRepository<User, Guid>, EveryUsernameTaken>();
             ((EveryUsernameTaken)(object)proxy).inner = inner;
             return proxy;
         }
