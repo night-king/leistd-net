@@ -23,4 +23,4 @@
 
 用 `pointer-coarse` 而不是屏幕宽度判断：平板横屏很宽，但仍是手指操作。
 
-升级步骤：`@spartan-ng/brain` 与 `@spartan-ng/cli` 在 `frontend/package.json` 锁定为同一精确版本，一起升级后跑 `ng g @spartan-ng/cli:healthcheck`；未定制的组件用 `ng g @spartan-ng/cli:migrate-helm-libraries --libraries=<name>` 同步到新版本（传 `--libraries` 即非交互）；表中已定制的组件不执行 `migrate-helm-libraries`（会用上游版本覆盖自定义改动），对照上游变更逐个手动合入。helm 与 CLI 版本脱节时，新参数与无障碍改进不会自动到位——升级 CLI 不等于 helm 已更新。
+升级步骤：`@spartan-ng/brain` 与 `@spartan-ng/cli` 在 `frontend/package.json` 锁定为同一精确版本，一起升级后跑 `ng g @spartan-ng/cli:healthcheck`；未定制的组件用 `ng g @spartan-ng/cli:migrate-helm-libraries --libraries=<name>` 同步到新版本（传 `--libraries` 即非交互，一次一个组件）；`frontend/libs/ui` 在 `.prettierignore` 里，CLI 写出的是制表符缩进，同步后用 `prettier --ignore-path <空文件> --write "libs/ui/**/*.ts"` 按项目格式重排，否则差异淹没在空白里；表中已定制的组件不执行 `migrate-helm-libraries`（会用上游版本覆盖自定义改动），对照上游变更逐个手动合入。helm 与 CLI 版本脱节时，新参数与无障碍改进不会自动到位——升级 CLI 不等于 helm 已更新。`chart` 依赖的 `@tanstack/angular-charts`、`@tanstack/charts` 按 CLI 的 `supported-ui-libraries.json` 给出的精确版本安装，不先于 Spartan 单独升级：helm 的图表适配层按那个版本生成。

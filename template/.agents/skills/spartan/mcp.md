@@ -12,7 +12,7 @@ No install (recommended). Pin the version to match the project's `@spartan-ng/br
 ```json
 {
 	"mcpServers": {
-		"spartan-ui": { "command": "npx", "args": ["-y", "@spartan-ng/mcp@1.7.0"] }
+		"spartan-ui": { "command": "npx", "args": ["-y", "@spartan-ng/mcp@1.8.0"] }
 	}
 }
 ```
@@ -20,7 +20,7 @@ No install (recommended). Pin the version to match the project's `@spartan-ng/br
 Global install:
 
 ```bash
-npm install -g @spartan-ng/mcp@1.7.0
+npm install -g @spartan-ng/mcp@1.8.0
 ```
 
 ```json

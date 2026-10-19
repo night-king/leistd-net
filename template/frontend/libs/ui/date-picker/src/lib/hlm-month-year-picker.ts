@@ -33,6 +33,7 @@ export const HLM_MONTH_YEAR_PICKER_VALUE_ACCESSOR = {
 };
 @Component({
   selector: 'hlm-month-year-picker',
+  exportAs: 'hlmMonthYearPicker',
   imports: [HlmPopoverImports, HlmCalendarImports],
   providers: [
     HLM_MONTH_YEAR_PICKER_VALUE_ACCESSOR,

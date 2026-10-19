@@ -1,9 +1,11 @@
+import { DOCUMENT } from '@angular/common';
 import {
   afterRenderEffect,
   ChangeDetectionStrategy,
   Component,
   computed,
   ElementRef,
+  inject,
   input,
   signal,
   viewChild,
@@ -14,10 +16,11 @@ import { HlmInputGroupImports } from '@spartan-ng/helm/input-group';
 import { HlmItemImports } from '@spartan-ng/helm/item';
 import { HlmPopoverImports } from '@spartan-ng/helm/popover';
 import { HlmSeparator } from '@spartan-ng/helm/separator';
+import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 
 import { PopoverAria } from '../../directives/popover-aria';
 
-/** 列表面板的一行：`label` 是主文字，`detail` 与之不同时在下面以等宽小字补充（如角色的稳定名称）。 */
+/** 列表面板的一行：`label` 是主文字，`detail` 与之不同时在右侧以等宽小字补充（如角色的稳定名称）。 */
 export interface ReadonlyListItem {
   readonly id: string;
   readonly label: string;
@@ -29,8 +32,10 @@ let nextId = 0;
 /**
  * 只读列表面板：把调用方投影进来的摘要包成一个按钮，点开后在浮层里列出全部条目，条目多时带筛选框。
  * 摘要（几个徽章加 "+N"、授权方式加总数）由调用方决定，投影内容只放非交互元素；总数取 `items` 的长度。
- * 条目是只读行，名称与补充说明都折行显示，不截断；整个列表是一个可聚焦的滚动区，键盘用方向键、
- * PageUp/PageDown、Home/End 滚动。打开后焦点落到第一个可聚焦元素（有筛选框是筛选框，否则是列表），
+ * 标题区与条目都是一行：标题 · 对象名在左、数量在右；名称在左、补充说明在右，放不下时单行省略（名称优先
+ * 占宽），被截断的行鼠标悬停时提示全文，没截断的行不弹。截断只是视觉的，读屏读到的仍是全文；但条目不可
+ * 聚焦、提示不响应触摸，键盘与纯触屏用户看不到被截掉的部分（筛选框能缩小范围，不能消除截断），这是本组件
+ * 为单行紧凑排版接受的取舍。整个列表是一个可聚焦的滚动区，键盘用方向键、PageUp/PageDown、Home/End 滚动。打开后焦点落到第一个可聚焦元素（有筛选框是筛选框，否则是列表），
  * Esc 关闭并回到按钮，都由 Brain 完成。
  *
  * ```html
@@ -49,6 +54,7 @@ let nextId = 0;
     ...HlmInputGroupImports,
     ...HlmItemImports,
     ...HlmPopoverImports,
+    ...HlmTooltipImports,
   ],
   providers: [provideIcons({ lucideSearch })],
   templateUrl: './readonly-list-popover.html',
@@ -93,17 +99,38 @@ export class ReadonlyListPopover {
   });
 
   protected readonly fadeBottom = signal(false);
+  /** 名称或补充说明被截断的条目：只有它们悬停时提示全文。 */
+  protected readonly truncated = signal<ReadonlySet<string>>(new Set());
 
   private readonly list = viewChild<ElementRef<HTMLElement>>('list');
+  private readonly fontsLoaded = signal(false);
 
   constructor() {
-    afterRenderEffect(() => {
+    // 文字宽度随字体就绪而变，就绪后再量一次
+    void inject(DOCUMENT).fonts?.ready.then(() => this.fontsLoaded.set(true));
+    // 面板打开（列表出现）、条目变化或字体就绪后量一次；打开期间视口缩放、旋转改变列表宽度时由
+    // ResizeObserver 重量。列表随面板关闭而销毁，观察随之断开
+    afterRenderEffect((onCleanup) => {
       this.visibleItems();
+      this.fontsLoaded();
       const element = this.list()?.nativeElement;
-      if (element) {
-        this.updateFade(element);
+      if (!element) {
+        return;
       }
+      this.measure(element);
+      const observer = new ResizeObserver(() => this.measure(element));
+      observer.observe(element);
+      onCleanup(() => observer.disconnect());
     });
+  }
+
+  protected hasDetail(item: ReadonlyListItem): boolean {
+    return !!item.detail && item.detail !== item.label;
+  }
+
+  /** 悬停提示的全文：名称加补充说明。 */
+  protected fullTextOf(item: ReadonlyListItem): string {
+    return this.hasDetail(item) ? `${item.label} · ${item.detail}` : item.label;
   }
 
   protected updateFade(element: HTMLElement): void {
@@ -118,5 +145,24 @@ export class ReadonlyListPopover {
   protected reset(): void {
     this.query.set('');
     this.fadeBottom.set(false);
+    this.truncated.set(new Set());
+  }
+
+  /** 渐隐与截断一起量：左右两列各自判断，单量整行量不出子节点自身的省略。 */
+  private measure(list: HTMLElement): void {
+    this.updateFade(list);
+    const ids = new Set<string>();
+    for (const row of Array.from(list.querySelectorAll<HTMLElement>('[data-item-id]'))) {
+      const cells = row.querySelectorAll<HTMLElement>(
+        '[data-readonly-list-label], [data-readonly-list-detail]',
+      );
+      if (Array.from(cells).some((cell) => cell.scrollWidth > cell.clientWidth)) {
+        ids.add(row.dataset['itemId']!);
+      }
+    }
+    const current = this.truncated();
+    if (ids.size !== current.size || [...ids].some((id) => !current.has(id))) {
+      this.truncated.set(ids);
+    }
   }
 }

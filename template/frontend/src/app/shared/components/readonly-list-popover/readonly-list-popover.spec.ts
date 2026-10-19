@@ -181,22 +181,171 @@ describe('ReadonlyListPopover', () => {
     await expect.poll(() => getComputedStyle(scroller).maskImage).toBe('none');
   });
 
-  it('wraps long names and details instead of cutting them off', async () => {
+  /** 一行里文字的中线：标题区与条目里的文字、等宽小字统一行高后垂直居中。 */
+  function middle(element: Element): number {
+    const box = element.getBoundingClientRect();
+    return box.top + box.height / 2;
+  }
+
+  function row(id: string): HTMLElement {
+    return list().querySelector<HTMLElement>(`[data-item-id="${id}"]`)!;
+  }
+
+  function cell(id: string, part: 'label' | 'detail'): HTMLElement | null {
+    return row(id).querySelector<HTMLElement>(`[data-readonly-list-${part}]`);
+  }
+
+  function isTruncated(element: HTMLElement): boolean {
+    return element.scrollWidth > element.clientWidth;
+  }
+
+  const tooltip = () => document.querySelector<HTMLElement>('[role="tooltip"]');
+
+  /**
+   * 悬停一行后有没有出现全文提示；移开后提示收起，再测下一行。提示的显示与隐藏延时（默认 0）由计时器
+   * 驱动：悬停与移开期间用假时钟推进到期，"没出现"即禁用，不靠固定等待；渲染帧与布局仍是真实的。
+   */
+  async function hoverTooltip(element: HTMLElement): Promise<string | null> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    let text: string | null;
+    try {
+      await userEvent.hover(element);
+      await vi.advanceTimersByTimeAsync(0);
+      await fixture.whenStable();
+      text = tooltip()?.textContent?.trim() ?? null;
+      await userEvent.unhover(element);
+      await vi.advanceTimersByTimeAsync(0);
+    } finally {
+      vi.useRealTimers();
+    }
+    await expect.poll(() => tooltip()).toBeNull();
+    return text;
+  }
+
+  it('keeps the header and each item on one vertically centred line', async () => {
+    const trigger = await render(roles(3));
+    const content = await open(trigger);
+
+    const subtitle = content.querySelector('[data-testid="readonly-list-subtitle"]')!;
+    const header = subtitle.closest('div')!;
+    const title = Array.from(header.querySelectorAll('span')).find(
+      (span) => span.textContent?.trim() === 'Roles',
+    )!;
+    const count = Array.from(header.querySelectorAll('span')).find(
+      (span) => span.textContent?.trim() === '3',
+    )!;
+    for (const part of [subtitle, count]) {
+      expect(Math.abs(middle(part) - middle(title))).toBeLessThan(1);
+    }
+
+    const label = cell('1', 'label')!;
+    const detail = cell('1', 'detail')!;
+    const bullet = row('1').querySelector('[aria-hidden="true"]')!;
+    expect(Math.abs(middle(label) - middle(detail))).toBeLessThan(1);
+    expect(Math.abs(middle(bullet) - middle(label))).toBeLessThan(1);
+    // 圆点、名称在左，补充说明在右，两列之间至少留 24px
+    expect(bullet.getBoundingClientRect().right).toBeLessThanOrEqual(
+      label.getBoundingClientRect().left,
+    );
+    expect(
+      detail.getBoundingClientRect().left - label.getBoundingClientRect().right,
+    ).toBeGreaterThanOrEqual(24 - 0.5);
+    // 单行：行高 20px 的文字只占一行
+    expect(label.getBoundingClientRect().height).toBeLessThanOrEqual(20.5);
+  });
+
+  it('cuts long names and details to one line and shows the full text on hover only when cut', async () => {
     const longLabel = 'Regional Compliance Reviewer for Cross-Border Settlement Operations';
     const longDetail = 'compliance.cross-border-settlement.regional-reviewer.read-write';
-    const trigger = await render([{ id: '1', label: longLabel, detail: longDetail }]);
+    const trigger = await render([
+      { id: 'both', label: longLabel, detail: longDetail },
+      { id: 'name', label: longLabel },
+      { id: 'detail', label: 'Ops', detail: longDetail },
+      { id: 'short', label: 'Auditor', detail: 'audit' },
+      { id: 'same', label: 'Member', detail: 'Member' },
+    ]);
     await open(trigger);
 
-    const [name, detail] = Array.from(list().querySelectorAll<HTMLElement>('li span span'));
-    for (const text of [name, detail]) {
-      expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth);
-      // 折成了不止一行
-      expect(text.getBoundingClientRect().height).toBeGreaterThan(
-        Number.parseFloat(getComputedStyle(text).lineHeight) * 1.5,
+    for (const element of [
+      cell('both', 'label')!,
+      cell('both', 'detail')!,
+      cell('name', 'label')!,
+    ]) {
+      expect(getComputedStyle(element).textOverflow).toBe('ellipsis');
+      expect(isTruncated(element)).toBe(true);
+      expect(element.getBoundingClientRect().height).toBeLessThanOrEqual(20.5);
+      // 不越出本行
+      expect(element.getBoundingClientRect().right).toBeLessThanOrEqual(
+        element.closest('li')!.getBoundingClientRect().right + 0.5,
       );
     }
-    expect(name.textContent).toBe(longLabel);
-    expect(detail.textContent).toBe(longDetail);
+    // 只有右列被截断：名称完整，补充说明省略
+    expect(isTruncated(cell('detail', 'label')!)).toBe(false);
+    expect(isTruncated(cell('detail', 'detail')!)).toBe(true);
+    // 截断只是视觉的，文本仍是全文；与名称相同的补充说明不重复显示
+    expect(cell('both', 'label')!.textContent).toBe(longLabel);
+    expect(cell('both', 'detail')!.textContent).toBe(longDetail);
+    expect(cell('same', 'detail')).toBeNull();
+
+    expect(await hoverTooltip(row('both'))).toBe(`${longLabel} · ${longDetail}`);
+    expect(await hoverTooltip(row('name'))).toBe(longLabel);
+    expect(await hoverTooltip(row('detail'))).toBe(`Ops · ${longDetail}`);
+    expect(await hoverTooltip(row('short'))).toBeNull();
+    expect(await hoverTooltip(row('same'))).toBeNull();
+  });
+
+  // 面板打开期间视口变窄（分屏、旋转）：原本放得下的行被截断后要能看到全文，放宽后不再多余地弹提示
+  it('re-measures cut items when the viewport narrows and widens while open', async () => {
+    onTestFinished(() => page.viewport(1280, 800));
+    const trigger = await render([{ id: 'edge', label: 'Settlement operations reviewer' }]);
+    await open(trigger);
+    expect(isTruncated(cell('edge', 'label')!)).toBe(false);
+    expect(await hoverTooltip(row('edge'))).toBeNull();
+
+    // 面板随视口收到 188px，文字区约 164px，放不下这个名称；宽屏时文字区约 288px，放得下
+    await page.viewport(220, 800);
+    await expect.poll(() => isTruncated(cell('edge', 'label')!)).toBe(true);
+    expect(await hoverTooltip(row('edge'))).toBe('Settlement operations reviewer');
+
+    await page.viewport(1280, 800);
+    await expect.poll(() => isTruncated(cell('edge', 'label')!)).toBe(false);
+    expect(await hoverTooltip(row('edge'))).toBeNull();
+  });
+
+  /** 悬停后提示整个落在视口内、文字没有被横向裁掉，全文可见。 */
+  async function expectFullTextTooltipInViewport(target: HTMLElement, fullText: string) {
+    await userEvent.hover(target);
+    await expect.poll(() => tooltip()).not.toBeNull();
+    const tip = tooltip()!;
+    await Promise.all(tip.getAnimations({ subtree: true }).map((a) => a.finished));
+    const box = tip.getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth);
+    expect(tip.textContent?.trim()).toBe(fullText);
+    const text = tip.querySelector<HTMLElement>('[data-readonly-list-full-text]')!;
+    expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth + 0.5);
+    expect(tip.scrollWidth).toBeLessThanOrEqual(tip.clientWidth + 0.5);
+    await userEvent.unhover(target);
+    await expect.poll(() => tooltip()).toBeNull();
+  }
+
+  // 窄视口里的长标识：有断行机会的回调地址，以及完全连续、合法的角色名与稳定名称（没有任何自然断点），
+  // 提示都整个落在视口内，文字折行而不越界
+  it('keeps the full-text tooltip of long identifiers inside a narrow viewport', async () => {
+    await page.viewport(390, 800);
+    onTestFinished(() => page.viewport(1280, 800));
+    const uri =
+      'https://partner-portal.example.com/oauth/callback/settlement-operations/regional-reviewer?tenant=asia-pacific';
+    const name = 'R'.repeat(64);
+    const detail = 'S'.repeat(64);
+    const trigger = await render([
+      { id: 'uri', label: uri },
+      { id: 'unbroken', label: name, detail },
+    ]);
+    await open(trigger);
+
+    await expectFullTextTooltipInViewport(row('uri'), uri);
+    await expectFullTextTooltipInViewport(row('unbroken'), `${name} · ${detail}`);
   });
 
   // 横屏手机：宽大于高，视口只有 390px 高，面板整体限高，标题、筛选框与最后一项都能看到
