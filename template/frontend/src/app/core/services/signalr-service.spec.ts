@@ -108,31 +108,43 @@ describe('SignalRService connection lifecycle', () => {
 
     /** 置为 true 时 invoke() 挂起，直到 releaseInvoke() 被调用。 */
     gateInvoke = false;
-    private invokeGates: { resolve: () => void; reject: (error: Error) => void }[] = [];
+    private invokeGates: {
+      result: unknown;
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+    }[] = [];
 
-    /** 服务端拒绝订阅的资源键（例如无权限）。 */
+    /** 服务端拒绝订阅的资源键（例如无权限）：Subscribe 返回 false。 */
     readonly rejectedSubscriptions = new Set<string>();
+    /** 订阅调用本身失败的资源键（网络或服务端故障）：invoke 抛错。 */
+    readonly failingSubscriptions = new Set<string>();
 
-    invoke(method: string, ...args: unknown[]): Promise<void> {
+    invoke(method: string, ...args: unknown[]): Promise<unknown> {
       this.invocations.push({ method, args });
 
-      if (method === 'Subscribe' && this.rejectedSubscriptions.has(args[0] as string)) {
-        return Promise.reject(new Error(`subscription rejected: ${String(args[0])}`));
+      if (method === 'Subscribe' && this.failingSubscriptions.has(args[0] as string)) {
+        return Promise.reject(new Error(`subscription failed: ${String(args[0])}`));
       }
+
+      // 与服务端契约一致：Subscribe 以 true/false 表示是否加入了资源组，Unsubscribe 无返回值
+      const result =
+        method === 'Subscribe' ? !this.rejectedSubscriptions.has(args[0] as string) : undefined;
 
       // 立即完成的 invoke 让重订阅循环在一个微任务里跑完，
       // 制造不出"循环卡在某一轮时主体切换"的竞态。
       if (!this.gateInvoke) {
-        return Promise.resolve();
+        return Promise.resolve(result);
       }
 
-      return new Promise<void>((resolve, reject) => this.invokeGates.push({ resolve, reject }));
+      return new Promise<unknown>((resolve, reject) =>
+        this.invokeGates.push({ result, resolve, reject }),
+      );
     }
 
     releaseInvoke(): void {
       const gates = this.invokeGates;
       this.invokeGates = [];
-      gates.forEach((gate) => gate.resolve());
+      gates.forEach((gate) => gate.resolve(gate.result));
     }
 
     /** 让挂起中的 invoke() 全部失败（模拟断线时 SDK 拒绝在途调用）。 */
@@ -159,6 +171,7 @@ describe('SignalRService connection lifecycle', () => {
     deferStart = false;
 
     vi.spyOn(console, 'error').mockReturnValue(undefined);
+    vi.spyOn(console, 'warn').mockReturnValue(undefined);
 
     // 只替换 build，链式调用仍由真实 builder 完成；spy 类导出会接管构造，变成在验证 SignalR 客户端。
     withUrl = vi.spyOn(signalR.HubConnectionBuilder.prototype, 'withUrl');
@@ -727,20 +740,32 @@ describe('SignalRService connection lifecycle', () => {
       expect(calls(connection, 'b').at(-1)).toBe('Subscribe');
     });
 
-    it('recovers a rejected subscribe on the next reconnect', async () => {
-      await service.connect();
-      const connection = built[0];
-      connection.rejectedSubscriptions.add('roles');
-      service.watchResource('roles', holder().ref);
-      await settle();
-      expect(console.error).toHaveBeenCalled();
+    // 被拒（Subscribe 返回 false）是预期结局，只记 warn；调用本身失败才是 error。两者都不算已订阅，重连后再对账
+    it.each([
+      { outcome: 'rejected', diagnostic: 'warn' },
+      { outcome: 'failed', diagnostic: 'error' },
+    ] as const)(
+      'recovers a $outcome subscribe on the next reconnect',
+      async ({ outcome, diagnostic }) => {
+        await service.connect();
+        const connection = built[0];
+        const keys =
+          outcome === 'rejected'
+            ? connection.rejectedSubscriptions
+            : connection.failingSubscriptions;
+        keys.add('roles');
+        service.watchResource('roles', holder().ref);
+        await settle();
+        expect(console[diagnostic]).toHaveBeenCalled();
+        expect(console[diagnostic === 'warn' ? 'error' : 'warn']).not.toHaveBeenCalled();
 
-      connection.rejectedSubscriptions.delete('roles');
-      connection.invocations.length = 0;
-      await connection.triggerReconnected();
-      await settle();
-      expect(calls(connection, 'roles')).toEqual(['Subscribe']);
-    });
+        keys.delete('roles');
+        connection.invocations.length = 0;
+        await connection.triggerReconnected();
+        await settle();
+        expect(calls(connection, 'roles')).toEqual(['Subscribe']);
+      },
+    );
 
     it('keeps reconciling a key after its in-flight unsubscribe fails', async () => {
       await service.connect();
@@ -880,20 +905,26 @@ describe('SignalRService connection lifecycle', () => {
       expect(confirmed).toEqual(['order-1', 'order-1']);
     });
 
-    it('does not report a resource whose resubscription is rejected', async () => {
-      service.watchResource('order-1', holder().ref);
-      service.watchResource('order-2', holder().ref);
-      await service.connect();
-      await settle();
-      const connection = built[0];
-      connection.rejectedSubscriptions.add('order-1');
-      confirmed.length = 0;
+    it.each(['rejected', 'failed'] as const)(
+      'does not report a resource whose resubscription is %s',
+      async (outcome) => {
+        service.watchResource('order-1', holder().ref);
+        service.watchResource('order-2', holder().ref);
+        await service.connect();
+        await settle();
+        const connection = built[0];
+        (outcome === 'rejected'
+          ? connection.rejectedSubscriptions
+          : connection.failingSubscriptions
+        ).add('order-1');
+        confirmed.length = 0;
 
-      await connection.triggerReconnected();
-      await settle();
+        await connection.triggerReconnected();
+        await settle();
 
-      expect(confirmed).toEqual(['order-2']);
-    });
+        expect(confirmed).toEqual(['order-2']);
+      },
+    );
 
     it('does not report a resource released while its resubscription was pending', async () => {
       const page = holder();

@@ -64,7 +64,7 @@ public class ProductProfileService(IBusinessEventPublisher eventPublisher)
 }
 ```
 
-客户端需先调用 Hub 的 `Subscribe("product-profile:{ownerId}")` 方法加入该资源分组，才能收到 `ProductProfileUpdated` 事件。
+客户端需先调用 Hub 的 `Subscribe("product-profile:{ownerId}")` 方法加入该资源分组，才能收到 `ProductProfileUpdated` 事件；返回 `true` 才表示订阅成功，`false` 时没有加入分组。
 
 ## 接口参考
 
@@ -77,13 +77,13 @@ public class ProductProfileService(IBusinessEventPublisher eventPublisher)
 | `AddPrefixRealTimeSubscriptions(prefixes)` | 注册只放行指定前缀资源键的授权器（按序数比较）；与 `AddAllowAllRealTimeSubscriptions` 二选一，先注册者生效 |
 | `RealTimeSubscriptionContext` | 订阅的 `ResourceKey` 和当前 `UserId`；租户等其它维度直接注入 `ICurrentTenant` 读取，Hub 调用内已由基座建立 |
 | `AllowAllRealTimeSubscriptionAuthorizer : IRealTimeSubscriptionAuthorizer` | 始终返回 `true`；**不是默认注册**，经 `AddAllowAllRealTimeSubscriptions()` 显式选用 |
-| `RealTimeHub : Hub` | 业务事件 Hub；提供 `Subscribe(resourceKey)` / `Unsubscribe(resourceKey)` 两个客户端可调用方法 |
+| `RealTimeHub : Hub` | 业务事件 Hub；提供 `Subscribe(resourceKey)`（返回 `bool`）/ `Unsubscribe(resourceKey)` 两个客户端可调用方法 |
 
 ## 实现行为
 
 - Hub 只做资源订阅，不建任何用户分组：按用户寻址用 SignalR 自带的 `Clients.User(userId)`。
-- `Subscribe` 无条件经过 `IRealTimeSubscriptionAuthorizer`，被拒绝时抛出 `HubException`；`Unsubscribe` 始终允许。
-- 授权器与入组、退组都收到 `Context.ConnectionAborted`。连接已中止时，`Subscribe`（授权或入组阶段）与 `Unsubscribe` 出现的 `OperationCanceledException` 只记 Debug 并正常返回，不再记为 Hub 调用失败；连接仍在时的取消（如背板确认超时）、授权拒绝与其他异常照常抛出。
+- `Subscribe` 无条件经过 `IRealTimeSubscriptionAuthorizer`。授权通过且已加入资源组时返回 `true`；被拒绝时不入组、记一条 Warning（连接与组名，不附带异常对象）并返回 `false`，不抛异常——SignalR 会把 Hub 方法抛出的任何异常按 Error 记为调用失败。`false` 只表示这次没有订阅成功，不区分具体原因。`Unsubscribe` 始终允许，无返回值。
+- 授权器与入组、退组都收到 `Context.ConnectionAborted`。连接已中止时，`Subscribe`（授权或入组阶段）与 `Unsubscribe` 出现的 `OperationCanceledException` 只记 Debug 并正常结束（`Subscribe` 返回 `false`），不再记为 Hub 调用失败；连接仍在时的取消（如背板确认超时）、授权器自身的故障与其他异常照常抛出。
 - 资源组名为 `resource:{resourceKey}`，不会自动拼租户；租户隔离必须由 `IRealTimeSubscriptionAuthorizer` 判定。推送失败只记录错误。
 
 ## 非 Hub 进程发布

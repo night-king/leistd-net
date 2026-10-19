@@ -833,15 +833,17 @@ await using var connection = new HubConnectionBuilder().WithUrl(root + "/hubs/re
 var changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 connection.On<object>("Roles.Changed", _ => changed.TrySetResult());
 await connection.StartAsync();
-await connection.InvokeAsync("Subscribe", "host:roles");
+// Subscribe 以 bool 表示是否加入了资源组：越权是返回 false 的正常结果，技术故障仍以异常结束调用
+if (!await connection.InvokeAsync<bool>("Subscribe", "host:roles"))
+{
+    throw new InvalidOperationException("The authorized resource subscription was rejected.");
+}
 foreach (var forbidden in new[] { Guid.NewGuid().ToString("N") + ":roles", "host:secrets", "roles" })
 {
-    try
+    if (await connection.InvokeAsync<bool>("Subscribe", forbidden))
     {
-        await connection.InvokeAsync("Subscribe", forbidden);
         throw new InvalidOperationException("An unauthorized resource subscription was accepted.");
     }
-    catch (Microsoft.AspNetCore.SignalR.HubException exception) when (exception.Message.Contains("Subscription forbidden", StringComparison.OrdinalIgnoreCase)) { }
 }
 using var client = new HttpClient();
 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);

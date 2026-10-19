@@ -32,6 +32,13 @@ internal sealed class ThrowingAuthorizer : IRealTimeSubscriptionAuthorizer
         throw new InvalidOperationException("Authorization should not be evaluated for public subscriptions.");
 }
 
+/// <summary>授权器自身出错（依赖不可用等）：这是故障，不是拒绝。</summary>
+internal sealed class FailingAuthorizer : IRealTimeSubscriptionAuthorizer
+{
+    public Task<bool> AuthorizeAsync(RealTimeSubscriptionContext context, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Authorization store unavailable.");
+}
+
 internal sealed class DenyingAuthorizer : IRealTimeSubscriptionAuthorizer
 {
     public Task<bool> AuthorizeAsync(RealTimeSubscriptionContext context, CancellationToken cancellationToken = default) =>

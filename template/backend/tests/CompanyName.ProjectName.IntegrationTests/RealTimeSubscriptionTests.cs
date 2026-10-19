@@ -43,7 +43,7 @@ public sealed class RealTimeSubscriptionTests(ProjectWebApplicationFactory facto
         using var _ = session;
         await using var connection = await ConnectAsync(session);
         var changed = ListenForRoleListChanges(connection);
-        await connection.InvokeAsync("Subscribe", ScopeKey(tenantId));
+        Assert.True(await connection.InvokeAsync<bool>("Subscribe", ScopeKey(tenantId)));
 
         using var create = await session.Client.PostAsJsonAsync(
             "/api/v1/roles",
@@ -61,7 +61,7 @@ public sealed class RealTimeSubscriptionTests(ProjectWebApplicationFactory facto
         using var _ = session;
         await using var connection = await ConnectAsync(session);
         var changed = ListenForRoleListChanges(connection);
-        await connection.InvokeAsync("Subscribe", ScopeKey(tenantId));
+        Assert.True(await connection.InvokeAsync<bool>("Subscribe", ScopeKey(tenantId)));
 
         await using (var scope = factory.Services.CreateAsyncScope())
         using (scope.ServiceProvider.GetRequiredService<ICurrentTenant>().Change(tenantId))
@@ -122,7 +122,7 @@ public sealed class RealTimeSubscriptionTests(ProjectWebApplicationFactory facto
         using var _ = session;
         await using var connection = await ConnectAsync(session);
 
-        await connection.InvokeAsync("Subscribe", ScopeKey(tenantId));
+        Assert.True(await connection.InvokeAsync<bool>("Subscribe", ScopeKey(tenantId)));
         // 另一个租户的同名资源
         await AssertForbiddenAsync(connection, $"{Guid.CreateVersion7():N}:{AppRealTimeResources.Roles}");
 #if (IncludeMultiTenancy)
@@ -157,7 +157,7 @@ public sealed class RealTimeSubscriptionTests(ProjectWebApplicationFactory facto
         using var _ = session;
         await using var connection = await ConnectAsync(session);
         var changed = ListenForRoleListChanges(connection);
-        await connection.InvokeAsync("Subscribe", ScopeKey(tenantId));
+        Assert.True(await connection.InvokeAsync<bool>("Subscribe", ScopeKey(tenantId)));
 
         await using (var scope = factory.Services.CreateAsyncScope())
         using (scope.ServiceProvider.GetRequiredService<ICurrentTenant>().Change(tenantId is null ? other : null))
@@ -230,10 +230,10 @@ public sealed class RealTimeSubscriptionTests(ProjectWebApplicationFactory facto
         return changed;
     }
 
+    // 越权订阅是预期结局：Hub 以 false 告知，不以异常结束调用
     private static async Task AssertForbiddenAsync(HubConnection connection, string resourceKey)
     {
-        var exception = await Assert.ThrowsAnyAsync<Exception>(() => connection.InvokeAsync("Subscribe", resourceKey));
-        Assert.Contains("Subscription forbidden", exception.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.False(await connection.InvokeAsync<bool>("Subscribe", resourceKey));
     }
 
     private async Task<HubConnection> ConnectAsync(AuthenticatedSession session)

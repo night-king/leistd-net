@@ -14,6 +14,7 @@ namespace Leistd.AspNetCore.SignalR.Filters;
 /// <remarks>
 /// Hub 方法调用不经过 HTTP 中间件。本过滤器基于握手主体建立调用上下文，
 /// 并按 <see cref="HubIdentityOptions.PolicyName"/> 和复评间隔检查身份有效性；对全部 Hub 生效。
+/// 复评不通过时中止连接、不执行方法、只记 Information，不抛异常，客户端以连接关闭结束这次调用。
 /// </remarks>
 public sealed class AmbientContextHubFilter(
     IOptions<HubIdentityOptions> options,
@@ -40,13 +41,16 @@ public sealed class AmbientContextHubFilter(
         // 先建立上下文再复评，使授权处理器可读取当前用户等环境态。
         using (Begin(invocationContext.ServiceProvider, principal))
         {
-            if (IsAuthenticated(principal))
-            {
-                await RevalidateOrAbortAsync(
+            if (IsAuthenticated(principal) && !await RevalidateOrAbortAsync(
                     invocationContext.ServiceProvider,
                     invocationContext.Context,
                     principal,
-                    invocationContext.HubMethodName);
+                    invocationContext.HubMethodName))
+            {
+                // 连接已中止，方法不执行。不抛异常：SignalR 会把方法与过滤器抛出的任何异常（含 HubException）
+                // 按 Error 记一条调用失败，而这是预期结局；连接已中止，拒绝消息也送不到客户端。
+                // 返回值不会写回客户端，流式调用拿到 null 时官方只记 Debug。
+                return null;
             }
 
             return await next(invocationContext);
@@ -92,8 +96,8 @@ public sealed class AmbientContextHubFilter(
         System.Security.Claims.ClaimsPrincipal principal)
         => serviceProvider.GetRequiredService<IAmbientContext>().Begin(principal);
 
-    // 账号有效性复评：不通过即中止连接，让客户端重连并重新认证
-    private async Task RevalidateOrAbortAsync(
+    // 账号有效性复评：不通过即中止连接并返回 false，客户端需重新建立连接并重新认证
+    private async Task<bool> RevalidateOrAbortAsync(
         IServiceProvider serviceProvider,
         HubCallerContext callerContext,
         System.Security.Claims.ClaimsPrincipal principal,
@@ -105,14 +109,14 @@ public sealed class AmbientContextHubFilter(
             last is DateTimeOffset lastAt &&
             _timeProvider.GetUtcNow() - lastAt < interval.Value)
         {
-            return;
+            return true;
         }
 
         var authorization = serviceProvider.GetService<IAuthorizationService>();
         if (authorization is null)
         {
             // 宿主没装授权：没有策略可复评，跳过。缺失是宿主的选择，不是本过滤器的默认。
-            return;
+            return true;
         }
 
         var result = options.Value.PolicyName is { } policyName
@@ -123,7 +127,7 @@ public sealed class AmbientContextHubFilter(
 
         if (result.Succeeded)
         {
-            return;
+            return true;
         }
 
         logger.LogInformation(
@@ -131,7 +135,7 @@ public sealed class AmbientContextHubFilter(
             callerContext.ConnectionId, hubMethodName);
 
         callerContext.Abort();
-        throw new HubException("The connection is no longer authorized.");
+        return false;
     }
 
     private static async Task<AuthorizationResult> AuthorizeWithDefaultPolicyAsync(
