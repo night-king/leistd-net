@@ -108,6 +108,34 @@ public sealed class OpenIddictAuthorizationTests(ProjectWebApplicationFactory fa
 
         Assert.Equal(HttpStatusCode.BadRequest, updated.StatusCode);
     }
+
+    /// <summary>没登记路由 scope 的机器客户端申请不到路由令牌；Resource 因此取不到租户连接，按远端失败返回 502。</summary>
+    /// <remarks>远端失败映射成 502 见 <c>ApiExceptionMappingsTests</c>。</remarks>
+    [Fact]
+    public async Task A_client_without_the_routing_scope_permission_gets_no_routing_token()
+    {
+        using var superAdmin = await Factory.LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
+        var clientId = $"machine-{Guid.CreateVersion7():N}";
+        using var created = await superAdmin.Client.PostAsJsonAsync("/api/v1/open-applications",
+            NewApplicationPayload(clientId, "confidential", ["ept:token", "gt:client_credentials", "scp:tenant-migration.read"]));
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        var application = await created.Content.ReadFromJsonAsync<OpenApplicationOutputDto>();
+        using var reset = await superAdmin.Client.PostAsync($"/api/v1/open-applications/{application!.Id}/reset-secret", null);
+        var secret = (await reset.Content.ReadFromJsonAsync<ResetOpenApplicationSecretOutputDto>())!.ClientSecret;
+
+        using var client = CreateHttpsClient(Factory);
+        async Task<HttpResponseMessage> RequestAsync(string scope) => await client.PostAsync("/connect/token", new FormUrlEncodedContent(
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "client_credentials", ["client_id"] = clientId, ["client_secret"] = secret, ["scope"] = scope
+            }));
+        using var granted = await RequestAsync("tenant-migration.read");
+        Assert.True(granted.IsSuccessStatusCode, await granted.Content.ReadAsStringAsync());
+        using var denied = await RequestAsync("tenant-routing.read");
+        Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+        // ID2051：客户端无权使用该 scope（Resource 日志里看到的就是这条）
+        Assert.Contains("ID2051", await denied.Content.ReadAsStringAsync());
+    }
 #endif
 
 

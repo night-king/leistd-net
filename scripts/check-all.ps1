@@ -77,8 +77,6 @@ $dotSourcedLibraries = @(
     "scripts/quality-validation-plan.ps1",
     "scripts/release-commits.ps1",
     "scripts/template-matrix-scenarios.ps1",
-    "scripts/test-template-oidc-browser.ps1",
-    "scripts/test-template-oidc-multitenant.ps1",
     "template/scripts/template-marker.ps1"
 )
 

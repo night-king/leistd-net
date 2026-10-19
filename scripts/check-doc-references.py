@@ -48,6 +48,7 @@
   python3 scripts/check-doc-references.py --root <目录>   生成模式
   python3 scripts/check-doc-references.py --self-test     规则自检
 """
+import importlib.util
 import json
 import os
 import re
@@ -59,7 +60,7 @@ from urllib.parse import unquote
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-SOURCE_SCAN = ['README.md', 'docs', 'framework/docs', '.agents/skills', 'skills', 'template']
+SOURCE_SCAN = ['README.md', 'AGENTS.md', 'docs', 'framework/docs', '.agents/skills', 'skills', 'template']
 # 源码模式按目录排除的在途工作文档（仓库相对目录，整棵排除；不按路径内容匹配）。
 SOURCE_EXCLUDED_DIRS = (
     'docs/plans',        # 实施计划：任务全部完成后删除
@@ -67,6 +68,9 @@ SOURCE_EXCLUDED_DIRS = (
     'docs/reports',      # 跨层验证结果：引用的是当次运行的 .tmp 产物
 )
 TEMPLATE_PREFIX = 'template/'
+# 反引号路径带 `#锚点` 时核对锚点的文档：Skill 与 AGENTS.md（仓库层与模板层各一套）。
+ANCHOR_SCOPE_PREFIXES = ('.agents/skills/', 'template/.agents/skills/')
+ANCHOR_SCOPE_FILES = ('AGENTS.md', 'template/AGENTS.md')
 
 # 交付根的顶层目录：单段 `name/` 与无扩展名、不以 / 结尾的多段路径，只有首段是这些名字之一才算引用。
 # 写死而不读文件系统，是为了让“算不算引用”与“目标在不在”无关。
@@ -138,6 +142,9 @@ LINK_RE = re.compile(r'!?\[(?P<text>[^\]]*)\]\((?P<target>[^)]+)\)')
 INLINE_CODE_RE = re.compile(r'(`+)(.+?)\1')
 SCHEME_RE = re.compile(r'^[A-Za-z][A-Za-z0-9+.-]*:')
 PATH_SPAN_RE = re.compile(r'^(?:\.{1,2}/)*[\w.+-]+(?:/[\w.+-]+)*/?$')
+# Skill 与 AGENTS.md 中带锚点的单段 Markdown 文件名（`README.md#章节`）按交付根解析；
+# 不带锚点的单段名（`SKILL.md`、`quality.md`）多是 Skill 内部文件名，仍只是名字。
+SINGLE_MARKDOWN_RE = re.compile(r'^[\w.+-]+\.md$')
 LINE_SUFFIX_RE = re.compile(r'^(?P<path>.+?)(?::\d+(?:[-,]\d+)*|#L\d+(?:-L?\d+)?)$')
 
 NPM_RE = re.compile(r'(?<![\w-])npm\s+(?:--prefix(?:=|\s+)(?P<prefix>[^\s|;&`]+)\s+)?'
@@ -297,6 +304,31 @@ def path_span(span):
     return text
 
 
+def _load_anchor_rules():
+    spec = importlib.util.spec_from_file_location(
+        'check_markdown_anchors', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'check-markdown-anchors.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+ANCHOR_RULES = _load_anchor_rules()
+
+
+def in_anchor_scope(doc_key):
+    return doc_key.startswith(ANCHOR_SCOPE_PREFIXES) or doc_key in ANCHOR_SCOPE_FILES
+
+
+def split_anchor(span):
+    """`x.md#章节` → (`x.md`, `章节`)；其余写法原样返回、无锚点。"""
+    text = span.strip()
+    if '#' in text:
+        path, fragment = text.split('#', 1)
+        if path.lower().endswith('.md') and fragment:
+            return path, unquote(fragment)
+    return text, None
+
+
 def is_checked_path(path, resolution_root, delivery):
     segments = [s for s in path.split('/') if s not in ('', '.')]
     if not segments:
@@ -410,6 +442,7 @@ def collect(repo_root, generated_root, context_roots, whitelist):
     references = 0
     used = set()
     scanned = set()
+    anchor_cache = {}
 
     def whitelisted(doc_key, raw):
         for index, entry in enumerate(whitelist):
@@ -448,13 +481,29 @@ def collect(repo_root, generated_root, context_roots, whitelist):
                     inside_link = any(start <= match.start() < end for start, end in link_texts)
                     spans.append((match.group(2), inside_link))
                 for span, inside_link in spans:
-                    candidate = None if inside_link else path_span(span)
-                    if candidate and is_checked_path(candidate, resolution_root, delivery):
+                    anchor = None
+                    candidate_text = span
+                    if in_anchor_scope(doc_key):
+                        candidate_text, anchor = split_anchor(span)
+                    candidate = None if inside_link else path_span(candidate_text)
+                    explicit_root_file = False
+                    if candidate is None and not inside_link and anchor is not None \
+                            and SINGLE_MARKDOWN_RE.match(candidate_text.strip()):
+                        candidate = candidate_text.strip()
+                        explicit_root_file = True
+                    if candidate and (explicit_root_file or is_checked_path(candidate, resolution_root, delivery)):
                         references += 1
                         absolute = os.path.join(resolution_root, candidate)
                         if not delivery.exists(absolute):
                             where = f'按 {context}/ 解析' if context else '按交付根解析'
                             report(doc_key, display, number, span.strip(), f'路径不存在（{where}）')
+                        elif anchor is not None:
+                            anchors = anchor_cache.get(absolute)
+                            if anchors is None:
+                                anchors = anchor_cache[absolute] = ANCHOR_RULES.collect_anchors(
+                                    read_text(absolute).splitlines())
+                            if anchor not in anchors:
+                                report(doc_key, display, number, span.strip(), f'锚点不存在：#{anchor}')
                     if config:
                         references += check_commands(span, config, delivery, doc_key, display, number, report)
             elif config and fence_info in SHELL_FENCE_INFOS:
@@ -561,6 +610,20 @@ SOURCE_FIXTURE = {
         '```',
     ]),
     'docs/guide.md': '# 指南\n## 章节\n',
+    # Skill 与 AGENTS.md 的反引号路径带锚点时核对锚点；其他文档带 # 的写法不是路径、不检查
+    'AGENTS.md': '有效 `docs/guide.md#章节`；锚点失效 `docs/guide.md#已改名`。\n',
+    '.agents/skills/s/SKILL.md': '\n'.join([
+        '---', 'name: s', '---', '# S',
+        '有效 `docs/guide.md#章节`、`docs/指南.md#中文文件名`、无锚点的 `docs/guide.md`。',
+        '锚点失效 `docs/guide.md#不存在`；路径失效 `docs/gone.md#章节`。',
+        '根文件有效 `README.md#仓库`、`README.md`；锚点失效 `README.md#不存在`；文件失效 `MISSING.md#仓库`。',
+        '占位不检查 `docs/{topic}.md#x`、`docs/<topic>.md#x`；按需新建的目录 `docs/project/`。',
+    ]),
+    'template/.agents/skills/p/SKILL.md': '\n'.join([
+        '# P',
+        '有效 `docs/standards/api.md#api`、`scripts/check.py`。',
+        '锚点失效 `docs/standards/api.md#不存在`；仓库根才有的文档，模板里没有 `docs/guide.md#章节`。',
+    ]),
     'docs/指南.md': '# 中文文件名\n',
     'docs/logo.png': '',
     'docs/notes.md': '近似拼写不豁免：`deploy/.ENV`、`./deploy/.env`；精确匹配豁免：`deploy/.env`。\n',
@@ -615,6 +678,13 @@ SOURCE_EXPECTED = {
     ('README.md', 'docs/removed/'),
     ('README.md', '.github/workflows'),
     ('README.md', 'docs/缺失.md'),
+    ('AGENTS.md', 'docs/guide.md#已改名'),
+    ('.agents/skills/s/SKILL.md', 'docs/guide.md#不存在'),
+    ('.agents/skills/s/SKILL.md', 'docs/gone.md#章节'),
+    ('.agents/skills/s/SKILL.md', 'README.md#不存在'),
+    ('.agents/skills/s/SKILL.md', 'MISSING.md#仓库'),
+    ('template/.agents/skills/p/SKILL.md', 'docs/standards/api.md#不存在'),
+    ('template/.agents/skills/p/SKILL.md', 'docs/guide.md#章节'),
     ('docs/notes.md', 'deploy/.ENV'),
     ('docs/notes.md', './deploy/.env'),
     ('docs/architecture/a.md', 'missing.md'),
@@ -629,6 +699,7 @@ GENERATED_ANGULAR = {'projects': {'app': {'architect': {'build': {}, 'serve': {}
 GENERATED_FIXTURE = {
     'README.md': '\n'.join([
         '# 生成项目',
+        '## AI 协作',
         '[有效](docs/standards/api.md)',
         '交付根解析 `frontend/package.json`、`frontend/src/app/core/a.ts`。',
         '映射表外的上下文相对路径 `src/a.cs`。',
@@ -651,6 +722,10 @@ GENERATED_FIXTURE = {
         '```',
     ]),
     'docs/standards/api.md': '# API\n',
+    'AGENTS.md': '锚点失效 `docs/standards/api.md#已改名`。\n',
+    '.agents/skills/s/SKILL.md': '有效 `docs/standards/api.md#api`；锚点失效 `docs/standards/api.md#不存在`；'
+                                 '路径失效 `docs/standards/gone.md#api`。\n'
+                                 '根文件有效 `README.md#ai-协作`；锚点失效 `README.md#不存在`；文件失效 `MISSING.md#ai-协作`。\n',
     'backend/README.md': '映射表内的上下文相对路径 `src/a.cs`、`../deploy/compose.yml`。\n',
     'backend/src/a.cs': '',
     'deploy/compose.yml': '',
@@ -661,6 +736,11 @@ GENERATED_FIXTURE = {
 }
 
 GENERATED_EXPECTED = {
+    ('AGENTS.md', 'docs/standards/api.md#已改名'),
+    ('.agents/skills/s/SKILL.md', 'docs/standards/api.md#不存在'),
+    ('.agents/skills/s/SKILL.md', 'docs/standards/gone.md#api'),
+    ('.agents/skills/s/SKILL.md', 'README.md#不存在'),
+    ('.agents/skills/s/SKILL.md', 'MISSING.md#ai-协作'),
     ('README.md', 'src/a.cs'),
     ('README.md', 'frontend/src/app/i18n-only.ts'),
     ('README.md', 'deploy/.env'),
@@ -681,6 +761,7 @@ SELF_TEST_CONTEXT_ROOTS = {
 SELF_TEST_WHITELIST = [
     {'source': 'docs/notes.md', 'ref': 'deploy/.env', 'mode': 'source', 'reason': '自检：精确匹配才豁免'},
     {'source': 'template/README.md', 'ref': 'deploy/.env', 'mode': 'source', 'reason': '自检：生成后才出现'},
+    {'source': '.agents/skills/s/SKILL.md', 'ref': 'docs/project/', 'mode': 'source', 'reason': '自检：按需新建的目录'},
 ]
 
 
@@ -708,10 +789,10 @@ def self_test():
         actual = problem_keys(problems)
         if actual != SOURCE_EXPECTED:
             failures.append(f'源码模式命中 {sorted(actual)}，期望 {sorted(SOURCE_EXPECTED)}')
-        if docs != 9:
-            failures.append(f'源码模式扫描了 {docs} 份文档，期望 9（排除口径有变）')
-        if used != {0, 1}:
-            failures.append(f'源码模式命中的白名单项为 {sorted(used)}，期望两项都命中')
+        if docs != 12:
+            failures.append(f'源码模式扫描了 {docs} 份文档，期望 12（排除口径有变）')
+        if used != {0, 1, 2}:
+            failures.append(f'源码模式命中的白名单项为 {sorted(used)}，期望三项都命中')
         stale, _ = run(source_root, None, SELF_TEST_CONTEXT_ROOTS,
                        SELF_TEST_WHITELIST + [{'source': 'docs/notes.md', 'ref': 'deploy/.env2', 'mode': 'source',
                                                'reason': '自检：陈旧项'}])

@@ -50,7 +50,7 @@
 | 过滤器（Sqlite） | 租户与软删双过滤器叠加；`GetByIdAsync` 跨租户不可见；**没有 `DbSet` 声明、只经 `ApplyConfiguration` 入模型的实体同样被过滤** | Sqlite，非 InMemory |
 | 中间件（TestServer） | claim 优先于头（防水平越权）；未知 404、停用 403；已删除与不存在同形状 | TestServer |
 | 集成（生成项目） | 三路越权矩阵（列表/详情/更新）；同名用户分属不同租户互不可见；停用后在途会话被处理 | 生成项目集成测试 |
-| 浏览器 | 见 §4 | agent-browser |
+| 浏览器 | 见 §4 | 生成项目 Playwright E2E 与前端浏览器模式组件测试 |
 
 ### 测试步骤
 
@@ -156,17 +156,17 @@ RBAC 的坑集中在三处：定义树与授予的归一化、超管旁路的边
 
 ---
 
-## 4. 浏览器端到端的定位
+## 4. 浏览器语义的覆盖
 
-浏览器闭环只覆盖进程内测试无法证明的跨进程、跨时序和浏览器语义，不重复权限判定矩阵。
+浏览器端到端只放真实部署才能证明的主路径（生成项目 E2E：界面登录、同页按权限显示操作、两步验证与确认身份），不重复权限判定矩阵；其余浏览器语义由前端组件测试与集成测试证明，仓库不另建浏览器闭环。
 
-| 场景 | 必须证明 |
-| --- | --- |
-| 前端导航与后端授权 | 菜单、路由守卫和直接访问使用同一权限口径；无权限时稳定进入 403 |
-| 租户停用或失效 | 下一次请求清除本地租户状态并返回登录页，不进入跳转循环 |
-| CORS 响应头 | 真实跨域请求能读取 `X-Tenant-Invalid`；协议测试同时断言 `Access-Control-Expose-Headers` |
-| 启动时序 | 恢复会话、校验租户和首次路由完成后再渲染受保护页面 |
-| 数据范围切换 | 同一用户修改范围后，列表、总数与导出同步变化，租户硬隔离始终有效 |
+| 场景 | 必须证明 | 由谁证明 |
+| --- | --- | --- |
+| 前端导航与后端授权 | 菜单、路由守卫和直接访问使用同一权限口径；无权限时稳定进入 403 | E2E `permissions.e2e.ts`；`default-sidebar.spec.ts` 的入口权限一一对应 |
+| 租户停用或失效 | 下一次请求清除本地租户状态并返回登录页，不进入跳转循环 | `TenancyTests.Deactivated_tenant_rejects_existing_sessions_and_new_sign_ins`；`http-error-interceptor.spec.ts`（`X-Tenant-Invalid` 清租户、一批 401 只恢复一次） |
+| CORS 响应头 | 真实跨域请求能读取 `X-Tenant-Invalid`；协议测试同时断言 `Access-Control-Expose-Headers` | `TenancyTests.Cors_response_exposes_the_tenant_invalid_header` |
+| 启动时序 | 恢复会话、校验租户和首次路由完成后再渲染受保护页面 | `app.spec.ts` 的启动失败与深链接重试用例 |
+| 数据范围切换 | 同一用户修改范围后，列表、总数与导出同步变化，租户硬隔离始终有效 | 框架 `AuthorizationPipelineTests`（见上文可执行事实来源） |
 
 新增业务模块时，平台父路由与 `AuthorizationService.canAccessPlatform` 必须从同一权限集合判断入口可见性，避免后端放行而前端拒绝。
 

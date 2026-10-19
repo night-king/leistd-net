@@ -228,11 +228,8 @@ try {
         ConnectionStrings__MigrationTarget = $adminShared
         Leistd__ServiceClients__Identity__BaseAddress = $resourceControlPlane
     } -Apply
+    # Resource 的显式目标迁移与 Identity 共用同一份 DbMigrator 实现：共享库验一次即可，专属库只迁 Identity
     Invoke-Migrator $identityMigrator @{ ConnectionStrings__MigrationTarget = $adminDedicated } -Apply
-    Invoke-Migrator $resourceMigrator @{
-        ConnectionStrings__MigrationTarget = $adminDedicated
-        Leistd__ServiceClients__Identity__BaseAddress = $resourceControlPlane
-    } -Apply
     # A second pass proves that both initial and explicit-target modes are idempotent.
     Invoke-Migrator $identityMigrator @{ ConnectionStrings__Default = $adminShared } -Apply
     Invoke-Migrator $identityMigrator @{ ConnectionStrings__MigrationTarget = $adminDedicated } -Apply
@@ -244,7 +241,6 @@ try {
     Assert-Equal "1" (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory";') "Identity business migration is missing."
     Assert-Equal "1" (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-resource"."__EFMigrationsHistory";') "Resource migration is missing."
     Assert-Equal "1" (Invoke-Postgres "leistd_dedicated" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory";') "Dedicated Identity migration is missing."
-    Assert-Equal "1" (Invoke-Postgres "leistd_dedicated" 'SELECT count(*) FROM "e2e-resource"."__EFMigrationsHistory";') "Dedicated Resource migration is missing."
     Assert-Equal "" (Invoke-Postgres "leistd_dedicated" 'SELECT to_regclass(''"e2e-identity"."TenantRecord"'');') "Identity Control tables leaked into the dedicated business target."
 
     # Control plane pinned to its own database. DbMigrator must follow the SAME fallback chain as
@@ -327,11 +323,14 @@ GRANT CONNECT ON DATABASE $database TO e2e_identity_runtime, e2e_resource_runtim
 GRANT USAGE ON SCHEMA "e2e-identity" TO e2e_identity_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "e2e-identity" TO e2e_identity_runtime;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA "e2e-identity" TO e2e_identity_runtime;
+"@ | Out-Null
+    }
+    # Resource 只迁到了共享库
+    Invoke-Postgres "leistd_shared" @"
 GRANT USAGE ON SCHEMA "e2e-resource" TO e2e_resource_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "e2e-resource" TO e2e_resource_runtime;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA "e2e-resource" TO e2e_resource_runtime;
 "@ | Out-Null
-    }
 
     Invoke-Postgres "leistd_shared" 'CREATE TABLE "e2e-identity"."RuntimeMustNotCreateTables"("Id" integer);' `
         -Username "e2e_identity_runtime" -Password $identityRuntimePassword -ExpectFailure

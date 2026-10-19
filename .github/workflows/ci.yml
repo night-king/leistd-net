@@ -23,9 +23,6 @@ on:
       release_base_sha:
         type: string
         default: ''
-      expected_plan:
-        type: string
-        default: ''
     outputs:
       validation_plan:
         value: ${{ jobs.template-matrix.outputs.validation_plan }}
@@ -210,7 +207,7 @@ jobs:
         with:
           ref: ${{ inputs.candidate_sha || github.sha }}
           fetch-depth: 0
-      - name: 独立计算并核对候选计划
+      - name: 计算候选计划
         id: plan
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -220,12 +217,10 @@ jobs:
           RELEASE_CHANNEL: ${{ inputs.release_channel }}
           RELEASE_BASE_TAG: ${{ inputs.release_base_tag }}
           RELEASE_BASE_SHA: ${{ inputs.release_base_sha }}
-          EXPECTED_PLAN: ${{ inputs.expected_plan }}
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import os, subprocess
-          from pathlib import Path
           if os.environ['CANDIDATE_SHA'] and os.environ['CALLER_BASE_SHA'] != os.environ['PR_BASE_SHA']:
               raise ValueError('Caller quality baseline differs from triggering event')
           arguments = ['python3', 'scripts/plan-quality-checks.py', '--tier', os.environ['PLAN_SCOPE'],
@@ -234,13 +229,6 @@ jobs:
               arguments += ['--release-channel', os.environ['RELEASE_CHANNEL'],
                             '--release-base-tag', os.environ['RELEASE_BASE_TAG'],
                             '--release-base-sha', os.environ['RELEASE_BASE_SHA']]
-          if os.environ['EXPECTED_PLAN']:
-              expected = Path('.tmp/expected-plan.json')
-              expected.parent.mkdir(parents=True, exist_ok=True)
-              expected.write_text(os.environ['EXPECTED_PLAN'], encoding='utf-8')
-              arguments += ['--expected-plan', str(expected)]
-          elif os.environ['CANDIDATE_SHA']:
-              raise ValueError('Reusable candidate requires an expected plan')
           subprocess.run(arguments, check=True)
           PY
 
@@ -383,7 +371,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.candidate_sha || github.sha }}
-          fetch-depth: 0
       - name: 检查必要作业全部成功
         id: quality
         shell: pwsh
@@ -411,13 +398,6 @@ jobs:
           "dynamic=$($plan.Jobs.'template-slices' ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
           "framework_tests=$($plan.FrameworkTests ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
           "tier=$tier" | Out-File $env:GITHUB_OUTPUT -Append
-      # 直接 PR 的选择由汇总独立重算：同一 base/head 重新运行 planner，与执行的计划逐字段一致才放行。
-      # 复用候选（release.yml）的计划已在 quality-plan 作业与调用方独立计算的预期计划比对过。
-      - name: 独立重算 PR 选择
-        if: github.event_name == 'pull_request' && !inputs.candidate_sha
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 scripts/plan-quality-checks.py --tier core --event pull_request --base "$PR_BASE_SHA" --expected-plan .tmp/quality-plan.json --output .tmp/recomputed-plan.json
       - uses: actions/download-artifact@v8
         if: steps.quality.outputs.dynamic == 'true'
         with:

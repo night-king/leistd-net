@@ -4,7 +4,7 @@ import { admin, authStatePath } from './support/accounts';
 
 test.use({ storageState: authStatePath(admin()) });
 
-test('creates, edits and deletes a role', async ({ page }) => {
+test('creates, edits and deletes a role', { tag: '@crud' }, async ({ page }) => {
   const name = `e2e_${Date.now()}`;
   const displayName = `Role ${name}`;
   const renamed = `${displayName} renamed`;

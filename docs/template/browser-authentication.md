@@ -23,3 +23,27 @@ Identity 的授权与退出端点启用 OpenIddict 请求缓存并保留 passthr
 开放应用的会话绑定是模板自有的 Settings 键 `leistd:session_bound`，读写只经 `OpenApplicationSettings`；不要把它等同于 `backchannel_logout_session_required`。API 区分缺值/null（400）与显式 false；签发时把经验证的 Cookie `sid` 写入 code/RT/id_token，换取与刷新只判定 Identity 会话（不 Touch、不走 `UserSessionValidator` 的缓存），失败一律 `invalid_grant`。是否受约束按签发时 grant 里有无 `sid` 判定，当前登记只用于拒绝缺 `sid` 的旧 grant；token exchange 与 client_credentials 不进入会话检查。后通道退出与 OpenIddict 8 的会话能力到位前不另建事件通道。
 
 仓库验收日志和过程放 .tmp，不分发进 template。
+
+## 测试分工
+
+仓库不另建浏览器闭环。真实界面只验两条主路径，其余行为按层放在能稳定复现的测试里：
+
+| 行为 | 由谁证明 |
+| --- | --- |
+| 组织要求两步验证时在页面上完成设置并登录 | 生成项目 E2E `two-factor-required.e2e.ts` |
+| 会话不够新时确认身份后保存 | E2E `reauthentication.e2e.ts`；15 分钟窗口与验证码重放：`SensitiveChangeReauthenticationTests`、`TwoFactorReauthenticationTests`；取消不保存、方式切换：`reauthenticate-dialog.spec.ts`、`profile-panel.spec.ts` |
+| 引用 Cookie 不带令牌、HttpOnly/Secure/`__Host-Http-` 前缀，票据删除即失效 | `ResourceBrowserSessionTests.Official_code_flow_keeps_tokens_on_the_server_and_rejects_a_deleted_ticket`、`UserSessionTests.Deployed_session_cookie_carries_the_host_http_prefix_and_its_attributes` |
+| 到期续期轮换令牌；续期被拒时删票据、清 Cookie | `ResourceBrowserSessionTests.Concurrent_requests_refresh_once_and_use_the_rotated_refresh_token`、`Refresh_lock_failure_rejects_the_session_instead_of_returning_500`；跨进程的真实到期见 OIDC 端到端 `-IncludeExpiryWait` |
+| 退出：hint 指向当前会话时免确认，没有 hint 走本源确认页，复制的 Cookie 失效 | `OidcLogoutTests`、`UserSessionTests.Copied_cookie_is_rejected_after_sign_out`；跨进程链路见 OIDC 端到端 S4 |
+| 受限会话的授权请求转去设置页，完成后接续原缓存请求 | `TwoFactorRequirementTests.A_restricted_session_gets_no_authorization_code_until_setup_is_done`、前端 `two-factor-required.spec.ts` |
+| 外部登录：PKCE、令牌不进浏览器、接续原授权请求、第二步与恢复码、纯外部账号重新登录 | `ExternalAuthenticationTests`（`The_official_handler_sends_pkce_and_keeps_tokens_out_of_browser_cookies`、`An_authorization_request_continues_through_external_login_and_optional_two_factor`）、`ExternalLoginLinkTests`、`PasswordlessAccountTests`、`TwoFactorTests.Recovery_code_replaces_a_code_only_once` |
+| 角色列表实时刷新、断线重连后补查 | 前端 `roles.spec.ts`、`signalr-service.spec.ts`；提交后推送：`RealTimeSubscriptionTests` |
+
+## 外部登录的手工验证
+
+Google、GitHub 的真实登录有机器人检测，不做自动化；协议细节由上表的集成测试承担。改动外部登录（处理器配置、回调地址、资料映射、绑定规则）后，在可访问的部署上手工走一遍：
+
+1. 提供商控制台登记的回调与 `https://<站点>/api/v1/external-auth/<provider>/signin` 逐字一致；部署配置打开 `ExternalAuth:Google:Enabled`（或 `ExternalAuth:Github:Enabled`），并给出 ClientId 与 ClientSecret。
+2. 从依赖方发起登录，在登录页点提供商按钮，授权后回到依赖方原页面，顶栏显示的是本地投影的用户。
+3. 已开启两步验证的账号再走一次：外部登录后进入第二步，用验证码或恢复码完成后接续原授权请求。
+4. 在浏览器开发者工具里确认：Cookie 只有会话引用，本地存储、会话存储与地址栏里都没有令牌。

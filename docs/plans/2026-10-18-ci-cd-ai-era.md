@@ -155,10 +155,9 @@
 
 | 责任 | 判据 |
 | --- | --- |
-| full 全部登记场景 | 所有场景的 Backend（含后端单测和集成测试）与 Runtime 为 pass；有前端的场景另要求 Lint/Frontend/Test（Test 为前端测试）为 pass，且真实 Chromium 执行的用例数 > 0；无前端场景这三项保持 not-applicable |
+| full 全部登记场景 | 所有场景的 Backend（含后端单测和集成测试）与 Runtime 为 pass；有前端的场景另要求 Lint/Frontend/Test（Test 为前端测试）为 pass，且真实 Chromium 执行的用例数 > 0；无前端场景这三项保持 not-applicable；登记 Verify 的本地身份场景另执行生成项目 E2E（含两步验证与确认身份主路径）且用例数 > 0 |
 | 两个容器场景 | `standalone-external-login` 与 `resource-capabilities-03` 都执行容器阶段且为 pass |
 | PG 端到端、OIDC HTTP 端到端 | 作业为 success，且执行的用例数 > 0 |
-| OIDC 浏览器闭环（P5 落地后加入） | 浏览器阶段为 success，且执行的用例数 > 0；只有 HTTP 阶段成功不能满足这一项 |
 | 生成证明 | 320 个形态、768 组原始输入映射、角色等价、Ci 变体、`verify` 步骤与失败传播，全部有证明 |
 | 框架 | 全部测试项目都有回执；包内容检查与隔离消费检查通过 |
 
@@ -231,7 +230,7 @@
   - `resource-capabilities-03`：Resource 纯 API，属于容器场景。
 - 每个场景一片。最终成员按实测耗时确定，但两个容器场景必须保留在 `core`。
 
-**PR 的增量保证**：选择规则在 planner 中实现，汇总独立重算预期集合。
+**PR 的增量保证**：选择规则在 planner 中实现。
 
 - **场景**：`core` 与受影响产品取交集。受影响产品是指 base 树和 head 树中，改动文件的生产者的并集，删除和重命名计入两端。
 - **改动的文件含条件块时**，追加最小场景集合，使被改动的每个条件块的每个叶子分支（含嵌套分支和 `elif` 的每一臂）在开启侧至少生成一次；文件被裁掉的那一侧也至少生成一次。
@@ -384,7 +383,7 @@
    - 使用 role/label 定位器，失败时保留 trace。
    - 范围按 `ServiceRole` 和 `SpaFrontend` 决定，纯 API 产品不要求浏览器 E2E。
    - `verify.ps1` 增加对应步骤；GitHub 与 GitLab 的 CI 薄壳都要准备浏览器依赖，并上传 trace。
-3. **仓库的 OIDC 浏览器场景**从有头 agent-browser 迁到无头 Playwright，并纳入 full 档，并启用 P2a 责任表中的“OIDC 浏览器闭环”一行（只维护这一张表）。迁移时按删除验收规则逐项接替原有断言；验收要求省略浏览器阶段时放行汇总失败。
+3. **仓库的 OIDC 浏览器场景**整体删除（2026-10-19 调整）：两步验证与确认身份的主路径迁到生成项目 E2E，计入 P2a 责任表 full 行的 E2E 用例数；其余断言逐条下沉到集成测试或组件测试，Google、GitHub 真实登录改为手工验证。去向见[浏览器认证维护规则](../template/browser-authentication.md#测试分工)。
 4. **Spartan Skill 单一来源**：仓库根的副本改为指向 `template/.agents/skills/spartan` 的软链接；`validate-skills.ps1` 拒绝内容不同的副本。
 5. **Skill 文本**
    - 仓库专项 Skill 链接 P1 的维护配方。
@@ -405,12 +404,12 @@
 - 模板开发工作区去掉锁与归属机制。
 - 发布物不出 SBOM，只保留来源证明。
 - 成本统计脚本不入库，合入后观测时临时使用。
-- P5.3（OIDC 浏览器迁移）本轮不做。
+- P5.3（OIDC 浏览器迁移）改为删除仓库浏览器场景，只把两步验证与确认身份的主路径迁进生成项目 E2E（见上文第 3 项）。
 - P5.2（生成项目 E2E）只做最小骨架：登录、一个权限差异、一个 CRUD。
 
 ## 5. 评审重点
 
-- **P2b 选择器**漏掉嵌套条件或 computed 依赖时，PR 会放进本可选中场景的缺陷。由 P2b 的反例夹具锁定，汇总独立重算。
+- **P2b 选择器**漏掉嵌套条件或 computed 依赖时，PR 会放进本可选中场景的缺陷。由 P2b 的反例夹具锁定。
 - **P2a 放行汇总**若接受“不适用”或“用例数为 0”，放行候选就可能缺少整项责任。由 P2a 的反例锁定。
 - **候选版本后缀**不得影响发布通道的版本推算与 `PackageReleaseNotes`。`scripts/test-workflow-change-scope.py` 要覆盖带后缀的本地包。
 - **工作区 `-Sync`** 必须删除模板中已删的文件，且不覆盖未同步的修改。由 P1 的验收锁定。

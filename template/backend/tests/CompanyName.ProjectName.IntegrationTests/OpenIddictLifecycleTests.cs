@@ -7,6 +7,7 @@ using System.Buffers.Text;
 using System.Security.Claims;
 using System.Text.Json;
 using CompanyName.ProjectName.Application.Shared;
+using CompanyName.ProjectName.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
@@ -20,6 +21,7 @@ using Microsoft.Extensions.DependencyInjection;
 using OpenIddict.Abstractions;
 using Leistd.Security.OpenIddict.Server.Pruning;
 using OpenIddict.Core;
+using OpenIddict.EntityFrameworkCore;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace CompanyName.ProjectName.IntegrationTests;
@@ -321,6 +323,9 @@ public sealed class OpenIddictLifecycleTests(ProjectWebApplicationFactory factor
         var oldAdHoc = await AuthorizationAsync(now.AddDays(-15), Statuses.Valid, AuthorizationTypes.AdHoc);
         var definition = scope.ServiceProvider.GetServices<RecurringJobDefinition>().Single(job => job.Name == OpenIddictPruningJob.Name);
         Assert.Equal(RecurringJobScope.Cluster, definition.Scope);
+        // 真实 PostgreSQL 上走官方批量删除：存储没有关掉批量操作，也没有退回内存或其他提供程序
+        Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", scope.ServiceProvider.GetRequiredService<OpenIddictDbContext>().Database.ProviderName);
+        Assert.False(scope.ServiceProvider.GetRequiredService<IOptions<OpenIddictEntityFrameworkCoreOptions>>().Value.DisableBulkOperations);
         var job = (IRecurringJob)scope.ServiceProvider.GetRequiredService(definition.JobType);
         var oldExpiredId = (await tokens.GetIdAsync(oldExpired))!;
         var youngExpiredId = (await tokens.GetIdAsync(youngExpired))!;

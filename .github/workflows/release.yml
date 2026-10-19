@@ -25,7 +25,6 @@ jobs:
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
       needed: ${{ steps.plan.outputs.release_required }}
-      plan: ${{ steps.plan.outputs.validation_plan }}
       release_base_tag: ${{ steps.plan.outputs.release_base_tag }}
       release_base_sha: ${{ steps.plan.outputs.release_base_sha }}
       channel: ${{ steps.commit.outputs.channel }}
@@ -61,7 +60,6 @@ jobs:
       release_channel: ${{ needs.candidate.outputs.channel }}
       release_base_tag: ${{ needs.candidate.outputs.release_base_tag }}
       release_base_sha: ${{ needs.candidate.outputs.release_base_sha }}
-      expected_plan: ${{ needs.candidate.outputs.plan }}
 
   release:
     needs: [candidate, quality]

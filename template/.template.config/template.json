@@ -775,6 +775,8 @@
         {
           "condition": "!(LocalIdentity && IncludeMultiTenancy)",
           "exclude": [
+            "frontend/e2e/two-factor-required.e2e.ts",
+            "frontend/e2e/support/totp.ts",
             "backend/src/CompanyName.ProjectName.Application/Tenants/**",
             "backend/src/CompanyName.ProjectName.Application/TenantConnections/**",
             "backend/src/CompanyName.ProjectName.Infrastructure/TenantConnections/**",
@@ -812,6 +814,7 @@
             "backend/tests/CompanyName.ProjectName.IntegrationTests/ImpersonationTests.cs",
             "frontend/src/app/core/services/impersonation-service.ts",
             "frontend/src/app/core/services/impersonation-service.spec.ts",
+            "frontend/e2e/reauthentication.e2e.ts",
             "backend/src/CompanyName.ProjectName.Api/Controllers/TenantController.cs"
           ]
         },
