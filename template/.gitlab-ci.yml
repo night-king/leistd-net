@@ -37,3 +37,12 @@ verify:
 #endif
   script:
     - pwsh -NoProfile -File scripts/verify.ps1
+#if (LocalIdentity)
+  # 端到端测试失败时保留 Playwright 报告、trace 与 API 日志
+  artifacts:
+    when: on_failure
+    expire_in: 1 week
+    paths:
+      - frontend/playwright-report/
+      - frontend/test-results/
+#endif

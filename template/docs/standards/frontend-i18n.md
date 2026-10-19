@@ -1,6 +1,6 @@
 # 前端多语言规范
 
-默认语言英语，支持 en + zh-CN 运行时切换。编码规范见 [前端开发规范](./coding-frontend.md)，表单校验提示见 [前端界面规范](./frontend-ui.md#26-表单规范)。文中路径相对项目根。
+默认语言英语，支持 en + zh-CN 运行时切换。编码规范见 [前端开发规范](./coding-frontend.md)，表单校验提示见 [前端表单规范](./frontend-forms.md)。文中路径相对项目根。
 
 ## 1. 方案与默认语言
 
@@ -11,10 +11,10 @@
 
 ## 2. 文案归属
 
-| 类别                            | 归属                                          | 用法                                                                       |
-| ------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------- |
-| UI 静态文案（菜单、按钮、标签） | 前端词条（权威）                              | 模板结构指令 `*transloco="let t"` 内 `{{ t('menu.users') }}`；TS 见第 4 节 |
-| 业务错误消息                    | **后端资源**（权威，见 [API 规范](./api.md)） | 前端直接显示后端已本地化的 `detail`，不在前端重复维护业务错误词条          |
+| 类别 | 归属 | 用法 |
+| --- | --- | --- |
+| UI 静态文案（菜单、按钮、标签） | 前端词条（权威） | 模板结构指令 `*transloco="let t"` 内 `{{ t('menu.users') }}`；TS 见第 4 节 |
+| 业务错误消息 | **后端资源**（权威，见 [API 规范](./api.md)） | 前端直接显示后端已本地化的 `detail`，不在前端重复维护业务错误词条 |
 
 - 后端按 `Accept-Language` 返回本地化消息，前端如何展示与分支见[错误处理](./coding-frontend.md#6-错误处理)。前端词条只提供网络断开、后端不可达等客户端兜底。
 
@@ -34,9 +34,9 @@
 - **词条随功能归属，这是业务项目持续扩展的长期约定。** 不按词条数量选择性拆分，每个独立功能都拥有自己的 scope；通用布局和真正跨功能的文案才放全局。权限授权弹窗属于 permissions 功能，即使被其它管理页嵌入，也由 permissions scope 持有词条，由宿主路由一起预加载。
 - 先分析引用归属：只有单一功能使用的文案放该功能 scope，真正跨功能的文案留在全局。新的独立懒加载功能新建 scope，两语言文件同时维护；不要把同一文案复制到多个 scope。路由登记 `providers: [provideTranslocoScope('orders')]` 和 `resolve: { translations: resolveTranslationScopes }`，注册与预加载读取同一来源；嵌套功能在自己的路由登记 scope。
 - UI 文案在对应的 en、zh-CN 文件同时加键。键集合、插值、引用与 scope 登记由 `scripts/check-i18n.py` 检查，判据见脚本文件头；动态键、非字面量路由或登记表达式不在静态判据内，新用法须补检查，不得绕过预加载约定。
-- **模板文案用结构指令**：组件模板最外层包 `<ng-container *transloco="let t">`（组件 `imports` 引 `TranslocoDirective`），块内一律 `t('key', params)`。这是 Transloco 官方推荐的写法：一个模板只建一个订阅，`t` 带记忆化；切换语言时指令换掉 `t`、整个模板随之重绘（`reRenderOnLangChange: true`）。传给子组件的文案（如分页器的 `labels`）也在模板里用 `t` 组装。不要给模板写"返回译文的组件方法"——那需要自己读语言信号才会重绘，漏读一次整块就停在旧语言；按状态选文案时让模板写 `cond ? t('a') : t('b')`。
+- **模板文案用结构指令**（Transloco 官方写法，一个模板一个订阅，切换语言时整个模板重绘）：组件模板最外层包 `<ng-container *transloco="let t">`（组件 `imports` 引 `TranslocoDirective`），块内一律 `t('key', params)`；传给子组件的文案（如分页器的 `labels`）也在模板里用 `t` 组装。不给模板写"返回译文的组件方法"（漏读语言信号就停在旧语言），按状态选文案写 `cond ? t('a') : t('b')`。
 - 只使用一个功能命名空间的模板可写 `*transloco="let t; prefix: 'orders'"`，正文用 `t('title')`；`prefix` 是 8.4 的正式输入，`read` 已弃用。同时使用 common/validation 的模板保留完整键 `t('orders.title')` 与 `t('common.save')`。配置 `scopes.autoPrefixKeys: false`，避免 scope 注入后完整键被重复加前缀。关闭多语言时，外层裁成普通 ng-container，英文表使用与正文相同的键；使用 prefix 的模板英文表也必须用相对键。
-- **TS 里随语言变化的文案**（导航菜单、筛选项、页面标题等由 `computed` / `effect` 产出、不经模板翻译的）一律用信号 API：固定的键用 `translateSignal('orders.title', {}, { scope: 'orders' })`（全局键用 `translateSignal('common.save')`）（在字段或构造函数里建，`computed` 里读）；一组键或键随数据变化（类别、动作码）用 `translateObjectSignal('orders.status', {}, { scope: 'orders' })` 取成对象再索引（显式 scope 负责加载，键仍用完整前缀），带点号的键按 `frontend/src/app/core/i18n/translation-text.ts` 的 `textAt` 逐级取。词条未到时前者是空串、后者是空对象，到达后自行更新。**不要**在 `computed` / `effect` 里「读 `activeLang()` + 同步 `translate()`」：要自己追踪语言，漏读一处就停在旧语言；首帧前、词条未到时取到的裸键还会被缓存。参数随每行数据变化的句子（`{{target}}` 之类）在 TS 里只定键与参数，由模板 `t(key, params)` 取。
-- **事件发生时的一次性文案**（toast、确认框）直接 `transloco.translate()`：`LanguageService` 先加载全局与已访问 scope 再激活语言，路由在创建组件前预加载 scope，活动功能的词条总已就位，切换途中返回的请求取到的是原语言的真实文案；这类文案不需要随语言重算。要留在界面上的文案（写进 signal、随后渲染的错误说明）存键，由模板 `t` 取，否则切换语言时它停在旧语言。
+- **TS 里随语言变化的文案**（导航菜单、筛选项、页面标题等由 `computed` / `effect` 产出的）一律用信号 API，在字段或构造函数里建、`computed` 里读：固定的键用 `translateSignal('orders.title', {}, { scope: 'orders' })`（全局键省略 scope）；一组键或键随数据变化（类别、动作码）用 `translateObjectSignal('orders.status', {}, { scope: 'orders' })` 取成对象再索引（键仍用完整前缀），带点号的键用 `frontend/src/app/core/i18n/translation-text.ts` 的 `textAt` 逐级取。词条未到时分别是空串、空对象，到达后自行更新。**不要**在 `computed` / `effect` 里「读 `activeLang()` + 同步 `translate()`」：漏读一处就停在旧语言，词条未到时的裸键还会被缓存。参数随每行数据变化的句子在 TS 里只定键与参数，由模板 `t(key, params)` 取。
+- **事件发生时的一次性文案**（toast、确认框）直接 `transloco.translate()`：语言激活前与路由进入前词条已加载，取到的总是真实文案，不需要随语言重算。要留在界面上的文案（写进 signal、随后渲染的错误说明）存键，由模板 `t` 取，否则切换语言时它停在旧语言。
 - 业务错误文案：改后端资源（见 [API 规范](./api.md#41-异常本地化)），**不在前端加**。
 - 货币/数字用 Angular `CurrencyPipe`/`DecimalPipe`。注意 **`LOCALE_ID` 是启动期注入、不随运行时语言切换自动改变**；如需格式也跟随切换，需自行传 locale 参数或重建相关视图，别假设它会自动联动。

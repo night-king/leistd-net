@@ -226,7 +226,7 @@ const formsRestriction = {
     'Use Angular Signal Forms (@angular/forms/signals); FormsModule/ReactiveFormsModule/ngModel are not allowed.',
 };
 
-// 浏览器标签页标题由根组件统一合成（frontend-ui.md 第 3 节），页面只设 LayoutService.title
+// 浏览器标签页标题由根组件统一合成（frontend-navigation.md 第 2 节），页面只设 LayoutService.title
 const titleRestriction = {
   name: '@angular/platform-browser',
   importNames: ['Title'],
@@ -235,7 +235,7 @@ const titleRestriction = {
 };
 
 /*
- * 模板类名档位（frontend-ui.md 第 2.2、2.8 节）。只检查静态 `class="…"` 与 `[class.xxx]` 的类名；
+ * 模板类名档位（frontend-ui.md 第 2.2、2.6 节）。只检查静态 `class="…"` 与 `[class.xxx]` 的类名；
  * 已知边界：`[class]`/`[ngClass]` 绑定的表达式、带插值的 `class="a {{b}}"` 与 TS 字符串（host、cva）
  * 不在覆盖内，留给评审。具体色板只拦带色阶的色名与十六进制任意值，`black`/`white` 不带色阶，
  * 图像遮罩与二维码底色两类例外因此天然放过；`ng-icon`、`hlm-spinner` 上的 `text-*` 是图标尺寸。

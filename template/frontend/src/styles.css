@@ -32,7 +32,7 @@ body {
  * - warning（amber）   : 需注意但非错误（一次性密钥提示、重置告警）
  * - success（绿）      : 正态 / 成功（启用、已验证、成功 toast）
  * - secondary / muted  : 次要 / 中性（普通分类、禁用态、辅助文字）
- * 用法见 docs/standards/frontend-ui.md §2.3 与 §2.8。
+ * 用法见 docs/standards/frontend-ui.md §2.3 与 §2.6。
  */
 
 /*

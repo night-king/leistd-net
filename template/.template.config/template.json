@@ -290,6 +290,88 @@
           "description": "不生成流水线文件"
         }
       ]
+    },
+    "TemplatePackageVersion": {
+      "type": "generated",
+      "generator": "constant",
+      "parameters": {
+        "value": "0.0.0-source"
+      },
+      "replaces": "__LEISTD_TEMPLATE_PACKAGE_VERSION__"
+    },
+    "TemplateSourceSha": {
+      "type": "generated",
+      "generator": "constant",
+      "parameters": {
+        "value": "0000000000000000000000000000000000000000"
+      },
+      "replaces": "__LEISTD_TEMPLATE_SOURCE_SHA__"
+    },
+    "TemplateSdkVersion": {
+      "type": "bind",
+      "binding": "host:dotnet-cli-version",
+      "defaultValue": "",
+      "replaces": "__LEISTD_TEMPLATE_SDK_VERSION__"
+    },
+    "MarkerServiceRole": {
+      "type": "derived",
+      "valueSource": "ServiceRole",
+      "valueTransform": "identity",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_SERVICE_ROLE__"
+    },
+    "MarkerIncludeFrontend": {
+      "type": "derived",
+      "valueSource": "IncludeFrontend",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_FRONTEND__"
+    },
+    "MarkerIncludeMultiTenancy": {
+      "type": "derived",
+      "valueSource": "IncludeMultiTenancy",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_MULTI_TENANCY__"
+    },
+    "MarkerIncludeRealTime": {
+      "type": "derived",
+      "valueSource": "IncludeRealTime",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_REAL_TIME__"
+    },
+    "MarkerIncludeEmail": {
+      "type": "derived",
+      "valueSource": "IncludeEmail",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_EMAIL__"
+    },
+    "MarkerIncludeOperationRecords": {
+      "type": "derived",
+      "valueSource": "IncludeOperationRecords",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_OPERATION_RECORDS__"
+    },
+    "MarkerIncludeNotifications": {
+      "type": "derived",
+      "valueSource": "IncludeNotifications",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_NOTIFICATIONS__"
+    },
+    "MarkerIncludeExternalLogin": {
+      "type": "derived",
+      "valueSource": "IncludeExternalLogin",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_EXTERNAL_LOGIN__"
+    },
+    "MarkerIncludeLocalization": {
+      "type": "derived",
+      "valueSource": "IncludeLocalization",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_LOCALIZATION__"
+    },
+    "MarkerCi": {
+      "type": "derived",
+      "valueSource": "Ci",
+      "valueTransform": "identity",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_CI__"
     }
   },
   "sources": [
@@ -306,6 +388,9 @@
         "frontend/.cache/lint/**",
         "frontend/.tmp/**",
         "frontend/dist/**",
+        "frontend/test-results/**",
+        "frontend/playwright-report/**",
+        "frontend/playwright/.auth/**",
         "test-scenarios/**",
         ".pid"
       ],
@@ -435,7 +520,9 @@
             "backend/tests/CompanyName.ProjectName.UnitTests/Domain/UserAccessStatusTests.cs",
             "frontend/_mock/data/password-policy.ts",
             "frontend/src/app/core/interceptors/tenant-interceptor.ts",
-            "frontend/src/app/core/validation/password-rule.ts"
+            "frontend/src/app/core/validation/password-rule.ts",
+            "frontend/playwright.config.ts",
+            "frontend/e2e/**"
           ]
         },
         {
@@ -606,6 +693,11 @@
             "docs/standards/frontend-ui.md",
             "docs/standards/frontend-spartan.md",
             "docs/standards/frontend-i18n.md",
+            "docs/standards/frontend-lists.md",
+            "docs/standards/frontend-forms.md",
+            "docs/standards/frontend-navigation.md",
+            "docs/standards/frontend-routing.md",
+            "docs/standards/frontend-data.md",
             "backend/src/CompanyName.ProjectName.Api/Hosting/SpaExtensions.cs",
             "backend/src/CompanyName.ProjectName.Api/Options/SessionCookieOptions.cs",
             "backend/src/CompanyName.ProjectName.Infrastructure/DataProtectionExtensions.cs",

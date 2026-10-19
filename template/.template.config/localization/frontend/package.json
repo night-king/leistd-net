@@ -7,6 +7,9 @@
     "build": "ng build",
     "postbuild": "transloco-optimize dist/companyname-projectname-web/browser/i18n",
     "test": "ng test",
+    //#if (LocalIdentity)
+    "e2e": "playwright test",
+    //#endif
     "lint": "npm run lint:ts && npm run lint:style && npm run format",
     "lint:ts": "eslint --cache --cache-strategy content --cache-location .cache/lint/eslint --max-warnings=0 \"src/**/*.{ts,html}\" \"_mock/**/*.ts\"",
     "lint:style": "stylelint --cache --cache-strategy content --cache-location .cache/lint/stylelint \"src/**/*.css\"",
@@ -53,7 +56,9 @@
     "@angular/compiler-cli": "22.2.0",
     "@eslint/js": "^10.0.1",
     "@jsverse/transloco-optimize": "^8.4.0",
+    "@playwright/test": "^1.63.0",
     "@spartan-ng/cli": "1.7.0",
+    "@testcontainers/postgresql": "^12.2.1",
     "@tailwindcss/postcss": "^4.3.3",
     //#if (LocalIdentity)
     "@types/qrcode": "^1.5.6",

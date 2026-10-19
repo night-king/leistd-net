@@ -34,7 +34,7 @@ export const routes: Routes = [
       import('./core/components/resource-login/resource-login').then((m) => m.ResourceLogin),
   },
   //#endif
-  // 工作空间：面向业务用户，顶栏导航。入口多了需要分组时换回 DefaultLayout（见 frontend-ui.md「导航与菜单分组」）
+  // 工作空间：面向业务用户，顶栏导航。入口多了需要分组时换回 DefaultLayout（见 frontend-navigation.md §2）
   {
     path: 'workspace',
     component: WorkspaceLayout,

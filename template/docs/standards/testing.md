@@ -24,18 +24,17 @@
 
 | 时机 | 目标耗时 | 运行 |
 | --- | --- | --- |
-<!--#if (SpaFrontend)-->
-| 编辑中 | ≤ 1 分钟 | 受影响的单个测试类或 spec（见后端、前端的收窄命令） |
-| 阶段完成 / 提交前 | 以实际范围计时，通常目标几分钟 | 按 §1.1 选择测试范围；相关 lint 和构建 |
-<!--#else-->
-| 编辑中 | ≤ 1 分钟 | 受影响的单个测试类（见后端的收窄命令） |
-| 阶段完成 / 提交前 | 以实际范围计时，通常目标几分钟 | 按 §1.1 选择测试范围；相关构建 |
-<!--#endif-->
+| 编辑中 | ≤ 1 分钟 | 受影响的单个测试（收窄命令见各端小节） |
+| 阶段完成 / 提交前 | 以实际范围计时，通常目标几分钟 | 按 §1.1 选择测试范围；相关静态检查和构建 |
 | 已配置的 CI | 由流水线定 | 当前项目配置的完整测试、静态检查、构建和关键流程 |
 
 ### 1.1 完整验证由谁承担
 
 完整回归入口 `pwsh scripts/verify.ps1`（需 Docker），本地与 CI 共用；增删步骤只改它。
+`pwsh scripts/verify.ps1 -Fast` 是本地快速检查：只跑随包静态检查、后端还原与构建和单元测试，不跑集成测试，不需要 Docker；`-List` 列出两种模式的步骤。
+<!--#if (SpaFrontend)-->
+`-Fast` 的前端只跑 lint，不做依赖审计、依赖安装、单测、构建与端到端，须已安装依赖（缺失时先在 `frontend/` 执行 `npm ci`）。
+<!--#endif-->
 
 默认在阶段完成时运行受影响测试项目全量，**包含集成测试**，并执行相关 lint、构建及关键运行验证；可使用已有隔离验证环境，但不能假定 CI 已经接替。
 
@@ -45,9 +44,9 @@
 `.gitlab-ci.yml` 调用 `verify`（Runner 前提见文件头）；开启 Pipelines must succeed 后才算必过。
 <!--#endif-->
 
-只有项目已配置承担完整集成责任的**必过 CI**（流水线文件存在不算；在本规范记录其入口、范围与阻止合并的设置），才能改为"本地单测全量与目标集成，CI 完整回归"。
+项目把 CI 设为**必过检查**后（流水线文件存在不算；在本规范记录其入口、范围与阻止合并的设置），本地以 `pwsh scripts/verify.ps1 -Fast` 加目标集成测试为准，完整回归由 CI 承担。
 
-数据库、事务、租户、HTTP 授权、协议或网络取消变化尽早验证对应真实路径；纯领域拒绝和参数判断由单测验证。CI 缺失或环境不可用时，未完成的真实验证明确列出，不冒称通过。
+数据库、事务、租户、HTTP 授权、协议或网络取消变化尽早验证对应真实路径。CI 缺失或环境不可用时，未完成的真实验证明确列出，不冒称通过。
 
 ### 1.2 按开发场景选择范围
 
@@ -63,7 +62,7 @@
 <!--#endif-->
 | 文案、项目规范或可执行示例 | 引用、格式及对应静态检查 | 涉及可执行示例、生成或运行契约时检查实际交付内容，不仅按扩展名选择 |
 
-新模块只有涉及权限时才验证权限登记与种子，涉及持久化模型时才验证迁移与快照，涉及本地化时才检查词条键。关键用户流程变化运行项目已配置的 E2E；没有对应入口时明确启动条件、操作、预期结果并完成真实运行验证，不杜撰命令。共享组件、公共契约和基础设施按实际依赖扩大回归，完整责任按 §1.1 分配。
+新模块只有涉及权限时才验证权限登记与种子，涉及持久化模型时才验证迁移与快照，涉及本地化时才检查词条键。关键用户流程没有已配置的 E2E 入口时，明确启动条件、操作、预期结果并完成真实运行验证，不杜撰命令；引入 E2E 工具先获确认。
 
 ## 2. 后端
 
@@ -98,24 +97,23 @@ backend/tests/
 - 集成测试每类一个 `IClassFixture<ProjectWebApplicationFactory>`，**不要每个用例建宿主**。
 - 需要改配置的用例用 `WithWebHostBuilder` 派生宿主，**同类配置变体归组复用**；断言精确用户名、全表计数或修改租户级设置等依赖空库的用例例外，保留独立宿主。
 <!--#if (LocalIdentity)-->
-- 宿主里与被测行为无关的固定成本要压低：`ProjectWebApplicationFactory` 把 `PasswordHash:IterationCount` 调到 1000，生产成本与原生 Options 绑定由 `PasswordHashingTests` 验证。
+- 宿主里与被测行为无关的固定成本要压低：`ProjectWebApplicationFactory` 把 `PasswordHash:IterationCount` 调到 1000，生产值由 `PasswordHashingTests` 验证。
 <!--#endif-->
 
 ### 2.2 通用要求
 
-- 测试方法名用英文句子、首字母大写、单词以下划线分隔，写出行为与条件，力求简短（如 `Revoked_device_cookie_stops_working_immediately`）；不用中文标识符。名字装不下的前因后果写进 XML 注释。断言说明、失败消息和测试里抛出的异常（含种子、夹具）等开发者诊断消息用英文，由 `scripts/check-test-diagnostics.py` 检查；业务词条、预期的本地化内容、中文注释、测试数据，以及给人工验收者看的进度日志和报告说明不受此限。
-- 数据库测试使用隔离数据库、独立 schema 或可靠清理机制；集成测试的每个宿主已经各有一份库。
+- 测试方法名用英文句子、首字母大写、单词以下划线分隔，写出行为与条件，力求简短（如 `Revoked_device_cookie_stops_working_immediately`）；不用中文标识符。名字装不下的前因后果写进 XML 注释。断言说明、失败消息和测试里抛出的异常（含种子、夹具）等开发者诊断消息用英文，由 `scripts/check-test-diagnostics.py` 检查；被断言的本地化内容、注释、测试数据与给人工验收者看的输出不受此限。
 - 实体配置、唯一索引与全局查询过滤器在集成测试里验证，不用 EF InMemory 或 SQLite 代替（前者放过违反的约束与不可翻译的查询，后者会锁死独立事务写入）。
 - 批量 `ExecuteUpdate` / `ExecuteDelete` 不经过变更跟踪器：断言结果时换一个作用域读，否则读到仍被跟踪的旧实体。
 - 外部服务使用 fake、mock 或明确的测试环境；日志用 `FakeLogger`，不手写替身。
-- 时间边界（锁定、挑战与验证码有效期、令牌到期、限频窗口）用 `FakeTimeProvider` 或显式时刻验证，不靠真实时间流逝。集成测试在 `ConfigureTestServices` 里 `RemoveAll<TimeProvider>()` 后登记假时钟，`IClock`、Cookie 认证与 OpenIddict 随之跟随；起点取当前时刻。缓存过期不跟随该时钟：测试缓存 TTL 时保留真实 MemoryCache/HybridCache，经 `MemoryCacheOptions.Clock` 接入同一假时钟，验证到期前与到期时刻，不用主动删除冒充到期；Redis、Data Protection 限时保护器与 OIDC 处理器的寿命校验用各自机制，不手写替代判定来快进。PostgreSQL 时间只存到微秒：固定时钟起点按微秒对齐，持久化的时刻换新作用域读回再比较，不放大容差。
+- 时间边界（锁定、验证码与令牌有效期、限频窗口）用 `FakeTimeProvider` 或显式时刻验证，不靠真实时间流逝。集成测试在 `ConfigureTestServices` 里 `RemoveAll<TimeProvider>()` 后登记假时钟（起点取当前时刻），`IClock`、Cookie 认证与 OpenIddict 随之跟随。缓存过期不跟随该时钟：测 TTL 时保留真实 MemoryCache/HybridCache，经 `MemoryCacheOptions.Clock` 接入同一假时钟，验证到期前与到期时刻，不用主动删除冒充到期；Redis、Data Protection 限时保护器与 OIDC 处理器的寿命校验用各自机制，不手写替代判定来快进。PostgreSQL 时间只存到微秒：固定时钟起点按微秒对齐，持久化的时刻换新作用域读回再比较，不放大容差。
 - 端到端只验接线与生效值，不等安全窗口过期；确需观察真实到期时用配置缩短窗口（如[部署说明](../deploy/README.md)中的 `OAuth:AccessTokenLifetime`）并断言已生效。网络、取消、超时等有上限、等可观察结果的等待不在此列。
 - 领域规则、状态变化、权限和错误语义应通过可观察行为断言。
 - 各层注册入口覆盖注册结果、生命周期与相同登记重复调用不重复生效，有意覆盖组件默认实现的登记验证两种调用顺序；有注册或配置决策（选择实现、派生 Options）的宿主扩展测行为，单纯转调由启动集成测试覆盖（见[后端开发规范 §4](./coding-backend.md#4-依赖注入)）。注册面是契约，编译期看不出错。
 
 ### 2.3 后台维护任务
 
-Job 的截止判据与失败传播放单元测试；批量 SQL、租户过滤与 DI 接线放 PostgreSQL 集成测试；调度器自身行为由框架覆盖，不重复测。集成测试固定 `TimeProvider` 后经 DI 直接执行 Job（配置变体复用既有数据库，只在该变体关闭自动调度），用截止前、等于、后三组数据按业务定义核对 `<` 或 `<=`（时刻按上文对齐微秒、留毫秒间隔），批量 SQL 后换新作用域读取；涉及租户时宿主与租户都验证。不按 Job 数量增加容器、固定等待或独立 E2E，跨进程责任变化时才扩大到真实运行闭环。
+见 [后台任务规范 §2](./background-jobs.md#2-测试)。
 
 <!--#if (SpaFrontend)-->
 ## 3. 前端
@@ -137,7 +135,9 @@ npm run build
 - service、pipe、复杂状态和共享组件覆盖输入、输出、空态与错误态。
 - HTTP 调用使用 mock，除非当前任务明确执行前后端集成验证。
 - 表单覆盖校验、提交、防重复操作和失败反馈。
-- 项目当前未配置 E2E 命令时，不臆造 E2E 脚本；先根据真实需求选择工具并获得确认。
+<!--#if (LocalIdentity)-->
+- 端到端：`npm run e2e`（Playwright），需先完成后端 Release 与前端构建；环境由 `frontend/e2e/global-setup.ts` 自建。只有登录用例走界面，其余复用接口登录的会话；按 role/label 定位，失败 trace 在 `test-results/`。
+<!--#endif-->
 
 <!--#endif-->
 
@@ -158,24 +158,18 @@ npm run build
 
 ## 5. 静态闸门
 
-有些错漏不让任何断言变红，只让契约或界面悄悄不对；这类判据做成脚本，跟测试一起跑（Windows 上把 `python3` 换成 `py`）：
+有些错漏不让任何断言变红，只让契约或界面悄悄不对；这类判据做成脚本，跟测试一起跑（Windows 上把 `python3` 换成 `py`）；每个脚本另带 `--self-test` 检查判据本身是否还成立，判据见各脚本文件头：
 
 ```bash
 python3 scripts/check-error-codes.py                      # 错误码形态、归属与引用
-python3 scripts/check-error-codes.py --self-test          # 判据本身还成立吗
 python3 scripts/check-test-diagnostics.py                 # 测试诊断消息不含中日韩字符
-python3 scripts/check-test-diagnostics.py --self-test     # 判据本身还成立吗
 <!--#if (IncludeLocalization)-->
 python3 scripts/check-i18n.py                             # 词条、引用与写死文案
-python3 scripts/check-i18n.py --self-test                 # 判据本身还成立吗
 <!--#endif-->
 <!--#if (SpaFrontend && IncludeOperationRecords)-->
 python3 scripts/check-operation-action-i18n.py            # 每个动作码都有句子模板
-python3 scripts/check-operation-action-i18n.py --self-test  # 判据本身还成立吗
 <!--#endif-->
 ```
-
-判据见各脚本文件头。
 <!--#if (SpaFrontend && IncludeOperationRecords)-->
 动作码与 `operationRecords.actions.<码>` 词条须集合相等：漏配不报错，界面只把那一行显示成裸码（`role.deleted`）。新增动作码时同一提交补中英句子。
 <!--#endif-->
