@@ -65,7 +65,8 @@ public class AmbientContextHubFilterTests
         Assert.Equal(1, provider.GetRequiredService<RequirePrincipalHandler>().Invocations);
     }
 
-    // 有身份但命名策略不通过：连接中止，方法不执行。与匿名路径（直接放行）是两回事。
+    // 有身份但命名策略不通过：连接中止，方法不执行，也不抛异常（SignalR 会把异常记成调用失败）。
+    // 与匿名路径（直接放行）是两回事；经真实 dispatcher 的日志见 EndToEnd/RevalidationRejectionTests。
     [Fact]
     public async Task Failed_policy_aborts_the_connection()
     {
@@ -74,10 +75,11 @@ public class AmbientContextHubFilterTests
             new HubIdentityOptions { PolicyName = DenyPolicy });
         var invoked = false;
 
-        await Assert.ThrowsAsync<HubException>(async () => await filter.InvokeMethodAsync(
+        var result = await filter.InvokeMethodAsync(
             Invocation(provider, context),
-            _ => { invoked = true; return ValueTask.FromResult<object?>(null); }));
+            _ => { invoked = true; return ValueTask.FromResult<object?>("executed"); });
 
+        Assert.Null(result);
         Assert.True(context.Aborted);
         Assert.False(invoked);
     }
@@ -93,11 +95,14 @@ public class AmbientContextHubFilterTests
         ]);
         var (filter, provider, context) = Build(principal, new HubIdentityOptions { PolicyName = DenyPolicy });
 
-        await Assert.ThrowsAsync<HubException>(async () => await filter.InvokeMethodAsync(
+        var invoked = false;
+
+        await filter.InvokeMethodAsync(
             Invocation(provider, context),
-            _ => ValueTask.FromResult<object?>(null)));
+            _ => { invoked = true; return ValueTask.FromResult<object?>(null); });
 
         Assert.True(context.Aborted);
+        Assert.False(invoked);
     }
 
     // 匿名连接照样建立环境上下文（链路标识、宿主自定义贡献者仍需要），但没有身份可复评。

@@ -11,6 +11,8 @@
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <!-- EndToEnd/：Hub 授权的握手与调用两阶段要由真实客户端驱动 -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <!-- 经真实 dispatcher 的日志级别用官方日志替身断言 -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
   </ItemGroup>
 
   <ItemGroup>
