@@ -113,7 +113,7 @@ options.DefaultPolicy = new AuthorizationPolicyBuilder()
 - 只在 `InvokeMethodAsync` 上复评；框架不主动断开已建立连接。复评失败之前（以及纯接收、从不调用方法的连接上），服务端推送照常送达，直到连接中止、断线或页面关闭；重连的握手按同一策略重新授权。
 - 令牌到期关闭由 SignalR 的 `CloseOnAuthenticationExpiration` 决定：它只看认证票据或令牌的到期时间，不感知账号禁用或会话、令牌撤销。
 - 在环境上下文之内执行，宿主为 HTTP 路径写的授权 handler（读 `ICurrentUser` 等环境态）可原样生效。
-- 不通过时 `HubCallerContext.Abort()`，方法不执行，只记一条本过滤器的 Information；不抛异常，客户端以连接关闭结束这次调用（有值调用拿不到结果，流式调用收不到流项）。SignalR 会把 Hub 方法与过滤器抛出的任何异常（含 `HubException`）按 Error 记为调用失败（`DefaultHubDispatcher` EventId 8），而连接已中止，拒绝消息也送不到客户端。流式调用的空结果另有官方 Debug 日志。`Abort()` 关闭的连接不会被客户端的自动重连恢复，宿主前端需重新建立连接，握手按同一策略重新授权。
+- 不通过时 `HubCallerContext.Abort()`，方法不执行，只记一条本过滤器的 Information；不抛异常，客户端以连接关闭结束这次调用（有值调用拿不到结果，流式调用收不到流项）。SignalR 会把 Hub 方法与过滤器抛出的任何异常（含 `HubException`）按 Error 记为调用失败（SignalR 调用分发器的 EventId 8，FailedInvokingHubMethod），而连接已中止，拒绝消息也送不到客户端。流式调用的空结果另有官方 Debug 日志。`Abort()` 关闭的连接不会被客户端的自动重连恢复，宿主前端需重新建立连接，握手按同一策略重新授权。
 - 自己的 Hub 方法里，可预期的拒绝用返回值告知客户端，不抛 `HubException`：它控制的是公开给客户端的错误内容，不会降低服务端的日志级别。
 - 节流状态存放在 `HubCallerContext.Items`，随连接生命周期。
 - 宿主未注册 `IAuthorizationService` 时跳过复评。
