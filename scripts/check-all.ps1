@@ -13,7 +13,7 @@
       - dotnet build / test                             框架源码
       - framework/build/pack-local-feed.ps1
         + framework/build/test-package-consumption.ps1  NuGet 隔离消费
-      - scripts/test-template-matrix.ps1                场景生成 + 构建 + 前后端测试（-Tier pr 为 PR 档子集）
+      - scripts/test-template-matrix.ps1                场景生成 + 构建 + 前后端测试（-Tier core 为 PR 代表场景）
       - scripts/test-template-postgresql-e2e.ps1        真实 PostgreSQL 端到端
       - scripts/test-template-oidc-e2e.ps1              真实 OIDC 跨服务 HTTP 端到端
 
@@ -21,14 +21,21 @@
     独立矩阵入口默认也在生成前预检；同候选 CI 显式跳过重复扫描，必过汇总核对本作业成功。
 
 .PARAMETER List
-    只打印闸门清单，不执行。
+    只打印闸门清单，不执行。与 -Only 合用时只列出所选闸门。
+
+.PARAMETER Only
+    只跑指定名称的闸门，名称取自 -List 的输出；多个名称用逗号分隔。修复单道闸门后复跑用。
 
 .PARAMETER StopOnFirstFailure
-    首个失败即停。默认跑完全部再汇总——一次看清所有问题，比修一个跑一轮快。
+    出现失败后不再启动新闸门，已启动的跑完后汇总退出。默认跑完全部再汇总——一次看清所有问题，比修一个跑一轮快。
+
+.EXAMPLE
+    pwsh scripts/check-all.ps1 -Only 'Skill 与文档引用,文档引用存在性'
 #>
 
 param(
     [switch]$List,
+    [string[]]$Only,
     [switch]$StopOnFirstFailure
 )
 
@@ -63,12 +70,16 @@ $pythonEncodingEnv = @{ PYTHONWARNDEFAULTENCODING = "1"; PYTHONWARNINGS = "error
 # 入口 ps1 的文件头（development-guide §9）：首行 shebang；有注释帮助块时与 shebang 之间空一行，
 # 帮助块紧贴 shebang 时 Get-Help 认不出它。只被点源加载的库脚本不能直接执行，不要求 shebang。
 $dotSourcedLibraries = @(
+    'framework/build/candidate-feed.ps1',
     'scripts/docker-image.ps1',
+    'scripts/test-count-summary.ps1',
     'scripts/generated-project-checks.ps1',
     "scripts/quality-validation-plan.ps1",
+    "scripts/release-commits.ps1",
     "scripts/template-matrix-scenarios.ps1",
     "scripts/test-template-oidc-browser.ps1",
-    "scripts/test-template-oidc-multitenant.ps1"
+    "scripts/test-template-oidc-multitenant.ps1",
+    "template/scripts/template-marker.ps1"
 )
 
 function Get-EntryScriptHeaderProblem([string[]]$Lines) {
@@ -159,6 +170,7 @@ $gates = @(
     @{ Name = "Python 编码警告设置生效";   Run = { Test-PythonEncodingWarnings } }
     @{ Name = "入口脚本文件头规则自检";    Run = { Test-EntryScriptHeaderRules } }
     @{ Name = "镜像拉取重试自检";          Run = { . (Join-Path $repoRoot "scripts/docker-image.ps1"); Test-DockerPullRetry } }
+    @{ Name = "测试汇总行解析自检";        Run = { . (Join-Path $repoRoot "scripts/test-count-summary.ps1"); Test-TestCountSummary } }
     @{ Name = "入口脚本文件头";            Run = { Test-EntryScriptHeaders } }
     @{ Name = "组件文档与索引一致";        Cmd = "pwsh"; Args = @("framework/build/check-docs-sync.ps1") }
     @{ Name = "文档 API 自检与引用不漂移";       Cmd = "pwsh"; Args = @("framework/build/check-docs-api-drift.ps1") }
@@ -176,9 +188,9 @@ $gates = @(
     @{ Name = "模板条件符号";              Cmd = "pwsh"; Args = @("scripts/check-template-symbols.ps1") }
     @{ Name = "条件块规则自检";            Cmd = $pythonCmd; Args = @("scripts/check-template-conditional-blocks.py", "--self-test") }
     @{ Name = "模板条件块结构";            Cmd = $pythonCmd; Args = @("scripts/check-template-conditional-blocks.py") }
-    # PR 档只跑场景子集；子集能否代表全集，由逐行求值判定，不靠人记
+    # full 档是放行前唯一的全局覆盖证明：每个可达条件行与两两组合都要有登记场景，由逐行求值判定
     @{ Name = "场景覆盖规则自检";          Cmd = $pythonCmd; Args = @("scripts/check-template-scenario-coverage.py", "--self-test") }
-    @{ Name = "PR 档场景覆盖全部条件行";   Cmd = $pythonCmd; Args = @("scripts/check-template-scenario-coverage.py") }
+    @{ Name = "full 档场景覆盖全部条件行"; Cmd = $pythonCmd; Args = @("scripts/check-template-scenario-coverage.py") }
     @{ Name = "using 守卫规则自检";         Cmd = $pythonCmd; Args = @("scripts/check-using-guards.py", "--self-test") }
     @{ Name = "模板 using/import 守卫";    Cmd = $pythonCmd; Args = @("scripts/check-using-guards.py") }
     # 错误码闸门随模板分发且不随本地化裁剪；本仓直接跑模板里那一份（脚本根即 template/）
@@ -221,7 +233,19 @@ $gates = @(
     # 源码模式只查路径与链接；命令对照的是条件裁剪后的配置，由矩阵在生成产物上以 --root 执行
     @{ Name = "文档引用规则自检";          Cmd = $pythonCmd; Args = @("scripts/check-doc-references.py", "--self-test") }
     @{ Name = "文档引用存在性";            Cmd = $pythonCmd; Args = @("scripts/check-doc-references.py") }
+    # --check 先跑脚本自带的反例自检（删掉伴随或按任务必读文件必须报出），再比对五类任务的上限
+    @{ Name = "模板规范读取成本不超上限";  Cmd = $pythonCmd; Args = @("scripts/measure-template-read-cost.py", "--check") }
 )
+
+# -Only：按名称挑出子集，仍按清单顺序执行。pwsh -File 不会把 a,b 拆成数组，所以逗号分隔与多个元素两种写法都认
+if ($Only) {
+    $wanted = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $unknown = @($wanted | Where-Object { $gates.Name -notcontains $_ })
+    if ($unknown.Count -gt 0 -or $wanted.Count -eq 0) {
+        throw "-Only 里有未知闸门：$($unknown -join '、')。名称以 -List 的输出为准。"
+    }
+    $gates = @($gates | Where-Object { $wanted -contains $_.Name })
+}
 
 if ($List) {
     Write-Host "本仓库静态闸门（$($gates.Count) 道）：" -ForegroundColor Cyan
@@ -232,6 +256,40 @@ if ($List) {
     exit 0
 }
 
+# 外部闸门并行执行（实测收益见 docs/framework/quality-assurance.md「本地验证配方」）：每道闸门的输出先收集，
+# 再严格按清单顺序整段打印，所以终端与 CI 日志的内容、顺序和串行时一致，只是不再逐行实时滚动。
+# 内联闸门在当前会话执行，且只在没有外部闸门运行时执行："Python 编码警告设置生效"会临时摘掉
+# 进程级的环境变量，与它并发启动的 Python 闸门会少验一项。
+$throttle = [Math]::Max(1, [Environment]::ProcessorCount)
+$gateJob = {
+    param([string]$Cmd, [string[]]$GateArgs, [string]$Location)
+    $ErrorActionPreference = "Stop"
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        Set-Location -LiteralPath $Location
+        $output = @(& $Cmd @GateArgs 2>&1)
+        $passed = $LASTEXITCODE -eq 0
+    }
+    catch {
+        $output = @($_)
+        $passed = $false
+    }
+    [PSCustomObject]@{ Output = $output; Passed = $passed; Seconds = [math]::Round($watch.Elapsed.TotalSeconds, 1) }
+}
+
+$results = @()
+function Complete-Gate($Gate, [bool]$Passed, [double]$Seconds, $Output) {
+    $script:results += [PSCustomObject]@{ Gate = $Gate.Name; Passed = $Passed; Seconds = $Seconds }
+    # GitHub Actions 的作业日志要登录才能看，注解公开可见：失败的闸门写成错误注解，带上输出末尾
+    if (-not $Passed -and $env:GITHUB_ACTIONS -eq 'true') {
+        $tail = if ($Output) { @($Output | ForEach-Object { "$_" } | Select-Object -Last 30) -join "`n" } else { "见作业日志" }
+        $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+        # 属性值另需转义 : 与 ,（GitHub 工作流命令的属性规则）
+        $title = "check-all：$($Gate.Name)".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A').Replace(':', '%3A').Replace(',', '%2C')
+        Write-Host "::error title=$title::$escaped"
+    }
+}
+
 # 环境变量只在跑闸门期间生效，结束后恢复：以 & 在当前会话调用本脚本时不污染调用方
 $savedPythonEnv = @{}
 foreach ($name in $pythonEncodingEnv.Keys) {
@@ -239,40 +297,65 @@ foreach ($name in $pythonEncodingEnv.Keys) {
     [Environment]::SetEnvironmentVariable($name, $pythonEncodingEnv[$name])
 }
 
-$results = @()
+$running = @{}    # 清单下标 → 运行中的作业
+$finished = @{}   # 清单下标 → 已结束、待按序打印的外部闸门结果
+$nextToStart = 0
+$nextToPrint = 0
+# -StopOnFirstFailure：出现失败后不再启动新闸门，已启动的照常跑完并汇总
+$stopping = $false
 try {
-    foreach ($g in $gates) {
-        Write-Host "▶ $($g.Name)" -ForegroundColor Cyan
-        $started = Get-Date
-        # 闸门自己的输出直通终端：失败时诊断信息就在眼前，不必再单独复跑一次
-        if ($g.Run) {
-            $ok = [bool](& $g.Run | Select-Object -Last 1)
+    while ($true) {
+        while ($finished.ContainsKey($nextToPrint)) {
+            $g = $gates[$nextToPrint]
+            $r = $finished[$nextToPrint]
+            $finished.Remove($nextToPrint)
+            Write-Host "▶ $($g.Name)" -ForegroundColor Cyan
+            # 闸门自己的输出原样打印：失败时诊断信息就在眼前，不必再单独复跑一次
+            $r.Output | Out-Host
+            Complete-Gate $g $r.Passed $r.Seconds $r.Output
+            $nextToPrint++
         }
-        else {
-            $gateArgs = @($g.Args | ForEach-Object { if ($_ -like '-*') { $_ } else { Join-Path $repoRoot $_ } })
-            if ($g.Cmd -eq $pythonCmd) { $gateArgs = @($pythonFlags) + $gateArgs }
-            # 输出照常直通终端，同时留一份给 CI 注解
-            & $g.Cmd @gateArgs 2>&1 | Tee-Object -Variable gateOutput | Out-Host
-            $ok = $LASTEXITCODE -eq 0
+
+        $canStart = -not $stopping -and $nextToStart -lt $gates.Count -and $running.Count -lt $throttle
+        if ($canStart -and $gates[$nextToStart].Run) {
+            $canStart = $running.Count -eq 0 -and $nextToPrint -eq $nextToStart
         }
-        $results += [PSCustomObject]@{
-            Gate    = $g.Name
-            Passed  = $ok
-            Seconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
+        if ($canStart) {
+            $g = $gates[$nextToStart]
+            if ($g.Run) {
+                Write-Host "▶ $($g.Name)" -ForegroundColor Cyan
+                $watch = [Diagnostics.Stopwatch]::StartNew()
+                $ok = [bool](& $g.Run | Select-Object -Last 1)
+                Complete-Gate $g $ok ([math]::Round($watch.Elapsed.TotalSeconds, 1)) $null
+                if (-not $ok -and $StopOnFirstFailure) { $stopping = $true }
+                $nextToPrint++
+            }
+            else {
+                $gateArgs = @($g.Args | ForEach-Object { if ($_ -like '-*') { $_ } else { Join-Path $repoRoot $_ } })
+                if ($g.Cmd -eq $pythonCmd) { $gateArgs = @($pythonFlags) + $gateArgs }
+                $running[$nextToStart] = Start-ThreadJob -ThrottleLimit $throttle -ScriptBlock $gateJob `
+                    -ArgumentList $g.Cmd, $gateArgs, (Get-Location).Path
+            }
+            $nextToStart++
+            continue
         }
-        # GitHub Actions 的作业日志要登录才能看，注解公开可见：失败的闸门写成错误注解，带上输出末尾
-        if (-not $ok -and $env:GITHUB_ACTIONS -eq 'true') {
-            $tail = if (-not $g.Run -and $gateOutput) { @($gateOutput | ForEach-Object { "$_" } | Select-Object -Last 30) -join "`n" } else { "见作业日志" }
-            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            # 属性值另需转义 : 与 ,（GitHub 工作流命令的属性规则）
-            $title = "check-all：$($g.Name)".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A').Replace(':', '%3A').Replace(',', '%2C')
-            Write-Host "::error title=$title::$escaped"
+
+        if ($running.Count -eq 0) { break }
+        $null = Wait-Job -Job @($running.Values) -Any
+        foreach ($index in @($running.Keys)) {
+            $job = $running[$index]
+            if ($job.State -notin 'Completed', 'Failed', 'Stopped') { continue }
+            $r = Receive-Job -Job $job -Wait -AutoRemoveJob -ErrorAction SilentlyContinue | Select-Object -Last 1
+            if (-not $r) { $r = [PSCustomObject]@{ Output = @("作业异常结束：$($job.State)"); Passed = $false; Seconds = 0 } }
+            $running.Remove($index)
+            $finished[$index] = $r
+            if (-not $r.Passed -and $StopOnFirstFailure) { $stopping = $true }
         }
-        $gateOutput = $null
-        if (-not $ok -and $StopOnFirstFailure) { break }
     }
 }
 finally {
+    # 中断（Ctrl+C）时先收掉仍在运行的作业，再恢复环境变量
+    foreach ($job in @($running.Values)) { Stop-Job -Job $job -ErrorAction SilentlyContinue; Remove-Job -Job $job -Force -ErrorAction SilentlyContinue }
     foreach ($name in $savedPythonEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedPythonEnv[$name]) }
 }
 

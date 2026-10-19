@@ -2,30 +2,19 @@
 
 ## 1. 基本原则
 
-- API 应表达资源和业务动作，避免暴露内部实现细节。
-- 请求、响应、错误格式保持一致。
+- API 表达资源和业务动作，不暴露内部实现细节；请求、响应、错误格式保持一致。
 - 所有破坏性操作必须具备认证、授权、审计和幂等策略；认证与权限规则见 [认证与授权](auth.md)。
 - 删除不存在的资源（本地或外部）视为成功：按 [§2.2](#22-空响应) 的空响应返回（业务接口 200，框架组件端点 204）、不写操作记录，见[通用约定 §3.6](./coding-common.md#36-删除幂等且保留真实失败)。
 
 ## 2. 响应格式
 
-本项目响应风格：**成功直接返回业务对象（裸对象，不包裹），失败统一返回 RFC 9457 `ProblemDetails`**。
-该风格由 Leistd 框架的全局异常处理（`Leistd.ExceptionHandling.AspNetCore`）落地，无需也不应在 Controller 里手动包裹 `Ok(...)` 或自定义 `{success,data}` 信封。
+**成功直接返回业务对象（裸对象，不包裹），失败统一返回 RFC 9457 `ProblemDetails`**（§2.4）。该风格由 Leistd 框架的全局异常处理（`Leistd.ExceptionHandling.AspNetCore`）落地，不在 Controller 里包 `Ok(...)` 或自定义 `{success,data}` 信封。
 
 > JSON 序列化：属性 camelCase、忽略 null 值、枚举序列化为 camelCase 字符串且不收数字；查询串里的分类取值同样写 camelCase（见[通用约定 §3.8](./coding-common.md#38-枚举只在边界转换)）。
 
 ### 2.1 成功响应
 
 直接返回业务对象，HTTP 200：Controller 返回 `Task<TOutputDto>`，无 I/O 时可同步返回 DTO。
-
-```json
-{
-  "id": "0198f2a1-...",
-  "name": "示例",
-  "isActive": true,
-  "creationTime": "2026-06-25T08:00:00Z"
-}
-```
 
 ### 2.2 空响应
 
@@ -34,73 +23,37 @@
 1. 端点返回 `Challenge`、`SignIn`、`Redirect` 等**协议结果**（含 `/connect/*`，一种或多种）；
 2. 端点返回**文件下载**（如 CSV 导出）：应用服务返回**字节与元数据**（内容、媒体类型、建议文件名），由 Controller 包成 `File(...)`，应用层不依赖 MVC 返回类型。
 
-```text
-HTTP/1.1 200 OK
-```
-
-框架组件自带的端点（设置、权限、操作记录、通知、租户与租户连接，映射在 `backend/src/CompanyName.ProjectName.Api/Hosting/ComponentEndpoints.cs`）按 Minimal API 惯例，无返回对象的写操作返回 **HTTP 204**。客户端把 200 空响应与 204 一样当作成功处理，不按状态码分支。
+框架组件端点（见[后端开发规范 §3.7](./coding-backend.md#37-controller-与组件端点)）按 Minimal API 惯例，无返回对象的写操作返回 **HTTP 204**。客户端把 200 空响应与 204 一样当作成功处理，不按状态码分支。
 
 ### 2.3 分页响应
 
-分页查询返回 `PagedResult<T>`，HTTP 200。固定字段 `totalCount` + `items`。
-
-```json
-{
-  "totalCount": 0,
-  "items": []
-}
-```
+分页查询返回 `PagedResult<T>`，HTTP 200，固定字段 `totalCount` + `items`。
 
 ### 2.4 错误响应
 
-失败统一返回 RFC 9457 `ProblemDetails`，`Content-Type: application/problem+json`，由 `Leistd.ExceptionHandling.AspNetCore` 的全局异常处理（`BusinessExceptionHandler`）产出。除 RFC 标准字段外，所有失败都带 `traceId` 扩展字段；业务错误另带稳定错误码 `code`，公开文案在标准字段 `detail`。输入校验、未预期异常、上游故障等协议层失败的契约就是 HTTP 状态码（RFC 9457 §4），只带本地化 `title` 与 `traceId`（校验另带 `errors`），不带 `code` 与 `detail`。
+失败统一返回 RFC 9457 `ProblemDetails`（`application/problem+json`），由框架全局异常处理（`BusinessExceptionHandler`）产出。业务错误带稳定错误码 `code` 与公开文案 `detail`；输入校验、未预期异常、上游故障等协议层失败的契约就是 HTTP 状态码（RFC 9457 §4），只带本地化 `title` 与 `traceId`（校验另带 `errors`），不带 `code` 与 `detail`。
 
-```json
-{
-  "type": "urn:leistd:problem:business-error",
-  "title": "Bad Request",
-  "status": 400,
-  "detail": "用户名 'admin' 已存在",
-  "instance": "/api/v1/users",
-  "code": "User:UsernameTaken",
-  "traceId": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-}
-```
-
-字段说明：
-
-| 字段 | 类型 | 说明 |
+| 字段 | 类型 | 说明（`status`、`instance` 照 RFC 9457） |
 | --- | --- | --- |
-| type | string | 稳定问题类型 URI；校验与业务错误分别为 `validation-error`、`business-error`，其余按状态码使用 ASP.NET Core 默认值 |
-| title | string | 与 status 对应的错误标题，按当前语言本地化（如 `请求无效`、`Not Found`） |
-| status | number | HTTP 状态码 |
+| type | string | 稳定问题类型 URI；校验与业务错误分别为 `urn:leistd:problem:validation-error`、`…:business-error`，其余按状态码使用 ASP.NET Core 默认值 |
+| title | string | 与 status 对应的错误标题，按当前语言本地化 |
 | detail | string | 业务错误面向用户的说明，按错误码本地化或回落为安全文案；协议层失败不带 |
-| instance | string | 出错的请求路径 |
 | code | string | **稳定错误码**：只出现在业务错误上，形如 `User:UsernameTaken`；也是本地化词条键 |
-| traceId | string | 链路标识（W3C 格式，第二段是 TraceId，用于检索日志；无 Activity 时为请求标识）；业务关联标识在响应头 `X-Correlation-Id` |
+| traceId | string | 所有失败都带：链路标识（W3C 格式，第二段是 TraceId，用于检索日志；无 Activity 时为请求标识）；业务关联标识在响应头 `X-Correlation-Id` |
 
 > `GlobalExceptionOptions.IncludeExceptionDetails` 默认为 `false`；开启后仅额外输出 `stackTrace`，只用于本地调试，生产环境不开启。
 
 ### 2.5 验证错误响应
 
-`[ApiController]` 自动模型校验和内部调用抛出的 `System.ComponentModel.DataAnnotations.ValidationException` 都返回 HTTP **400**，使用 `urn:leistd:problem:validation-error` 与 Leistd `errors` 对象数组。跨字段或用例规则失败抛 `BusinessException`，状态见 §4；请求本身的结构合法性（如日期区间颠倒、超过跨度、时区不可用，见 §6.2）仍按字段错误返回，不算业务规则。
+`[ApiController]` 自动模型校验和内部调用抛出的 `System.ComponentModel.DataAnnotations.ValidationException` 都返回 HTTP **400**，使用 `urn:leistd:problem:validation-error` 与 Leistd `errors` 对象数组。跨字段或用例规则失败抛 `BusinessException`，状态见 §4；请求本身的结构合法性（如日期区间颠倒、超过跨度、时区不可用，见[统计接口](./api-batch-statistics.md#2-按日历区间统计)）仍按字段错误返回，不算业务规则。
 
 ```json
 {
   "type": "urn:leistd:problem:validation-error",
-  "title": "Bad Request",
   "status": 400,
-  "instance": "/api/v1/products",
   "errors": [
-    {
-      "detail": "名称不能为空",
-      "field": "name",
-      "code": "Product:NameRequired"
-    },
-    {
-      "detail": "价格必须大于 0",
-      "field": "price"
-    }
+    { "detail": "名称不能为空", "field": "name", "code": "Product:NameRequired" },
+    { "detail": "价格必须大于 0", "field": "price" }
   ],
   "traceId": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 }
@@ -163,30 +116,18 @@ HTTP/1.1 200 OK
 <!--#if (IncludeLocalization)-->
 ### 4.1 异常本地化
 
-本项目已启用多语言（`--include-localization true`），异常按请求 `Accept-Language` 本地化。`Message` 与 `Code` 分工如下：
+异常按请求 `Accept-Language` 本地化，`Message` 与 `Code` 分工如下：
 
 | 职责 | 载体 | 说明 |
 | --- | --- | --- |
-| 安全回落 | `Message`（构造参数） | 可读英文，资源未命中或未启用多语言时会直接给用户，不得含内部细节 |
+| 安全回落 | `Message`（构造参数） | 可读英文，资源未命中时直接给用户，从抛出点就须安全可展示 |
 | 身份 + 展示 | `Code`（构造参数） | 稳定机器契约，也是本地化词条键 |
 
 - 资源 `Resources/{en,zh-CN}.json` 的 `texts` 段按错误码给出各语言文案（`en` 为默认/回落），占位符与 `WithData` 的键同名：`"User:UsernameTaken": "Username '{Username}' already exists."`。抛出写法见[后端开发规范 §3.4](./coding-backend.md#34-领域服务)。
 - 全局处理器按 **`Code` 词条 → 安全 `Message`** 解析，本地化失败不改写 `code` 或 HTTP 语义。
-- **未启用多语言时**会直接返回 `Message`，因此必须从抛出点就是安全、可展示的文案；原始技术异常放在 `InnerException` 中。
 - DataAnnotations 校验消息同样随 culture 本地化（写法见[后端开发规范 §5](./coding-backend.md#5-命名与-dto)），参数校验与业务异常在同一请求下同语言。
 - 资源键集合、占位符与错误码格式由 `scripts/check-i18n.py` 检查（见[测试规范](./testing.md)）。
 
-**示例（`Message` 是安全英文回落，`Code` 给出稳定身份）**：
-
-```csharp
-// 资源不存在；该码在 API 组合根映射为 404
-var user = await userRepository.GetByIdAsync(id, cancellationToken);
-if (user is null)
-    throw new BusinessException("User:NotFound", $"User {id} not found.")
-        .WithData("Id", id);
-
-// 请求字段校验由 DTO DataAnnotations 与 [ApiController] 统一产生 400 + errors
-```
 <!--#endif-->
 
 ## 5. 分页规范
@@ -202,13 +143,11 @@ if (user is null)
 | keyword | string | 否 | 空 | 搜索关键字 |
 | sorting | string | 否 | 空 | Dynamic LINQ 排序表达式，如 `name asc`、`creationTime desc, id asc`；空白使用接口默认排序 |
 
-后端使用 `System.Linq.Dynamic.Core` 的 `OrderBy(string)` 解析，不自写解析器或通用字段白名单，不放宽库的默认限制。属性名忽略大小写，支持嵌套属性路径和多字段排序；方向省略时升序。字段对应查询模型中可排序的属性，例如用户最近登录时间使用 `lastLogin.Time`。
+后端用 `System.Linq.Dynamic.Core` 的 `OrderBy(string)` 解析，不自写解析器或通用字段白名单，不放宽库的默认限制；属性名忽略大小写，支持嵌套路径（如 `lastLogin.Time`）与多字段，方向省略时升序。前端把显示字段转换为查询属性路径。限制敏感属性等业务排序规则由所属模块 `Validators/` 的验证器在查询执行前判定并返回业务错误（显式注册，遍历整个排序选择器，含嵌套成员、条件和方法参数；如用户验证器拒绝按凭据字段排序，返回 400），前端配置不能替代。
 
-前端控制表格可选列，并将显示字段转换为查询属性路径。业务确需限制敏感属性或其他排序规则时，在所属模块的 `Validators/` 编写验证器，显式注册并在查询执行前调用；前端配置不能替代这些业务约束。验证库生成的表达式时遍历整个排序选择器，覆盖嵌套成员、条件和方法参数。
+应用服务调用 `Shared/Paging` 的 `OrderBySorting(input.Sorting)`，它只包住这一次解析：解析失败（语法错误、未知或不可访问的成员、非法方向）返回 400 字段错误（`errors[].field` 为 `sorting`，固定文案 `The sorting expression is not valid.`，不带业务码，不回显表达式，日志不附带异常）；解析成功但查询无法翻译或执行的（如未映射的计算属性）仍是安全的 500；不对 `ParseException` 做全局映射，其他来源的解析异常也照常 500。解析和业务验证先于计数及空结果返回。
 
-应用服务调用 `Shared/Paging` 的 `OrderBySorting(input.Sorting)`：它只包住这一次解析，解析失败（语法错误、未知或不可访问的成员、非法方向）返回 400 字段错误（`errors[].field` 为 `sorting`，固定文案 `The sorting expression is not valid.`，不带业务码，不回显表达式，日志不附带异常）。解析成功但查询无法翻译或执行的（如未映射的计算属性）仍是服务端异常，返回安全的 500；不对 `ParseException` 做全局映射，其他来源的解析异常也照常 500。必要的业务限制由模块验证器返回业务错误，如用户凭据访问由用户验证器拒绝并返回 400。解析和业务验证先于计数及空结果返回。
-
-默认排序在业务 DTO 的 `override Sorting` 中声明，用 `nameof` 引用实际排序对象的属性：实体查询引用领域实体（如 `nameof(User.CreationTime)`），投影查询引用查询模型；不引用输出 DTO。将省略、null 和空白归一化为默认值。通常按 `CreationTime desc` 展示最新记录；用户和开放应用采用该默认值，角色按业务排序号 `Sort asc`。前端默认状态及 Mock 与对应 DTO 一致。在调用方的全部排序键之后分别追加 `Id`、`Name/Id`、`ClientId`，为同值记录建立确定次序；这不保证并发修改时的快照一致性。Mock 仅覆盖界面实际使用的属性路径与方向组合，不模拟完整表达式语言，其余表达式按解析失败返回同形的 400。
+默认排序在业务 DTO 的 `override Sorting` 中声明，用 `nameof` 引用实际排序对象的属性（实体查询引用领域实体，如 `nameof(User.CreationTime)`；投影查询引用查询模型；不引用输出 DTO），省略、null 和空白归一化为默认值。通常按 `CreationTime desc`（用户、开放应用），角色按 `Sort asc`。调用方的全部排序键之后追加唯一键（`Id`、`Name/Id`、`ClientId`）建立确定次序，不保证并发修改时的快照一致性。前端默认状态及 Mock 与 DTO 一致；Mock 只覆盖界面实际使用的属性路径与方向，其余表达式返回同形的 400。
 
 输入 DTO 命名见[后端开发规范 §5](./coding-backend.md#5-命名与-dto)，返回体见 §2.3。
 
@@ -225,32 +164,9 @@ if (user is null)
 | 局部更新 | PATCH | `/api/v1/{resource}/{id}` | `PatchAsync` |
 | 删除 | DELETE | `/api/v1/{resource}/{id}` | `DeleteAsync` |
 
-### 6.1 批量操作
+### 6.1 批量操作与统计
 
-对一组资源执行同一动作用 `POST /api/v1/{resource}/batch/{action}`（如 `/users/batch/disable`），请求体为 `ids` 与动作需要的参数（如 `roleIds`），后端方法名为 `Batch{Action}Async`。
-
-- 一次 1～100 个 Id，重复的只处理一次；为空、缺键或超过上限是字段 400，一条都不执行。动作参数本身不成立（如角色不存在）时整个请求按单个操作的错误码拒绝。
-- 权限与单个操作相同；逐条复用单个操作的领域规则与动作码，每条在独立事务里提交并各自留下操作记录，部分失败不回滚已成功的条目。
-- 返回 200 与逐条结果 `items: [{ id, succeeded, errorCode, message }]`：`errorCode`、`message` 与单个操作被拒时的 `code`、`detail` 相同，成功时省略。只接住业务拒绝；技术故障按 §4 整体失败，此前已提交的条目保持提交。
-- 不提供批量删除：删除逐个确认。
-
-### 6.2 按日历区间统计
-
-统计类接口按日历区间取数时，查询串传 `startDate`、`endDate`（`yyyy-MM-dd`，两端都含）与 `timeZone`（调用方实际用来展示时间的 IANA 时区）。日期不是时刻；时刻仍以 UTC 传输。示例见平台统计 `GET /api/v1/platform/statistics`。
-
-- 服务端只读一次时钟，按该时区把日期换算成 UTC 半开区间（终点是结束日次日的第一个时刻，含今天时截到此刻），并用同一时区切统计桶：单日按小时（按 UTC 每小时步进，回拨日 25 个、半小时时区的起点落在 `:30`），其余按日。本地零点不存在时取跳时后的第一个时刻，重复时取较早的那个。
-- 上一区间按日历前移同样的天数，比较相同的本地进度，不减 `N×24` 小时。
-- 响应回显 `range`（日期、时区、粒度、换算出的 UTC 起止与上一区间）和各桶起点 `buckets`，按桶序列与之等长，只含已经发生的时段；前端按回显的时区格式化坐标轴与提示。
-- 参数缺失、日期写坏、时区不可用、起止颠倒、超过跨度上限、结束日晚于该时区的今天，都是对应字段的 400（§2.5）。
-
-### 6.3 统计指标口径
-
-- 指标的单位对应实际计数的对象。按节流或抽样落下的记录，条数不能冒充原事件的总次数：名称说清数的是什么（如"告警"），说明写出规则和它能回答什么。去重后的人数、限定在留存范围内的次数可以照常叫人数、次数，口径写进说明。
-- 每个指标写明口径：数的是事件、期末存量还是不同对象；是否包含之后被删除的实体、已移入归档表的记录；序列能否按周相加（存量与去重计数不能）。口径写在输出 DTO 的 XML 注释里，前端的指标说明与之一致。区间、时区与桶按 §6.2。
-- 例：平台统计里，用户总数是期末存量，不含已删除的用户；新注册按创建事件计，之后被删除的也计入。
-<!--#if (LocalIdentity && IncludeOperationRecords)-->
-- 例：登录相关指标数的是操作记录，移入归档表的也计入。`activeUsers` 是区间内登录成功过的不同用户，序列按桶去重、不能相加。`failedLoginAlerts` 数的是登录失败记录：匿名失败按被尝试的登录名节流，连续失败只在累计到 1、5、25、100 次及之后每 100 次时各记一条（5 分钟内没有新的失败就重新计数），所以叫"失败登录告警"，不叫"登录失败次数"。
-<!--#endif-->
+批量操作（`POST /api/v1/{resource}/batch/{action}`）与按日历区间统计的接口见 [批量与统计接口](./api-batch-statistics.md)。
 
 ## 7. API 文档
 

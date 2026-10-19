@@ -701,10 +701,11 @@ function Initialize-Environment {
             throw "复用的本地包源必须位于仓库 .tmp 内。"
         }
     } else {
-        Invoke-Tool "dotnet" @("pack", (Join-Path $repoRoot "framework/Leistd.Framework.slnx"), "-c", $Configuration, "-o", $feed,
-            "-p:UseSharedCompilation=false", "-nodeReuse:false") "pack" | Out-Null
+        Invoke-Tool "pwsh" @("-NoProfile", "-File", (Join-Path $repoRoot "framework/build/pack-local-feed.ps1"), "-Configuration", $Configuration, "-OutputPath", $feed) "pack" | Out-Null
     }
     if (-not (Get-ChildItem -LiteralPath $feed -Filter "Leistd.*.nupkg")) { throw "本地包源为空：$feed。" }
+    $script:candidateFeed = Read-CandidateManifest $feed
+    Set-CandidateVersionOverride (Join-Path $runRoot "generated") $candidateFeed.CandidateVersion
     $hive = Join-Path $runRoot "template-hive"
     $packages = Join-Path $runRoot "nuget-cache"
     $nugetConfig = Join-Path $runRoot "NuGet.Config"
@@ -713,7 +714,9 @@ function Initialize-Environment {
     [IO.File]::WriteAllText($nugetConfig, @"
 <configuration><config><add key="globalPackagesFolder" value="$escapedPackages" /></config>
 <packageSources><clear/><add key="local" value="$escapedFeed" />
-<add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources></configuration>
+<add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources>
+<packageSourceMapping><packageSource key="local"><package pattern="Leistd.*" /></packageSource>
+<packageSource key="nuget.org"><package pattern="*" /></packageSource></packageSourceMapping></configuration>
 "@, $utf8)
     Invoke-Tool "dotnet" @("new", "--debug:custom-hive", $hive, "install", (Join-Path $repoRoot "template"), "--force") "install" | Out-Null
     foreach ($purpose in @("signing", "encryption")) { New-TestCertificate $purpose }
@@ -748,6 +751,7 @@ function Initialize-Environment {
         Add-FixtureRegistration $name $role $apiDirectory
         $solution = Join-Path $generated "backend/E2E.$title.sln"
         Invoke-Tool "dotnet" @("restore", $solution, "--configfile", $nugetConfig, "--force") "restore-$name" | Out-Null
+        Assert-CandidatePackages $packages $candidateFeed
         Invoke-Tool "dotnet" @("build", $solution, "-c", $Configuration, "--no-restore", "-p:UseSharedCompilation=false", "-nodeReuse:false") "build-$name" | Out-Null
         $environment = @{
             ASPNETCORE_ENVIRONMENT = $serviceEnvironment; ASPNETCORE_URLS = $urls[$name]
@@ -1228,6 +1232,7 @@ function Invoke-Scenario([string]$Name, [scriptblock]$Action) {
 # 共用矩阵事实；浏览器辅助文件只被本入口加载，不另建场景生成清单。
 . (Join-Path $PSScriptRoot "template-matrix-scenarios.ps1")
 . (Join-Path $PSScriptRoot "docker-image.ps1")
+. (Join-Path $repoRoot "framework/build/candidate-feed.ps1")
 if ($IncludeBrowserScenarios) { . (Join-Path $PSScriptRoot "test-template-oidc-browser.ps1") }
 if ($IncludeMultiTenantScenarios) { . (Join-Path $PSScriptRoot "test-template-oidc-multitenant.ps1") }
 $postgresPassword = New-RandomValue "Pg!1"
@@ -1282,4 +1287,11 @@ finally {
 if ($cleanupErrors.Count -gt 0 -or @($results | Where-Object { $_.status -eq "fail" }).Count -gt 0) {
     throw "OIDC E2E 失败，见 $runRoot/results.json 和 cleanup.json。"
 }
+# 只在全部场景与清理成功后写证明；断言数取 assertions.jsonl 中通过的条目，汇总要求大于 0
+$passedAssertions = @(if (Test-Path -LiteralPath $assertionPath) {
+    Get-Content -LiteralPath $assertionPath | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json } |
+        Where-Object { $_.PSObject.Properties['passed'] -and $_.passed -eq $true }
+}).Count
+Write-JsonFile (Join-Path $runRoot "e2e-proof.json") ([ordered]@{
+    Version = 1; CandidateSha = (git -C $repoRoot rev-parse HEAD); Result = "pass"; Assertions = $passedAssertions })
 Write-Host "OIDC E2E passed: $(@($results | ForEach-Object { $_.scenario }) -join ", ")." -ForegroundColor Green

@@ -29,11 +29,13 @@
 | 载体 | 内容 | 维护者 |
 | --- | --- | --- |
 | `template/.agents/skills/leistd-project-workflow` | 与语言、技术栈无关的开发流程、通用原则和规范演进机制 | 模板维护者；生成后项目通常不改 |
-| `template/docs/standards/` | 项目技术栈与个性化规范，生成时是模板的 .NET/Angular 基线 | 生成后归项目所有，由 Skill 驱动积累与精简 |
-| `template/docs/README.md` | 唯一文档索引与按任务读取表 | 项目 |
+| `template/docs/standards/` | 模板的 .NET/Angular 工程规范基线 | 模板维护者；随模板版本整体更新，项目不改写 |
+| 生成项目的 docs/project/ | 项目自己的规则，与基线冲突时以它为准（优先级写在 `template/docs/README.md`） | 项目，由 Skill 驱动积累与精简；首次需要时创建，模板不预建 |
+| `template/docs/README.md` | 唯一文档索引与按任务读取表 | 项目（登记 docs/project/ 等按需文档） |
 | `template/AGENTS.md`、`template/CLAUDE.md` | 只指向 Skill 与项目文档索引 | 基本不变 |
+| `template/.leistd/template.json` | 来源标记：模板包版本与源提交、生成名称与全部参数、各项目 UserSecretsId、SDK | `dotnet new` 写入，不手工修改 |
 
-`dotnet new` 是一次性脚手架，模板升级不会覆盖已生成项目的文档或 Skill。项目新增的规则写入项目 `docs/`，不回流到通用 Skill。
+模板以 `Leistd.Templates` 包按 `template-vX.Y.Z` 版本发布，生成项目带来源标记，同一版本、相同输入可以重建出与原产物零差异的基线。项目新增的规则写入生成项目的 docs/project/，不改写 `template/docs/standards/` 生成的基线，也不回流到通用 Skill；这样基线能按模板版本整体替换，而项目规则不受影响。
 
 ## 3. 事实入口
 
@@ -71,9 +73,11 @@
 1. 从目标文件和直接依赖建立事实；条件生成变化时读取模板规范、`template.json` 和邻近条件块，确定受影响参数组合。
 2. 同步修改模板源码、测试、Mock、项目 Skill 和确有长期价值的生成项目文档。
 3. 框架包内容变化或无法确认现有包对应当前源码时生成本地包，否则复用已验证的包；通过 `PackageReference` 消费。
-4. 在 `.tmp/runs/<run-id>/generated-template/` 生成受影响场景，检查条件标记、占位符和旧路径残留。
-5. 对生成结果执行还原、构建、测试和必要的前端构建。
+4. 用 `scripts/template-dev-workspace.ps1 -Scenario <场景>` 打开模板开发工作区：首次运行把场景生成到 `.tmp/dev/<场景>/project/`，完成 restore 与 `npm ci`。
+5. 每次改模板源码后 `-Sync`，在工作区里运行目标测试类、目标 spec、lint 或 `verify -Fast`；修复始终写在模板源，工作区有未同步的修改时 `-Sync` 停下列出，不覆盖。
 6. 权限、审计、通知、实时或数据库变化时完成对应业务闭环。
+7. 多场景完整阶段与条件组合交给 CI，本地按[本地验证配方](../framework/quality-assurance.md#本地验证配方)只产出定向证据。
+8. 新增或改名模板参数时同步来源标记的派生符号与字段；改模板包内容或打包规则时运行 `pwsh template-package/test-template-package.ps1`，改同步脚本、标记库或升级闸门时运行 `pwsh template-package/test-template-sync.ps1`（[模板包与来源标记](../template/quality-assurance.md#模板包与来源标记)）。合入 `main` 后，自上一个 `template-v*` tag 起模板有变化即由 template 通道发布新的模板版本，变更说明是该 tag 的 Release 正文（[模板包发布](../framework/versioning.md#模板包发布template-通道)）。
 
 ### 4.4 业务项目协作
 

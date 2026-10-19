@@ -32,10 +32,14 @@ description: 在 leistd-net 仓库中处理跨 framework、template、skills、d
 4. 实施聚焦变更，并分别完成构建、测试、文档检查、打包或模板生成验证。
 5. 汇总各交付面的真实结果、未验证项和残余风险；只有长期共享信息才更新稳定文档。
 
-要求 Git 提交或推送时只暂存本任务文件，核对相关验证、`docs/framework/versioning.md` 的提交格式及目标分支触发的 workflow；不把实现完成当作已经提交或发布。等待具体 CI run 或外部状态到达明确结果，不按固定时长等待或重复运行已成功的相同验证。
+要求 Git 提交或推送时只暂存本任务文件，核对相关验证、`docs/framework/versioning.md` 的提交格式及目标分支触发的 workflow；不把实现完成当作已经提交或发布。等待具体 CI run 按[证据复用](../../../docs/framework/quality-assurance.md#证据复用)的后台等待规则，期间推进不依赖它的工作；不按固定时长等待，也不重复运行已成功的相同验证。
 
 实际发布或恢复时，按 `docs/framework/versioning.md` 和 `.github/workflows/release.yml` 核对候选 SHA、版本、同一 SHA 的质量结果、包源、tag 与 Release；部分发布先查实际状态，再按版本规范恢复。
 
 没有同类文档且信息需跨会话复用时，按 `docs/README.md` 创建最小权威文档；归属或关键决策不明确时询问用户。
 
 发布正式包、生产操作、真实数据修改、密钥变更和破坏性 Git 操作前核对现有授权是否覆盖目标与动作；未授权或范围扩大时再询问。
+
+## 验证入口
+
+各交付面的本地验证按[本地验证配方](../../../docs/framework/quality-assurance.md#本地验证配方)选择，已有证据是否仍然有效按[证据复用](../../../docs/framework/quality-assurance.md#证据复用)判断。

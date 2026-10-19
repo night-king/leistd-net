@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Check documentation contracts on the actual complete generated input space."""
+"""Check documentation contracts on one generation shard's actual generated projects.
+
+The four shards (three shape shards and the control shard) together cover the complete
+generated input space; the summary checks that their receipts add up to it.
+"""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -24,22 +28,28 @@ def main():
     receipt.unlink(missing_ok=True)
     report = json.loads((root / 'generation-results.json').read_text(encoding='utf-8'))
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    assert report['candidateSha'] == head
+    assert report['CandidateSha'] == head
     sources = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                for p in sorted((ROOT / 'template').rglob('*')) if p.is_file()
                and not any(part in ('node_modules', 'bin', 'obj', '.cache') for part in p.relative_to(ROOT / 'template').parts)}
-    assert sources == report['templateSourceDigests'], 'Generated proof differs from candidate template'
+    assert sources == report['TemplateSourceDigests'], 'Generated proof differs from candidate template'
     spec = importlib.util.spec_from_file_location('generation', ROOT / 'scripts/test-template-generation.py')
     generation = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(generation)
     config = json.loads(generation.model.CONFIG_PATH.read_text(encoding='utf-8'))
     combinations = [v for v in generation.model.all_combinations(config) if v['Ci'] == config['symbols']['Ci']['defaultValue']]
     shapes = {generation.model.effective_shape(v) for v in combinations}
-    assert report['effectiveShapes'] == len(shapes) and report['rawInputs'] == len(combinations)
-    ids = set(range(len(shapes)))
-    ids.update(item['variant'] for item in report['equivalenceComparisons'])
-    ids.update(item['variant'] for item in report['ciVariants'])
-    assert len(report['ciVariants']) == 4 and len(ids) == len(shapes) + len(report['equivalenceComparisons']) + 4
+    assert report['EffectiveShapes'] == len(shapes) and report['ShapeShards'] == generation.SHAPE_SHARDS
+    if report['Shard'] == 'control':
+        shape_indexes = []
+        ids = {item['Index'] for item in report['Representatives']}
+        ids.update(item['variant'] for item in report['EquivalenceComparisons'])
+        ids.update(item['variant'] for item in report['CiVariants'])
+        assert len(report['CiVariants']) == 4 and report['RawInputs'] == len(combinations)
+    else:
+        shape_indexes = [item['Index'] for item in report['Shapes']]
+        assert all(index % generation.SHAPE_SHARDS == int(report['Shard']) for index in shape_indexes) and shape_indexes
+        ids = set(shape_indexes)
     assert {p.name for p in (root / 'generated').iterdir()} == {str(i) for i in ids}
     projects = [root / 'generated' / str(i) for i in sorted(ids)]
     projects_file = root / 'documentation-projects.json'
@@ -68,10 +78,11 @@ def main():
                     str(tools / 'node_modules/prettier/index.mjs'), version, str(formatting)], cwd=ROOT, check=True)
     stats = json.loads(formatting.read_text(encoding='utf-8'))
     assert markdown > 0 and skills > 0 and stats['Files'] > 0 and stats['UniqueContents'] > 0
-    receipt.write_text(json.dumps(dict(Version=1, CandidateSha=head, Result='pass', Projects=len(projects),
-                                      EffectiveShapes=len(shapes), CiVariants=4, MarkdownFiles=markdown,
+    receipt.write_text(json.dumps(dict(Version=1, CandidateSha=head, Result='pass', Shard=report['Shard'], Projects=len(projects),
+                                      ShapeIndexes=shape_indexes, EffectiveShapes=len(shapes),
+                                      CiVariants=len(report['CiVariants']) if report['Shard'] == 'control' else 0, MarkdownFiles=markdown,
                                       Skills=skills, FrontendMarkdownFiles=stats['Files'], FormattedContents=stats['UniqueContents'])), encoding='utf-8')
-    print(f'PASS generated documentation: {len(projects)} projects, {markdown} Markdown files, {skills} skills')
+    print(f"PASS generated documentation (shard {report['Shard']}): {len(projects)} projects, {markdown} Markdown files, {skills} skills")
 
 
 if __name__ == '__main__':

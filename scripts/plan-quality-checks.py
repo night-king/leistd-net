@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """Plan PR validation from complete input changes; unknown inputs retain all checks.
 
-Input classes and job responsibilities live here. Scenario/source definitions
-stay in their existing files. Unproven inputs retain full validation.
+Input classes, job responsibilities and the PR scenario selector live here.
+Scenario/source definitions stay in their existing files; conditions are evaluated
+with the coverage gate's evaluator. Unproven inputs retain full validation.
+
+A narrowed PR plan has Tier core. It carries only the incremental guarantee: the
+core consumers of every changed source, every changed conditional branch on its
+enabled side and the trimmed side of conditional files. Global line coverage and
+pairwise combinations are proven only by the full tier before any publication.
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import itertools
 import json
 import os
 from pathlib import Path
@@ -89,9 +96,31 @@ def read_blobs(sha: str, paths: list[str]) -> dict[str, str]:
     return blobs
 
 
+# PostgreSQL/OIDC end-to-end run on a narrowed PR only when a registered path changes;
+# otherwise the PR records them as not applicable and the pre-publication full run owns them.
+POSTGRESQL_INPUT = re.compile(
+    r'template/backend/(?:src|tests)/.*(?:Persistence|Migrat|Tenant|DbMigrator|DataProtection|DbContext).*|'
+    r'framework/(?:components/(?:data|multi-tenancy|unit-of-work)|ddd-struct/Leistd\.Ddd\.Infrastructure)/.+|'
+    r'framework/components/[^/]+/Leistd\.[^/]+\.EntityFrameworkCore/.+')
+OIDC_INPUT = re.compile(
+    r'template/backend/(?:src|tests)/.*(?:Auth|Token|Connect|OpenIddict|OpenApplication|Security|Session|SignIn|'
+    r'ServiceInfo|WhoAmI|ServiceClient|Tenant).*|'
+    r'framework/components/(?:authorization(?:-[a-z-]+)?|security|service-client|multi-tenancy)/.+')
+BINARY_SOURCE = ('.png', '.jpg', '.jpeg', '.webp', '.ico')
+CONFIG_PATH = 'template/.template.config/template.json'
+
 JOB_NAMES = ('frontend-gates', 'framework-pack', 'package-consumption', 'template-generation',
              'template-slices', 'test', 'postgresql-e2e', 'oidc-e2e')
 INTERNAL_DOCUMENT = re.compile(r'(?:README\.md|(?:docs|\.agents|skills)/.+\.md|framework/README\.md)')
+# Repository configuration read only by GitHub services (Dependabot): no build, test or package consumes it.
+REPOSITORY_CONFIG = re.compile(r'\.github/dependabot\.yml')
+# Template channel inputs: the generated payload and its packaging project (template-package/).
+# They publish Leistd.Templates only; the packaging project is otherwise an unknown input (full validation).
+TEMPLATE_RELEASE_INPUTS = ('template/', 'template-package/')
+TEMPLATE_RELEASE_TAG = re.compile(r'template-v(\d+)\.(\d+)\.(\d+)')
+# The stable framework release write-back commit (VERSION and the template's default LeistdFrameworkVersion).
+# Same rule as Test-ReleaseWriteBack in scripts/release-commits.ps1: a framework-only change never bumps the template.
+RELEASE_WRITE_BACK = re.compile(r'chore: 发布 v\d+\.\d+\.\d+ \[skip ci\]')
 CONTAINER_INPUT = re.compile(r'template/(?:Dockerfile|\.dockerignore|deploy/.+|\.template\.config/template\.json|'
                              r'(?:frontend|\.template\.config/localization/frontend)/(?:package(?:-lock)?\.json|angular\.json))')
 
@@ -219,7 +248,8 @@ def classify_inputs(base: str, head: str, paths: list[str]) -> dict[str, list[st
     for path in paths:
         if path in packaged:
             kind = 'package-doc'
-        elif (INTERNAL_DOCUMENT.fullmatch(path) or path.startswith('framework/docs/') and path.endswith('.md')):
+        elif (INTERNAL_DOCUMENT.fullmatch(path) or REPOSITORY_CONFIG.fullmatch(path)
+              or path.startswith('framework/docs/') and path.endswith('.md')):
             kind = 'internal'
         elif path.startswith('template/') and path.endswith('.md'):
             kind = 'generated-doc'
@@ -262,10 +292,35 @@ def needs_release(base: str, head: str) -> tuple[bool, str]:
         hits = classes['package-doc'] + [path for path in paths if path.startswith('framework/')
                 and not path.startswith('framework/tests/') and not path.endswith('.md')]
         harmless = set(sum((classes[name] for name in ('internal', 'generated-doc', 'frontend', 'backend')), []))
-        unknown = [path for path in paths if path not in harmless and not path.startswith(('template/', 'framework/tests/'))]
+        unknown = [path for path in paths if path not in harmless and not path.startswith((*TEMPLATE_RELEASE_INPUTS, 'framework/tests/'))]
         return bool(hits or unknown), 'Changed package or unmodelled inputs: ' + ', '.join(sorted(set(hits + unknown))) if hits or unknown else 'Only non-package inputs'
     except (ValueError, OSError, subprocess.CalledProcessError, ElementTree.ParseError) as error:
         return True, f'Publication input proof unavailable: {error}'
+
+
+def template_release(channel: str, head: str, event: str) -> dict:
+    """Template channel: changed when template inputs moved since the latest template-v tag; only a push to main publishes.
+
+    The template release job recomputes the same range with the shared commit parser and
+    fails when its result differs from this decision.
+    """
+    if channel not in ('stable', 'beta'):
+        return dict(Changed=False, Required=False, BaseTag='', BaseSha='',
+                    Reason='Nightly carries no template channel' if channel else 'Not a publication candidate')
+    tags = [name for name in git('tag', '--merged', head).splitlines() if TEMPLATE_RELEASE_TAG.fullmatch(name)]
+    if not tags:
+        changed, base_tag, base_sha, reason = True, '', '', 'No published template version'
+    else:
+        base_tag = max(tags, key=lambda name: tuple(map(int, TEMPLATE_RELEASE_TAG.fullmatch(name).groups())))
+        base_sha = git('rev-parse', f'{base_tag}^{{commit}}')
+        subjects = git('log', '--no-merges', '--format=%s', f'{base_tag}..{head}', '--', *TEMPLATE_RELEASE_INPUTS).splitlines()
+        commits = [subject for subject in subjects if not RELEASE_WRITE_BACK.fullmatch(subject)]
+        changed = bool(commits)
+        reason = f'{len(commits)} template commits since {base_tag}' if changed else f'No template changes since {base_tag}'
+    required = changed and channel == 'stable' and event == 'push'
+    if changed and not required:
+        reason += '; template publishes only on a push to main'
+    return dict(Changed=changed, Required=required, BaseTag=base_tag, BaseSha=base_sha, Reason=reason)
 
 
 def framework_test_project(path: str) -> bool:
@@ -393,16 +448,24 @@ def source_producers(config: dict, path: str, scenarios: dict) -> set[str]:
 
 
 def execution_slices(scenarios: dict, selected: list[str], tier: str, mode: str, container_smoke: bool) -> list[dict]:
-    """Bind the registered logical allocation to the candidate's selected work."""
+    """Bind the registered logical allocation to the candidate's selected work.
+
+    The core tier runs one scenario per group, including scenarios the selector adds
+    from outside core; the full tier keeps its registered balanced groups.
+    """
     if not selected:
         return []
     sample = next(iter(scenarios.values()))
     selected_names = set(selected)
     containers = set(sample['Containers']) if container_smoke else set()
+    if tier == 'core':
+        logical_groups = [[name] for name in scenarios if name in selected_names]
+    else:
+        logical_groups = [[name for name, info in scenarios.items()
+                           if name in selected_names and info['Slices'].get(tier) == logical]
+                          for logical in sample['Titles'][tier]]
     bins = []
-    for logical in sample['Titles'][tier]:
-        members = [name for name, info in scenarios.items()
-                   if name in selected_names and info['Slices'].get(tier) == logical]
+    for members in logical_groups:
         if members:
             bins.append(dict(key=f'execution-{len(bins)+1:02d}', title='', Scenarios=members,
                              Containers=[name for name in members if name in containers]))
@@ -414,14 +477,109 @@ def execution_slices(scenarios: dict, selected: list[str], tier: str, mode: str,
     return bins
 
 
+def changed_lines(base: str, head: str, path: str) -> tuple[set[int], set[int]]:
+    """Changed line numbers of one file on the base and head side.
+
+    A pure insertion or deletion touches both neighbouring lines of the other side,
+    so a branch that only gained or lost lines still counts as changed there.
+    """
+    diff = git('-c', 'core.quotePath=false', 'diff', '--no-renames', '--no-ext-diff', '-U0', base, head, '--', path)
+    old, new = set(), set()
+    for match in re.finditer(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', diff, re.M):
+        for start, count, side in ((int(match[1]), match[2], old), (int(match[3]), match[4], new)):
+            count = 1 if count is None else int(count)
+            side.update(range(start, start + count) if count else (start, start + 1))
+    return old, new
+
+
+def source_text(sha: str, path: str) -> str | None:
+    """Text of a template source at one commit; None when absent there."""
+    try:
+        git('cat-file', '-e', f'{sha}:{path}')
+    except subprocess.CalledProcessError:
+        return None
+    if path.endswith(BINARY_SOURCE):
+        return ''
+    return git('show', f'{sha}:{path}')
+
+
+def template_requirements(config: dict, scenarios: dict, base: str, head: str, paths: list[str],
+                          eligible: set[str]) -> list[tuple[str, set[str]]]:
+    """Generation contexts the changed template sources must reach, with the scenarios that reach each.
+
+    Every changed file is generated at least once; a file with file-level conditions is
+    also trimmed at least once; every arm (nested, each elif, implicit empty else) of a
+    changed conditional block is generated on its enabled side at least once. Both trees
+    count, so deleted and renamed files keep their old conditions. Only scenarios whose
+    stages apply to the plan mode count; a context no such scenario reaches is the full
+    tier's responsibility (its coverage gate requires every reachable line to be produced).
+    """
+    values = {name: coverage.symbol_values(config, coverage.parse_cli_arguments(config, info['Arguments']))
+              for name, info in scenarios.items() if name in eligible}
+    requirements = []
+    for path in paths:
+        matches = [(condition, coverage.file_conditions(relative, modifiers))
+                   for relative, _, condition, modifiers in coverage.iter_sources(config, [path])]
+        if not matches:
+            raise ValueError(f'No known template source for {path}')
+
+        def reached(frames):
+            return {name for name, value in values.items()
+                    if any(coverage.generated(value, frames, condition, excludes) for condition, excludes in matches)}
+        requirements.append((f'{path}: generated', reached(())))
+        if any(condition or excludes for condition, excludes in matches):
+            requirements.append((f'{path}: trimmed', set(values) - reached(())))
+        sides = changed_lines(base, head, path)
+        for sha, lines in ((base, sides[0]), (head, sides[1])):
+            text = source_text(sha, path)
+            if not text:
+                continue
+            for frames in coverage.branch_leaves(text, lines):
+                label = ' > '.join(current.strip() for current, _ in frames)
+                requirements.append((f'{path}@{sha[:7]}: {label}', reached(frames)))
+    return [(label, owners) for label, owners in requirements if owners]
+
+
+def select_scenarios(requirements: list[tuple[str, set[str]]], initial: set[str], order: list[str],
+                     preferred: set[str]) -> list[str]:
+    """Smallest added scenario set covering every requirement the initial set leaves open.
+
+    Exact search up to four added scenarios, preferred (core) scenarios first and then the
+    registered order; beyond that a deterministic greedy cover.
+    """
+    open_requirements = [owners for _, owners in requirements if not owners & initial]
+    candidates = sorted((name for name in order if name not in initial and any(name in owners for owners in open_requirements)),
+                        key=lambda name: (name not in preferred, order.index(name)))
+    chosen: tuple[str, ...] = ()
+    if open_requirements:
+        for size in range(1, min(4, len(candidates)) + 1):
+            chosen = next((combo for combo in itertools.combinations(candidates, size)
+                           if all(owners & set(combo) for owners in open_requirements)), ())
+            if chosen:
+                break
+        if not chosen:
+            remaining, picked = list(open_requirements), []
+            while remaining:
+                best = max(candidates, key=lambda name: (sum(name in owners for owners in remaining), -candidates.index(name)))
+                picked.append(best)
+                remaining = [owners for owners in remaining if best not in owners]
+            chosen = tuple(picked)
+    selected = initial | set(chosen)
+    return [name for name in order if name in selected]
+
+
 def create_plan(tier: str, base: str, event: str, candidate_input: str,
                 container_smoke: bool = False, release_channel: str = '', release_base_tag: str = '',
                 release_base_sha: str = '') -> dict:
+    """tier core asks for a narrowed direct-PR plan; whatever cannot be narrowed is the full tier."""
+    if tier not in ('core', 'full'):
+        raise ValueError('unknown tier')
     head = git('rev-parse', 'HEAD')
     if candidate_input and candidate_input != head:
         raise ValueError('candidate input differs from checkout')
     scenarios = coverage.load_scenarios()
-    registered = [name for name, info in scenarios.items() if tier in info['Slices']]
+    order = list(scenarios)
+    core = [name for name, info in scenarios.items() if 'core' in info['Slices']]
     all_tests = all_framework_tests(head)
     tag, published, publish, release_reason = '', '', False, 'Not a publication candidate'
     if release_channel:
@@ -435,22 +593,26 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             publish, release_reason = needs_release(published, head)
         else:
             publish, release_reason = True, 'Explicit or scheduled publication'
-    plan = dict(Version=3, CandidateSha=head, BaseSha=base, Tier=tier, Event=event,
+    template = template_release(release_channel, head, event)
+    plan = dict(Version=3, CandidateSha=head, BaseSha=base, Tier='full', Event=event,
                 ReleaseRequired=publish, ReleaseChannel=release_channel, ReleaseBaseTag=tag,
-                ReleaseBaseSha=published, ReleaseReason=release_reason,
+                ReleaseBaseSha=published, ReleaseReason=release_reason, TemplateRelease=template,
                 QualityBaseline=dict(Verified=False, RunId=0, Attempt=0),
-                DocsOnly=False, Mode='full', Scenarios=registered, FrameworkTests=True,
+                DocsOnly=False, Mode='full', Scenarios=order, FrameworkTests=True,
                 ConsumerProjects=None, GeneratedDocumentation=True, PackageDocumentation=True,
                 Jobs={name: True for name in JOB_NAMES}, Inputs={}, ChangedPaths=[],
                 Reason='Full: shared/unknown inputs, publication, explicit run or uncertain baseline',
                 FrameworkTestProjects=all_tests, FrameworkTestSelection='all', FrameworkTestReason='')
+    complete = json.loads(json.dumps(plan))
 
     def finish(value):
         value['Jobs']['test'] = value['FrameworkTests']
         value['Jobs']['template-slices'] = bool(value['Scenarios'])
         value['DocsOnly'] = not any(value['Jobs'].values())
         # Container responsibility is meaningful only alongside full runtime stages.
-        value['ContainerSmoke'] = bool(container_smoke and value['Mode'] == 'full')
+        # A publication candidate always carries it, independently of input classification.
+        value['ContainerSmoke'] = bool((container_smoke or value['ReleaseRequired'] or value['TemplateRelease']['Required'])
+                                       and value['Mode'] == 'full')
         if container_smoke and value['Mode'] not in ('full', 'documentation'):
             raise ValueError('Container scope requires a dynamic full-mode plan')
         if not value['FrameworkTests']:
@@ -458,7 +620,7 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
         elif value['FrameworkTestSelection'] != 'affected':
             value.update(FrameworkTestProjects=all_tests, FrameworkTestSelection='all',
                          FrameworkTestReason=value['FrameworkTestReason'] or value['Reason'])
-        value['Slices'] = execution_slices(scenarios, value['Scenarios'], tier, value['Mode'], value['ContainerSmoke'])
+        value['Slices'] = execution_slices(scenarios, value['Scenarios'], value['Tier'], value['Mode'], value['ContainerSmoke'])
         return value
 
     try:
@@ -470,12 +632,9 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             container_smoke = True
         if git('status', '--porcelain', '--untracked-files=normal'):
             return finish(dict(plan, Reason='Full: working tree differs from candidate HEAD'))
-        if publish:
-            if published and published != head:
-                release_paths = changed_paths(published, head)
-                container_smoke = container_smoke or bool(classify_inputs(published, head, release_paths)['unknown']) or any(CONTAINER_INPUT.fullmatch(path) for path in release_paths)
+        if publish or template['Required']:
             return finish(dict(plan, Reason='Full: publication requires all quality responsibilities'))
-        direct_pr = tier == 'pr' and event == 'pull_request' and not candidate_input
+        direct_pr = tier == 'core' and event == 'pull_request' and not candidate_input
         if event == 'push' and release_channel and not publish:
             plan['QualityBaseline'] = verified_quality_base(base, head)
             if not plan['QualityBaseline']['Verified']:
@@ -486,103 +645,112 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
         if classes['unknown']:
             container_smoke = True
             return finish(dict(plan, Reason='Full: shared or unknown inputs: ' + ', '.join(classes['unknown'])))
-        code = classes['frontend'] + classes['backend'] + classes['framework']
+        template_code = classes['frontend'] + classes['backend']
+        code = template_code + classes['framework']
         generated_docs, package_docs = bool(classes['generated-doc']), bool(classes['package-doc'])
         gate_document = 'template/docs/standards/frontend-spartan.md' in paths
-        if generated_docs:
-            config_path = 'template/.template.config/template.json'
-            old = json.loads(git('show', f'{base}:{config_path}'))
-            current = json.loads(git('show', f'{head}:{config_path}'))
+        narrowed = 'core' if direct_pr else 'full'
+        if generated_docs or template_code:
+            old = json.loads(git('show', f'{base}:{CONFIG_PATH}'))
+            current = json.loads(git('show', f'{head}:{CONFIG_PATH}'))
             if old != current:
-                return finish(plan)
-            for path in classes['generated-doc']:
+                return finish(dict(plan, Reason='Full: template.json changed'))
+            for path in classes['generated-doc'] + template_code:
                 source_producers(old, path, scenarios)
                 source_producers(current, path, scenarios)
         if not code:
             jobs = {name: False for name in JOB_NAMES}
             jobs.update({'frontend-gates': gate_document, 'framework-pack': package_docs, 'package-consumption': package_docs,
                          'template-generation': generated_docs})
-            return finish(dict(plan, Mode='documentation', Scenarios=[], FrameworkTests=False,
+            return finish(dict(plan, Tier=narrowed, Mode='documentation', Scenarios=[], FrameworkTests=False,
                                ConsumerProjects=[], Jobs=jobs, GeneratedDocumentation=generated_docs,
                                PackageDocumentation=package_docs, Reason='Documentation responsibilities only'))
         if not direct_pr:
             return finish(plan)
         front = bool(classes['frontend']) and not classes['backend'] and not classes['framework']
         back = bool(classes['backend']) and not classes['frontend'] and not classes['framework']
-        if front or back:
-            config_path = 'template/.template.config/template.json'
-            old = json.loads(git('show', f'{base}:{config_path}'))
-            current = json.loads(git('show', f'{head}:{config_path}'))
-            if old != current:
-                return finish(plan)
-            affected = {'identity', 'identity-all-features'}
-            for path in code:
-                affected |= source_producers(old, path, scenarios) | source_producers(current, path, scenarios)
-            selected = [name for name in registered if name in affected]
-            if not selected:
-                return finish(plan)
-            jobs = dict(plan['Jobs'])
-            jobs.update({'frontend-gates': front or gate_document, 'test': False,
-                         'package-consumption': package_docs})
-            # PG/OIDC and generation still retain their independent responsibilities.
-            plan.update(Mode='frontend' if front else 'backend', Scenarios=selected, FrameworkTests=False,
-                        ConsumerProjects=[], Jobs=jobs, GeneratedDocumentation=generated_docs,
-                        PackageDocumentation=package_docs, Reason='Template stages plus independent documentation responsibilities')
+        mode = 'frontend' if front else 'backend' if back else 'full'
+        eligible = {name for name, info in scenarios.items() if mode != 'frontend' or info['Frontend']}
+        if classes['framework']:
+            # Framework changes reach every product: core is the downstream smoke.
+            initial = set(core)
         else:
+            producers = set()
+            for path in template_code:
+                producers |= source_producers(old, path, scenarios) | source_producers(current, path, scenarios)
+            initial = set(core) & producers & eligible
+        requirements = template_requirements(current, scenarios, base, head, template_code, eligible) if template_code else []
+        selected = select_scenarios(requirements, initial, order, set(core))
+        if not selected:
+            return finish(dict(plan, Reason='Full: no registered scenario produces the changed sources'))
+        jobs = {name: True for name in JOB_NAMES}
+        jobs.update({'frontend-gates': bool(classes['frontend']) or gate_document,
+                     'package-consumption': bool(classes['framework']) or package_docs,
+                     'template-generation': bool(template_code) or generated_docs,
+                     'postgresql-e2e': any(POSTGRESQL_INPUT.fullmatch(path) for path in code),
+                     'oidc-e2e': any(OIDC_INPUT.fullmatch(path) for path in code)})
+        plan.update(Tier='core', Mode=mode, Scenarios=selected, Jobs=jobs, GeneratedDocumentation=generated_docs,
+                    Reason=('Core consumers of changed sources plus changed conditional branches; '
+                            f'{len(requirements)} generation contexts'))
+        if not classes['framework']:
+            plan.update(FrameworkTests=False, ConsumerProjects=[], PackageDocumentation=package_docs)
+        else:
+            plan.update(PackageDocumentation=True)
+            # Template sources belong to no framework project: a mixed change keeps all tests and consumers.
             try:
                 selected_tests, reason = select_framework_tests(base, head, code)
                 plan.update(FrameworkTestProjects=selected_tests, FrameworkTestSelection='affected', FrameworkTestReason=reason)
             except FrameworkProofUnavailable as error:
                 plan.update(FrameworkTestReason=f'All: {error}')
-            if classes['framework'] and not classes['frontend'] and not classes['backend']:
-                owners = [project_owner(path) for path in code]
-                if all(owners):
-                    plan.update(ConsumerProjects=sorted(set(owners)), PackageDocumentation=True,
-                                GeneratedDocumentation=generated_docs, Reason='Framework dependency closure plus documentation responsibilities')
+            owners = [project_owner(path) for path in code]
+            if all(owners):
+                plan['ConsumerProjects'] = sorted(set(owners))
     except (subprocess.CalledProcessError, ValueError, KeyError, OSError, IndexError, ElementTree.ParseError) as error:
         container_smoke = True
-        return finish(dict(plan, Reason=f'Full: input/dependency proof unavailable ({error})'))
+        # Nothing narrowed before the failure survives: restart from the complete plan.
+        return finish(dict(complete, ChangedPaths=plan['ChangedPaths'], Inputs=plan['Inputs'], QualityBaseline=plan['QualityBaseline'],
+                           Reason=f'Full: input/dependency proof unavailable ({error})'))
     return finish(plan)
 
 
 def local_scenarios(base: str) -> dict:
-    """Select full local products from file producers, independently of CI stages."""
-    plan = create_plan('pr', base, 'pull_request', '')
+    """Local recipe: the PR selector's scenarios for -GenerateOnly; full when nothing can be narrowed.
+
+    Generated documents count as conditional sources here, so a Markdown branch is generated too.
+    """
+    plan = create_plan('core', base, 'pull_request', '')
     scenarios = coverage.load_scenarios()
-    registered = {name: info for name, info in scenarios.items() if 'pr' in info['Slices']}
+    order = list(scenarios)
     head = plan['CandidateSha']
     result = dict(Kind='local-template-scenarios', HeadSha=head, BaseSha=base,
-                  Scope='pr', Scenarios=list(registered), Selection='complete-pr',
-                  Reason=plan['Reason'])
-    if not re.fullmatch(r'[0-9a-f]{40}', base) or base == '0' * 40 or base == head:
+                  Scope='full', Scenarios=order, Selection='full', Reason=plan['Reason'])
+    if plan['Tier'] != 'core':
         return result
     try:
-        if git('status', '--porcelain', '--untracked-files=normal'):
-            return result
-        paths = git('-c', 'core.quotePath=false', 'diff', '--no-renames', '--name-only', '-z',
-                    base, head).split('\0')[:-1]
-        if not paths or not all(frontend_source(path) or backend_source(path) for path in paths):
-            return result
-        config_path = 'template/.template.config/template.json'
-        old = json.loads(git('show', f'{base}:{config_path}'))
-        current = json.loads(git('show', f'{head}:{config_path}'))
-        if old != current:
-            return result
-        selected = {'identity', 'identity-all-features'}
-        for path in paths:
-            selected |= source_producers(old, path, registered) | source_producers(current, path, registered)
+        inputs = plan['Inputs']
+        sources = inputs['frontend'] + inputs['backend'] + inputs['generated-doc']
+        selected = list(plan['Scenarios'])
+        if sources:
+            config = json.loads(git('show', f'{head}:{CONFIG_PATH}'))
+            core = {name for name, info in scenarios.items() if 'core' in info['Slices']}
+            eligible = {name for name, info in scenarios.items() if plan['Mode'] != 'frontend' or info['Frontend']}
+            producers = set()
+            for path in sources:
+                producers |= source_producers(config, path, scenarios)
+            requirements = template_requirements(config, scenarios, base, head, sources, eligible)
+            selected = select_scenarios(requirements, set(selected) | (core & producers & eligible), order, core)
         if git('rev-parse', 'HEAD') != head or git('status', '--porcelain', '--untracked-files=normal'):
             raise ValueError('working tree or HEAD changed during selection')
-        result.update(Scenarios=[name for name in registered if name in selected],
-                      Selection='source-products', Reason='All changed source products and default/all-feature products')
+        result.update(Scope='core', Scenarios=selected, Selection='selector',
+                      Reason='PR selector: core consumers and changed conditional branches')
     except (subprocess.CalledProcessError, ValueError, KeyError, OSError, IndexError, UnicodeError) as error:
-        result['Reason'] = f'Complete PR: local product proof unavailable ({error})'
+        result['Reason'] = f'Full: local selection proof unavailable ({error})'
     return result
 
 
 def local_framework_tests(base: str) -> dict:
     """Local L1 list: the same selection as a PR plan from base to the committed HEAD."""
-    plan = create_plan('pr', base, 'pull_request', '')
+    plan = create_plan('core', base, 'pull_request', '')
     result = dict(Kind='local-framework-tests', HeadSha=plan['CandidateSha'], BaseSha=base,
                   Projects=plan['FrameworkTestProjects'], Selection=plan['FrameworkTestSelection'],
                   Reason=plan['FrameworkTestReason'])
@@ -594,7 +762,8 @@ def local_framework_tests(base: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tier', choices=['pr', 'full'], default='full')
+    parser.add_argument('--tier', choices=['core', 'full'], default='full',
+                        help='core: narrow a direct pull request where provable (otherwise the plan is full)')
     parser.add_argument('--base', default=os.environ.get('PR_BASE_SHA', ''))
     parser.add_argument('--event', default=os.environ.get('EVENT_NAME', ''))
     parser.add_argument('--candidate-input', default=os.environ.get('CANDIDATE_SHA', ''))
@@ -607,14 +776,14 @@ def main() -> None:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--github-output', action='store_true')
     parser.add_argument('--local-scenarios', action='store_true',
-                        help='Output local L1 scenario names for -Scenarios; no CI stage reduction')
+                        help='Output the PR selector scenarios for local -GenerateOnly checks (full when not narrowable)')
     parser.add_argument('--local-framework-tests', action='store_true',
                         help='Output local L1 framework test projects (Projects) affected since --base')
     args = parser.parse_args()
     local = args.local_scenarios or args.local_framework_tests
-    if local and (args.local_scenarios and args.local_framework_tests or args.tier != 'pr' or args.github_output or
+    if local and (args.local_scenarios and args.local_framework_tests or args.tier != 'core' or args.github_output or
                   args.release_channel or args.release_base_tag or args.release_base_sha or args.expected_plan or args.candidate_input or args.container_smoke != 'false'):
-        parser.error('--local-scenarios/--local-framework-tests: choose one, with --tier pr and without CI output, docs-only or candidate-input')
+        parser.error('--local-scenarios/--local-framework-tests: choose one, with --tier core and without CI output, docs-only or candidate-input')
     if args.local_scenarios:
         plan = local_scenarios(args.base)
     elif args.local_framework_tests:

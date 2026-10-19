@@ -47,3 +47,15 @@ jobs:
       - name: Verify
         shell: pwsh
         run: ./scripts/verify.ps1
+#if (LocalIdentity)
+      # 端到端测试失败时保留 Playwright 报告、trace 与 API 日志
+      - name: Upload E2E report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+#endif

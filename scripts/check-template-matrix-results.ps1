@@ -4,9 +4,12 @@ param(
     [string]$ResultsPath,
     # 本次 CI 的档位：收据必须声明同一档位，分片与场景集合按该档位核对
     [Parameter(Mandatory)]
-    [ValidateSet("pr", "full")]
+    [ValidateSet("core", "full")]
     [string]$Tier,
     [string]$ValidationPlanPath,
+    # framework-pack 产出的候选版本（其 candidate.json）：每份收据都必须声明消费的是这一版本
+    [Parameter(Mandatory)]
+    [string]$CandidateVersion,
     # 要求登记的容器场景通过容器检查
     [switch]$ContainerSmoke
 )
@@ -38,12 +41,15 @@ $seenSlices = @()
 $seenScenarios = @()
 foreach ($file in $files) {
     $receipt = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
-    if ($receipt.Version -ne 2) { throw "Unsupported matrix receipt version '$($receipt.Version)'; expected 2." }
+    if ($receipt.Version -ne 3) { throw "Unsupported matrix receipt version '$($receipt.Version)'; expected 3." }
     if ($receipt.Tier -cne $Tier) {
         throw "Slice receipt declares tier '$($receipt.Tier)', expected '$Tier'."
     }
     if ($receipt.CandidateSha -cne (git rev-parse HEAD) -or $receipt.Mode -cne $mode) {
         throw 'Receipt candidate SHA or validation mode differs from the expected plan.'
+    }
+    if ($receipt.CandidateVersion -cne $CandidateVersion) {
+        throw "Receipt candidate package version '$($receipt.CandidateVersion)' differs from framework-pack '$CandidateVersion'."
     }
     if ($receipt.Slice -cnotin $expectedSlices -or $receipt.Slice -cin $seenSlices) {
         throw "Unknown or duplicate $Tier-tier slice receipt: '$($receipt.Slice)'."
@@ -64,9 +70,18 @@ foreach ($file in $files) {
             $expectedStage = if ($notApplicable) { 'not-applicable' } else { 'pass' }
             if ($result.$stage -cne $expectedStage) { throw "$($result.Scenario): $stage expected $expectedStage." }
         }
+        # 前端测试为 pass 时须记录真实 Chromium 执行的用例数且大于 0；不适用时为 0，不能声称执行过
+        if ($result.BrowserTests -isnot [long] -or ($result.Test -ceq 'pass') -ne ($result.BrowserTests -gt 0) -or $result.BrowserTests -lt 0) {
+            throw "$($result.Scenario): BrowserTests must count executed Chromium tests when Test is pass, otherwise 0."
+        }
         # 登记 Verify 的场景在完整阶段必须经生成项目的 verify.ps1 通过；其余场景与非完整模式不得声称执行过
         $verifyExpected = if ($mode -ceq 'full' -and $scenarioMap[$result.Scenario].Verify) { 'pass' } else { 'not-run' }
         if ($result.Verify -cne $verifyExpected) { throw "$($result.Scenario): Verify expected $verifyExpected." }
+        # 端到端只在 verify 里执行：本地身份场景 Verify 为 pass 时须记录 Playwright 执行的用例数且大于 0，其余为 0
+        $e2eExpected = $result.Verify -ceq 'pass' -and (Test-ScenarioE2E $result.Scenario)
+        if ($result.E2ETests -isnot [long] -or $e2eExpected -ne ($result.E2ETests -gt 0) -or $result.E2ETests -lt 0) {
+            throw "$($result.Scenario): E2ETests must count executed Playwright tests when Verify runs end-to-end tests, otherwise 0."
+        }
         $containerExpected = if ($ContainerSmoke -and $result.Scenario -cin $ContainerScenarios) { 'pass' } else { 'skipped' }
         if ($result.Container -cne $containerExpected) {
             throw "$($result.Scenario): Container expected $containerExpected."

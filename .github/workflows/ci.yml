@@ -6,20 +6,11 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
-    inputs:
-      tier:
-        description: 模板场景档位
-        type: choice
-        options: [full, pr]
-        default: full
   workflow_call:
     inputs:
       candidate_sha:
         required: true
         type: string
-      tier:
-        type: string
-        default: full
       quality_base_sha:
         type: string
         default: ''
@@ -43,10 +34,11 @@ permissions:
   contents: read
   actions: read
 
-# PR 只跑 pr 档：它能否代表全集由 check-template-scenario-coverage.py 逐行判定，
-# 全集在 develop/main 推送、夜间与发布时由 release.yml 复用本工作流执行。
+# 直接 PR 请求 core 范围：planner 能证明时收窄为 core 档（代表场景加改动条件分支），否则退回 full。
+# PR 有意不承担全局覆盖；full 在 develop/main 推送、夜间与发布时由 release.yml 复用本工作流执行。
+# 计划的 Tier 才是本次实际档位，下游作业一律读计划，不另行推断。
 env:
-  MATRIX_TIER: ${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'pr' || inputs.tier || 'full' }}
+  PLAN_SCOPE: ${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'core' || 'full' }}
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
@@ -104,7 +96,7 @@ jobs:
       - name: 安装 .NET 10 SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
       - name: 安装 Node.js
         uses: actions/setup-node@v7
         with:
@@ -149,7 +141,7 @@ jobs:
       - name: 安装 .NET 10 SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
       - name: 安装 Node.js
         uses: actions/setup-node@v7
         with:
@@ -175,6 +167,16 @@ jobs:
         with:
           name: candidate-framework-feed
           path: .tmp/local-feed
+      # 第三方 NuGet 包的 HTTP 下载缓存（键为全部 Directory.Packages.props）；Leistd.* 只走候选包源，
+      # 恢复后与保存前都删掉缓存里的 Leistd 条目，矩阵的解包目录仍按 run 隔离，候选来源断言不受影响。
+      - name: 恢复第三方 NuGet 下载缓存
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/NuGet/http-cache
+          key: nuget-http-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/packages.lock.json') }}
+          restore-keys: nuget-http-${{ runner.os }}-
+      - name: 缓存中不保留 Leistd 包
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       - name: 生成并验证本片全部场景
         id: matrix
         shell: pwsh
@@ -182,9 +184,12 @@ jobs:
           VALIDATION_PLAN: ${{ needs.quality-plan.outputs.validation_plan }}
         run: |
           $env:VALIDATION_PLAN | Set-Content .tmp/quality-plan.json -Encoding utf8
+          $tier = ($env:VALIDATION_PLAN | ConvertFrom-Json).Tier
           # 同候选源码预检由 docs-sync 承担；汇总必须核对其成功，不能用跳过代替通过。
-          pwsh scripts/test-template-matrix.ps1 -SkipPack -SkipSourcePreflight -ValidationPlanPath .tmp/quality-plan.json -Tier $env:MATRIX_TIER -Slice '${{ matrix.slice.key }}'
+          pwsh scripts/test-template-matrix.ps1 -SkipPack -SkipSourcePreflight -ValidationPlanPath .tmp/quality-plan.json -Tier $tier -Slice '${{ matrix.slice.key }}'
           if ($LASTEXITCODE -ne 0) { throw '模板矩阵失败' }
+      - name: 保存前清除 Leistd 缓存条目
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       - name: 保留完整场景结果
         uses: actions/upload-artifact@v7
         with:
@@ -223,7 +228,7 @@ jobs:
           from pathlib import Path
           if os.environ['CANDIDATE_SHA'] and os.environ['CALLER_BASE_SHA'] != os.environ['PR_BASE_SHA']:
               raise ValueError('Caller quality baseline differs from triggering event')
-          arguments = ['python3', 'scripts/plan-quality-checks.py', '--tier', os.environ['MATRIX_TIER'],
+          arguments = ['python3', 'scripts/plan-quality-checks.py', '--tier', os.environ['PLAN_SCOPE'],
                        '--output', '.tmp/quality-plan.json', '--github-output']
           if os.environ['RELEASE_CHANNEL']:
               arguments += ['--release-channel', os.environ['RELEASE_CHANNEL'],
@@ -245,22 +250,33 @@ jobs:
     if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['framework-pack']
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      candidate_version: ${{ steps.pack.outputs.candidate_version }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.candidate_sha || github.sha }}
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
+      # 候选版本带本次运行的唯一后缀，永不等于已发布版本；candidate.json 记录版本与 SDK
       - name: 打包当前 Framework
+        id: pack
         shell: pwsh
-        run: pwsh framework/build/pack-local-feed.ps1
+        run: |
+          pwsh framework/build/pack-local-feed.ps1 -VersionSuffix 'ci.${{ github.run_id }}.${{ github.run_attempt }}'
+          if ($LASTEXITCODE -ne 0) { throw '候选 Framework 打包失败' }
+          $candidate = Get-Content .tmp/local-feed/candidate.json -Raw | ConvertFrom-Json
+          "candidate_version=$($candidate.CandidateVersion)" | Out-File $env:GITHUB_OUTPUT -Append
+          "候选 Framework 包：$($candidate.CandidateVersion)（SDK $($candidate.Sdk)）" | Out-File $env:GITHUB_STEP_SUMMARY -Append
       - name: 保留同一候选包源
         uses: actions/upload-artifact@v7
         with:
           name: candidate-framework-feed
           overwrite: true
-          path: .tmp/local-feed/*.nupkg
+          path: |
+            .tmp/local-feed/*.nupkg
+            .tmp/local-feed/candidate.json
           if-no-files-found: error
 
   package-consumption:
@@ -275,12 +291,20 @@ jobs:
           ref: ${{ inputs.candidate_sha || github.sha }}
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
       - name: 下载同一候选 Framework 包
         uses: actions/download-artifact@v8
         with:
           name: candidate-framework-feed
           path: .tmp/local-feed
+      - name: 恢复第三方 NuGet 下载缓存
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/NuGet/http-cache
+          key: nuget-http-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/packages.lock.json') }}
+          restore-keys: nuget-http-${{ runner.os }}-
+      - name: 缓存中不保留 Leistd 包
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       - name: 核对全部包并消费影响闭包
         shell: pwsh
         env:
@@ -289,32 +313,45 @@ jobs:
           $env:VALIDATION_PLAN | Set-Content .tmp/quality-plan.json -Encoding utf8
           pwsh framework/build/test-package-consumption.ps1 -ValidationPlanPath .tmp/quality-plan.json
           if ($LASTEXITCODE -ne 0) { throw 'NuGet 包消费失败' }
+      - name: 保存前清除 Leistd 缓存条目
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       - uses: actions/upload-artifact@v7
         with:
           name: package-content-proof
           path: .tmp/package-consumer/package-results.json
           if-no-files-found: error
 
+  # 证明拆成互不引用产物的四片：三片按序号取模生成 320 个形态，对照片承担 768 组输入映射、
+  # 角色等价、Ci 变体与 verify 检查；汇总核对四片同一候选与源码、形态无缺号无重复、对照片证明齐全。
   template-generation:
-    name: 模板全部有效形态生成
+    name: 模板有效形态生成 · ${{ matrix.shard }}
     needs: quality-plan
     if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation']
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['0', '1', '2', 'control']
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.candidate_sha || github.sha }}
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: 安装 YAML 解析依赖
         run: python -m pip install PyYAML==6.0.3
-      - name: 生成 320 个有效形态并校验 768 组原始输入
-        run: python scripts/test-template-generation.py --output .tmp/generation-proof
+      - name: 生成本片并校验
+        run: python scripts/test-template-generation.py --shard '${{ matrix.shard }}' --output .tmp/generation-proof
+      # 模板包链路：打包、隔离安装、在仓库外生成两个代表场景，核对来源标记与按标记重建零差异（不发布）
+      - name: 打包模板并验证来源标记与重建确定性
+        if: matrix.shard == 'control'
+        shell: pwsh
+        run: pwsh template-package/test-template-package.ps1 -Version '0.0.0-ci.${{ github.run_id }}.${{ github.run_attempt }}'
       - uses: actions/setup-node@v7
         if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation
         with:
@@ -325,12 +362,12 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation
         with:
-          name: generated-documentation-proof
+          name: generated-documentation-proof-${{ matrix.shard }}
           path: .tmp/generation-proof/documentation-results.json
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
-          name: template-generation-proof
+          name: template-generation-proof-${{ matrix.shard }}
           path: .tmp/generation-proof/generation-results.json
           if-no-files-found: error
 
@@ -346,6 +383,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.candidate_sha || github.sha }}
+          fetch-depth: 0
       - name: 检查必要作业全部成功
         id: quality
         shell: pwsh
@@ -361,7 +399,10 @@ jobs:
           $jobs['quality-plan'].outputs.validation_plan | Set-Content .tmp/quality-plan.json -Encoding utf8
           . scripts/template-matrix-scenarios.ps1
           . scripts/quality-validation-plan.ps1
-          $plan = Read-QualityValidationPlan .tmp/quality-plan.json $env:MATRIX_TIER
+          $tier = (Get-Content .tmp/quality-plan.json -Raw | ConvertFrom-Json).Tier
+          # 只有直接 PR 能收窄为 core；其余触发方式的计划必须是 full
+          if ($env:PLAN_SCOPE -cne 'core' -and $tier -cne 'full') { throw '非直接 PR 的计划必须是 full 档' }
+          $plan = Read-QualityValidationPlan .tmp/quality-plan.json $tier
           if ($plan.CandidateSha -cne $env:CANDIDATE_SHA) { throw '汇总候选身份不一致' }
           foreach ($responsibility in $plan.Jobs.PSObject.Properties) {
             $expected = if ($responsibility.Value) { 'success' } else { 'skipped' }
@@ -369,6 +410,14 @@ jobs:
           }
           "dynamic=$($plan.Jobs.'template-slices' ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
           "framework_tests=$($plan.FrameworkTests ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
+          "tier=$tier" | Out-File $env:GITHUB_OUTPUT -Append
+      # 直接 PR 的选择由汇总独立重算：同一 base/head 重新运行 planner，与执行的计划逐字段一致才放行。
+      # 复用候选（release.yml）的计划已在 quality-plan 作业与调用方独立计算的预期计划比对过。
+      - name: 独立重算 PR 选择
+        if: github.event_name == 'pull_request' && !inputs.candidate_sha
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/plan-quality-checks.py --tier core --event pull_request --base "$PR_BASE_SHA" --expected-plan .tmp/quality-plan.json --output .tmp/recomputed-plan.json
       - uses: actions/download-artifact@v8
         if: steps.quality.outputs.dynamic == 'true'
         with:
@@ -380,9 +429,10 @@ jobs:
         shell: pwsh
         env:
           VALIDATION_PLAN: ${{ needs.quality-plan.outputs.validation_plan }}
+          CANDIDATE_VERSION: ${{ needs.framework-pack.outputs.candidate_version }}
         run: |
           $env:VALIDATION_PLAN | Set-Content .tmp/quality-plan.json -Encoding utf8
-          pwsh scripts/check-template-matrix-results.ps1 -ResultsPath .tmp/matrix-receipts -ValidationPlanPath .tmp/quality-plan.json -Tier $env:MATRIX_TIER
+          pwsh scripts/check-template-matrix-results.ps1 -ResultsPath .tmp/matrix-receipts -ValidationPlanPath .tmp/quality-plan.json -Tier '${{ steps.quality.outputs.tier }}' -CandidateVersion $env:CANDIDATE_VERSION
           if ($LASTEXITCODE -ne 0) { throw '模板矩阵证明不完整' }
       - uses: actions/download-artifact@v8
         if: steps.quality.outputs.framework_tests == 'true'
@@ -432,12 +482,40 @@ jobs:
       - uses: actions/download-artifact@v8
         if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation
         with:
-          name: generated-documentation-proof
+          pattern: generated-documentation-proof-*
           path: .tmp/generated-documentation-proof
       - name: 核对生成文档证明
         if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation
         shell: pwsh
         run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind documentation -ResultsPath .tmp/generated-documentation-proof
+      # 四片证明各自落在以 artifact 命名的子目录，不合并（同名文件会互相覆盖）
+      - uses: actions/download-artifact@v8
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation']
+        with:
+          pattern: template-generation-proof-*
+          path: .tmp/template-generation-proof
+      - name: 核对模板生成证明
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation']
+        shell: pwsh
+        run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind generation -ResultsPath .tmp/template-generation-proof
+      - uses: actions/download-artifact@v8
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e']
+        with:
+          name: postgresql-e2e-proof
+          path: .tmp/postgresql-e2e-proof
+      - name: 核对 PostgreSQL 端到端证明
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e']
+        shell: pwsh
+        run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind postgresql -ResultsPath .tmp/postgresql-e2e-proof
+      - uses: actions/download-artifact@v8
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e']
+        with:
+          name: oidc-e2e-proof
+          path: .tmp/oidc-e2e-proof
+      - name: 核对 OIDC 端到端证明
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e']
+        shell: pwsh
+        run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind oidc -ResultsPath .tmp/oidc-e2e-proof
       - name: 输出已验证候选计划
         id: complete
         shell: pwsh
@@ -470,7 +548,15 @@ jobs:
       - name: 安装 .NET 10 SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
+      - name: 恢复第三方 NuGet 下载缓存
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/NuGet/http-cache
+          key: nuget-http-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/packages.lock.json') }}
+          restore-keys: nuget-http-${{ runner.os }}-
+      - name: 缓存中不保留 Leistd 包
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       - name: 还原
         run: dotnet restore framework/Leistd.Framework.slnx
       # 不收集覆盖率：此前收集 23 份 cobertura 却没有任何下游步骤消费，
@@ -504,6 +590,8 @@ jobs:
           }
           "框架测试（$($plan.FrameworkTestSelection)，$($projects.Count) 个项目）：$($plan.FrameworkTestReason)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
           if ($failed) { throw "框架测试失败：$($failed -join '、')" }
+      - name: 保存前清除 Leistd 缓存条目
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       - name: 保留逐项目回执
         uses: actions/upload-artifact@v7
         with:
@@ -526,7 +614,7 @@ jobs:
       - name: 安装 .NET 10 SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
       # 矩阵的集成测试与冒烟各自只用一个库，验不到多库拆分、共享与专属租户库的物理隔离、
       # DbMigrator 命令行与跨进程密钥环这几类"不报错只给错结果"的失效。
       - name: 下载同一候选 Framework 包
@@ -534,10 +622,26 @@ jobs:
         with:
           name: candidate-framework-feed
           path: .tmp/local-feed
+      - name: 恢复第三方 NuGet 下载缓存
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/NuGet/http-cache
+          key: nuget-http-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/packages.lock.json') }}
+          restore-keys: nuget-http-${{ runner.os }}-
+      - name: 缓存中不保留 Leistd 包
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       # 脚本仍可独立运行并打包；CI 只读同候选包，容器与清理由脚本负责。
       - name: 生成 + 迁移 + 真实库隔离验证
         shell: pwsh
         run: pwsh scripts/test-template-postgresql-e2e.ps1 -SkipPack
+      # 全部断言通过后才有证明；汇总核对其候选身份与断言数
+      - name: 保存前清除 Leistd 缓存条目
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: postgresql-e2e-proof
+          path: .tmp/postgresql-e2e/*/e2e-proof.json
+          if-no-files-found: error
 
   oidc-e2e:
     name: 模板 OIDC 跨服务端到端
@@ -552,20 +656,37 @@ jobs:
       - name: 安装 .NET 10 SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
       - name: 下载同一候选 Framework 包
         uses: actions/download-artifact@v8
         with:
           name: candidate-framework-feed
           path: .tmp/local-feed
+      - name: 恢复第三方 NuGet 下载缓存
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/NuGet/http-cache
+          key: nuget-http-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/packages.lock.json') }}
+          restore-keys: nuget-http-${{ runner.os }}-
+      - name: 缓存中不保留 Leistd 包
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
       # 同候选包只读复用；四个真实 API、PostgreSQL、hive 与 finally 清理仍独立。
-      # PR 档不等令牌真实到期：S7 只验即时撤销与到期前窗口，交换令牌到期跳过。
+      # core 档不等令牌真实到期：S7 只验即时撤销与到期前窗口，交换令牌到期跳过。
       # full 档传 -IncludeExpiryWait，以快速档（访问令牌 90 秒）补跑两条真实到期边界。
       - name: 生成 + OIDC HTTP S2–S8 与 S10
         shell: pwsh
+        env:
+          PLAN_TIER: ${{ fromJSON(needs.quality-plan.outputs.validation_plan).Tier }}
         run: |
-          $expiry = @(if ($env:MATRIX_TIER -eq 'full') { '-IncludeExpiryWait' })
+          $expiry = @(if ($env:PLAN_TIER -ceq 'full') { '-IncludeExpiryWait' })
           pwsh scripts/test-template-oidc-e2e.ps1 -SkipPack @expiry
+      - name: 保存前清除 Leistd 缓存条目
+        run: find ~/.local/share/NuGet/http-cache -iname '*leistd.*' -delete 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: oidc-e2e-proof
+          path: .tmp/oidc-e2e/*/e2e-proof.json
+          if-no-files-found: error
       - name: 保留 OIDC 诊断证据
         if: always()
         uses: actions/upload-artifact@v7

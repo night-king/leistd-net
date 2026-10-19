@@ -22,7 +22,7 @@ export interface MenuItem {
 }
 
 export interface MenuGroup {
-  /** 分组标题，必填：没有标题的组就是变相的兜底组（见 docs/standards/frontend-ui.md「导航与菜单分组」）。 */
+  /** 分组标题，必填：没有标题的组就是变相的兜底组（见 docs/standards/frontend-navigation.md「导航与菜单分组」）。 */
   label: string;
   items: MenuItem[];
   /**
@@ -34,7 +34,7 @@ export interface MenuGroup {
 
 /**
  * 两个区的菜单与区域切换：侧栏（管理平台）与顶栏（工作空间）读同一份信息架构。分组判据只写在
- * docs/standards/frontend-ui.md「导航与菜单分组」，新增入口先在那里找落位；分组骨架由
+ * docs/standards/frontend-navigation.md「导航与菜单分组」，新增入口先在那里找落位；分组骨架由
  * default-sidebar.spec.ts 钉住。
  */
 @Injectable({ providedIn: 'root' })

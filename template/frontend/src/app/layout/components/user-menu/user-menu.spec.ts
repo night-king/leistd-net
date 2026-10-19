@@ -25,7 +25,7 @@ const LOGOUT = 'Sign out';
 
 /**
  * 头像菜单的构成按完整序列断言：个人设置在这里有入口（管理平台也能直达），且没有「切换租户」
- * （见 docs/standards/frontend-ui.md「导航与菜单分组」）。
+ * （见 docs/standards/frontend-navigation.md「导航与菜单分组」）。
  */
 describe('UserMenu items', () => {
   /**

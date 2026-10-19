@@ -11,7 +11,7 @@ description: 在 leistd-net 仓库中为 framework/components、framework/ddd-st
 
 | 场景 | 补充事实与规范 | 验证重点 |
 | --- | --- | --- |
-| 新增包、类型或注册入口 | 同家族包与目录；[§1 命名与分组](../../../docs/framework/development-guide.md#1-命名与分组) | csproj 约定、命名空间闸门 |
+| 新增包、类型或注册入口 | 同家族包与目录；[§1 命名与分组](../../../docs/framework/development-guide.md#1-命名与分组) | csproj 约定、命名空间闸门、打包 |
 | 组件内部实现 | 目标实现、测试、调用方 | 相关单测，外部语义用真实依赖 |
 | DI、Options、生命周期 | 注册入口、宿主、组件文档；[§6.6 依赖注入](../../../docs/framework/development-guide.md#66-依赖注入)、[§6.2 参数与配置校验](../../../docs/framework/development-guide.md#62-参数与配置校验) | 真实容器或最小宿主、默认值消费者 |
 | 包依赖、DDD 分层或组合 | 各层项目引用、组合根；[§5 依赖方向](../../../docs/framework/development-guide.md#5-依赖方向不可违反) | 层依赖、组合宿主、受影响模板场景 |
@@ -45,4 +45,4 @@ description: 在 leistd-net 仓库中为 framework/components、framework/ddd-st
 
 ## 验证入口
 
-编辑循环运行目标测试；完整改动提交后，用 `scripts/plan-quality-checks.py --local-framework-tests` 按清单运行受影响测试项目，并做必要包验证；选择器退回全集时运行全集，全集另由 L3 承担。命令见[开发规范 §8 提交前自检](../../../docs/framework/development-guide.md#8-提交前自检)，执行位置、真实依赖及审查证据按[质量规范](../../../docs/framework/quality-assurance.md)选择，不是每次编辑的固定命令序列。只读任务不运行无关测试；未执行项和原因必须如实说明。
+本地只产出定向证据，按[本地验证配方](../../../docs/framework/quality-assurance.md#本地验证配方)选择，重复验证与等待 CI 按[证据复用](../../../docs/framework/quality-assurance.md#证据复用)；命令见[开发规范 §8 提交前自检](../../../docs/framework/development-guide.md#8-提交前自检)。只读任务不运行无关测试；未执行项和原因必须如实说明。

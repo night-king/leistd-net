@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-    把 Framework 打包到共享本地 feed（.tmp/local-feed），产出前先清空。
+    把 Framework 打包成候选包源（默认 .tmp/local-feed），产出前先清空，并写入 candidate.json。
 
 .DESCRIPTION
     直接 `dotnet pack -o .tmp/local-feed` 是**往目录里追加**。组件被删除后，
@@ -12,19 +12,32 @@
 
     feed 是构建产物，构建产物应当每次从零重建，而不是累积。因此清空由本脚本
     负责，而不是靠人记得多敲一条删除命令。
+
+    候选版本为 <VERSION 的下一补丁>-<VersionSuffix>：带预发布后缀，永不等于已发布版本，
+    消费方不会因为同版本号拿到 nuget.org 上的包或全局解包目录里的旧内容。
+    candidate.json 记录候选版本与打包所用 SDK，消费方据此传入版本、断言来源（见 candidate-feed.ps1）。
+
+.PARAMETER VersionSuffix
+    预发布后缀，不带前导连字符。CI 传 ci.<run_id>.<attempt>；本地默认 local.<UTC 时间戳>。
+
+.PARAMETER OutputPath
+    包源目录，必须位于仓库 .tmp 下。矩阵与端到端脚本自行打包时传各自 run 目录下的路径。
 #>
 
 param(
     [ValidateSet("Debug", "Release")]
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [ValidatePattern('^[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$')]
+    [string]$VersionSuffix = "local.$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))",
+    [string]$OutputPath
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
-$feedRoot = Join-Path $repoRoot ".tmp/local-feed"
+. (Join-Path $PSScriptRoot "candidate-feed.ps1")
+$feedRoot = if ($OutputPath) { [IO.Path]::GetFullPath($OutputPath, $repoRoot) } else { Join-Path $repoRoot ".tmp/local-feed" }
 
-# 只允许动 .tmp 下的路径：$feedRoot 虽然是脚本内写死的，但删除是不可逆操作，
-# 断言的成本远低于一次误删
+# 只允许动 .tmp 下的路径：删除是不可逆操作，断言的成本远低于一次误删
 $resolvedFeed = [IO.Path]::GetFullPath($feedRoot)
 $tempPrefix = [IO.Path]::GetFullPath((Join-Path $repoRoot ".tmp")).TrimEnd([IO.Path]::DirectorySeparatorChar) +
     [IO.Path]::DirectorySeparatorChar
@@ -37,10 +50,18 @@ if (Test-Path -LiteralPath $resolvedFeed) {
 }
 New-Item -ItemType Directory -Path $resolvedFeed -Force | Out-Null
 
-dotnet pack (Join-Path $repoRoot "framework/Leistd.Framework.slnx") -c $Configuration -o $resolvedFeed
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet pack 失败（退出码 $LASTEXITCODE）"
+$version = "$(Get-CandidateVersionPrefix $repoRoot)-$VersionSuffix"
+# 在仓库根执行：SDK 按当前目录解析根 global.json，candidate.json 记录的就是这次打包用的 SDK
+Push-Location $repoRoot
+try {
+    dotnet pack (Join-Path $repoRoot "framework/Leistd.Framework.slnx") -c $Configuration -o $resolvedFeed -p:Version=$version
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet pack 失败（退出码 $LASTEXITCODE）"
+    }
+    $candidate = Write-CandidateManifest $resolvedFeed $version
+}
+finally {
+    Pop-Location
 }
 
-$count = @(Get-ChildItem -LiteralPath $resolvedFeed -File -Filter "*.nupkg").Count
-Write-Host "已打包 $count 个包到 $resolvedFeed" -ForegroundColor Green
+Write-Host "已打包 $($candidate.Count) 个 $version 包到 $resolvedFeed（SDK $($candidate.Sdk)）" -ForegroundColor Green

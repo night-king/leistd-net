@@ -96,6 +96,8 @@ dotnet new install ./template
 dotnet new fullstack-app -n Acme.Shop
 ```
 
+模板发布为 NuGet 包 `Leistd.Templates`，版本独立于框架（tag `template-vX.Y.Z`，规则见 [版本与发布规范](docs/framework/versioning.md#模板包发布template-通道)），可用 `dotnet new install Leistd.Templates::<版本>` 安装；生成项目在来源标记（模板源 `template/.leistd/template.json`）里记录来源模板版本与生成参数。
+
 生成的后端默认通过 NuGet 引用 `Leistd.*` 框架包，并自带按场景触发的 AI 协作能力。可用参数以 `dotnet new fullstack-app --help` 为准：
 
 | 参数 | 默认值 | 生效范围与能力 |

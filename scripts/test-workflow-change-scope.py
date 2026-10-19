@@ -166,6 +166,10 @@ def check_existing_scopes():
             git(repo, 'reset', '--hard', base)
             append_input(repo, path)
             assert planner.needs_release(base, git(repo, 'rev-parse', 'HEAD'))[0], path
+        # Dependabot 配置只由 GitHub 服务读取：不产出包，不触发发布
+        git(repo, 'reset', '--hard', base)
+        append_input(repo, '.github/dependabot.yml')
+        assert not planner.needs_release(base, git(repo, 'rev-parse', 'HEAD'))[0], '.github/dependabot.yml'
         # A main-only stable tag is not an ancestor of develop.
         git(repo, 'reset', '--hard', base)
         append_input(repo, 'VERSION')
@@ -175,8 +179,8 @@ def check_existing_scopes():
         append_input(repo, front)
         candidate = git(repo, 'rev-parse', 'HEAD')
         assert planner.release_tag('beta', candidate)[1] == base
-        assert planner.create_plan('pr', stable, 'pull_request', '')['Mode'] == 'full'
-        assert planner.create_plan('pr', '0' * 40, 'pull_request', '')['ContainerSmoke']
+        assert planner.create_plan('core', stable, 'pull_request', '')['Mode'] == 'full'
+        assert planner.create_plan('core', '0' * 40, 'pull_request', '')['ContainerSmoke']
     print('PASS publication baselines, explicit inputs, cancelled/failed push carry-forward, API fallback, nightly and force push')
 
 
@@ -201,7 +205,7 @@ def check_docs_scope():
                 assert planner.classify_inputs(base, base, [path])['unknown'] == [path]
                 continue
             append_input(repo, path)
-            plan = planner.create_plan('pr', base, 'pull_request', '')
+            plan = planner.create_plan('core', base, 'pull_request', '')
             assert plan['Mode'] == mode and plan['PackageDocumentation'] == package and plan['GeneratedDocumentation'] == generated, (path, plan)
             assert plan['Jobs']['frontend-gates'] == (mode == 'full' or path.endswith('frontend-spartan.md')), (path, plan)
             assert plan['DocsOnly'] == (mode == 'documentation' and not package and not generated)
@@ -213,7 +217,7 @@ def check_docs_scope():
             git(repo, 'mv', source, target)
             git(repo, 'commit', '-qm', 'move input')
             append_input(repo, 'README.md')
-            plan = planner.create_plan('pr', base, 'pull_request', '')
+            plan = planner.create_plan('core', base, 'pull_request', '')
             assert plan['Mode'] == expected and source in plan['ChangedPaths'] and target in plan['ChangedPaths'], plan
             if source == 'framework/NuGet.md': assert plan['PackageDocumentation']
             if source == 'template/Dockerfile': assert plan['ContainerSmoke']
@@ -224,7 +228,7 @@ def check_docs_scope():
             append_input(repo, source)
             append_input(repo, 'template/docs/standards/frontend-spartan.md')
             append_input(repo, 'framework/NuGet.md')
-            plan = planner.create_plan('pr', base, 'pull_request', '')
+            plan = planner.create_plan('core', base, 'pull_request', '')
             assert plan['Mode'] == mode and plan['GeneratedDocumentation'] and plan['PackageDocumentation'] and plan['Jobs']['frontend-gates']
     print('PASS documentation responsibilities, gate-read Markdown, mixed unions, path boundaries, deletions and moves')
 
@@ -240,7 +244,8 @@ def check_template_package_responsibilities():
         validator.write_text("$ErrorActionPreference = 'Stop'\n"
                              ". ./scripts/template-matrix-scenarios.ps1\n"
                              ". ./scripts/quality-validation-plan.ps1\n"
-                             "$null = Read-QualityValidationPlan $args[0] pr\n", encoding='utf-8')
+                             "$tier = (Get-Content $args[0] -Raw | ConvertFrom-Json).Tier\n"
+                             "$null = Read-QualityValidationPlan $args[0] $tier\n", encoding='utf-8')
 
         def validate(plan, valid, error=''):
             path = scratch / 'plan.json'
@@ -254,11 +259,13 @@ def check_template_package_responsibilities():
         for source, mode in sources:
             git(repo, 'reset', '--hard', base)
             append_input(repo, source)
-            plan = planner.create_plan('pr', base, 'pull_request', '')
+            plan = planner.create_plan('core', base, 'pull_request', '')
             assert plan['Mode'] == mode and not plan['PackageDocumentation']
             assert not plan['Jobs']['package-consumption'] and plan['Jobs']['framework-pack']
-            assert plan['ConsumerProjects'] == []
-            assert all(plan['Jobs'][job] for job in ('template-slices', 'template-generation', 'postgresql-e2e', 'oidc-e2e'))
+            assert plan['ConsumerProjects'] == [] and plan['Tier'] == 'core'
+            assert all(plan['Jobs'][job] for job in ('template-slices', 'template-generation'))
+            # PG/OIDC run on a PR only for registered paths; these sources are not registered.
+            assert not plan['Jobs']['postgresql-e2e'] and not plan['Jobs']['oidc-e2e'], plan['Jobs']
             validate(plan, True)
             invalid = json.loads(json.dumps(plan))
             invalid['Jobs']['package-consumption'] = True
@@ -266,7 +273,7 @@ def check_template_package_responsibilities():
             invalid['Jobs']['framework-pack'] = False
             validate(invalid, False, 'Invalid quality plan responsibility set')
             append_input(repo, 'framework/NuGet.md')
-            union = planner.create_plan('pr', base, 'pull_request', '')
+            union = planner.create_plan('core', base, 'pull_request', '')
             assert union['Mode'] == mode and union['PackageDocumentation']
             assert union['Jobs']['package-consumption'] and union['Jobs']['framework-pack']
             validate(union, True)
@@ -281,7 +288,7 @@ def check_template_package_responsibilities():
             git(repo, 'reset', '--hard', base)
             append_input(repo, sources[0][0])
             append_input(repo, path)
-            plan = planner.create_plan('pr', base, 'pull_request', '')
+            plan = planner.create_plan('core', base, 'pull_request', '')
             assert plan['Mode'] == 'full' and plan['Jobs']['package-consumption'] and plan['Jobs']['framework-pack'], path
             validate(plan, True)
             invalid = json.loads(json.dumps(plan))
@@ -292,7 +299,7 @@ def check_template_package_responsibilities():
         git(repo, 'reset', '--hard', base)
         append_input(repo, sources[0][0])
         for event in ('workflow_dispatch', 'schedule'):
-            plan = planner.create_plan('pr', base, event, '')
+            plan = planner.create_plan('core', base, event, '')
             assert plan['Mode'] == 'full' and all(plan['Jobs'].values())
             validate(plan, True)
         git(repo, 'tag', 'v0.13.0-beta.10', base)
@@ -300,6 +307,8 @@ def check_template_package_responsibilities():
         assert plan['Mode'] == 'full' and plan['Jobs']['package-consumption'] and plan['Jobs']['framework-pack']
         publication = planner.create_plan('full', base, 'workflow_dispatch', git(repo, 'rev-parse', 'HEAD'), release_channel='beta')
         assert publication['ReleaseRequired'] and publication['Mode'] == 'full' and all(publication['Jobs'].values())
+        # Publication always carries container scope, whatever the input classification says.
+        assert publication['ContainerSmoke'], publication
     print('PASS template package responsibilities: frontend/backend, documentation unions, shared/unknown/publication inputs and validator counterexamples')
 
 
@@ -323,24 +332,72 @@ def check_quality_aggregation():
     assert '-SkipSourcePreflight' in next(s for s in jobs['template-slices']['steps'] if s.get('id') == 'matrix')['run']
     for name in ['docs-sync', 'docs-sync-windows']:
         assert any(s.get('run') == 'pwsh scripts/check-all.ps1' for s in jobs[name]['steps'])
+    # Every release responsibility proof is checked by the summary, gated by its own job responsibility.
+    summary_steps = jobs['template-matrix']['steps']
+    for kind, job in [('package', 'package-consumption'), ('generation', 'template-generation'),
+                      ('postgresql', 'postgresql-e2e'), ('oidc', 'oidc-e2e')]:
+        step = next(s for s in summary_steps if f'-Kind {kind} ' in s.get('run', ''))
+        assert step['if'] == f"fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['{job}']", (kind, step)
+        download = summary_steps[summary_steps.index(step) - 1]
+        assert download['uses'].startswith('actions/download-artifact@') and download['if'] == step['if'], (kind, download)
+        assert download['with']['path'] in step['run'], (kind, download)
+    for job, artifact in [('postgresql-e2e', 'postgresql-e2e-proof'), ('oidc-e2e', 'oidc-e2e-proof')]:
+        upload = next(s for s in jobs[job]['steps'] if s.get('with', {}).get('name') == artifact)
+        assert 'if' not in upload and upload['with']['if-no-files-found'] == 'error', upload
+    # Generation runs as three modulo shards plus the control shard; each shard uploads its own proofs and
+    # the summary downloads them by pattern into separate directories (same file names must not merge).
+    generation = jobs['template-generation']
+    assert generation['strategy']['matrix']['shard'] == ['0', '1', '2', 'control'] and not generation['strategy']['fail-fast']
+    assert "--shard '${{ matrix.shard }}'" in next(s for s in generation['steps'] if 'test-template-generation.py' in s.get('run', ''))['run']
+    for artifact in ('template-generation-proof', 'generated-documentation-proof'):
+        upload = next(s for s in generation['steps'] if s.get('with', {}).get('name', '').startswith(artifact))
+        assert upload['with']['name'] == artifact + '-${{ matrix.shard }}' and upload['with']['if-no-files-found'] == 'error', upload
+        download = next(s for s in summary_steps if s.get('with', {}).get('pattern') == artifact + '-*')
+        assert 'merge-multiple' not in download['with'] and 'name' not in download['with'], download
+    # Tier comes from the plan: no workflow-level tier input remains, and only a direct PR may request core.
+    assert workflow['env'] == {'PLAN_SCOPE': "${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'core' || 'full' }}"}
+    assert 'tier' not in workflow[True]['workflow_call']['inputs'] and not workflow[True]['workflow_dispatch'], workflow[True]
+    recompute = next(s for s in summary_steps if 'plan-quality-checks.py' in s.get('run', ''))
+    assert recompute['if'] == "github.event_name == 'pull_request' && !inputs.candidate_sha", recompute
+    assert summary_steps.index(recompute) == next(i for i, s in enumerate(summary_steps) if s.get('id') == 'quality') + 1
+    assert jobs['template-matrix']['steps'][0]['with']['fetch-depth'] == 0
+    # Third-party NuGet download cache: keyed on Directory.Packages.props, Leistd entries removed after restore and before save.
+    for name, job in jobs.items():
+        steps = job['steps']
+        for index, step in enumerate(steps):
+            if not step.get('uses', '').startswith('actions/cache@'):
+                continue
+            assert step['with']['path'] == '~/.local/share/NuGet/http-cache' and 'Directory.Packages.props' in step['with']['key'], (name, step)
+            assert "-iname '*leistd.*' -delete" in steps[index + 1]['run'], (name, steps[index + 1])
+            restores = [i for i, s in enumerate(steps) if re.search(r'dotnet (?:restore|test|build)|test-template-|test-package-consumption', s.get('run', ''))]
+            cleanup = [i for i, s in enumerate(steps) if s.get('name') == '保存前清除 Leistd 缓存条目']
+            assert restores and index < min(restores) and len(cleanup) == 1 and cleanup[0] > max(restores) and 'if' not in steps[cleanup[0]], (name, restores, cleanup)
+    check_plan_recompute(recompute)
     script = scope_step('ci.yml', 'template-matrix', 'quality')
     with candidate_fixture() as (repo, planner, base):
         for mode, path in [('internal', 'README.md'), ('generated', 'template/docs/standards/testing.md'),
                            ('package', 'framework/NuGet.md'), ('gate-document', 'template/docs/standards/frontend-spartan.md'),
-                           ('frontend', 'template/frontend/src/app/app.ts'), ('full', '.github/workflows/ci.yml')]:
+                           ('frontend', 'template/frontend/src/app/app.ts'), ('full', '.github/workflows/ci.yml'),
+                           ('release', 'README.md')]:
             git(repo, 'reset', '--hard', base)
             git(repo, 'clean', '-fd')
             append_input(repo, path)
-            plan = planner.create_plan('pr', base, 'pull_request', '')
+            scope = 'full' if mode == 'release' else 'core'
+            if mode == 'release':
+                plan = planner.create_plan('full', base, 'schedule', git(repo, 'rev-parse', 'HEAD'), release_channel='nightly')
+                assert plan['ReleaseRequired'] and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
+            else:
+                plan = planner.create_plan('core', base, 'pull_request', '')
             candidate = plan['CandidateSha']
             normal = {name: dict(result='success', outputs={}) for name in required}
             for name, needed in plan['Jobs'].items(): normal[name]['result'] = 'success' if needed else 'skipped'
             normal['quality-plan']['outputs']['validation_plan'] = json.dumps(plan)
             def check(state, success, variant=script):
-                code, output, error = evaluate(repo, variant, base, extra_env=dict(NEEDS_JSON=json.dumps(state), CANDIDATE_SHA=candidate, MATRIX_TIER='pr'))
+                code, output, error = evaluate(repo, variant, base, extra_env=dict(NEEDS_JSON=json.dumps(state), CANDIDATE_SHA=candidate, PLAN_SCOPE=scope))
                 assert (code == 0) == success, (mode, error[-1200:], state)
                 if success:
-                    assert output == f"dynamic={str(plan['Jobs']['template-slices']).lower()}\nframework_tests={str(plan['FrameworkTests']).lower()}"
+                    assert output == (f"dynamic={str(plan['Jobs']['template-slices']).lower()}\nframework_tests={str(plan['FrameworkTests']).lower()}"
+                                      f"\ntier={plan['Tier']}")
             check(normal, True)
             for name in required:
                 for bad in ['failure', 'cancelled', '', 'success' if normal[name]['result'] == 'skipped' else 'skipped']:
@@ -348,18 +405,58 @@ def check_quality_aggregation():
                     check(state, False)
                 state = json.loads(json.dumps(normal)); del state[name]
                 check(state, False)
-            for field, value in [('CandidateSha', 'b' * 40), ('Tier', 'full'), ('FrameworkTests', 'false'),
+            for field, value in [('CandidateSha', 'b' * 40), ('Tier', 'full'), ('Tier', 'core'), ('Tier', 'pr'), ('FrameworkTests', 'false'),
                                  ('Mode', 'unknown'), ('Version', 9), ('DocsOnly', not plan['DocsOnly']),
                                  ('FrameworkTestProjects', None), ('Jobs', {}), ('Slices', [])]:
                 invalid = dict(plan); invalid[field] = value
                 if invalid == plan: continue
                 state = json.loads(json.dumps(normal)); state['quality-plan']['outputs']['validation_plan'] = json.dumps(invalid)
                 check(state, False)
+            if mode == 'release':
+                # A publication plan may not mark PG/OIDC not applicable or drop container scope, even with consistent job states.
+                for name, mutate in [('postgresql-e2e', lambda p: p['Jobs'].update({'postgresql-e2e': False})),
+                                     ('oidc-e2e', lambda p: p['Jobs'].update({'oidc-e2e': False})),
+                                     ('container', lambda p: (p.update(ContainerSmoke=False), [g.update(Containers=[]) for g in p['Slices']]))]:
+                    invalid = json.loads(json.dumps(plan)); mutate(invalid)
+                    state = json.loads(json.dumps(normal)); state['quality-plan']['outputs']['validation_plan'] = json.dumps(invalid)
+                    if name in state: state[name]['result'] = 'skipped'
+                    check(state, False)
             mutated = script.replace("'quality-plan', 'docs-sync', ", "'quality-plan', ")
             assert mutated != script
             state = json.loads(json.dumps(normal)); state['docs-sync']['result'] = 'failure'
             check(state, True, mutated)
             print('PASS strict job aggregation:', mode)
+
+
+def check_plan_recompute(step):
+    """The summary recomputes a direct PR plan from the same base and refuses any executed plan that differs."""
+    with candidate_fixture() as (repo, planner, base):
+        target = repo / 'template/frontend/src/app/app.ts'
+        target.write_text(target.read_text(encoding='utf-8') + '\n//#if (IncludeNotifications)\n// recompute fixture\n//#endif\n', encoding='utf-8')
+        git(repo, 'add', '.'); git(repo, 'commit', '-qm', 'conditional frontend change')
+        plan = planner.create_plan('core', base, 'pull_request', '')
+        assert plan['Tier'] == 'core', plan
+        script = repo.parent / 'recompute.sh'
+        script.write_text(step['run'] + '\n', encoding='utf-8')
+        def recompute(value):
+            (repo / '.tmp').mkdir(exist_ok=True)
+            (repo / '.tmp/quality-plan.json').write_text(json.dumps(value), encoding='utf-8')
+            result = subprocess.run(['bash', '-e', str(script)], cwd=repo, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                    env=dict(os.environ, PR_BASE_SHA=base))
+            (repo / '.tmp/quality-plan.json').unlink()
+            return result.returncode, result.stdout + result.stderr
+        # The planner refuses a dirty tree, so .tmp must stay ignored for the comparison to be meaningful.
+        code, log = recompute(plan)
+        assert code == 0, log
+        for name, mutate in [('dropped-scenario', lambda p: (p['Scenarios'].pop(), p['Slices'].pop())),
+                             ('added-scenario', lambda p: p['Scenarios'].append('resource')),
+                             ('pg-not-applicable-flipped', lambda p: p['Jobs'].update({'postgresql-e2e': not p['Jobs']['postgresql-e2e']})),
+                             ('generation-skipped', lambda p: p['Jobs'].update({'template-generation': False})),
+                             ('full-relabelled-core', lambda p: p.update(Tier='full'))]:
+            invalid = json.loads(json.dumps(plan)); mutate(invalid)
+            code, log = recompute(invalid)
+            assert code != 0 and 'independently computed' in log, (name, log[-800:])
+    print('PASS summary recomputes the PR selection: exact plan accepted, dropped/added scenarios and flipped responsibilities rejected')
 
 
 TEST_PROJECTS = [
@@ -476,6 +573,11 @@ def substitute(script, values):
 def run_pwsh(repo, script, env=None):
     output = repo / 'output.txt'
     output.unlink(missing_ok=True)
+    # 发布步骤 dot-source 两条通道共用的提交解析；夹具仓库里放一份未跟踪的副本，不改变提交历史
+    shared = repo / 'scripts/release-commits.ps1'
+    if not shared.exists():
+        shared.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / 'scripts/release-commits.ps1', shared)
     path = repo.parent / f'{repo.name}-step.ps1'
     path.write_text(script, encoding='utf-8')
     result = subprocess.run(['pwsh', '-NoProfile', '-File', str(path)], cwd=repo,
@@ -591,6 +693,315 @@ def check_release_links():
         code, _, _ = run_pwsh(repo, substitute(links['run'], values))
         assert code != 0, 'unknown channel must fail closed'
         print('PASS release links: missing link and unknown channel fail closed')
+
+
+FOOTNOTE_ANCHOR = '802b4dca012bda2e6d64f4a7939860bf950cd302'
+
+
+def version_fixture(directory, name, commits):
+    """A release checkout: v0.12.0 stable tag, VERSION 0.12.0, then candidate commits."""
+    repo = Path(directory) / name
+    repo.mkdir()
+    git(repo, 'init', '-q', '-b', 'develop')
+    git(repo, 'config', 'user.email', 'release-test@example.invalid')
+    git(repo, 'config', 'user.name', 'Release test')
+    git(repo, 'remote', 'add', 'origin', str(repo))
+    (repo / 'VERSION').write_text('0.12.0', encoding='utf-8')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'chore: 发布 v0.12.0 [skip ci]')
+    git(repo, 'tag', '-a', 'v0.12.0', '-m', 'Release v0.12.0')
+    for index, message in enumerate(commits):
+        (repo / f'change-{index}.txt').write_text(message, encoding='utf-8')
+        git(repo, 'add', '-A')
+        git(repo, 'commit', '-qm', message)
+    return repo, git(repo, 'rev-list', '--max-parents=0', 'HEAD')
+
+
+def check_release_version_bump():
+    """The version step bumps from the same breaking-commit parser: a footer alone counts, a lowercase one does not."""
+    step = release_step('ver')
+    assert FOOTNOTE_ANCHOR in step['run'], 'footnote anchor literal changed; update the fixture'
+    cases = [
+        ('fix only', ['fix(settings): 修正'], 'patch'),
+        ('footer only, no !', ['feat(settings): 新能力\n\nBREAKING-CHANGE: 设置键改名'], 'minor'),
+        ('! with footer', ['refactor(lock)!: 改签名\n\nBREAKING CHANGE: 改用新签名'], 'minor'),
+        ('lowercase footer is not a footer', ['fix: 修正\n\nbreaking change: none'], 'patch'),
+    ]
+    with tempfile.TemporaryDirectory(prefix='leistd-release-version-') as directory:
+        for index, (name, commits, bump) in enumerate(cases):
+            repo, root = version_fixture(directory, f'case-{index}', commits)
+            script = substitute(step['run'].replace(FOOTNOTE_ANCHOR, root),
+                                {'steps.ch.outputs.channel': 'beta', 'github.run_number': '1'})
+            code, output, log = run_pwsh(repo, script)
+            assert code == 0, (name, log)
+            assert parse_outputs(output)['bump'] == bump, (name, output)
+            print(f'PASS release version bump: {name} -> {bump}')
+
+
+def check_release_notes_scopes():
+    """Release notes group every section by Conventional Commits scope; footer-only commits are breaking."""
+    step = release_step('notes')
+    commits = ['fix: 无范围的修复', 'feat(settings): 设置新能力', 'fix(settings): 设置修复', 'feat(lock): 锁新能力',
+               'docs(settings): 设置说明\n\nBREAKING CHANGE: 设置键改名', 'refactor(lock)!: 锁签名\n\nBREAKING-CHANGE: 改用新签名',
+               'chore(multi-tenancy): 整理']
+    with tempfile.TemporaryDirectory(prefix='leistd-release-notes-') as directory:
+        repo, _ = version_fixture(directory, 'notes', commits)
+        values = {'steps.ver.outputs.lastStableTag': 'v0.12.0', 'steps.ver.outputs.version': '0.13.0-beta.8',
+                  'steps.ver.outputs.tag': 'v0.13.0-beta.8', 'steps.ver.outputs.baseVersion': '0.13.0',
+                  'steps.links.outputs.guideUrl': '', 'steps.ch.outputs.channel': 'beta'}
+        code, output, log = run_pwsh(repo, substitute(step['run'], values))
+        assert code == 0, log
+        body = parse_outputs(output)['content']
+    expected = '\n'.join([
+        '## Breaking Changes', '', '### lock', '', '- refactor(lock)!: 锁签名 — 改用新签名', '',
+        '### settings', '', '- docs(settings): 设置说明 — 设置键改名', '',
+        '## 新功能', '', '### lock', '', '- 锁新能力', '', '### settings', '', '- 设置新能力', '',
+        '## 修复', '', '### settings', '', '- 设置修复', '', '### 未标注范围', '', '- 无范围的修复', '',
+        '## 其他更新', '', '### multi-tenancy', '', '- chore(multi-tenancy): 整理', ''])
+    assert expected in body, body
+    print('PASS release notes: sections grouped by family scope, unscoped last, footer-only commits are breaking')
+
+
+def template_step(step_id):
+    data = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8'))
+    return next(s for s in data['jobs']['template-release']['steps'] if s.get('id') == step_id)
+
+
+def check_template_channel_plan():
+    """Template channel decision: template-only → template release on main; framework-only → no template bump."""
+    with candidate_fixture() as (repo, planner, base):
+        git(repo, 'tag', 'v0.12.0', base)
+        git(repo, 'tag', 'template-v0.1.0', base)
+        backend = 'template/backend/src/CompanyName.ProjectName.Api/Program.cs'
+        framework_source = next((repo / 'framework/components/core').rglob('*.cs')).relative_to(repo).as_posix()
+
+        def plan_for(channel, *paths, message='input change'):
+            git(repo, 'reset', '--hard', base)
+            for path in paths:
+                target = repo / path
+                target.write_text(target.read_text(encoding='utf-8') + '\n// scope fixture\n', encoding='utf-8')
+            git(repo, 'add', '.')
+            git(repo, 'commit', '-qm', message)
+            head = git(repo, 'rev-parse', 'HEAD')
+            return planner.create_plan('full', base, 'push', head, release_channel=channel)
+
+        plan = plan_for('stable', backend, message='feat(template): 模板新能力')
+        release = plan['TemplateRelease']
+        assert release == dict(Changed=True, Required=True, BaseTag='template-v0.1.0', BaseSha=base,
+                               Reason='1 template commits since template-v0.1.0'), release
+        assert not plan['ReleaseRequired'] and plan['Mode'] == 'full' and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
+        package = plan_for('stable', 'template-package/Leistd.Templates.csproj')
+        assert package['TemplateRelease']['Required'] and not package['ReleaseRequired'], package['ReleaseReason']
+        assert planner.classify_inputs(base, git(repo, 'rev-parse', 'HEAD'), ['template-package/Leistd.Templates.csproj'])['unknown']
+        framework = plan_for('stable', framework_source, message='fix(core): 框架修复')
+        assert framework['ReleaseRequired'] and framework['TemplateRelease'] == dict(
+            Changed=False, Required=False, BaseTag='template-v0.1.0', BaseSha=base, Reason='No template changes since template-v0.1.0'), framework
+        # 框架 stable 的版本回写提交改了模板默认的 LeistdFrameworkVersion，但不是模板变更
+        writeback = plan_for('stable', 'VERSION', 'template/backend/Directory.Build.props', message='chore: 发布 v0.12.1 [skip ci]')
+        assert not writeback['TemplateRelease']['Changed'], writeback['TemplateRelease']
+        # 只改生成文档：发布模板也要求 full，不得按文档推送收窄
+        docs = plan_for('stable', 'template/docs/standards/testing.md', message='docs(template): 测试规范')
+        assert docs['TemplateRelease']['Required'] and docs['Mode'] == 'full' and docs['ContainerSmoke'], docs
+        develop = plan_for('beta', backend)
+        assert develop['TemplateRelease']['Changed'] and not develop['TemplateRelease']['Required'], develop['TemplateRelease']
+        assert 'only on a push to main' in develop['TemplateRelease']['Reason'], develop['TemplateRelease']
+        # 手动触发 main 也是 stable 通道，但模板只在 push main 时发布
+        dispatched = planner.create_plan('full', base, 'workflow_dispatch', git(repo, 'rev-parse', 'HEAD'), release_channel='stable')
+        assert dispatched['TemplateRelease']['Changed'] and not dispatched['TemplateRelease']['Required'], dispatched['TemplateRelease']
+        nightly = planner.create_plan('full', base, 'schedule', git(repo, 'rev-parse', 'HEAD'), release_channel='nightly')
+        assert not nightly['TemplateRelease']['Changed'] and not nightly['TemplateRelease']['Required'], nightly['TemplateRelease']
+        pull = planner.create_plan('core', base, 'pull_request', '')
+        assert pull['TemplateRelease'] == dict(Changed=False, Required=False, BaseTag='', BaseSha='', Reason='Not a publication candidate'), pull
+        # 最高版本的 template-v tag 是基线；没有任何 template-v tag 时首版发布
+        git(repo, 'tag', 'template-v0.10.0', base)
+        assert plan_for('stable', backend)['TemplateRelease']['BaseTag'] == 'template-v0.10.0'
+        git(repo, 'tag', '-d', 'template-v0.1.0', 'template-v0.10.0')
+        first = plan_for('stable', framework_source)['TemplateRelease']
+        assert first == dict(Changed=True, Required=True, BaseTag='', BaseSha='', Reason='No published template version'), first
+
+        scratch = repo / '.tmp'
+        scratch.mkdir(exist_ok=True)
+        validator = scratch / 'validate-plan.ps1'
+        validator.write_text("$ErrorActionPreference = 'Stop'\n. ./scripts/template-matrix-scenarios.ps1\n"
+                             ". ./scripts/quality-validation-plan.ps1\n$null = Read-QualityValidationPlan $args[0] 'full'\n", encoding='utf-8')
+
+        def validate(value):
+            path = scratch / 'plan.json'
+            path.write_text(json.dumps(value), encoding='utf-8')
+            return subprocess.run(['pwsh', '-NoProfile', '-File', str(validator), str(path)], cwd=repo,
+                                  capture_output=True, text=True, encoding='utf-8', errors='replace')
+        git(repo, 'tag', 'template-v0.1.0', base)
+        valid = plan_for('stable', backend)
+        assert validate(valid).returncode == 0, validate(valid).stderr
+        for label, mutate, error in [
+                ('required on develop', lambda v: v.update(ReleaseChannel='beta'), 'Invalid template release responsibility'),
+                ('required on a manual run', lambda v: v.update(Event='workflow_dispatch'), 'Invalid template release responsibility'),
+                ('required without change', lambda v: v['TemplateRelease'].update(Changed=False), 'Invalid template release responsibility'),
+                ('missing decision', lambda v: v.pop('TemplateRelease'), 'Invalid template release responsibility'),
+                ('narrowed publication', lambda v: v['Jobs'].update({'oidc-e2e': False}), 'Publication requires full candidate validation')]:
+            invalid = json.loads(json.dumps(valid))
+            mutate(invalid)
+            result = validate(invalid)
+            assert result.returncode != 0 and error in result.stderr, (label, result.stderr)
+    print('PASS template channel plan: template-only and packaging changes release the template on main only, '
+          'framework-only and write-back commits do not, docs-only template publication stays full, validator counterexamples')
+
+
+def template_fixture(directory, name, tag, commits):
+    """A checkout with template/ and an optional template-v tag, then (message, path) commits."""
+    repo = Path(directory) / name
+    (repo / 'template/backend').mkdir(parents=True)
+    git(repo, 'init', '-q', '-b', 'main')
+    git(repo, 'config', 'user.email', 'release-test@example.invalid')
+    git(repo, 'config', 'user.name', 'Release test')
+    (repo / 'template/backend/Directory.Build.props').write_text(
+        '<Project><PropertyGroup><LeistdFrameworkVersion>0.13.0</LeistdFrameworkVersion></PropertyGroup></Project>\n', encoding='utf-8')
+    (repo / 'README.md').write_text('fixture\n', encoding='utf-8')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', 'chore: 初始')
+    if tag:
+        git(repo, 'tag', '-a', tag, '-m', tag)
+    for index, (message, path) in enumerate(commits):
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # 版本回写提交改的是 Directory.Build.props：保持合法，只换内容
+        target.write_text(f'<Project><PropertyGroup><LeistdFrameworkVersion>0.13.0</LeistdFrameworkVersion></PropertyGroup><!-- {index} --></Project>\n'
+                          if target.name == 'Directory.Build.props' else f'{index}\n', encoding='utf-8')
+        git(repo, 'add', '-A')
+        git(repo, 'commit', '-qm', message)
+    return repo
+
+
+def check_template_release_version():
+    """The template version step: bump from template commits since the last template-v tag, same parser as the framework."""
+    step = template_step('tver')
+    values = {'needs.candidate.outputs.channel': 'stable', 'github.run_id': '77', 'github.run_attempt': '2', 'github.event_name': 'push'}
+    t = 'template/backend/src/Api/Program.cs'
+    cases = [
+        ('first version', '', [('feat(template): 首版', t)], 'stable', dict(Changed=True, Required=True, BaseTag=''), '0.1.0', 'initial', True),
+        ('feat', 'template-v0.1.0', [('feat(template): 新能力', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.2.0', 'minor', True),
+        ('fix', 'template-v0.1.0', [('fix(template): 修复', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
+        ('packaging only', 'template-v0.1.0', [('fix(template): 包元数据', 'template-package/Leistd.Templates.csproj')], 'stable',
+         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
+        ('breaking in 0.x', 'template-v0.1.0', [('refactor(template)!: 参数改名\n\nBREAKING CHANGE: --x 改为 --y', t)], 'stable',
+         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.2.0', 'minor', True),
+        # 框架提交与版本回写不计入模板：只有它们时没有模板变化
+        ('framework feat ignored', 'template-v0.1.0', [('feat(core): 框架能力', 'framework/x.cs'), ('fix(template): 修复', t)], 'stable',
+         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
+        ('write-back ignored', 'template-v0.1.0', [('fix(template): 修复', t), ('chore: 发布 v0.13.0 [skip ci]', 'template/backend/Directory.Build.props')], 'stable',
+         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
+        ('develop validates without publishing', 'template-v0.1.0', [('feat(template): 新能力', t)], 'beta',
+         dict(Changed=True, Required=False, BaseTag='template-v0.1.0'), '0.2.0-ci.77.2', 'minor', False),
+        ('manual run on main validates without publishing', 'template-v0.1.0', [('feat(template): 新能力', t)], 'stable:workflow_dispatch',
+         dict(Changed=True, Required=False, BaseTag='template-v0.1.0'), '0.2.0-ci.77.2', 'minor', False),
+    ]
+    with tempfile.TemporaryDirectory(prefix='leistd-template-version-') as directory:
+        for index, (name, tag, commits, channel, decision, version, bump, publish) in enumerate(cases):
+            repo = template_fixture(directory, f'case-{index}', tag, commits)
+            channel, _, event = channel.partition(':')
+            script = substitute(step['run'], dict(values, **{'needs.candidate.outputs.channel': channel, 'github.event_name': event or 'push'}))
+            plan = json.dumps({'TemplateRelease': dict(decision, BaseSha='', Reason='fixture')})
+            code, output, log = run_pwsh(repo, script, {'VALIDATION_PLAN': plan})
+            assert code == 0, (name, log)
+            outputs = parse_outputs(output)
+            assert (outputs['version'], outputs['bump'], outputs['publish']) == (version, bump, str(publish).lower()), (name, outputs)
+            assert outputs['tag'] == 'template-v' + version.split('-')[0] and outputs['frameworkVersion'] == '0.13.0', (name, outputs)
+            assert outputs['sourceSha'] == git(repo, 'rev-parse', 'HEAD'), (name, outputs)
+            print(f'PASS template version: {name} -> {version} publish={publish}')
+        failures = [
+            ('! without footer', 'template-v0.1.0', [('feat(template)!: 改参数', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), 'BREAKING CHANGE'),
+            ('only framework and write-back, plan says changed', 'template-v0.1.0',
+             [('feat(core): 框架能力', 'framework/x.cs'), ('chore: 发布 v0.13.0 [skip ci]', 'template/backend/Directory.Build.props')], 'stable',
+             dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '质量计划不一致'),
+            ('baseline differs from plan', 'template-v0.2.0', [('fix(template): 修复', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '质量计划不一致'),
+            ('develop asked to publish', 'template-v0.1.0', [('fix(template): 修复', t)], 'beta', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '只有 push main 发布模板'),
+            ('manual run asked to publish', 'template-v0.1.0', [('fix(template): 修复', t)], 'stable:workflow_dispatch', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '只有 push main 发布模板'),
+        ]
+        for index, (name, tag, commits, channel, decision, error) in enumerate(failures):
+            repo = template_fixture(directory, f'failure-{index}', tag, commits)
+            channel, _, event = channel.partition(':')
+            script = substitute(step['run'], dict(values, **{'needs.candidate.outputs.channel': channel, 'github.event_name': event or 'push'}))
+            plan = json.dumps({'TemplateRelease': dict(decision, BaseSha='', Reason='fixture')})
+            code, _, log = run_pwsh(repo, script, {'VALIDATION_PLAN': plan})
+            assert code != 0 and error in log, (name, log)
+            print(f'PASS template version: {name} -> rejected')
+
+
+def check_template_release_notes():
+    """The template Release body: install line, default framework version, template-only changes grouped by scope."""
+    step = template_step('tnotes')
+    t = 'template/backend/src/Api/Program.cs'
+    commits = [('feat(template): 模板新能力', t), ('feat(core): 框架能力', 'framework/x.cs'), ('fix(frontend): 前端修复', 'template/frontend/a.ts'),
+               ('chore: 发布 v0.13.0 [skip ci]', 'template/backend/Directory.Build.props')]
+    values = {'steps.tver.outputs.lastTag': 'template-v0.1.0', 'steps.tver.outputs.tag': 'template-v0.2.0',
+              'steps.tver.outputs.baseVersion': '0.2.0', 'steps.tver.outputs.frameworkVersion': '0.13.0',
+              'github.repository': 'owner/repo'}
+    with tempfile.TemporaryDirectory(prefix='leistd-template-notes-') as directory:
+        repo = template_fixture(directory, 'notes', 'template-v0.1.0', commits)
+        code, output, log = run_pwsh(repo, substitute(step['run'], values))
+        assert code == 0, log
+        body = parse_outputs(output)['content']
+        expected = '\n'.join(['## 安装', '', '```bash', 'dotnet new install Leistd.Templates::0.2.0', 'dotnet new fullstack-app -n <项目名>', '```', '',
+                              '## 默认框架版本', '', '- 生成项目的 `LeistdFrameworkVersion` 为 0.13.0，只用 nuget.org 即可还原。', '',
+                              '## 变更范围', '', '- template-v0.1.0..template-v0.2.0', '',
+                              '## 新功能', '', '### template', '', '- 模板新能力', '',
+                              '## 修复', '', '### frontend', '', '- 前端修复', ''])
+        assert body.startswith(expected) and '框架能力' not in body and '发布 v0.13.0' not in body and '升级说明' not in body, body
+        guide = repo / 'docs/template/upgrades/0.2.0.md'
+        guide.parent.mkdir(parents=True)
+        guide.write_text('# 升级\n', encoding='utf-8')
+        code, output, log = run_pwsh(repo, substitute(step['run'], values))
+        assert code == 0 and '(https://github.com/owner/repo/blob/template-v0.2.0/docs/template/upgrades/0.2.0.md)' in parse_outputs(output)['content'], log
+        first = template_fixture(directory, 'first', '', commits)
+        code, output, log = run_pwsh(first, substitute(step['run'], dict(values, **{'steps.tver.outputs.lastTag': ''})))
+        body = parse_outputs(output)['content']
+        assert code == 0 and '- 首个模板版本。' in body and '## 新功能' not in body, body
+    print('PASS template release notes: install line, default framework version, template-only scoped changes, guide link, first version')
+
+
+def check_template_release_wiring():
+    """develop/nightly never push the template; main publishes only after validation, after the framework channel."""
+    data = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8'))
+    job = data['jobs']['template-release']
+    steps = job['steps']
+    ids = [s.get('id') or s.get('name') for s in steps]
+    assert job['needs'] == ['candidate', 'quality', 'release'], job['needs']
+    for fragment in ("needs.quality.result == 'success'", "needs.release.result == 'success' || needs.release.result == 'skipped'",
+                     '.TemplateRelease.Changed', ".Mode == 'full'", '.CandidateSha == needs.candidate.outputs.sha'):
+        assert fragment in job['if'], (fragment, job['if'])
+    assert steps[0]['with']['ref'] == '${{ needs.release.outputs.release_sha || needs.candidate.outputs.sha }}', steps[0]
+    assert data['jobs']['release']['outputs']['release_sha'] == '${{ steps.tag.outputs.release_sha }}'
+    runs = '\n'.join(s.get('run', '') for s in steps)
+    assert len(re.findall(r'git tag -a ', runs)) == 1 and 'git push' not in runs, 'template tag created once, pushed only through push-release-ref.ps1'
+    assert job['if'].startswith('!cancelled()'), job['if']
+    validate = ids.index('验证模板包')
+    assert 'test-template-package.ps1' in steps[validate]['run'], steps[validate]
+    # nuget.org 还原只在发布时：develop 上默认框架版本之后新增的包还没有正式版
+    assert "$restore = @(if ('${{ steps.tver.outputs.publish }}' -eq 'true') { '-NuGetOrgRestore' })" in steps[validate]['run'], steps[validate]
+    assert steps[validate]['run'].count('-NuGetOrgRestore') == 1 and '@restore' in steps[validate]['run'], steps[validate]
+    # 框架通道被跳过时没有刚推送的正式版要等索引
+    assert "if ('${{ needs.release.result }}' -eq 'skipped') { $restore += @('-RestoreTimeoutMinutes', '0') }" in steps[validate]['run'], steps[validate]
+    # 升级闸门：只在发布且有上一个 template-v tag 时执行（develop 每次 push 都算有变化，不在那里跑），位于包验证之后、任何发布写操作之前
+    gate = ids.index('模板升级闸门')
+    gate_step = steps[gate]
+    gate_condition = "steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''"
+    assert gate > validate and gate_step['if'] == gate_condition, gate_step
+    for fragment in ('template-package/test-template-upgrade.ps1', "-replace '^template-v', ''", '-LocalFeedPath .tmp/local-feed', '-Verify Full',
+                     'Leistd.Templates.${{ steps.tver.outputs.version }}.nupkg'):
+        assert fragment in gate_step['run'], (fragment, gate_step['run'])
+    prepare = [s for s in steps[validate:gate] if s.get('if') == gate_condition]
+    assert any('pack-local-feed.ps1' in s.get('run', '') and 'playwright' in s.get('run', '') for s in prepare), prepare
+    assert any(s.get('uses', '').startswith('actions/setup-node@') for s in prepare), prepare
+    assert all(s.get('if') != "steps.tver.outputs.lastTag != ''" for s in steps), 'upgrade gate steps must not run on develop or manual runs'
+    writes = [s for s in steps if s.get('uses', '').startswith(('NuGet/login@', 'softprops/action-gh-release@'))
+              or 'nuget push' in s.get('run', '') or 'push-release-ref.ps1' in s.get('run', '') or 'git tag -a' in s.get('run', '')]
+    assert len(writes) == 5, [s.get('name') for s in writes]
+    for step in writes:
+        assert "steps.tver.outputs.publish == 'true'" in step['if'], step
+        assert steps.index(step) > gate, ('template writes only after validation and the upgrade gate', step['name'])
+    release = next(s for s in steps if s.get('uses', '').startswith('softprops/action-gh-release@'))
+    assert release['with']['make_latest'] is False and release['with']['prerelease'] is False, release
+    print('PASS template release wiring: publish steps gated on main, after package validation, nuget.org restore and the upgrade gate, single tag creation')
 
 
 def release_step_named(name):
@@ -981,7 +1392,15 @@ def check_release_workflow_wiring():
     assert {'push-nuget', 'push-gpr', 'push-tag', 'push-main', 'gh-release', 'artifact'} <= referenced, referenced
     gh = steps[ids.index('gh-release')]
     assert gh['uses'].startswith('softprops/action-gh-release@'), gh
-    print('PASS release workflow wiring: single tag creation, upload before push, summary reads existing step ids')
+    # 来源证明绑定整理后的最终包，并在上传产物、推包之前完成
+    assert ids.index('release-files') < ids.index('attest') < ids.index('artifact'), ids
+    attest = steps[ids.index('attest')]
+    assert attest['uses'] == 'actions/attest-build-provenance@v4', attest
+    assert attest['with']['subject-path'] == '${{ runner.temp }}/release-artifact/packages/*.nupkg', attest
+    assert gh['with']['files'] == 'framework/artifacts/*.nupkg', gh
+    permissions = data['jobs']['release']['permissions']
+    assert permissions.get('attestations') == 'write' and permissions.get('id-token') == 'write', permissions
+    print('PASS release workflow wiring: single tag creation, provenance on final packages before upload and push, summary reads existing step ids')
 
 
 def check_release_publish():
@@ -1002,6 +1421,12 @@ def main():
     check_quality_aggregation()
     check_framework_test_receipts()
     check_release_links()
+    check_release_version_bump()
+    check_release_notes_scopes()
+    check_template_channel_plan()
+    check_template_release_version()
+    check_template_release_notes()
+    check_template_release_wiring()
     check_release_publish()
 
 

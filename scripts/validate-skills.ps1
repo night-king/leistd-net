@@ -159,7 +159,7 @@ foreach ($set in $skillSets) {
                 Add-ValidationError "[$skillName] project workflow SKILL.md must stay concise (expected <= 120 lines)"
             }
 
-            $expectedReferences = @("bootstrap.md", "delivery.md", "development.md", "documentation.md", "quality.md")
+            $expectedReferences = @("bootstrap.md", "delivery.md", "development.md", "documentation.md", "quality.md", "template-sync.md")
             $referencesRoot = Join-Path $directory.FullName "references"
             $actualReferences = if (Test-Path -LiteralPath $referencesRoot) {
                 @(Get-ChildItem -LiteralPath $referencesRoot -File -Filter "*.md" | ForEach-Object Name | Sort-Object)
@@ -251,6 +251,8 @@ foreach ($relativePath in $forbiddenPaths) {
     }
 }
 
+# 仓库根副本用真实文件而非软链接：Windows 的 checkout 在未启用 core.symlinks 时会把软链接落成文本文件，
+# 而本脚本在 docs-sync-windows 中运行；单一来源由下面的逐文件内容比对保证。
 $repositorySpartanRoot = Join-Path $repoRoot ".agents/skills/spartan"
 $templateSpartanRoot = Join-Path $repoRoot "template/.agents/skills/spartan"
 if ((Test-Path -LiteralPath $repositorySpartanRoot) -and (Test-Path -LiteralPath $templateSpartanRoot)) {
