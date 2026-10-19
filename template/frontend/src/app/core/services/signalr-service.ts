@@ -343,7 +343,14 @@ export class SignalRService {
     }
 
     try {
-      await connection.invoke(wanted ? 'Subscribe' : 'Unsubscribe', resourceKey);
+      if (!wanted) {
+        await connection.invoke('Unsubscribe', resourceKey);
+      } else if (!(await connection.invoke<boolean>('Subscribe', resourceKey))) {
+        // 服务端没有让本连接加入这个资源（无权订阅，或连接已在关闭）：不算已订阅、不报告，
+        // 需求留着，连接重建时再对账
+        console.warn('[SignalR] resource subscription rejected:', resourceKey);
+        return;
+      }
     } catch (err) {
       console.error('[SignalR] resource subscription failed:', resourceKey, err);
       return;
