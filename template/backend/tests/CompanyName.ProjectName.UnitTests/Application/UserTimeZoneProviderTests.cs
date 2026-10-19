@@ -102,7 +102,7 @@ public class UserTimeZoneProviderTests
     private sealed class PerUserSettingProvider(string current, IReadOnlyDictionary<string, string> perUser) : ISettingProvider
     {
         public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default)
-            => Task.FromResult<string?>(name == SettingConstant.Display.TimeZone ? current : null);
+            => Task.FromResult(name == SettingConstant.Display.TimeZone ? current : null);
 
         public Task<string?> GetOrNullForUserAsync(string name, string userId, CancellationToken cancellationToken = default)
             => Task.FromResult(name == SettingConstant.Display.TimeZone && perUser.TryGetValue(userId, out var id) ? id : null);

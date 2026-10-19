@@ -34,6 +34,9 @@ TestResults/
 *.coveragexml
 
 # Node
+# GitLab CI 缓存目录（NuGet 包与 npm 缓存放在项目内）
+/.nuget/
+/.npm/
 **/node_modules/
 npm-debug.log*
 yarn-debug.log*

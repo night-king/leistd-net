@@ -6,7 +6,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # merge queue 要求必过检查对队列分支也报告状态
+  merge_group:
   workflow_dispatch:
+#if (SpaFrontend)
+  # 每周一次前端生产依赖审计（只跑审计，不跑 verify）
+  schedule:
+    - cron: '17 3 * * 1'
+#endif
 
 permissions:
   contents: read
@@ -29,6 +36,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
+      # 只缓存 NuGet 下载内容（模板没有 NuGet 锁文件，key 取依赖声明的哈希），不缓存构建输出
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('backend/Directory.Packages.props', 'backend/**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
 #if (SpaFrontend)
       - uses: actions/setup-node@v7
         with:
@@ -44,7 +57,38 @@ jobs:
           npx --yes "playwright@$version" install --with-deps chromium
           if ($LASTEXITCODE -ne 0) { throw 'Playwright Chromium installation failed' }
 #endif
+#if (SpaFrontend)
+      # 前端生产依赖审计不在 scripts/verify.ps1 里：定时、手动，或前端锁文件在本次事件的基线与头之间变化时运行，
+      # 否则跳过；门槛是生产依赖无 high/critical。只有网络错误才有限重试，发现漏洞直接失败。
+      - name: Audit production dependencies
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.event.merge_group.base_sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: |
+          run_audit=false
+          case "$EVENT" in
+            schedule|workflow_dispatch) run_audit=true ;;
+            *)
+              if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ]; then run_audit=true
+              elif git fetch --no-tags --depth=1 origin "$BASE" "$HEAD" 2>/dev/null; then
+                git diff --quiet "$BASE" "$HEAD" -- frontend/package-lock.json || run_audit=true
+              else run_audit=true
+              fi ;;
+          esac
+          if [ "$run_audit" != true ]; then echo "未改依赖，跳过审计"; exit 0; fi
+          cd frontend
+          for attempt in 1 2 3; do
+            if output=$(npm audit --omit=dev --audit-level=high --package-lock-only 2>&1); then echo "$output"; exit 0; fi
+            echo "$output"
+            if ! echo "$output" | grep -Eq 'ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ECONNREFUSED|FETCH_ERROR|audit endpoint returned an error' || [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep $((5 * attempt))
+          done
+#endif
       - name: Verify
+        # 定时运行只做审计
+        if: ${{ github.event_name != 'schedule' }}
         shell: pwsh
         run: ./scripts/verify.ps1
 #if (LocalIdentity)

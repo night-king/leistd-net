@@ -19,10 +19,40 @@ verify:
     DOCKER_HOST: "tcp://docker:2375"
     DOCKER_TLS_CERTDIR: ""
     DOCKER_DRIVER: overlay2
+    # GitLab 只缓存项目目录内的路径：把 NuGet 全局包与 npm 缓存放进来
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+#if (SpaFrontend)
+    npm_config_cache: "$CI_PROJECT_DIR/.npm"
+#endif
   timeout: 1h
+  # 缓存只存下载内容，不存构建输出；合并请求只读，默认分支读写并刷新
+  cache:
+    - key:
+        prefix: nuget
+        files:
+          - backend/Directory.Packages.props
+      paths:
+        - .nuget/packages
+      policy: $CACHE_POLICY
+#if (SpaFrontend)
+    - key:
+        prefix: npm
+        files:
+          - frontend/package-lock.json
+      paths:
+        - .npm
+      policy: $CACHE_POLICY
+#endif
   rules:
+    # 定时流水线只做依赖审计
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        CACHE_POLICY: pull
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        CACHE_POLICY: pull-push
   before_script:
     - apt-get update
     - apt-get install -y --no-install-recommends python3
@@ -45,4 +75,26 @@ verify:
     paths:
       - frontend/playwright-report/
       - frontend/test-results/
+#endif
+#if (SpaFrontend)
+
+# 前端生产依赖审计：不在 scripts/verify.ps1 里，只在锁文件变化、定时（需在项目里建 Schedule）和手动时运行。
+# 门槛是生产依赖无 high/critical；审计查询走网络，失败时有限重试（退出码分不出网络错误与漏洞，真有漏洞时重试照样失败）。
+frontend-audit:
+  stage: verify
+  image: node:24
+  timeout: 10m
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - frontend/package-lock.json
+  script:
+    - cd frontend
+    - |
+      for attempt in 1 2 3; do
+        npm audit --omit=dev --audit-level=high --package-lock-only && exit 0
+        if [ "$attempt" -lt 3 ]; then sleep $((5 * attempt)); fi
+      done
+      exit 1
 #endif
