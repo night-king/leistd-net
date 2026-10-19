@@ -17,14 +17,18 @@
     data-testid="readonly-list-panel"
     [appPopoverAria]="title()"
   >
-    <div class="flex flex-col gap-0.5 px-3 pt-3 pb-2">
-      <div class="flex items-baseline justify-between gap-2">
-        <span class="text-sm font-medium">{{ title() }}</span>
-        <span class="text-muted-foreground text-xs tabular-nums">{{ items().length }}</span>
-      </div>
-      @if (subtitle()) {
-        <span class="text-muted-foreground text-xs wrap-anywhere">{{ subtitle() }}</span>
-      }
+    <!-- 标题区一行：标题 · 对象名在左（对象名过长截断，表格行里有全名），数量在右，与浮层内控件同高 -->
+    <div class="flex min-h-11 items-center gap-2 px-3 py-2">
+      <span class="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+        <span class="shrink-0 font-medium">{{ title() }}</span>
+        @if (subtitle()) {
+          <span class="text-muted-foreground shrink-0" aria-hidden="true">·</span>
+          <span class="text-muted-foreground truncate" data-testid="readonly-list-subtitle">{{
+            subtitle()
+          }}</span>
+        }
+      </span>
+      <span class="text-muted-foreground shrink-0 text-xs tabular-nums">{{ items().length }}</span>
     </div>
 
     @if (showFilter()) {
@@ -61,23 +65,44 @@
       (scroll)="updateFade(list)"
     >
       @for (item of visibleItems(); track item.id) {
-        <li hlmItem size="xs" class="flex-nowrap items-start gap-2.5 px-2 py-1.5">
-          <span
-            class="bg-muted-foreground/50 mt-[0.4375rem] size-1.5 shrink-0 rounded-full"
-            aria-hidden="true"
-          ></span>
-          <span class="flex min-w-0 flex-1 flex-col">
+        <!-- 一行：圆点、名称在左，补充说明在右（两列至少隔 24px），统一 20px 行高后垂直居中；放不下时
+             单行省略，名称优先占宽，被截断的行悬停给出全文（截断与否由 measure 量出） -->
+        <li
+          hlmItem
+          size="xs"
+          class="min-h-8 flex-nowrap items-center gap-6 px-2 py-1"
+          [attr.data-item-id]="item.id"
+          [hlmTooltip]="fullText"
+          [tooltipDisabled]="!truncated().has(item.id)"
+        >
+          <!-- 提示宽度不超过视口（留出提示内边距与两侧边距），连续的长标识也能任意处折行，全文都看得到 -->
+          <ng-template #fullText>
             <span
-              class="leading-5 wrap-anywhere"
+              class="block max-w-[min(24rem,calc(100vw-3.5rem))] wrap-anywhere"
+              data-readonly-list-full-text
+              >{{ fullTextOf(item) }}</span
+            >
+          </ng-template>
+          <!-- 左组（圆点与名称）可收缩，名称在组内截断 -->
+          <span class="flex min-w-0 flex-1 items-center gap-2.5">
+            <span
+              class="bg-muted-foreground/50 size-1.5 shrink-0 rounded-full"
+              aria-hidden="true"
+            ></span>
+            <span
+              class="min-w-0 flex-1 truncate leading-5"
+              data-readonly-list-label
               [class]="mono() ? 'font-mono text-xs' : 'text-sm'"
               >{{ item.label }}</span
             >
-            @if (item.detail && item.detail !== item.label) {
-              <span class="text-muted-foreground font-mono text-xs leading-4 wrap-anywhere">{{
-                item.detail
-              }}</span>
-            }
           </span>
+          @if (hasDetail(item)) {
+            <span
+              class="text-muted-foreground max-w-[45%] shrink truncate text-end font-mono text-xs leading-5"
+              data-readonly-list-detail
+              >{{ item.detail }}</span
+            >
+          }
         </li>
       } @empty {
         <li class="text-muted-foreground py-6 text-center text-sm">{{ emptyText() }}</li>

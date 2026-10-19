@@ -662,9 +662,9 @@ describe('UserTable', () => {
     }
 
     function panelLabels(panel: HTMLElement): string[] {
-      return Array.from(
-        panel.querySelectorAll('[data-testid="readonly-list"] li > span + span'),
-      ).map((span) => span.firstElementChild!.textContent!.trim());
+      return Array.from(panel.querySelectorAll('[data-readonly-list-label]')).map((label) =>
+        label.textContent!.trim(),
+      );
     }
 
     // 旧写法把徽章与 "+N" 一起塞进定宽、裁切溢出的容器：英文下 "+N" 被挤出视野，中文下第一个徽章从左侧被切掉。
