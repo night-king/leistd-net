@@ -71,8 +71,9 @@ BASELINE = {'backend-crud': 53365, 'fullstack-crud': 97875, 'ui-change': 63719,
 
 # 当前上限：调整后不得回升；有意放宽时连同理由一并修改。
 # 阶段六完成时的读数加约 1%（计入 Spartan 必读 rules 的口径）；领域分层对齐给后端规范新增值对象、
-# 映射用默认约定、协作类型命名与同模块应用服务不互调等规则，后端相关的三项按当时读数再加约 1%
-LIMITS = {'backend-crud': 34480, 'fullstack-crud': 67660, 'ui-change': 51810,
+# 映射用默认约定、协作类型命名与同模块应用服务不互调等规则，后端相关的三项按当时读数再加约 1%；
+# E1–E6 给生成项目测试规范新增合并设置、依赖审计、时间边界三点与风格闸门等规则，backend-crud 按读数放宽 200（含 merge queue 与缓存共享说明）
+LIMITS = {'backend-crud': 34680, 'fullstack-crud': 67660, 'ui-change': 51810,
           'new-text': 17640, 'review-only': 40090}
 
 

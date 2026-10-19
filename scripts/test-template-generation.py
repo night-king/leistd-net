@@ -325,17 +325,37 @@ verify:
   variables:
     DOCKER_HOST: "tcp://docker:2375"
     DOCKER_TLS_CERTDIR: ""
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+  cache:
+    - key:
+        prefix: nuget
+        files:
+          - backend/Directory.Packages.props
+      paths:
+        - .nuget/packages
+      policy: $CACHE_POLICY
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        CACHE_POLICY: pull
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        CACHE_POLICY: pull-push
   before_script:
     - apt-get update
   script:
     - pwsh -NoProfile -File scripts/verify.ps1
 """
     failures = []
-    check_gitlab_ci(valid)
+    check_gitlab_ci(valid, False)
     for label, text in [('语法错误', valid.replace('  stage: verify', '  stage: [verify')),
-                        ('缺 DOCKER_HOST', valid.replace('    DOCKER_HOST: "tcp://docker:2375"\n', ''))]:
+                        ('缺 DOCKER_HOST', valid.replace('    DOCKER_HOST: "tcp://docker:2375"\n', '')),
+                        ('合并请求缓存可写', valid.replace('CACHE_POLICY: pull\n', 'CACHE_POLICY: pull-push\n')),
+                        ('缓存在项目目录外', valid.replace('"$CI_PROJECT_DIR/.nuget/packages"', '"/root/.nuget/packages"'))]:
         try:
-            check_gitlab_ci(text)
+            check_gitlab_ci(text, False)
             failures.append(f'GitLab 薄壳判据未拒绝：{label}')
         except Exception:
             pass
@@ -448,26 +468,27 @@ def expected_verify_steps(values):
     steps = ['check-error-codes']
     steps += ['check-i18n'] if values['IncludeLocalization'] else []
     steps += ['check-operation-action-i18n'] if values['SpaFrontend'] and values['IncludeOperationRecords'] else []
-    steps += ['check-test-diagnostics', 'backend-restore', 'backend-build', 'backend-test:Generation.Probe.UnitTests', 'backend-test:Generation.Probe.IntegrationTests']
-    steps += ['frontend-audit', 'frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build'] if values['SpaFrontend'] else []
+    steps += ['check-test-diagnostics', 'backend-restore', 'backend-build', 'backend-format', 'backend-test:Generation.Probe.UnitTests', 'backend-test:Generation.Probe.IntegrationTests']
+    steps += ['frontend-install', 'frontend-lint', 'frontend-test', 'frontend-build'] if values['SpaFrontend'] else []
     steps += ['frontend-e2e'] if values['LocalIdentity'] else []
     return steps
 
 
 def expected_fast_steps(values):
-    """-Fast：静态检查、还原与构建、单元测试、前端 lint；不含集成测试、依赖审计、安装、前端单测、构建与端到端。"""
-    excluded = {'backend-test:Generation.Probe.IntegrationTests', 'frontend-audit', 'frontend-install', 'frontend-test', 'frontend-build', 'frontend-e2e'}
+    """-Fast：静态检查、还原与构建、单元测试、前端 lint；不含集成测试、安装、前端单测、构建与端到端。"""
+    excluded = {'backend-test:Generation.Probe.IntegrationTests', 'frontend-install', 'frontend-test', 'frontend-build', 'frontend-e2e'}
     return [step for step in expected_verify_steps(values) if step not in excluded]
 
 
-def check_gitlab_ci(text):
+def check_gitlab_ci(text, spa_frontend):
     """按 YAML 实际解析 GitLab 薄壳：语法错误直接失败，再核对单一 verify 作业、DinD 与 Testcontainers 连接变量。"""
     try:
         import yaml
     except ImportError as error:
         raise SystemExit('需要 PyYAML 解析生成的 .gitlab-ci.yml（python -m pip install PyYAML==6.0.3）') from error
     document = yaml.safe_load(text)
-    assert isinstance(document, dict) and list(document) == ['stages', 'verify'], f'GitLab CI top-level keys: {document and list(document)}'
+    audit_expected = ['frontend-audit'] if spa_frontend else []
+    assert isinstance(document, dict) and list(document) == ['stages', 'verify'] + audit_expected, f'GitLab CI top-level keys: {document and list(document)}'
     assert document['stages'] == ['verify'], f'GitLab CI stages: {document["stages"]}'
     job = document['verify']
     assert job['stage'] == 'verify', 'GitLab CI job stage'
@@ -478,6 +499,24 @@ def check_gitlab_ci(text):
     assert variables.get('DOCKER_HOST') == 'tcp://docker:2375' and variables.get('DOCKER_TLS_CERTDIR') == '', 'Testcontainers DinD variables'
     assert isinstance(job.get('before_script'), list) and job['before_script'], 'GitLab CI before_script'
     assert job['script'] == ['pwsh -NoProfile -File scripts/verify.ps1'], f'GitLab CI script: {job["script"]}'
+    # 缓存：NuGet 必有，npm 随前端；key 取依赖文件，只缓存下载内容；合并请求只读、默认分支读写
+    caches = {entry['key']['prefix']: entry for entry in job['cache']}
+    assert list(caches) == (['nuget', 'npm'] if spa_frontend else ['nuget']), f'GitLab CI caches: {list(caches)}'
+    assert caches['nuget']['key']['files'] == ['backend/Directory.Packages.props'] and caches['nuget']['paths'] == ['.nuget/packages'], 'GitLab CI NuGet cache'
+    assert variables.get('NUGET_PACKAGES') == '$CI_PROJECT_DIR/.nuget/packages', 'GitLab CI NuGet cache must live inside the project directory'
+    if spa_frontend:
+        assert caches['npm']['key']['files'] == ['frontend/package-lock.json'] and caches['npm']['paths'] == ['.npm'], 'GitLab CI npm cache'
+        assert variables.get('npm_config_cache') == '$CI_PROJECT_DIR/.npm', 'GitLab CI npm cache must live inside the project directory'
+    assert all(entry['policy'] == '$CACHE_POLICY' for entry in caches.values()), 'GitLab CI cache policy'
+    policies = {rule['if']: rule.get('variables', {}).get('CACHE_POLICY') for rule in job['rules']}
+    assert policies == {'$CI_PIPELINE_SOURCE == "schedule"': None, '$CI_PIPELINE_SOURCE == "merge_request_event"': 'pull',
+                        '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH': 'pull-push'}, f'GitLab CI cache policy by pipeline: {policies}'
+    if spa_frontend:
+        audit = document['frontend-audit']
+        assert audit['stage'] == 'verify' and 'npm audit --omit=dev --audit-level=high --package-lock-only' in '\n'.join(audit['script']), 'GitLab CI audit job'
+        changes = [rule for rule in audit['rules'] if 'changes' in rule]
+        assert len(changes) == 1 and changes[0]['changes'] == ['frontend/package-lock.json'], 'GitLab CI audit must follow the lock file'
+        assert any('"schedule"' in rule['if'] and '"web"' in rule['if'] for rule in audit['rules']), 'GitLab CI audit schedule and manual runs'
 
 
 def verify_key(output, values):
@@ -510,6 +549,9 @@ def check_verify_script(output, values):
     fast_rows = [row[1:] for row in listed_rows if row[0] == 'fast']
     assert [row[0] for row in rows] == expected, f'verify steps {[row[0] for row in rows]} != {expected}'
     assert [row[0] for row in fast_rows] == expected_fast, f'verify -Fast steps {[row[0] for row in fast_rows]} != {expected_fast}'
+    if values['SpaFrontend']:
+        install = next(row for row in rows if row[0] == 'frontend-install')
+        assert install[2].strip() == 'npm ci --no-audit', f'frontend-install must pass --no-audit (no implicit audit request): {install}'
     assert all(row in rows for row in fast_rows), 'verify -Fast rows must be the same steps as the full mode'
     with tempfile.TemporaryDirectory(dir=output.parent) as shim_root:
         shims = Path(shim_root)
@@ -522,9 +564,6 @@ def check_verify_script(output, values):
                 shim.chmod(0o755)
         commands = [row[2] for row in rows]
         failing = len(commands) // 2
-        # 依赖审计步骤失败时有限重试（同一命令调用多次）；取中点时落在它上面就顺延一步，判据仍是"失败即停"
-        if rows[failing][0] == 'frontend-audit':
-            failing += 1
         log = shims / 'calls.log'
         environment = dict(os.environ, PATH=str(shims) + os.pathsep + os.environ.get('PATH', ''), SHIM_LOG=str(log), SHIM_FAIL=commands[failing])
         run = subprocess.run([pwsh, '-NoProfile', '-File', str(script)], capture_output=True, text=True, encoding='utf-8', errors='replace', env=environment)
@@ -619,7 +658,21 @@ def validate(output, values, config, verify=True, sdk=None):
             assert ('playwright' in wrapper) == values['SpaFrontend'], f'CI wrapper browser setup applicability: {ci_file}'
             assert ('frontend/playwright-report/' in wrapper) == values['LocalIdentity'], f'CI wrapper E2E report upload applicability: {ci_file}'
     if values['Ci'] == 'gitlab':
-        check_gitlab_ci((output / ci_files['gitlab']).read_text(encoding='utf-8'))
+        check_gitlab_ci((output / ci_files['gitlab']).read_text(encoding='utf-8'), values['SpaFrontend'])
+    if values['Ci'] == 'github':
+        github_ci = (output / ci_files['github']).read_text(encoding='utf-8')
+        assert "hashFiles('backend/Directory.Packages.props', 'backend/**/*.csproj')" in github_ci and 'path: ~/.nuget/packages' in github_ci, 'GitHub CI NuGet cache'
+        assert ('cache: npm' in github_ci) == values['SpaFrontend'], 'GitHub CI npm cache applicability'
+    # 前端生产依赖审计不在 verify 里：GitHub 为 verify 作业内的一步（锁文件变化、定时、手动才执行），GitLab 为独立作业
+    if values['Ci'] == 'github':
+        assert 'merge_group:' in github_ci, 'GitHub CI must report the required check for merge queue'
+        assert ('npm audit --omit=dev --audit-level=high --package-lock-only' in github_ci) == values['SpaFrontend'], 'GitHub audit step applicability'
+        assert ('schedule:' in github_ci) == values['SpaFrontend'], 'GitHub audit schedule applicability'
+        if values['SpaFrontend']:
+            assert 'frontend/package-lock.json' in github_ci and 'workflow_dispatch' in github_ci and '未改依赖，跳过审计' in github_ci, 'GitHub audit conditions'
+    assert not (output / '.github/workflows/audit.yml').exists(), 'GitHub audit must not be a separate workflow'
+    verify_text = (output / 'scripts/verify.ps1').read_text(encoding='utf-8')
+    assert 'npm audit' not in verify_text, 'verify.ps1 must not run the dependency audit'
     assert not any(p.startswith('.github/') and p != ci_files['github'] for p in digests), 'Unexpected files under .github'
     # 浏览器端到端随本地身份形态下发（有登录界面与可预置账号）；测试规范的命令说明同进退
     assert ('frontend/playwright.config.ts' in digests) == values['LocalIdentity'], 'E2E project applicability'
