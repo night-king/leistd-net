@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Plan PR validation from complete input changes; unknown inputs retain all checks.
+"""Plan PR validation from complete input changes.
 
 Input classes, job responsibilities and the PR scenario selector live here.
 Scenario/source definitions stay in their existing files; conditions are evaluated
-with the coverage gate's evaluator. Unproven inputs retain full validation.
+with the coverage gate's evaluator.
 
-A narrowed PR plan has Tier core. It carries only the incremental guarantee: the
-core consumers of every changed source, every changed conditional branch on its
-enabled side and the trimmed side of conditional files. Global line coverage and
-pairwise combinations are proven only by the full tier before any publication.
+A direct PR always has Tier core; the template full set runs only after merge,
+nightly, on dispatch and for publication. A narrowed core plan (ScenarioSelection
+selector) carries the incremental guarantee: the core consumers of every changed
+source, every changed conditional branch on its enabled side and the trimmed side
+of conditional files. Inputs that cannot be proven (shared/unknown inputs,
+template.json, proof errors) get the representative smoke (ScenarioSelection
+representative): every core scenario with all applicable stages, provable branch
+supplements, all framework tests and consumers. Global line coverage and pairwise
+combinations are proven only by the full tier before any publication.
 """
 from __future__ import annotations
 
@@ -48,7 +53,7 @@ def backend_source(path: str) -> bool:
 
 def project_owner(path: str) -> str | None:
     # Only source files inside one real package project can seed consumer selection.
-    # A missing/deleted project, project configuration or shared input means full.
+    # A missing/deleted project, project configuration or shared input means all consumers.
     if not re.fullmatch(r'framework/(?:components/[^/]+|ddd-struct)/Leistd\.[^/]+/.+\.cs', path):
         return None
     parent = ROOT / path
@@ -115,7 +120,7 @@ INTERNAL_DOCUMENT = re.compile(r'(?:README\.md|(?:docs|\.agents|skills)/.+\.md|f
 # Repository configuration read only by GitHub services (Dependabot): no build, test or package consumes it.
 REPOSITORY_CONFIG = re.compile(r'\.github/dependabot\.yml')
 # Template channel inputs: the generated payload and its packaging project (template-package/).
-# They publish Leistd.Templates only; the packaging project is otherwise an unknown input (full validation).
+# They publish Leistd.Templates only; the packaging project is otherwise an unknown input (representative smoke on a direct PR).
 TEMPLATE_RELEASE_INPUTS = ('template/', 'template-package/')
 TEMPLATE_RELEASE_TAG = re.compile(r'template-v(\d+)\.(\d+)\.(\d+)')
 # The stable framework release write-back commit (VERSION and the template's default LeistdFrameworkVersion).
@@ -571,7 +576,7 @@ def select_scenarios(requirements: list[tuple[str, set[str]]], initial: set[str]
 def create_plan(tier: str, base: str, event: str, candidate_input: str,
                 container_smoke: bool = False, release_channel: str = '', release_base_tag: str = '',
                 release_base_sha: str = '') -> dict:
-    """tier core asks for a narrowed direct-PR plan; whatever cannot be narrowed is the full tier."""
+    """tier core on a direct PR yields Tier core (selector or representative); every other request is the full tier."""
     if tier not in ('core', 'full'):
         raise ValueError('unknown tier')
     head = git('rev-parse', 'HEAD')
@@ -594,11 +599,13 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
         else:
             publish, release_reason = True, 'Explicit or scheduled publication'
     template = template_release(release_channel, head, event)
+    # Only a direct PR may lower the template responsibility; every other trigger keeps full.
+    direct_pr = tier == 'core' and event == 'pull_request' and not candidate_input and not release_channel
     plan = dict(Version=3, CandidateSha=head, BaseSha=base, Tier='full', Event=event,
                 ReleaseRequired=publish, ReleaseChannel=release_channel, ReleaseBaseTag=tag,
                 ReleaseBaseSha=published, ReleaseReason=release_reason, TemplateRelease=template,
                 QualityBaseline=dict(Verified=False, RunId=0, Attempt=0),
-                DocsOnly=False, Mode='full', Scenarios=order, FrameworkTests=True,
+                DocsOnly=False, Mode='full', Scenarios=order, ScenarioSelection='all', FrameworkTests=True,
                 ConsumerProjects=None, GeneratedDocumentation=True, PackageDocumentation=True,
                 Jobs={name: True for name in JOB_NAMES}, Inputs={}, ChangedPaths=[],
                 Reason='Full: shared/unknown inputs, publication, explicit run or uncertain baseline',
@@ -620,8 +627,43 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
         elif value['FrameworkTestSelection'] != 'affected':
             value.update(FrameworkTestProjects=all_tests, FrameworkTestSelection='all',
                          FrameworkTestReason=value['FrameworkTestReason'] or value['Reason'])
+        if not value['Scenarios']:
+            value['ScenarioSelection'] = 'none'
         value['Slices'] = execution_slices(scenarios, value['Scenarios'], value['Tier'], value['Mode'], value['ContainerSmoke'])
         return value
+
+    def representative(reason, supplements=()):
+        """Direct-PR fallback: core scenarios with all stages instead of the template full set.
+
+        Nothing narrowed before survives: framework tests, consumers, generation and static
+        responsibilities stay complete; PostgreSQL/OIDC keep their path triggers (unknown paths: run).
+        """
+        paths = plan['ChangedPaths']
+        jobs = {name: True for name in JOB_NAMES}
+        jobs.update({'postgresql-e2e': not paths or any(POSTGRESQL_INPUT.fullmatch(path) for path in paths),
+                     'oidc-e2e': not paths or any(OIDC_INPUT.fullmatch(path) for path in paths)})
+        selected = set(core) | set(supplements)
+        return finish(dict(complete, ChangedPaths=paths, Inputs=plan['Inputs'], QualityBaseline=plan['QualityBaseline'],
+                           Tier='core', ScenarioSelection='representative', Jobs=jobs,
+                           Scenarios=[name for name in order if name in selected],
+                           Reason=f'Core representative smoke ({reason}); unproven inputs reach the full set after merge'))
+
+    def branch_supplements(classes):
+        """Changed conditional branches outside core, when the template sources can still be proven."""
+        sources = classes['frontend'] + classes['backend']
+        if not sources:
+            return set()
+        try:
+            old = json.loads(git('show', f'{base}:{CONFIG_PATH}'))
+            current = json.loads(git('show', f'{head}:{CONFIG_PATH}'))
+            if old != current:
+                return set()
+            for path in sources:
+                source_producers(current, path, scenarios)
+            requirements = template_requirements(current, scenarios, base, head, sources, set(order))
+            return set(select_scenarios(requirements, set(core), order, set(core)))
+        except (subprocess.CalledProcessError, ValueError, KeyError, OSError, IndexError, UnicodeError):
+            return set()
 
     try:
         paths = changed_paths(base, head)
@@ -634,7 +676,6 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             return finish(dict(plan, Reason='Full: working tree differs from candidate HEAD'))
         if publish or template['Required']:
             return finish(dict(plan, Reason='Full: publication requires all quality responsibilities'))
-        direct_pr = tier == 'core' and event == 'pull_request' and not candidate_input
         if event == 'push' and release_channel and not publish:
             plan['QualityBaseline'] = verified_quality_base(base, head)
             if not plan['QualityBaseline']['Verified']:
@@ -644,6 +685,8 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             return finish(plan)
         if classes['unknown']:
             container_smoke = True
+            if direct_pr:
+                return representative('shared or unknown inputs: ' + ', '.join(classes['unknown']), branch_supplements(classes))
             return finish(dict(plan, Reason='Full: shared or unknown inputs: ' + ', '.join(classes['unknown'])))
         template_code = classes['frontend'] + classes['backend']
         code = template_code + classes['framework']
@@ -654,6 +697,9 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             old = json.loads(git('show', f'{base}:{CONFIG_PATH}'))
             current = json.loads(git('show', f'{head}:{CONFIG_PATH}'))
             if old != current:
+                container_smoke = True
+                if direct_pr:
+                    return representative('template.json changed')
                 return finish(dict(plan, Reason='Full: template.json changed'))
             for path in classes['generated-doc'] + template_code:
                 source_producers(old, path, scenarios)
@@ -682,14 +728,14 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
         requirements = template_requirements(current, scenarios, base, head, template_code, eligible) if template_code else []
         selected = select_scenarios(requirements, initial, order, set(core))
         if not selected:
-            return finish(dict(plan, Reason='Full: no registered scenario produces the changed sources'))
+            return representative('no registered scenario produces the changed sources')
         jobs = {name: True for name in JOB_NAMES}
         jobs.update({'frontend-gates': bool(classes['frontend']) or gate_document,
                      'package-consumption': bool(classes['framework']) or package_docs,
                      'template-generation': bool(template_code) or generated_docs,
                      'postgresql-e2e': any(POSTGRESQL_INPUT.fullmatch(path) for path in code),
                      'oidc-e2e': any(OIDC_INPUT.fullmatch(path) for path in code)})
-        plan.update(Tier='core', Mode=mode, Scenarios=selected, Jobs=jobs, GeneratedDocumentation=generated_docs,
+        plan.update(Tier='core', Mode=mode, Scenarios=selected, ScenarioSelection='selector', Jobs=jobs, GeneratedDocumentation=generated_docs,
                     Reason=('Core consumers of changed sources plus changed conditional branches; '
                             f'{len(requirements)} generation contexts'))
         if not classes['framework']:
@@ -707,6 +753,8 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
                 plan['ConsumerProjects'] = sorted(set(owners))
     except (subprocess.CalledProcessError, ValueError, KeyError, OSError, IndexError, ElementTree.ParseError) as error:
         container_smoke = True
+        if direct_pr:
+            return representative(f'input/dependency proof unavailable ({error})')
         # Nothing narrowed before the failure survives: restart from the complete plan.
         return finish(dict(complete, ChangedPaths=plan['ChangedPaths'], Inputs=plan['Inputs'], QualityBaseline=plan['QualityBaseline'],
                            Reason=f'Full: input/dependency proof unavailable ({error})'))
@@ -714,37 +762,44 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
 
 
 def local_scenarios(base: str) -> dict:
-    """Local recipe: the PR selector's scenarios for -GenerateOnly; full when nothing can be narrowed.
+    """Local recipe: the PR plan's scenarios for -GenerateOnly.
 
-    Generated documents count as conditional sources here, so a Markdown branch is generated too.
+    Selection selector: the PR selector, with generated documents counted as conditional
+    sources so a Markdown branch is generated too. Selection representative: the PR could
+    not narrow (or the local document proof failed), so the core scenarios plus provable
+    supplements, the same as the PR. Selection full only for a dirty tree or a moving HEAD.
     """
     plan = create_plan('core', base, 'pull_request', '')
     scenarios = coverage.load_scenarios()
     order = list(scenarios)
     head = plan['CandidateSha']
+    core = {name for name, info in scenarios.items() if 'core' in info['Slices']}
     result = dict(Kind='local-template-scenarios', HeadSha=head, BaseSha=base,
                   Scope='full', Scenarios=order, Selection='full', Reason=plan['Reason'])
     if plan['Tier'] != 'core':
         return result
-    try:
-        inputs = plan['Inputs']
-        sources = inputs['frontend'] + inputs['backend'] + inputs['generated-doc']
-        selected = list(plan['Scenarios'])
-        if sources:
-            config = json.loads(git('show', f'{head}:{CONFIG_PATH}'))
-            core = {name for name, info in scenarios.items() if 'core' in info['Slices']}
-            eligible = {name for name, info in scenarios.items() if plan['Mode'] != 'frontend' or info['Frontend']}
-            producers = set()
-            for path in sources:
-                producers |= source_producers(config, path, scenarios)
-            requirements = template_requirements(config, scenarios, base, head, sources, eligible)
-            selected = select_scenarios(requirements, set(selected) | (core & producers & eligible), order, core)
-        if git('rev-parse', 'HEAD') != head or git('status', '--porcelain', '--untracked-files=normal'):
-            raise ValueError('working tree or HEAD changed during selection')
-        result.update(Scope='core', Scenarios=selected, Selection='selector',
-                      Reason='PR selector: core consumers and changed conditional branches')
-    except (subprocess.CalledProcessError, ValueError, KeyError, OSError, IndexError, UnicodeError) as error:
-        result['Reason'] = f'Full: local selection proof unavailable ({error})'
+    if plan['ScenarioSelection'] == 'representative':
+        result.update(Scope='core', Scenarios=plan['Scenarios'], Selection='representative')
+    else:
+        try:
+            inputs = plan['Inputs']
+            sources = inputs['frontend'] + inputs['backend'] + inputs['generated-doc']
+            selected = list(plan['Scenarios'])
+            if sources:
+                config = json.loads(git('show', f'{head}:{CONFIG_PATH}'))
+                eligible = {name for name, info in scenarios.items() if plan['Mode'] != 'frontend' or info['Frontend']}
+                producers = set()
+                for path in sources:
+                    producers |= source_producers(config, path, scenarios)
+                requirements = template_requirements(config, scenarios, base, head, sources, eligible)
+                selected = select_scenarios(requirements, set(selected) | (core & producers & eligible), order, core)
+            result.update(Scope='core', Scenarios=selected, Selection='selector',
+                          Reason='PR selector: core consumers and changed conditional branches')
+        except (subprocess.CalledProcessError, ValueError, KeyError, OSError, IndexError, UnicodeError) as error:
+            result.update(Scope='core', Scenarios=[name for name in order if name in core or name in plan['Scenarios']],
+                          Selection='representative', Reason=f'Core representative smoke: local selection proof unavailable ({error})')
+    if git('rev-parse', 'HEAD') != head or git('status', '--porcelain', '--untracked-files=normal'):
+        result.update(Scope='full', Scenarios=order, Selection='full', Reason='Full: working tree or HEAD changed during selection')
     return result
 
 
@@ -763,7 +818,7 @@ def local_framework_tests(base: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tier', choices=['core', 'full'], default='full',
-                        help='core: narrow a direct pull request where provable (otherwise the plan is full)')
+                        help='core: a direct pull request (narrowed where provable, otherwise the representative smoke)')
     parser.add_argument('--base', default=os.environ.get('PR_BASE_SHA', ''))
     parser.add_argument('--event', default=os.environ.get('EVENT_NAME', ''))
     parser.add_argument('--candidate-input', default=os.environ.get('CANDIDATE_SHA', ''))
@@ -775,7 +830,7 @@ def main() -> None:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--github-output', action='store_true')
     parser.add_argument('--local-scenarios', action='store_true',
-                        help='Output the PR selector scenarios for local -GenerateOnly checks (full when not narrowable)')
+                        help='Output the PR plan scenarios for local -GenerateOnly checks (selector or representative; full only for a dirty tree)')
     parser.add_argument('--local-framework-tests', action='store_true',
                         help='Output local L1 framework test projects (Projects) affected since --base')
     args = parser.parse_args()

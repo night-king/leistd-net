@@ -31,8 +31,8 @@ permissions:
   contents: read
   actions: read
 
-# 直接 PR 请求 core 范围：planner 能证明时收窄为 core 档（代表场景加改动条件分支），否则退回 full。
-# PR 有意不承担全局覆盖；full 在 develop/main 推送、夜间与发布时由 release.yml 复用本工作流执行。
+# 直接 PR 一律是 core 档：能证明时收窄为代表场景加改动条件分支，不能证明时跑代表场景冒烟（完整阶段）。
+# PR 有意不承担全局覆盖；full 在 develop/main 推送、夜间、手动与发布时执行（推送、夜间与发布由 release.yml 复用本工作流）。
 # 计划的 Tier 才是本次实际档位，下游作业一律读计划，不另行推断。
 env:
   PLAN_SCOPE: ${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'core' || 'full' }}
@@ -194,6 +194,19 @@ jobs:
           overwrite: true
           path: ${{ steps.matrix.outputs.results_path }}
           if-no-files-found: error
+      # 生成项目的 Playwright 报告与 trace，成功时也保留：重试后才通过的 flaky 用例据此诊断。
+      # 产物内路径从 runs 下开始，保留场景目录；按片命名，不与回执的 template-matrix-* 混在一起
+      - name: 保留端到端报告
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report-${{ matrix.slice.key }}
+          overwrite: true
+          path: |
+            .tmp/runs/*/generated-template/*/frontend/playwright-report/
+            .tmp/runs/*/generated-template/*/frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   quality-plan:
     name: 计算候选验证责任

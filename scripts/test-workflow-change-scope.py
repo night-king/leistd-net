@@ -179,8 +179,11 @@ def check_existing_scopes():
         append_input(repo, front)
         candidate = git(repo, 'rev-parse', 'HEAD')
         assert planner.release_tag('beta', candidate)[1] == base
-        assert planner.create_plan('core', stable, 'pull_request', '')['Mode'] == 'full'
-        assert planner.create_plan('core', '0' * 40, 'pull_request', '')['ContainerSmoke']
+        # A direct PR never runs the template full set: shared inputs and an uncertain baseline get the representative smoke.
+        shared = planner.create_plan('core', stable, 'pull_request', '')
+        assert shared['Tier'] == 'core' and shared['ScenarioSelection'] == 'representative' and shared['Mode'] == 'full', shared
+        uncertain = planner.create_plan('core', '0' * 40, 'pull_request', '')
+        assert uncertain['Tier'] == 'core' and uncertain['ScenarioSelection'] == 'representative' and uncertain['ContainerSmoke'], uncertain
     print('PASS publication baselines, explicit inputs, cancelled/failed push carry-forward, API fallback, nightly and force push')
 
 
@@ -290,12 +293,25 @@ def check_template_package_responsibilities():
             append_input(repo, path)
             plan = planner.create_plan('core', base, 'pull_request', '')
             assert plan['Mode'] == 'full' and plan['Jobs']['package-consumption'] and plan['Jobs']['framework-pack'], path
+            assert plan['Tier'] == 'core' and plan['ScenarioSelection'] == ('selector' if path == framework_source else 'representative'), (path, plan)
             validate(plan, True)
             invalid = json.loads(json.dumps(plan))
             invalid['Jobs']['package-consumption'] = False
             validate(invalid, False)
             invalid['PackageDocumentation'] = False
             validate(invalid, False)
+            if plan['ScenarioSelection'] != 'representative':
+                continue
+            # Unproven inputs may not reuse stage trimming or a narrowed framework/consumer scope.
+            for label, mutate in [('frontend-stages', lambda p: p.update(Mode='frontend')),
+                                  ('core-scenario-dropped', lambda p: (p.update(Scenarios=p['Scenarios'][1:]), p.update(Slices=p['Slices'][1:]))),
+                                  ('affected-tests', lambda p: p.update(FrameworkTestSelection='affected')),
+                                  ('selected-consumers', lambda p: p.update(ConsumerProjects=['Leistd.Core'])),
+                                  ('no-generation', lambda p: p['Jobs'].update({'template-generation': False}))]:
+                invalid = json.loads(json.dumps(plan)); mutate(invalid)
+                if label == 'no-generation':
+                    invalid['GeneratedDocumentation'] = False
+                validate(invalid, False, 'Representative smoke requires')
         git(repo, 'reset', '--hard', base)
         append_input(repo, sources[0][0])
         for event in ('workflow_dispatch', 'schedule'):
@@ -330,6 +346,11 @@ def check_quality_aggregation():
             if step.get('uses', '').startswith('actions/checkout@'):
                 assert step['with']['ref'] == '${{ inputs.candidate_sha || github.sha }}'
     assert '-SkipSourcePreflight' in next(s for s in jobs['template-slices']['steps'] if s.get('id') == 'matrix')['run']
+    # Playwright report/trace stays downloadable on success (flaky diagnosis), per slice, outside the receipt pattern.
+    report = next(s for s in jobs['template-slices']['steps'] if s.get('with', {}).get('name', '').startswith('e2e-report-'))
+    assert report['if'] == '${{ !cancelled() }}' and report['with']['name'] == 'e2e-report-${{ matrix.slice.key }}', report
+    assert not report['with']['name'].startswith('template-matrix-'), report
+    assert {line.split('/')[-2] for line in report['with']['path'].split()} == {'playwright-report', 'test-results'}, report
     for name in ['docs-sync', 'docs-sync-windows']:
         assert any(s.get('run') == 'pwsh scripts/check-all.ps1' for s in jobs[name]['steps'])
     # Every release responsibility proof is checked by the summary, gated by its own job responsibility.
@@ -372,7 +393,7 @@ def check_quality_aggregation():
     with candidate_fixture() as (repo, planner, base):
         for mode, path in [('internal', 'README.md'), ('generated', 'template/docs/standards/testing.md'),
                            ('package', 'framework/NuGet.md'), ('gate-document', 'template/docs/standards/frontend-spartan.md'),
-                           ('frontend', 'template/frontend/src/app/app.ts'), ('full', '.github/workflows/ci.yml'),
+                           ('frontend', 'template/frontend/src/app/app.ts'), ('representative', '.github/workflows/ci.yml'),
                            ('release', 'README.md')]:
             git(repo, 'reset', '--hard', base)
             git(repo, 'clean', '-fd')

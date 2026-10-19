@@ -48,9 +48,9 @@ jobs:
         shell: pwsh
         run: ./scripts/verify.ps1
 #if (LocalIdentity)
-      # 端到端测试失败时保留 Playwright 报告、trace 与 API 日志
+      # 保留 Playwright 报告、trace 与 API 日志：成功时也上传，重试后才通过的 flaky 用例据此诊断
       - name: Upload E2E report
-        if: failure()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: e2e-report

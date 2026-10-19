@@ -87,8 +87,11 @@ def main():
             git('add', '.'); git('commit', '-qm', label)
             plan = planner.create_plan('core', base, 'pull_request', '', container_smoke=label == 'cross-layer')
             assert plan['Mode'] == expected_mode, (label, plan)
+            # A direct PR is always core: unproven inputs get the representative smoke, never the template full set.
             narrowed = label not in ('frontend-lock', 'template-parameters', 'workflow', 'unknown')
-            assert plan['Tier'] == ('core' if narrowed else 'full'), (label, plan['Tier'])
+            assert plan['Tier'] == 'core', (label, plan['Tier'])
+            assert plan['ScenarioSelection'] == ('representative' if not narrowed else 'none' if expected_mode == 'documentation'
+                                                 else 'selector'), (label, plan['ScenarioSelection'])
             assert plan['Version'] == 3 and (label != 'cross-layer' or plan['ContainerSmoke'])
             assigned = [name for group in plan['Slices'] for name in group['Scenarios']]
             assert len(assigned) == len(set(assigned)) and set(assigned) == set(plan['Scenarios'])
@@ -106,7 +109,7 @@ def main():
                     assert 'Container scope requires' in str(error)
                 else:
                     raise AssertionError('Conflicting container responsibility must fail explicitly')
-            if plan['Tier'] == 'core' and plan['Mode'] != 'documentation':
+            if plan['ScenarioSelection'] == 'selector':
                 prove_selection(repo, base, plan, scenarios, planner, git)
             local = planner.local_scenarios(base)
             assert local['Kind'] == 'local-template-scenarios' and local['HeadSha'] == git('rev-parse', 'HEAD')
@@ -118,7 +121,8 @@ def main():
                 assert local['Selection'] == 'selector' and set(local['Scenarios']) <= registered, (label, local)
                 assert bool(local['Scenarios']) == (label == 'generated-doc'), (label, local)
             else:
-                assert local['Selection'] == 'full' and local['Scenarios'] == list(scenarios)
+                # The local recipe mirrors the PR: the same representative scenarios, not the full set.
+                assert local['Selection'] == 'representative' and local['Scenarios'] == plan['Scenarios'], (label, local)
             (out / (label + '-local.json')).write_text(json.dumps(local, indent=2), encoding='utf-8')
             if expected_mode in ('frontend', 'backend') or label == 'cross-layer':
                 assert plan['FrameworkTests'] is False and plan['ConsumerProjects'] == []
@@ -135,15 +139,35 @@ def main():
                 assert plan['Scenarios'] == [name for name in scenarios if name in core], plan['Scenarios']
                 assert not plan['Jobs']['template-generation'] and not plan['Jobs']['postgresql-e2e'] and not plan['Jobs']['oidc-e2e']
             else:
-                assert plan['ConsumerProjects'] is None and plan['FrameworkTests'] and set(plan['Scenarios']) == registered
+                # Representative smoke: every core scenario with full stages and containers; framework tests,
+                # consumers and every job except the path-triggered PostgreSQL/OIDC stay complete.
+                assert plan['ConsumerProjects'] is None and plan['FrameworkTests'] and set(plan['Scenarios']) == core, plan
                 assert plan['FrameworkTestSelection'] == 'all' and plan['FrameworkTestProjects'] == planner.all_framework_tests('HEAD'), plan
-                assert all(plan['Jobs'].values()), plan
-            for tier, event, baseline, candidate in [('full','pull_request',base,''), ('core','workflow_dispatch',base,''),
-                ('core','pull_request','0'*40,''), ('core','pull_request',git('rev-parse','HEAD'),'')]:
+                assert plan['ContainerSmoke'] and plan['GeneratedDocumentation'] and plan['PackageDocumentation'], plan
+                assert all(needed for job, needed in plan['Jobs'].items() if job not in ('postgresql-e2e', 'oidc-e2e')), plan
+                assert not plan['Jobs']['postgresql-e2e'] and not plan['Jobs']['oidc-e2e'], plan['Jobs']
+                # The same unknown input stays full on every other trigger and publication channel.
+                head = git('rev-parse', 'HEAD')
+                for tier, event, candidate, channel in [('full', 'push', head, 'beta'), ('full', 'push', head, 'stable'),
+                                                        ('full', 'schedule', head, 'nightly'), ('full', 'workflow_dispatch', head, 'beta'),
+                                                        ('full', 'workflow_dispatch', head, 'stable'), ('full', 'push', '', ''),
+                                                        ('core', 'workflow_dispatch', '', ''), ('core', 'pull_request', head, '')]:
+                    other = planner.create_plan(tier, base, event, candidate, release_channel=channel)
+                    assert other['Tier'] == 'full' and other['Mode'] == 'full' and other['ScenarioSelection'] == 'all', (label, event, channel, other['Reason'])
+                    assert set(other['Scenarios']) == registered and all(other['Jobs'].values()) and other['ContainerSmoke'], (label, event, channel)
+                    assert other['FrameworkTestSelection'] == 'all' and other['ConsumerProjects'] is None, (label, event, channel)
+                    assert other['ReleaseRequired'] == bool(channel), (label, event, channel, other['ReleaseReason'])
+            for tier, event, baseline, candidate in [('full','pull_request',base,''), ('core','workflow_dispatch',base,'')]:
                 conservative = planner.create_plan(tier, baseline, event, candidate)
                 assert conservative['Tier'] == 'full' and conservative['Mode'] == 'full' and conservative['FrameworkTests'] and conservative['ConsumerProjects'] is None
                 assert set(conservative['Scenarios']) == registered and all(conservative['Jobs'].values())
                 assert conservative['FrameworkTestSelection'] == 'all' and conservative['FrameworkTestProjects'] == planner.all_framework_tests('HEAD')
+            # An uncertain baseline on a direct PR: representative smoke; the changed paths are unknown, so PG/OIDC run too.
+            for baseline in ('0'*40, git('rev-parse','HEAD')):
+                uncertain = planner.create_plan('core', baseline, 'pull_request', '')
+                assert uncertain['Tier'] == 'core' and uncertain['ScenarioSelection'] == 'representative' and uncertain['Mode'] == 'full'
+                assert set(uncertain['Scenarios']) == core and all(uncertain['Jobs'].values()) and uncertain['ContainerSmoke']
+                assert uncertain['FrameworkTestSelection'] == 'all' and uncertain['ConsumerProjects'] is None and 'proof unavailable' in uncertain['Reason']
             (out / (label + '-plan.json')).write_text(json.dumps(plan, indent=2), encoding='utf-8')
             print('PASS complete-input plan:', label, flush=True)
             if label in ('frontend-feature', 'backend-api'):
@@ -162,8 +186,9 @@ def main():
         git('reset', '--hard', base); git('mv',front,'docs/moved-source.ts'); git('commit','-qm','cross boundary move')
         (repo / 'docs/later.md').write_text('later documentation', encoding='utf-8')
         git('add','.'); git('commit','-qm','later doc change')
-        assert planner.create_plan('core',base,'pull_request','')['Tier'] == 'full'
-        assert planner.local_scenarios(base)['Selection'] == 'full'
+        moved = planner.create_plan('core',base,'pull_request','')
+        assert moved['Tier'] == 'core' and moved['ScenarioSelection'] == 'representative' and moved['Mode'] == 'full', moved
+        assert planner.local_scenarios(base)['Selection'] == 'representative'
         git('reset', '--hard', base)
         (repo / front).write_text((repo / front).read_text(encoding='utf-8') + '\n// Uncommitted edit\n', encoding='utf-8')
         git('add', front); git('commit', '-qm', 'committed frontend input')
@@ -178,9 +203,9 @@ def main():
         assert planner.local_scenarios(base)['Selection'] == 'full'
         (repo / 'untracked-input.ts').unlink()
         for invalid in ('', '0'*40, git('rev-parse','HEAD')):
-            assert planner.local_scenarios(invalid)['Selection'] == 'full'
+            assert planner.local_scenarios(invalid)['Selection'] == 'representative'
         git('reset', '--hard', base)
-        print('PASS deletion, cross-boundary rename and multi-commit conservative fallback', flush=True)
+        print('PASS deletion, cross-boundary rename and multi-commit representative fallback', flush=True)
         prove_scheduling(planner, scenarios)
         # Put each unknown rule on BOTH sides of the diff. Otherwise a changed
         # template.json alone would force full and fail to exercise this guard.
@@ -196,11 +221,13 @@ def main():
             (repo / front).write_text((repo / front).read_text(encoding='utf-8') + '\n// Quality scope fixture\n', encoding='utf-8')
             git('add', '.'); git('commit', '-qm', label + ' source edit')
             guarded = planner.create_plan('core', rule_base, 'pull_request', '')
-            assert guarded['Tier'] == 'full' and guarded['Mode'] == 'full' and guarded['FrameworkTests'] and guarded['ConsumerProjects'] is None
-            assert set(guarded['Scenarios']) == registered and 'proof unavailable' in guarded['Reason'] and all(guarded['Jobs'].values())
-            assert planner.local_scenarios(rule_base)['Selection'] == 'full'
+            assert guarded['Tier'] == 'core' and guarded['ScenarioSelection'] == 'representative' and guarded['Mode'] == 'full'
+            assert guarded['FrameworkTests'] and guarded['ConsumerProjects'] is None and guarded['FrameworkTestSelection'] == 'all'
+            assert set(guarded['Scenarios']) == core and 'proof unavailable' in guarded['Reason'] and guarded['ContainerSmoke']
+            assert all(needed for job, needed in guarded['Jobs'].items() if job not in ('postgresql-e2e', 'oidc-e2e'))
+            assert planner.local_scenarios(rule_base)['Selection'] == 'representative'
             (out / (label + '-plan.json')).write_text(json.dumps(guarded, indent=2), encoding='utf-8')
-            print('PASS unknown engine rule conservative fallback:', label, flush=True)
+            print('PASS unknown engine rule representative fallback:', label, flush=True)
         prove_selector_counterexamples(repo, base, planner, scenarios, out, git)
         prove_local_products(repo, base, planner, scenarios, out, run, git)
         prove_framework_tests(repo, base, planner, out, run, git)
@@ -385,14 +412,21 @@ def prove_selector_counterexamples(repo, base, planner, scenarios, out, git):
     none_in_core(computed)
     plan = commit('computed-branch', lambda: append(app, '\n//#if (ResourceBrowserSession && IncludeNotifications)\n// computed\n//#endif\n'))
     assert has(plan, computed), plan['Scenarios']
-    # A computed change in template.json affects files nobody edited: full.
+    # A computed change in template.json affects files nobody edited: no branch is provable, core only.
     def change_computed():
         data = json.loads((repo / 'template/.template.config/template.json').read_text(encoding='utf-8'))
         data['symbols']['Impersonation']['value'] = '(LocalIdentity && IncludeMultiTenancy)'
         (repo / 'template/.template.config/template.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
         append(app, '\n// unrelated edit\n')
     plan = commit('computed-changed', change_computed)
-    assert plan['Tier'] == 'full' and set(plan['Scenarios']) == set(scenarios) and all(plan['Jobs'].values()), plan['Reason']
+    assert plan['Tier'] == 'core' and plan['ScenarioSelection'] == 'representative' and set(plan['Scenarios']) == set(core), plan['Reason']
+    assert plan['Mode'] == 'full' and plan['ContainerSmoke'] and plan['FrameworkTestSelection'] == 'all', plan
+    # An unknown input next to a provable branch: core plus the branch supplement, with full stages.
+    plan = commit('unknown-with-branch', lambda: (append(app, '\n//#if (IncludeNotifications)\n//#if (!IncludeLocalization)\n// nested leaf\n//#endif\n//#endif\n'),
+                                                   (repo / 'unknown-input.txt').write_text('unknown', encoding='utf-8')))
+    assert plan['ScenarioSelection'] == 'representative' and plan['Mode'] == 'full' and set(core) < set(plan['Scenarios']), plan['Scenarios']
+    assert has(plan, leaf), plan['Scenarios']
+    prove_selection(repo, base, plan, scenarios, planner, git)
     # 4. Trimmed side: a file excluded without notifications is also built where it is absent.
     service = 'template/frontend/src/app/core/services/notification-service.ts'
     matches = [(condition, planner.coverage.file_conditions(relative, modifiers)) for relative, _, condition, modifiers in planner.coverage.iter_sources(config, [service])]
@@ -413,7 +447,7 @@ def prove_selector_counterexamples(repo, base, planner, scenarios, out, git):
     assert conditional in plan['ChangedPaths'] and renamed in plan['ChangedPaths'], plan['ChangedPaths']
     assert set(core) & (old_producers | new_producers) <= set(plan['Scenarios']), plan['Scenarios']
     prove_selection(repo, base, plan, scenarios, planner, git)
-    # 6. sources/modifiers/symbols changes are full.
+    # 6. sources/modifiers/symbols changes: representative smoke (core only, full stages, containers).
     for label, mutate in [('modifiers', lambda data: data['sources'][0]['modifiers'][0]['exclude'].append('frontend/README.md')),
                           ('sources', lambda data: data['sources'][0]['exclude'].append('**/fixture/**')),
                           ('symbols', lambda data: data['symbols']['IncludeEmail'].update(defaultValue='true'))]:
@@ -422,7 +456,8 @@ def prove_selector_counterexamples(repo, base, planner, scenarios, out, git):
             mutate(data)
             (repo / 'template/.template.config/template.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
         plan = commit('template-json-' + label, change)
-        assert plan['Tier'] == 'full' and set(plan['Scenarios']) == set(scenarios) and plan['ContainerSmoke'], (label, plan['Reason'])
+        assert plan['Tier'] == 'core' and plan['ScenarioSelection'] == 'representative' and set(plan['Scenarios']) == set(core), (label, plan['Reason'])
+        assert plan['Mode'] == 'full' and plan['ContainerSmoke'], (label, plan)
     # 7. Shared declaration: an unconditional edit only guarantees core consumers. A consumer that
     #    exists only outside core is not selected; the develop full run is where such a break shows.
     sources = planner.tree_files(base)
@@ -445,7 +480,7 @@ def prove_selector_counterexamples(repo, base, planner, scenarios, out, git):
         plan = commit('postgresql-' + project.rsplit('/', 1)[-1], lambda source=source: append(source, '\n// postgresql trigger\n'))
         assert plan['Tier'] == 'core' and plan['Jobs']['postgresql-e2e'] == expected, (project, plan['Jobs'])
     git('reset', '--hard', base); git('clean', '-fdq')
-    print('PASS selector counterexamples: nested leaf, elif arms, computed, trimmed side, delete/rename, template.json, EF Core PG trigger; shared declaration is full-only', flush=True)
+    print('PASS selector counterexamples: nested leaf, elif arms, computed, trimmed side, delete/rename, template.json and unknown inputs (representative), EF Core PG trigger; shared declaration is full-only', flush=True)
 
 
 def prove_local_products(repo, base, planner, scenarios, out, run, git):
@@ -751,6 +786,7 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
     assert not ordinary['ReleaseRequired'] and not ordinary['ContainerSmoke'], ordinary
     plan = planner.create_plan('full', base, 'schedule', head, release_channel='nightly')
     assert plan['ReleaseRequired'] and plan['Mode'] == 'full' and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
+    core = [name for name, info in scenarios.items() if 'core' in info['Slices']]
     containers = [name for group in plan['Slices'] for name in group['Containers']]
     assert sorted(containers) == sorted(['standalone-external-login', 'resource-capabilities-03']), containers
     (out / 'release-plan.json').write_text(json.dumps(plan, indent=2), encoding='utf-8')
@@ -761,10 +797,16 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
     plan_file.write_text(json.dumps(plan), encoding='utf-8'); run('release-plan-valid', validator, repo)
     for name, mutate in [('postgresql-not-applicable', lambda p: p['Jobs'].update({'postgresql-e2e': False})),
                          ('oidc-not-applicable', lambda p: p['Jobs'].update({'oidc-e2e': False})),
-                         ('no-container-scope', lambda p: (p.update(ContainerSmoke=False), [g.update(Containers=[]) for g in p['Slices']]))]:
+                         ('no-container-scope', lambda p: (p.update(ContainerSmoke=False), [g.update(Containers=[]) for g in p['Slices']])),
+                         ('core-scenarios-only', lambda p: p.update(Scenarios=core, Slices=planner.execution_slices(scenarios, core, 'full', 'full', True))),
+                         ('representative-downgrade', lambda p: p.update(Tier='core', ScenarioSelection='representative', Scenarios=core,
+                                                                         Slices=planner.execution_slices(scenarios, core, 'core', 'full', True))),
+                         ('affected-framework-tests', lambda p: p.update(FrameworkTestSelection='affected'))]:
         invalid = json.loads(json.dumps(plan)); mutate(invalid)
         plan_file.write_text(json.dumps(invalid), encoding='utf-8')
-        run('release-plan-reject-' + name, validator, repo, False)
+        # A downgraded publication plan is rejected whichever tier the caller expects.
+        tier = invalid['Tier']
+        run('release-plan-reject-' + name, validator[:-1] + [validator[-1].replace('-ExpectedTier full', f'-ExpectedTier {tier}')], repo, False)
         assert 'Publication requires' in (out / ('release-plan-reject-' + name + '.log')).read_text(encoding='utf-8')
     plan_file.write_text(json.dumps(plan), encoding='utf-8')
     # Every registered full-tier scenario, both containers and the browser count, on full-tier execution groups.

@@ -1,6 +1,8 @@
 # Receipts are checked against this independently supplied candidate plan.
 # Tier full: every registered scenario and responsibility (only a verified documentation push may narrow).
-# Tier core: a narrowed direct-PR plan; its selection comes from the planner, here only its shape.
+# Tier core: a direct-PR plan; its selection comes from the planner, here only its shape.
+#   ScenarioSelection selector: narrowed by proof; representative: inputs unproven, so every core scenario with
+#   full stages, all framework tests and consumers, and every job except the path-triggered PostgreSQL/OIDC.
 function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
     $plan = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $head = git rev-parse HEAD
@@ -40,6 +42,14 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
         $plan.FrameworkTestSelection -cne 'all' -or $null -ne $plan.ConsumerProjects -or
         $selected.Count -ne $registered.Count -or @($jobNames | Where-Object { -not $plan.Jobs.$_ }).Count -gt 0)) {
         throw 'Publication requires full candidate validation.'
+    }
+    $expectedSelection = if ($selected.Count -eq 0) { @('none') } elseif (-not $core) { @('all') } else { @('selector', 'representative') }
+    if ($plan.ScenarioSelection -cnotin $expectedSelection) { throw 'Invalid scenario selection.' }
+    if ($plan.ScenarioSelection -ceq 'representative' -and ($plan.Mode -cne 'full' -or
+        @(Get-TierScenarios 'core' | Where-Object { $_ -cnotin $selected }).Count -gt 0 -or
+        $plan.FrameworkTestSelection -cne 'all' -or $null -ne $plan.ConsumerProjects -or
+        @($jobNames | Where-Object { $_ -cnotin @('postgresql-e2e', 'oidc-e2e') -and -not $plan.Jobs.$_ }).Count -gt 0)) {
+        throw 'Representative smoke requires full stages, every core scenario and complete framework responsibilities.'
     }
     $documentation = $plan.Mode -ceq 'documentation'
     if ($documentation) {

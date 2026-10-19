@@ -18,7 +18,7 @@
 同一套求值器也供 PR 选择器使用（generated / branch_leaves），不另写第二套。
 场景与档位的唯一定义在 template-matrix-scenarios.ps1，这里经 pwsh 读取，不重抄清单。
 块结构是否配平由 check-template-conditional-blocks.py 负责；本闸门假定结构合法，
-branch_leaves 遇到不配平的结构直接报错（选择器据此退回 full）。
+branch_leaves 遇到不配平的结构直接报错（直接 PR 据此改跑代表场景冒烟，其他触发方式完整验证）。
 """
 
 from __future__ import annotations
@@ -220,7 +220,7 @@ def branch_leaves(text: str, changed_lines) -> list[tuple]:
     """被改动的顶层条件块里每一臂（含嵌套块、每个 elif 臂、没有 #else 时的隐式空臂）的条件帧。
 
     顶层块的行区间（#if 到 #endif）含任一改动行即视为被改动；帧与 line_contexts 同形，
-    可直接交给 generated() 求值。结构不配平时报错，调用方据此退回完整验证。
+    可直接交给 generated() 求值。结构不配平时报错，调用方据此放弃收窄。
     """
     changed = set(changed_lines)
     leaves: list[tuple] = []
