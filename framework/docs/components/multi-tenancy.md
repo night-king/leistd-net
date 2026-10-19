@@ -357,6 +357,10 @@ IHttpClientBuilder controlPlane = builder.Services.AddRemoteTenantConnectionStor
   读不出清单本身（控制库查询失败、远端回源失败、取消）照常抛出。本地迁移作业同样要解密，须与 API 共享密钥环。
 - **运行时逐库处理**：`AddMultiTenancyCore()` 注册 `ITenantDatabaseEnumerator`，为归档、清理这类后台作业列出物理库：宿主库在前，其后是独立库，不含连接串；
   没有注册租户连接解析时只有宿主库。停用租户的库是否参与由调用方用 `activeOnly` 显式决定。
+  `activeOnly: false` 表示停用租户的数据义务仍然存在：登记仍在却解析不出（已有登记但精确名与 `Default` 都不存在，或解密失败）记入 `UnresolvedTenants`，
+  库连不上或执行失败记入 `FailedDatabases`，两者都算本轮失败，框架不区分“库已撤”与“库故障”。配置遗漏或暂时不可达时恢复配置或连通性；
+  宿主确认该租户的数据与保留义务已经了结、不再恢复时删除租户：软删除后它不再被列出，但不会删除业务数据或物理库。
+  不要用删光连接登记来消除失败，那样该租户改走宿主库，不是退役。
   `IgnoreQueryFilters()` 只放开同一个库里的租户，独立库要逐个进入：`ICurrentTenant.Change(database.TenantId)` → `Begin(requiresNew: true)` → 经 `IDbContextProvider` 取上下文
   （直接注入的 `DbContext` 不跟随租户路由）。`ITenantDatabaseRunner.ForEachDatabaseAsync` 封装了切租户与逐库失败隔离。
   与宿主连接配置相同的登记并入宿主库；指纹判的是连接配置而非物理库，逐库逻辑须能重复执行。
