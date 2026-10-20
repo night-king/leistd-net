@@ -237,13 +237,13 @@ describe('ReadonlyListPopover', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     let text: string | null;
     try {
-      element.focus();
+      // 与 hoverTooltip 一样用 DOM 事件进入提示处理器：真实焦点受浏览器窗口焦点与浮层焦点管理影响，
+      // 在 CI 上收不起提示；可聚焦本身由上面的 tabIndex 断言覆盖
+      element.dispatchEvent(new FocusEvent('focus'));
       await vi.advanceTimersByTimeAsync(0);
       await fixture.whenStable();
       text = tooltip()?.textContent?.trim() ?? null;
-      // 焦点移回面板里的列表，而不是 blur 到面板外：浮层会把移出面板的焦点拉回第一个可聚焦元素，
-      // 那正是这一行，提示便收不起来
-      list().focus();
+      element.dispatchEvent(new FocusEvent('blur'));
       await vi.advanceTimersByTimeAsync(0);
     } finally {
       vi.useRealTimers();
