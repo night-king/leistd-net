@@ -104,7 +104,7 @@
 
 错误码不随是否启用多语言而变化，命名与放置：
 
-- 采用 `模块:语义`（`User:*`、`Auth:*`、`OpenApp:*`、`Security:*` 等），前缀由一个模块独占，常量成员名与语义后缀一致。
+- 采用 `模块:语义`（`User:*`、`Auth:*`、`OpenApp:*`、`Security:*` 等），前缀由一个模块独占（扩展组件资源的宿主码可沿用组件前缀，完整码不重名），常量成员名与语义后缀一致。
 - 一个模块的码集中在一个 `Errors/` 文件，放在用到其中任一码的最低层（Domain 或 Application）；`Domain/Shared` 只放真正跨模块的契约；组件错误码引用组件常量。
 - 错误码是对外契约（变更见 §8），前端分支与状态映射都要有针对性测试。
 
@@ -123,7 +123,7 @@
 | 安全回落 | `Message`（构造参数） | 可读英文，资源未命中时直接给用户，从抛出点就须安全可展示 |
 | 身份 + 展示 | `Code`（构造参数） | 稳定机器契约，也是本地化词条键 |
 
-- 资源 `Resources/{en,zh-CN}.json` 的 `texts` 段按错误码给出各语言文案（`en` 为默认/回落），占位符与 `WithData` 的键同名：`"User:UsernameTaken": "Username '{Username}' already exists."`。抛出写法见[后端开发规范 §3.4](./coding-backend.md#34-领域服务)。
+- 资源 `Resources/{en,zh-CN}.json` 的 `texts` 段按错误码给出各语言文案（`en` 为默认/回落），占位符与 `WithData` 的键同名：`"User:UsernameTaken": "Username '{Username}' already exists."`。组件错误码的默认译文随组件包分发，宿主只在改写时写同名键。抛出写法见[后端开发规范 §3.4](./coding-backend.md#34-领域服务)。
 - 全局处理器按 **`Code` 词条 → 安全 `Message`** 解析，本地化失败不改写 `code` 或 HTTP 语义。
 - DataAnnotations 校验消息同样随 culture 本地化（写法见[后端开发规范 §5](./coding-backend.md#5-命名与-dto)），参数校验与业务异常在同一请求下同语言。
 - 资源键集合、占位符与错误码格式由 `scripts/check-i18n.py` 检查（见[测试规范](./testing.md)）。
@@ -163,6 +163,7 @@
 | 更新 | PUT | `/api/v1/{resource}/{id}` | `UpdateAsync` |
 | 局部更新 | PATCH | `/api/v1/{resource}/{id}` | `PatchAsync` |
 | 删除 | DELETE | `/api/v1/{resource}/{id}` | `DeleteAsync` |
+| 非 CRUD 动作 | POST | `/api/v1/{resource}/{id}/{action}` | 与动作同名 |
 
 ### 6.1 批量操作与统计
 

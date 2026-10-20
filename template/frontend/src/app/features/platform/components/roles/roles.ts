@@ -199,7 +199,7 @@ export class Roles {
     const title = translateSignal('roles.title', {}, { scope: 'roles' });
     effect(() => this.layoutService.title.set(title()));
     //#else
-    this.layoutService.title.set('Role Management');
+    this.layoutService.title.set('Role management');
     //#endif
   }
 

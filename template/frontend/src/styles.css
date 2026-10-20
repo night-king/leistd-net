@@ -261,7 +261,7 @@ body {
 
 /*
  * 触屏点按目标不小于 44px（frontend-ui.md「可访问性」）。按钮、输入框等在 helm 里按尺寸档位加了 pointer-coarse；
- * 菜单项、选项、导航链接、侧栏菜单按钮与分段控件项的最小目标尺寸不随档位变化，在这里统一补足，内容多行时照常撑高。
+ * 菜单项、选项、导航链接、侧栏菜单按钮、分段控件项与验证码格的最小目标尺寸不随档位变化，在这里统一补足，内容多行时照常撑高。
  * 折叠为图标的侧栏加宽到能放下 44px 的按钮（按钮本身的尺寸见 helm sidebar-menu-button）。
  */
 @media (pointer: coarse) {
@@ -279,7 +279,7 @@ body {
     min-height: calc(var(--spacing) * 11);
   }
 
-  [data-slot='toggle-group-item'] {
+  :is([data-slot='toggle-group-item'], [data-slot='input-otp-slot']) {
     min-width: calc(var(--spacing) * 11);
     min-height: calc(var(--spacing) * 11);
   }

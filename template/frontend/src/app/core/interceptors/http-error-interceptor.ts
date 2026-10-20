@@ -120,14 +120,18 @@ export const httpErrorInterceptor: HttpInterceptorFn = (req, next) => {
         return value === key ? undefined : value;
       };
       return throwError(() =>
-        ApplicationHttpError.from(
-          error,
-          error.status === 0 ? text('common.networkError') : undefined,
-          text('common.traceId'),
-        ),
+        ApplicationHttpError.from(error, {
+          method: req.method,
+          invalidResponseMessage: text('common.invalidResponse'),
+          networkErrorMessage: text('common.networkError'),
+          requestFailedMessage: text('common.requestFailed'),
+          serverErrorMessage: text('common.unexpectedError'),
+          traceIdLabel: text('common.traceId'),
+          uncertainResultMessage: text('common.uncertainResult'),
+        }),
       );
       //#else
-      return throwError(() => ApplicationHttpError.from(error));
+      return throwError(() => ApplicationHttpError.from(error, { method: req.method }));
       //#endif
     }),
   );

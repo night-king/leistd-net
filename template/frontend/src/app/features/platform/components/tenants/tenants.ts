@@ -173,7 +173,7 @@ export class Tenants {
     const title = translateSignal('tenants.title', {}, { scope: 'tenants' });
     effect(() => this.layoutService.title.set(title()));
     //#else
-    this.layoutService.title.set('Tenant Management');
+    this.layoutService.title.set('Tenant management');
     //#endif
   }
 

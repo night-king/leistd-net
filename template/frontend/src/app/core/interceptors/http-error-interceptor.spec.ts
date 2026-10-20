@@ -105,9 +105,13 @@ describe('httpErrorInterceptor', () => {
     error: unknown,
     options?: {
       context?: HttpContext;
+      method?: 'GET' | 'POST';
     },
   ): unknown {
-    const req = new HttpRequest('GET', '/api/test', { context: options?.context });
+    const req =
+      options?.method === 'POST'
+        ? new HttpRequest('POST', '/api/test', null, { context: options.context })
+        : new HttpRequest('GET', '/api/test', { context: options?.context });
     const next: HttpHandlerFn = () => throwError(() => error) as Observable<HttpEvent<unknown>>;
 
     let caught: unknown;
@@ -208,6 +212,40 @@ describe('httpErrorInterceptor', () => {
     //#else
     expect(applicationErrorMessage(caught)).toBe('Unavailable (Trace ID: trace-5)');
     //#endif
+  });
+
+  // 写请求的结果不确定：提示先核实，拦截器不自动重放
+  it('marks a 5xx on a write request as uncertain using the request method', () => {
+    //#if (IncludeLocalization)
+    TestBed.inject(TranslocoService).setTranslation(
+      { common: { uncertainResult: '操作可能已经完成，请先核实' } },
+      'en',
+    );
+    //#endif
+    const caught = runInterceptor(httpError(502, { title: 'Bad Gateway' }), { method: 'POST' });
+
+    expect((caught as ApplicationHttpError).category).toBe('uncertain');
+    //#if (IncludeLocalization)
+    expect((caught as ApplicationHttpError).message).toBe('操作可能已经完成，请先核实');
+    //#else
+    expect((caught as ApplicationHttpError).message).toBe(
+      'The operation may have completed. Check the result before trying again.',
+    );
+    //#endif
+  });
+
+  it('marks a 5xx without a problem on a read request as server, not the status text', () => {
+    const caught = runInterceptor(httpError(502, '<html><body>Bad Gateway</body></html>'));
+
+    expect((caught as ApplicationHttpError).category).toBe('server');
+    expect((caught as ApplicationHttpError).message).not.toContain('status 502');
+    expect((caught as ApplicationHttpError).message).not.toContain('Bad Gateway');
+  });
+
+  it('marks a lost write request (status 0) as uncertain', () => {
+    const caught = runInterceptor(httpError(0, new ProgressEvent('error')), { method: 'POST' });
+
+    expect((caught as ApplicationHttpError).category).toBe('uncertain');
   });
 
   it('lets a non-HTTP error pass through unchanged toward the GlobalErrorHandler', () => {

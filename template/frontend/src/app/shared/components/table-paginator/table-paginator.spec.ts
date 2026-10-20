@@ -99,6 +99,20 @@ describe('TablePaginator', () => {
     expect(report).toContain('第 1 / 5 页');
   });
 
+  // 可读名要落在真正的 combobox 按钮上，宿主元素上的 aria-label 读屏读不到
+  it('names the rows-per-page combobox', () => {
+    const combobox = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      'button[role="combobox"]',
+    )!;
+
+    expect(combobox.getAttribute('aria-label')).toBe('每页条数');
+    expect(
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('hlm-select-trigger')!
+        .hasAttribute('aria-label'),
+    ).toBe(false);
+  });
+
   // 避免把 null 当成合法页大小。
   it('does not emit when the rows-per-page value is empty', () => {
     const emitted: (number | null)[] = [];

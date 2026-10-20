@@ -18,7 +18,7 @@ describe('CommandPalette', () => {
     { label: 'Work', items: [{ label: 'Dashboard', icon: 'lucideGauge', route: '/platform' }] },
     {
       label: 'Identity & access',
-      items: [{ label: 'User Management', icon: 'lucideUsers', route: '/platform/users' }],
+      items: [{ label: 'User management', icon: 'lucideUsers', route: '/platform/users' }],
     },
   ];
   const areas = [
@@ -75,7 +75,7 @@ describe('CommandPalette', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(optionTexts()).toEqual(['Dashboard', 'User Management', 'Workspace']);
+    expect(optionTexts()).toEqual(['Dashboard', 'User management', 'Workspace']);
   });
 
   it('navigates to the selected entry and closes', async () => {
@@ -86,7 +86,7 @@ describe('CommandPalette', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     const users = [...document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')].find(
-      (item) => item.textContent?.includes('User Management'),
+      (item) => item.textContent?.includes('User management'),
     );
     users?.click();
     fixture.detectChanges();

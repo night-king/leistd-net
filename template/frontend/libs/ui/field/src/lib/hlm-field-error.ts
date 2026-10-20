@@ -73,14 +73,14 @@ export class HlmFieldError implements OnDestroy {
         if (!a11y) return;
 
         const id = this.id();
-        const hasError = this._hasError();
+        const visible = this._display();
 
-        if (this._registeredId && (this._registeredId !== id || !hasError)) {
+        if (this._registeredId && (this._registeredId !== id || !visible)) {
           a11y.unregisterError(this._registeredId);
           this._registeredId = undefined;
         }
 
-        if (hasError && this._registeredId !== id) {
+        if (visible && this._registeredId !== id) {
           a11y.registerError(id);
           this._registeredId = id;
         }

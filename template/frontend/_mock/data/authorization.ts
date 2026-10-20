@@ -68,7 +68,7 @@ export const PERMISSION_DEFINITIONS = [
     permissions: [
       {
         name: PERMISSIONS.users.default,
-        displayName: 'User Management',
+        displayName: 'User management',
         parentName: undefined,
         children: [
           leaf(PERMISSIONS.users.create, 'Create', PERMISSIONS.users.default),
@@ -79,7 +79,7 @@ export const PERMISSION_DEFINITIONS = [
       },
       {
         name: PERMISSIONS.roles.default,
-        displayName: 'Role Management',
+        displayName: 'Role management',
         parentName: undefined,
         children: [
           leaf(PERMISSIONS.roles.create, 'Create', PERMISSIONS.roles.default),
@@ -95,7 +95,7 @@ export const PERMISSION_DEFINITIONS = [
       //#if (LocalIdentity && IncludeMultiTenancy)
       {
         name: PERMISSIONS.tenants.default,
-        displayName: 'Tenant Management',
+        displayName: 'Tenant management',
         parentName: undefined,
         children: [
           leaf(PERMISSIONS.tenants.create, 'Create', PERMISSIONS.tenants.default),
@@ -116,7 +116,7 @@ export const PERMISSION_DEFINITIONS = [
     permissions: [
       {
         name: PERMISSIONS.openApplications.default,
-        displayName: 'Open Applications',
+        displayName: 'Open applications',
         parentName: undefined,
         children: [
           leaf(PERMISSIONS.openApplications.create, 'Create', PERMISSIONS.openApplications.default),

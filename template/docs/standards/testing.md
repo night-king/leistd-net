@@ -98,6 +98,7 @@ backend/tests/
 - 能在单元测试里验证的规则不放进集成测试（分界见 §1）。
 - 集成测试每类一个 `IClassFixture<ProjectWebApplicationFactory>`，**不逐用例建宿主**。
 - 改配置的用例用 `WithWebHostBuilder` 派生宿主，**同类配置变体归组复用**；断言精确用户名、全表计数或修改租户级设置等依赖空库的用例例外，保留独立宿主。
+- 注册阶段读取的键（连接串、锁与缓存选择、密钥路径）用 `UseSetting` 注入；`ConfigureAppConfiguration` 在 `Program` 注册服务时尚不可见，会被静默忽略。
 <!--#if (LocalIdentity)-->
 - 与被测行为无关的宿主固定成本要压低：`ProjectWebApplicationFactory` 把 `PasswordHash:IterationCount` 调到 1000，生产值由 `PasswordHashingTests` 验证。
 <!--#endif-->
@@ -153,6 +154,7 @@ E2E 只放真实部署才能证明的东西：真实界面的登录与会话、�
 - 共享实现只验一次。
 - 同一主题的变体只留主路径。
 - 时间边界交给假时钟或假计时器，截止前、恰好截止、截止后三点各验一次，不等真实时间。
+- 等待有上限并观察目标完成，不用固定睡眠；断言"没发生"前先建立因果屏障（同链路回执、目标初始化完成），建不了的下沉到组件或单元测试。
 - 用例按行为命名，不按轮次命名。
 
 下沉或删除测试时，指出已覆盖同一行为的测试。
@@ -172,7 +174,7 @@ python3 scripts/check-operation-action-i18n.py            # 每个动作码都�
 <!--#endif-->
 ```
 <!--#if (SpaFrontend && IncludeOperationRecords)-->
-动作码与 `operationRecords.actions.<码>` 词条须集合相等：漏配不报错，界面只把那一行显示成裸码（`role.deleted`）。新增动作码时同一提交补中英句子。
+每个动作码都须有 `operationRecords.actions.<码>` 词条（单向，多余词条不报）；漏配时界面只把那一行显示成裸码（`role.deleted`）。新增动作码时同一提交补中英句子。
 <!--#endif-->
 
 后端代码风格（日志模板、命名空间、未使用的 using 等）由 `backend/.editorconfig` 在构建期检查，以 0 警告为准（IDE0001/IDE0002 由 `verify` 的 `backend-format` 核对），确需违反用 `[SuppressMessage]` 写明理由；控制器授权、路由前缀与实体租户归属由三个 `*ConventionTests` 检查，豁免写在测试白名单里并注明理由。

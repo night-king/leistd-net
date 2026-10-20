@@ -34,7 +34,6 @@
             data-testid="two-factor-recovery-input"
             [id]="recoveryInputId"
             [attr.aria-invalid]="error() ? 'true' : null"
-            [attr.aria-describedby]="error() ? errorId : null"
             [value]="value()"
             (input)="onInput($event)"
           />

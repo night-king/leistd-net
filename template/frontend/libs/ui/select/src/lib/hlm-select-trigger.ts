@@ -27,6 +27,8 @@ import type { ClassValue } from 'clsx';
       [id]="buttonId()"
       [class]="_computedClass()"
       [aria-invalid]="ariaInvalidInput()"
+      [attr.aria-label]="ariaLabel()"
+      [attr.aria-labelledby]="ariaLabelledBy()"
       [attr.data-size]="size()"
       data-slot="select-trigger"
     >
@@ -52,6 +54,10 @@ export class HlmSelectTrigger {
   public readonly buttonId = input<string>(`hlm-select-trigger-${HlmSelectTrigger._id++}`);
 
   public readonly size = input<'default' | 'sm'>('default');
+
+  // 名称必须传给实际 combobox；保留未设置时的原生 Field label 关联。
+  public readonly ariaLabel = input<string | null>(null, { alias: 'aria-label' });
+  public readonly ariaLabelledBy = input<string | null>(null, { alias: 'aria-labelledby' });
 
   /** Whether to force the trigger into an invalid state. */
   public readonly forceInvalid = input<boolean, BooleanInput>(false, {

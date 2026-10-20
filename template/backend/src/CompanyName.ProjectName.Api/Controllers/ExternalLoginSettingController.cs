@@ -16,6 +16,7 @@ namespace CompanyName.ProjectName.Api.Controllers;
 /// 开关与凭据的读写走设置组件的通用端点；这里补通用设置读不出的两件事——机密不回显，密钥来自部署配置时
 /// 看不出已配置；回调地址要登记到提供方。放在 Api：它读的是认证方案目录与 Infrastructure 的选项。
 /// </remarks>
+[Authorize]
 [Authorize(Policy = PermissionConstant.Settings.ExternalLogin)]
 [Route("api/v1/settings/external-login")]
 public sealed class ExternalLoginSettingController(

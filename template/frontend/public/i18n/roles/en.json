@@ -19,7 +19,7 @@
   "deleteTitle": "Delete role",
   "deleteDescription": "Delete \"{{name}}\"? Its permission grants will be removed as well.",
   "configurePermissions": "Configure permissions",
-  "title": "Role Management",
+  "title": "Role management",
   "colSort": "Sort",
   "colCreatedAt": "Created at",
   "table": {
