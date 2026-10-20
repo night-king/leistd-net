@@ -52,6 +52,8 @@ PR #136 一次交付 §1 全部内容。
 - 时间改为相对时间；
 - 工作台先加后撤删除，并去掉「全部标为已读」，确定"工作台只看、整理在铃铛"。
 
+- 审视时一度把只读溢出列表的被截断条目改为可聚焦，与 `frontend-lists.md` 明文写下的例外冲突（APG：提示只给本身可交互的控件，不为提示把只读内容变成 Tab 停靠点），且新增的真实焦点测试在 CI 上收不起提示；已撤回，恢复原设计。
+
 ### 验收记录
 
 | 项 | 结果 |
@@ -68,4 +70,4 @@ PR #136 一次交付 §1 全部内容。
 
 ### 已上收的常驻文档
 
-`frontend-lists.md`（溢出列表被截断条目可聚焦）、框架组件文档 `settings.md`、`authorization.md`、`operation-records.md`、`tracing.md`。
+框架组件文档 `settings.md`、`authorization.md`、`operation-records.md`、`tracing.md`。

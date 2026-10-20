@@ -232,26 +232,6 @@ describe('ReadonlyListPopover', () => {
     return text;
   }
 
-  async function focusTooltip(element: HTMLElement): Promise<string | null> {
-    await settle();
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
-    let text: string | null;
-    try {
-      // 与 hoverTooltip 一样用 DOM 事件进入提示处理器：真实焦点受浏览器窗口焦点与浮层焦点管理影响，
-      // 在 CI 上收不起提示；可聚焦本身由上面的 tabIndex 断言覆盖
-      element.dispatchEvent(new FocusEvent('focus'));
-      await vi.advanceTimersByTimeAsync(0);
-      await fixture.whenStable();
-      text = tooltip()?.textContent?.trim() ?? null;
-      element.dispatchEvent(new FocusEvent('blur'));
-      await vi.advanceTimersByTimeAsync(0);
-    } finally {
-      vi.useRealTimers();
-    }
-    await expect.poll(() => tooltip()).toBeNull();
-    return text;
-  }
-
   it('keeps the header and each item on one vertically centred line', async () => {
     const trigger = await render(roles(3));
     const content = await open(trigger);
@@ -322,12 +302,6 @@ describe('ReadonlyListPopover', () => {
     expect(await hoverTooltip(row('detail'))).toBe(`Ops · ${longDetail}`);
     expect(await hoverTooltip(row('short'))).toBeNull();
     expect(await hoverTooltip(row('same'))).toBeNull();
-
-    // 键盘用户同样拿得到全文：只有被截断的行是 Tab 停靠点，聚焦即提示
-    expect(['both', 'name', 'detail', 'short', 'same'].map((id) => row(id).tabIndex)).toEqual([
-      0, 0, 0, -1, -1,
-    ]);
-    expect(await focusTooltip(row('both'))).toBe(`${longLabel} · ${longDetail}`);
   });
 
   // 面板打开期间视口变窄（分屏、旋转）：原本放得下的行被截断后要能看到全文，放宽后不再多余地弹提示
