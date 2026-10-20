@@ -18,11 +18,14 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
     foreach ($name in $jobNames) {
         if ($plan.Jobs.$name -isnot [bool]) { throw "Invalid job responsibility: $name" }
     }
-    # 模板通道：Changed 表示自上一个 template-v tag 起模板输入有变化；只有 push main（stable）发布，Required 才可能为真
+    # 模板通道：Changed 表示自上一个 template-v tag 起模板输入有变化。main（stable）上框架与模板同号发布：
+    # Required 与 ReleaseRequired 相同，模板有变化时两者都必须为真；其他通道 Required 恒为假
     $template = $plan.TemplateRelease
+    $stable = $plan.ReleaseChannel -ceq 'stable'
     if ($template -isnot [pscustomobject] -or $template.Changed -isnot [bool] -or $template.Required -isnot [bool] -or
         $template.BaseTag -isnot [string] -or $template.BaseSha -isnot [string] -or $template.Reason -isnot [string] -or
-        ($template.Required -and (-not $template.Changed -or $plan.ReleaseChannel -cne 'stable' -or $plan.Event -cne 'push')) -or
+        ($template.Required -and -not $stable) -or
+        ($stable -and ($template.Required -ne $plan.ReleaseRequired -or ($template.Changed -and -not $template.Required))) -or
         ($template.Changed -and $plan.ReleaseChannel -cnotin @('stable', 'beta'))) {
         throw 'Invalid template release responsibility.'
     }
