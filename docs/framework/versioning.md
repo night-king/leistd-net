@@ -4,27 +4,19 @@
 
 框架版本的**唯一来源**是仓库根的 `VERSION` 文件（`x.y.z`），构建和发布都以它为基准。
 
-### `VERSION` 是"上一次已发布的正式版"，不是"下一版"
+### `VERSION` 是版本基准，平时等于上一个正式版
 
-- `VERSION` 等于最近一次 stable 已上传的版本，由 `release.yml` 上传后回写；包源索引与 Release 验收可能稍后完成。
-- 下一版由流水线按提交推算，不提前写入 `VERSION`；`develop` 也保留这个稳定版本基准，不随 beta 递增。
+- 平时等于最近一次 stable 已上传的版本，由 `release.yml` 上传后回写；包源索引与 Release 验收可能稍后完成。下一版由流水线按提交推算，不提前写入。
+- 维护者把它改到高于最高正式 tag 时，即显式指定下一版：beta 为 `<VERSION>-beta.<N>`，正式版原样发布，不按提交递增。用法见[发布指定版本](#发布指定版本)。
+- 最高正式 tag 取全部 `vX.Y.Z` tag，不要求是候选的祖先；提交范围从它起算，递增从它与 `VERSION` 中较高者起算。正式版回写合回 `develop` 之前，beta 也不会低于已发布的正式版，也不会重复计入已发布的提交。
+- 前提是该 tag 发布的源码都在候选里：除合并提交与版本回写外，它不能含候选缺少的提交，否则推包前停止。stable 遇到这种情况，说明本候选排队晚到、已被更新的发布覆盖；`develop` 遇到，说明 `main` 上有提交未合回，先合回。
 - 下游跟 stable 使用 `VERSION`；跟 beta 从包源或流水线确认实际 `-beta.<N>` 全称，不猜测后缀。
 
 ### 预发布版本选择
 
-`1.0.0-beta.22`（2026-07-20）与 `1.0.0-preview.20260908`–`20260918` 共 10 个包，
-按 SemVer 排序**高于**当前在用的 `0.13.0-beta.*`。后果是
-`dotnet add package Leistd.Core --prerelease` 会解析到那批旧包，而不是最新 beta。
+nuget.org 上的 `1.0.0-beta.14`–`22`（2026-07）按 SemVer 排序高于 `0.13.0-beta.*`，`--prerelease` 与浮动版本会解析到这批旧包。在 `VERSION` 抬到 `1.0.0` 并合入 `develop` 之前，预发布依赖写死全称，如 `0.13.0-beta.170`。之后新 beta 的 `<N>` 远大于 22，排序高于旧包，旧包无需 unlist。
 
-**在这批包被 unlist 之前，预发布依赖必须写死全称**，例如
-`<PackageReference Include="Leistd.Core" Version="0.13.0-beta.170" />`，不要用浮动或 `--prerelease`。
-
-unlist 是公共源操作，由维护者在单独授权后执行：
-
-1. 授权前列出精确清单：对每个 `Leistd.*` PackageId，用 nuget.org 注册表（registration API）只读查询，列出仍为 listed、且 SemVer 排序高于当前 0.x 版本线的全部版本；清单随授权请求一起给出，执行时不增不减。
-2. 执行后验收：用官方客户端对代表包做预发布选择（如在空项目里 `dotnet add package Leistd.Core --prerelease`），解析结果回到当前版本线；再按某个已 unlist 的精确版本还原一次，证明它仍可还原。
-
-定时任务执行默认分支的 workflow；当前默认分支与 develop 的版本规则不同，nightly 因而仍可能产出虚高版本。修正需将 `release.yml` 合入 `main` 并在 nuget.org unlist 旧包；合入 main 会触发正式发布，unlist 是公共源操作，均须单独授权。
+定时任务执行默认分支的 workflow；`release.yml` 合入 `main` 之前，nightly 仍按 `main` 上的旧规则推算版本。
 
 - `framework/common.props` 在构建时自动读取 `VERSION` 作为 `VersionPrefix`，所有 `Leistd.*` 包同步该版本（无外部工具依赖）。
 - 模板 `template/backend/Directory.Build.props` 的 `<LeistdFrameworkVersion>` 是字面值副本（生成项目需自包含），由发布流水线 `release.yml` 在发版时回写。
@@ -63,7 +55,7 @@ BREAKING CHANGE: 失败响应的 message/details 改为标准字段 detail/error
 依据 [SemVer 第 4 条](https://semver.org/lang/zh-CN/#spec-item-4)：`0.y.z` 是初始开发期，
 公共 API 不承诺稳定。因此当前主版本为 `0` 时，`!` / `BREAKING CHANGE` 递增 **Minor** 而不是 Major。
 
-`1.0.0` 代表 API 稳定承诺，须显式抬 `VERSION`，不能由一条破坏性提交自动触发。0.x 的破坏性变化仍列入 release notes，升级小版本须阅读。
+`1.0.0` 代表 API 稳定承诺，由维护者按[发布指定版本](#发布指定版本)显式抬 `VERSION`，不能由一条破坏性提交自动触发。进入 1.x 后破坏性变更递增 Major。0.x 的破坏性变化仍列入 release notes，升级小版本须阅读。
 
 ## 分支与 PR
 
@@ -90,7 +82,7 @@ PR 描述写三项：
 | push `main` | `x.y.z`（正式，自动递增） | nuget.org | `release.yml`（stable 通道） |
 | push `develop` | `x.y.z-beta.<N>` | nuget.org（预发布） | `release.yml`（beta 通道） |
 | 每工作日定时（develop） | `x.y.z-preview.<yyyyMMdd>.<run_number>` | GitHub Packages（内部） | `release.yml`（nightly 通道） |
-| push `main`，模板有变化 | `Leistd.Templates` `x.y.z`（tag `template-vx.y.z`） | nuget.org | `release.yml`（template 通道，见[模板版本与发布](../template/versioning.md)） |
+| push `main`，与框架正式版同号 | `Leistd.Templates` `x.y.z`（tag `template-vx.y.z`） | nuget.org | `release.yml`（template 通道，见[模板版本与发布](../template/versioning.md)） |
 
 > 框架三个通道由**单个** `release.yml` 内部按 `github.ref` / `github.event_name` 自动判定；template 通道是同一 workflow 的 `template-release` 作业。
 
@@ -107,15 +99,26 @@ beta 由下游试点项目验收，试点项目按上文引用确切的 `-beta.<
 3. 打包并隔离消费最终版本，为整组最终 nupkg 生成来源证明（见[来源证明](#来源证明)），把最终 nupkg、清单（版本、tag、发布 SHA、候选 SHA、包哈希）、发布说明与 tag bundle 上传为 Actions artifact `release-packages-<版本>`，随后经 Trusted Publishing 推 nuget.org；
 4. 包源写入后立即推送 tag，stable 再把版本提交快进到 main，记录已发布产物；
 5. 推送成功后直接创建 GitHub Release（自动生成 release notes，附件为全部 nupkg）。推送接口返回 201/202 即表示已接收，`dotnet nuget push` 据此以退出码判定；nuget.org 随后异步校验并建索引（官方说明通常 15 分钟内），校验失败由 nuget.org 邮件通知所有者，流水线不等待包可见。包内容与依赖在推送前已用同一批 `.nupkg` 隔离消费验证。
+6. 发布后经 PR 把 `main` 合回 `develop`，带回 `VERSION` 与模板默认 `LeistdFrameworkVersion` 的回写；之后合入 `main` 时不会在这两处冲突。
 
 机制要点：
 发布差异从本通道最近已发布且为候选祖先的 tag 起算，独立于本次 push before。stable 只认正式 tag；beta 认 beta/正式 tag，排除 nightly，按 Git 祖先距离选择，不按版本字符串大小。正式 tag 在 main 的 VERSION 回写提交上，不是 develop 祖先时 beta 使用最近 beta 基线。取消或失败的发布没有完成 tag，下一次文档推送仍纳入尚未发布的框架改动；找不到可靠基线时保守发布。
 
-框架生产源码与真实 Pack 文档（含 `framework/NuGet.md`）触发发布。明确共享发布输入包括 `VERSION`、`framework/common.props`、根 `Directory.Build.props`、`Directory.Packages.props`、`global.json` 与 `NuGet.config`；脚本、workflow、未知输入/打包规则保守发布。内部说明、仓库配置（`.github/dependabot.yml`、根 `.mcp.json`）、框架测试、模板与模板打包项目（`template/`、`template-package/`）的变化不触发框架包发布，模板由[模板通道](../template/versioning.md)独立发布。stable/beta 使用同一分类定义。
+框架生产源码与真实 Pack 文档（含 `framework/NuGet.md`）触发发布。明确共享发布输入包括 `VERSION`、`framework/common.props`、根 `Directory.Build.props`、`Directory.Packages.props`、`global.json` 与 `NuGet.config`；脚本、workflow、未知输入/打包规则保守发布。内部说明、仓库配置（`.github/dependabot.yml`、根 `.mcp.json`）、框架测试、模板与模板打包项目（`template/`、`template-package/`）的变化不触发框架 beta；`main` 上模板有变化时框架正式版与模板同号发布（见[模板版本与发布](../template/versioning.md#版本与发布时机)）。其余分类 stable/beta 相同。
 
 candidate 与 CI 固定相同 SHA，显式传递质量和发布基线，CI 据此计算计划。发布必须取得成功汇总输出的 full 计划、全部发布责任和相同候选身份。非发布 push 也执行适用质量验证；轻量文档 push 的前次成功条件见[CI 质量计划与放行](./ci-release-gates.md#pr-的内部文档例外)。
 - 回写提交带 `[skip ci]` 且过滤 `github-actions[bot]`，避免死循环。
-- ⚠️ NuGet 包不可删（只能 unlist）。框架源码每次有效变更都会产出一个正式版，请把控合入 main 的节奏。
+- ⚠️ NuGet 包不可删（只能 unlist）。框架或模板每次有效变更都会产出一个正式版，请把控合入 main 的节奏。
+
+### 发布指定版本
+
+用于进入 `1.0.0` 等需要人为决定的版本号，不需要手工打 tag：
+
+1. 功能分支只把 `VERSION` 改为目标版本（须高于最高正式 tag），提交 `chore: 版本基准改为 1.0.0`，经 PR 合入 `develop`。`VERSION` 是共享发布输入，合入即发布 `1.0.0-beta.<N>`，供试点验收。
+2. `develop` 合入 `main`（需单独授权），框架与模板同号发布 `1.0.0`，模板默认框架版本即 `1.0.0`。
+3. 按上文第 6 步把 `main` 合回 `develop`，之后恢复按提交递增。
+
+`python scripts/test-workflow-change-scope.py` 执行实际的版本推算步骤，覆盖指定版本的 beta 与 stable、未合回时 beta 高于已发布正式版，以及 1.x 的破坏性变更递增 Major。
 
 ### 部分发布恢复
 
@@ -154,8 +157,8 @@ stable 或模板版本发布后，按下游清单通知使用方（目前只有 
 
 ## 需单独授权的发布操作
 
-- 合入 `main`：会触发框架正式版，模板有变化时同时发布模板；
-- 首次发布 `Leistd.Templates`：没有任何 `template-v*` tag 时，push `main` 的模板通道即首次发布，它与首次合入 `main` 分不开——申请合入 `main` 的授权时须明确写上“同时发布 Leistd.Templates 0.1.0”；
+- 合入 `main`：框架或模板任一侧有变化，就同号发布框架正式版与 `Leistd.Templates`；
+- 首次发布 `Leistd.Templates`：没有任何 `template-v*` tag 时，下一次合入 `main` 即首发，版本与该次框架正式版相同——申请授权时须写明"同时首发 Leistd.Templates <版本>"；
 - nuget.org 上的 unlist 或 deprecate；
 - 修改仓库设置，如分支保护与必需检查。
 
@@ -196,7 +199,7 @@ dotnet add package Leistd.Core --prerelease
 # 打包候选包到本地 feed（产出前先清空），版本为 <VERSION 下一补丁>-local.<UTC 时间戳>
 pwsh framework/build/pack-local-feed.ps1
 
-# 想发布更高的基准版本：直接编辑 VERSION 文件即可（CI 在此基础上按提交递增）
+# 指定下一版：经 PR 修改 VERSION，见「发布指定版本」
 ```
 
 > `.tmp/local-feed` 仅用于本地开发并由 `.gitignore` 忽略；CI 发布继续使用 `framework/artifacts`。版本推算、模板同步、打包发布逻辑在 `.github/workflows/release.yml`，提交解析与升版判据在两条通道共用的 `scripts/release-commits.ps1`；发布由 push 自动触发，本地通常无需手动介入。模板包的本地验证见[模板版本与发布](../template/versioning.md#本地验证与自检)。

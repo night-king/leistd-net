@@ -4,8 +4,8 @@ name: Release
 #   push main    -> stable  : vX.Y.Z，发布 nuget.org + GitHub 正式 Release
 #   push develop -> beta    : vX.Y.Z-beta.N，发布 nuget.org 预发布包 + GitHub prerelease
 #   schedule     -> nightly : vX.Y.Z-preview.YYYYMMDD.RUN，发布 GitHub Packages + tag
-#   template 通道（template-release 作业）：自上一个 template-v* tag 起 template/ 或 template-package/ 有变化时，
-#     push main 发布 Leistd.Templates template-vX.Y.Z（nuget.org + GitHub Release）；push develop 只打包验证，不推送。
+#   template 通道（template-release 作业）：与框架同号。main 上框架正式版与 Leistd.Templates 总是一起发布（任一侧有变化即两侧都发），
+#     模板版本即框架版本（tag template-vX.Y.Z，nuget.org + GitHub Release）；develop 上模板有变化时只打包验证，不推送。
 # 发布原则：所有通道都打唯一 tag；stable Release Notes 从上一个 stable tag 累积所有 beta/nightly 期间变更。
 on:
   push:
@@ -69,6 +69,8 @@ jobs:
     outputs:
       # 模板通道从这个提交打包：stable 是版本回写提交（模板默认的 LeistdFrameworkVersion 已是本次正式版），beta 即候选 SHA
       release_sha: ${{ steps.tag.outputs.release_sha }}
+      # 模板与框架同号：stable 时模板直接用这个版本
+      version: ${{ steps.ver.outputs.version }}
     # 同一分支的发布必须排队：版本推算是对 tag 命名空间的「读—改—写」，
     # stable 还要把版本回写 main。两个 run 并行时各自读到同一状态、算出同一个 tag，
     # 后落地的那个被 remote rejected（2026-09-11 两次合并撞出 v0.13.0-beta.148 即此）。
@@ -131,13 +133,26 @@ jobs:
           $base = (Get-Content VERSION -Raw).Trim()
           if ($base -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION 非法: $base" }
 
-          $stableTags = @(git tag --merged HEAD | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_ -replace '^v', '') })
+          # 提交解析、破坏性判据、升版幅度与发布说明分类由两条发布通道共用（scripts/release-commits.ps1）
+          . ./scripts/release-commits.ps1
+
+          # 最高正式版取全部 tag，不限 HEAD 的祖先：正式 tag 打在 main 的回写提交上，合回 develop 之前 develop 看不到它，
+          # 只看祖先会把已发布的提交再算一遍，推出低于或虚高于已发布正式版的 beta。`tag..HEAD` 对非祖先 tag 同样只取未发布的提交。
+          $stableTags = @(git tag -l | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_ -replace '^v', '') })
           $lastStableTag = if ($stableTags.Count -gt 0) { $stableTags[-1] } else { '' }
+          # 前提是它发布的源码都在候选里：除合并提交与版本回写外没有候选缺少的提交。否则在推包前停止——
+          # stable 是排队晚到的旧候选（更新的候选已发布），按它递增会用旧源码发出更高版本；develop 则是 main 上有未合回的提交。
+          if ($lastStableTag) {
+            $missing = @(Read-ReleaseCommits "HEAD..$lastStableTag" | Where-Object { -not (Test-ReleaseWriteBack $_.Subject) })
+            if ($missing.Count -gt 0) {
+              $listed = ($missing | ForEach-Object { "  $($_.Sha.Substring(0,8)) $($_.Subject)" }) -join "`n"
+              throw ("已发布的 $lastStableTag 含本候选没有的提交：`n$listed`n" +
+                "stable：本候选已被更新的发布覆盖，不再发布。develop：先把 main 合回 develop（见 docs/framework/versioning.md）。")
+            }
+          }
           $range = if ([string]::IsNullOrWhiteSpace($lastStableTag)) { 'HEAD' } else { "$lastStableTag..HEAD" }
           $commitCount = [int](git rev-list --count $range)
 
-          # 提交解析、破坏性判据、升版幅度与发布说明分类由两条发布通道共用（scripts/release-commits.ps1）
-          . ./scripts/release-commits.ps1
           $commits = @(Read-ReleaseCommits $range)
 
           # 脚注检查从固定锚点开始，不扩大历史豁免；升版推算仍使用完整提交范围。
@@ -151,8 +166,17 @@ jobs:
             [string[]]@(git rev-list "$footnoteAnchor..HEAD"), [StringComparer]::Ordinal)
           Assert-BreakingFooters @($commits | Where-Object { $footnoteScope.Contains($_.Sha) })
 
-          $bump = Get-ReleaseBump $commits $base
-          $baseVersion = Step-ReleaseVersion $base $bump
+          # VERSION 高于最高正式版：维护者显式指定了下一版（如 1.0.0），原样发布，不按提交递增。
+          # 否则从两者中较高者递增：合回 develop 之前 develop 的 VERSION 仍是旧值。
+          $latest = if ($lastStableTag) { [version]($lastStableTag -replace '^v', '') } else { $null }
+          if ($latest -and [version]$base -gt $latest) {
+            $bump = 'explicit'
+            $baseVersion = $base
+          } else {
+            if ($latest -and $latest -gt [version]$base) { $base = "$latest" }
+            $bump = Get-ReleaseBump $commits $base
+            $baseVersion = Step-ReleaseVersion $base $bump
+          }
           $preNumber = [Math]::Max($commitCount, 1)
           switch ('${{ steps.ch.outputs.channel }}') {
             'beta' {
@@ -468,15 +492,15 @@ jobs:
           -PushOutcome $env:PUSH_OUTCOME -TagOutcome $env:TAG_OUTCOME -TagResult $env:TAG_RESULT
           -BranchOutcome $env:BRANCH_OUTCOME -BranchResult $env:BRANCH_RESULT -ReleaseOutcome $env:RELEASE_OUTCOME
 
-  # 模板通道：版本独立于框架（template-vX.Y.Z），只在 main 发布。放行条件与框架通道相同——同一候选 SHA 的 full 计划、
-  # 全部质量责任成功；另要求框架通道已成功或本次无需发布，因为生成项目默认的 LeistdFrameworkVersion
-  # 必须已在 nuget.org 上可还原（模板发布晚于它所依赖的框架正式版）。develop 上只打包并跑同一组验证，不推送。
+  # 模板通道：与框架同号（template-vX.Y.Z = 框架 vX.Y.Z），只在 main 发布，且框架正式版发布时一定同时发布。放行条件与框架通道相同——
+  # 同一候选 SHA 的 full 计划、全部质量责任成功；另要求框架通道已成功（develop 上可为跳过），因为生成项目默认的
+  # LeistdFrameworkVersion 必须已在 nuget.org 上可还原（模板发布晚于它所依赖的框架正式版）。develop 上只打包并跑同一组验证，不推送。
   template-release:
     needs: [candidate, quality, release]
     if: >-
       !cancelled() && needs.candidate.result == 'success' && needs.quality.result == 'success' &&
       (needs.release.result == 'success' || needs.release.result == 'skipped') &&
-      fromJSON(needs.quality.outputs.validation_plan).TemplateRelease.Changed &&
+      (fromJSON(needs.quality.outputs.validation_plan).TemplateRelease.Changed || fromJSON(needs.quality.outputs.validation_plan).TemplateRelease.Required) &&
       fromJSON(needs.quality.outputs.validation_plan).Mode == 'full' &&
       fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha
     runs-on: ubuntu-latest
@@ -501,7 +525,8 @@ jobs:
         with:
           global-json-file: global.json
 
-      # 与质量计划的 TemplateRelease 独立重算同一区间：基线 tag 或"有无模板变化"不一致即失败
+      # 从质量计划冻结的基线独立重算"有无模板变化"，不一致即失败。规划之后合法新增的 template-v tag
+      # （相邻两次发布的上一轮模板、本版本重跑时自己的 tag）不改变这个判定。
       - name: 推算模板版本
         id: tver
         shell: pwsh
@@ -513,47 +538,64 @@ jobs:
           $decision = ($env:VALIDATION_PLAN | ConvertFrom-Json).TemplateRelease
           $channel = '${{ needs.candidate.outputs.channel }}'
           $inputs = @('template/', 'template-package/')
-          $tags = @(git tag --merged HEAD | Where-Object { $_ -cmatch '^template-v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_ -replace '^template-v', '') })
-          $lastTag = if ($tags.Count -gt 0) { $tags[-1] } else { '' }
-          $range = if ($lastTag) { "$lastTag..HEAD" } else { 'HEAD' }
-          # 框架 stable 的版本回写提交不算模板变更：只改框架时不升模板版本
-          $commits = @(Read-ReleaseCommits $range $inputs | Where-Object { -not (Test-ReleaseWriteBack $_.Subject) })
-          $changed = -not $lastTag -or $commits.Count -gt 0
-          if ($lastTag -cne $decision.BaseTag -or $changed -ne $decision.Changed) {
-            throw "模板通道判定与质量计划不一致：本步骤 基线='$lastTag' 有变化=$changed；计划 基线='$($decision.BaseTag)' 有变化=$($decision.Changed)"
+          $planBase = [string]$decision.BaseTag
+          if ($planBase) {
+            if (-not (git tag -l $planBase)) { throw "计划的模板基线 $planBase 不存在" }
+            git merge-base --is-ancestor $planBase HEAD
+            if ($LASTEXITCODE -ne 0) { throw "计划的模板基线 $planBase 不是候选的祖先" }
           }
-          if ($lastTag) {
-            Assert-BreakingFooters $commits
-            $previous = $lastTag -replace '^template-v', ''
-            $bump = Get-ReleaseBump $commits $previous
-            $baseVersion = Step-ReleaseVersion $previous $bump
-          } else {
-            # 首个模板版本：没有可比较的上一版
-            $bump = 'initial'
-            $baseVersion = '0.1.0'
+          $planRange = if ($planBase) { "$planBase..HEAD" } else { 'HEAD' }
+          # 框架 stable 的版本回写提交不算模板变更：只改框架时模板仍同号发布，但"有变化"与发布说明不计入它
+          $commits = @(Read-ReleaseCommits $planRange $inputs | Where-Object { -not (Test-ReleaseWriteBack $_.Subject) })
+          $changed = -not $planBase -or $commits.Count -gt 0
+          if ($changed -ne $decision.Changed) {
+            throw "模板通道判定与质量计划不一致：自计划基线 '$planBase' 起 本步骤有变化=$changed、计划有变化=$($decision.Changed)"
           }
-          # 只有 push main 发布模板：workflow_dispatch 在 main 上也是 stable 通道，但不发布模板
-          $publish = $channel -eq 'stable' -and '${{ github.event_name }}' -eq 'push' -and $decision.Required
-          if ($decision.Required -and -not $publish) { throw "只有 push main 发布模板，当前通道 $channel、事件 ${{ github.event_name }} 的计划却要求发布" }
-          $version = if ($publish) { $baseVersion } else { "$baseVersion-ci.${{ github.run_id }}.${{ github.run_attempt }}" }
+          if ($planBase) { Assert-BreakingFooters $commits }
+          $publish = $channel -eq 'stable' -and $decision.Required
+          if ($decision.Required -and -not $publish) { throw "只有 main 发布模板，当前通道 $channel 的计划却要求发布" }
           $props = [xml](Get-Content -Raw template/backend/Directory.Build.props)
           $frameworkVersion = @($props.Project.PropertyGroup | ForEach-Object { $_.LeistdFrameworkVersion } | Where-Object { $_ })[0]
           if ($frameworkVersion -notmatch '^\d+\.\d+\.\d+$') { throw "模板默认的 LeistdFrameworkVersion 必须是正式版：'$frameworkVersion'" }
+          if ($publish) {
+            # 与框架同号：版本取框架通道本次的正式版，模板默认的框架版本（版本回写提交里）必须就是它
+            $baseVersion = '${{ needs.release.outputs.version }}'
+            if ($baseVersion -notmatch '^\d+\.\d+\.\d+$') { throw "框架通道没有给出正式版本：'$baseVersion'" }
+            if ($frameworkVersion -cne $baseVersion) { throw "模板默认的 LeistdFrameworkVersion '$frameworkVersion' 不是本次框架正式版 $baseVersion" }
+            $version = $baseVersion
+          } else {
+            # 只验证：带唯一后缀的候选版本，不会与已发布版本相同
+            $baseVersion = (Get-Content VERSION -Raw).Trim()
+            $version = "$baseVersion-ci.${{ github.run_id }}.${{ github.run_attempt }}"
+          }
+          # 上一个已发布的模板版本：发布说明的范围与升级闸门的起点。发布时只取低于本版本的 tag，重跑时自己的 tag 已经存在
+          $lastTag = @(git tag --merged HEAD | Where-Object { $_ -cmatch '^template-v\d+\.\d+\.\d+$' } |
+            ForEach-Object { [pscustomobject]@{ Tag = $_; Version = [version]($_ -replace '^template-v', '') } } |
+            Where-Object { -not $publish -or $_.Version -lt [version]$baseVersion } | Sort-Object Version | ForEach-Object Tag)
+          $lastTag = if ($lastTag.Count -gt 0) { $lastTag[-1] } else { '' }
           "version=$version" | Out-File $env:GITHUB_OUTPUT -Append
           "baseVersion=$baseVersion" | Out-File $env:GITHUB_OUTPUT -Append
           "tag=template-v$baseVersion" | Out-File $env:GITHUB_OUTPUT -Append
           "lastTag=$lastTag" | Out-File $env:GITHUB_OUTPUT -Append
-          "bump=$bump" | Out-File $env:GITHUB_OUTPUT -Append
           "publish=$($publish.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
           "frameworkVersion=$frameworkVersion" | Out-File $env:GITHUB_OUTPUT -Append
           "sourceSha=$(git rev-parse HEAD)" | Out-File $env:GITHUB_OUTPUT -Append
-          Write-Host "模板通道=$channel bump=$bump version=$version 上一版=$(if ($lastTag) { $lastTag } else { '无' }) 发布=$publish 默认框架版本=$frameworkVersion"
+          Write-Host "模板通道=$channel version=$version 上一版=$(if ($lastTag) { $lastTag } else { '无' }) 发布=$publish 默认框架版本=$frameworkVersion"
 
+      # 重跑模板作业时 tag 可能已由上次运行推送：指向同一源提交即沿用（后续只补缺的步骤），指向别处即停止
       - name: 检查模板 tag 是否已存在
+        id: texisting
         if: steps.tver.outputs.publish == 'true'
         shell: pwsh
         run: |
-          if (git tag -l '${{ steps.tver.outputs.tag }}') { throw "tag 已存在: ${{ steps.tver.outputs.tag }}" }
+          $tag = '${{ steps.tver.outputs.tag }}'
+          $exists = [bool](git tag -l $tag)
+          if ($exists) {
+            $sha = git rev-parse "$tag^{commit}"
+            if ($sha -cne '${{ steps.tver.outputs.sourceSha }}') { throw "tag 已存在且指向 $sha，不是本次源提交 ${{ steps.tver.outputs.sourceSha }}" }
+            Write-Host "tag $tag 已指向本次源提交，沿用"
+          }
+          "exists=$($exists.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
           $global:LASTEXITCODE = 0
 
       # 模板的变更说明就是 template-v tag 的 Release 正文：分类与框架通道同一份解析（scripts/release-commits.ps1）
@@ -577,7 +619,9 @@ jobs:
           $lines.Add($(if ($lastTag) { "- $lastTag..$tag" } else { '- 首个模板版本。' })); $lines.Add('')
           if ($lastTag) {
             $commits = @(Read-ReleaseCommits $range @('template/', 'template-package/') | Where-Object { -not (Test-ReleaseWriteBack $_.Subject) })
-            Format-ReleaseChangeSections $commits | ForEach-Object { $lines.Add($_) }
+            if ($commits.Count -gt 0) { Format-ReleaseChangeSections $commits | ForEach-Object { $lines.Add($_) } }
+            # 只改框架时模板随框架同号发布：内容只有默认框架版本变化
+            else { $lines.Add('## 更新内容'); $lines.Add(''); $lines.Add('- 模板无变更，随框架同号发布，默认框架版本更新为 ${{ steps.tver.outputs.frameworkVersion }}。'); $lines.Add('') }
           }
           $guide = 'docs/template/upgrades/${{ steps.tver.outputs.baseVersion }}.md'
           if (Test-Path -LiteralPath $guide -PathType Leaf) {
@@ -600,12 +644,10 @@ jobs:
 
       # 包内容、隔离安装、来源标记与重建确定性；发布时另要求生成项目只用 nuget.org 还原默认的 LeistdFrameworkVersion。
       # develop 不做 nuget.org 还原：那里的默认版本仍是上一个正式版，之后新增的框架包还没有正式版，还原必然失败。
-      # 框架通道本次被跳过时没有刚推送的正式版，不存在建索引延迟，还原失败即失败、不等待。
       - name: 验证模板包
         shell: pwsh
         run: |
           $restore = @(if ('${{ steps.tver.outputs.publish }}' -eq 'true') { '-NuGetOrgRestore' })
-          if ('${{ needs.release.result }}' -eq 'skipped') { $restore += @('-RestoreTimeoutMinutes', '0') }
           pwsh template-package/test-template-package.ps1 `
             -PackagePath "$env:RUNNER_TEMP/template-package/Leistd.Templates.${{ steps.tver.outputs.version }}.nupkg" `
             -Version '${{ steps.tver.outputs.version }}' -SourceSha '${{ steps.tver.outputs.sourceSha }}' @restore
@@ -656,7 +698,7 @@ jobs:
 
       - name: 创建模板 tag（仅本地）
         id: ttag
-        if: steps.tver.outputs.publish == 'true'
+        if: steps.tver.outputs.publish == 'true' && steps.texisting.outputs.exists != 'true'
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'

@@ -304,9 +304,10 @@ def needs_release(base: str, head: str) -> tuple[bool, str]:
         return True, f'Publication input proof unavailable: {error}'
 
 
-def template_release(channel: str, head: str, event: str) -> dict:
-    """Template channel: changed when template inputs moved since the latest template-v tag; only a push to main publishes.
+def template_release(channel: str, head: str) -> dict:
+    """Template channel: changed when template inputs moved since the latest template-v tag.
 
+    Required is decided by create_plan: on main the template publishes exactly when the framework does, under one version.
     The template release job recomputes the same range with the shared commit parser and
     fails when its result differs from this decision.
     """
@@ -323,10 +324,9 @@ def template_release(channel: str, head: str, event: str) -> dict:
         commits = [subject for subject in subjects if not RELEASE_WRITE_BACK.fullmatch(subject)]
         changed = bool(commits)
         reason = f'{len(commits)} template commits since {base_tag}' if changed else f'No template changes since {base_tag}'
-    required = changed and channel == 'stable' and event == 'push'
-    if changed and not required:
-        reason += '; template publishes only on a push to main'
-    return dict(Changed=changed, Required=required, BaseTag=base_tag, BaseSha=base_sha, Reason=reason)
+    if changed and channel != 'stable':
+        reason += '; template publishes only from main'
+    return dict(Changed=changed, Required=False, BaseTag=base_tag, BaseSha=base_sha, Reason=reason)
 
 
 def framework_test_project(path: str) -> bool:
@@ -599,7 +599,14 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             publish, release_reason = needs_release(published, head)
         else:
             publish, release_reason = True, 'Explicit or scheduled publication'
-    template = template_release(release_channel, head, event)
+    template = template_release(release_channel, head)
+    if release_channel == 'stable':
+        # Framework and template share one version on main: either side changing publishes both.
+        if template['Changed'] and not publish:
+            publish, release_reason = True, 'Template changes publish with the framework under one version'
+        template['Required'] = publish
+        if publish and not template['Changed']:
+            template['Reason'] += '; published with the framework under one version'
     # Only a direct PR may lower the template responsibility; every other trigger keeps full.
     direct_pr = tier == 'core' and event == 'pull_request' and not candidate_input and not release_channel
     plan = dict(Version=3, CandidateSha=head, BaseSha=base, Tier='full', Event=event,

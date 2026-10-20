@@ -4,7 +4,7 @@
 
 ## 同步到新版本
 
-1. 确认起点与目标。当前版本取 `.leistd/template.json` 的 `package.version`；目标是用户指定的版本，未指定时取最新的 `template-v*` Release。
+1. 确认起点与目标。当前版本取 `.leistd/template.json` 的 `package.version`；目标是用户指定的版本，未指定时取最新的 `template-v*` Release；模板与 Leistd 框架同号，升级框架到某个版本即同步到同号模板。
 2. 读取区间内每个版本的 Release 正文。区间是“当前版本之后、目标版本及之前”的全部 `template-v*`，不只读最后一版。模板仓库是模板包元数据里的源码仓库（nuget.org 上 `Leistd.Templates` 的 Source repository，`<所有者>/<仓库>` 形式）：
 
    ```bash

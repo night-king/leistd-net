@@ -724,6 +724,73 @@ def check_release_version_bump():
             print(f'PASS release version bump: {name} -> {bump}')
 
 
+def check_release_version_explicit():
+    """VERSION above every stable tag is published as-is; a newer stable tag not yet merged back raises the base."""
+    step = release_step('ver')
+
+    def run(repo, root, channel, expect_failure=False):
+        script = substitute(step['run'].replace(FOOTNOTE_ANCHOR, root),
+                            {'steps.ch.outputs.channel': channel, 'github.run_number': '1'})
+        code, output, log = run_pwsh(repo, script)
+        if expect_failure:
+            assert code != 0 and '含本候选没有的提交' in log, (channel, log)
+            return log
+        assert code == 0, (channel, log)
+        outputs = parse_outputs(output)
+        return outputs['bump'], outputs['version']
+
+    def commit(repo, message, version=None):
+        path = repo / ('VERSION' if version else f'change-{git(repo, "branch", "--show-current")}-{git(repo, "rev-list", "--count", "HEAD")}.txt')
+        path.write_text(version or message, encoding='utf-8')
+        git(repo, 'add', path.name)
+        git(repo, 'commit', '-qm', message)
+
+    with tempfile.TemporaryDirectory(prefix='leistd-release-explicit-') as directory:
+        # 显式抬到 1.0.0：beta 与 stable 都取 1.0.0，范围内的破坏性提交不再递增
+        repo, root = version_fixture(directory, 'explicit', ['refactor(lock)!: 改签名\n\nBREAKING CHANGE: 改用新签名'])
+        commit(repo, 'chore: 准备发布 1.0.0', '1.0.0')
+        assert run(repo, root, 'beta') == ('explicit', '1.0.0-beta.2'), run(repo, root, 'beta')
+        assert run(repo, root, 'stable') == ('explicit', '1.0.0'), run(repo, root, 'stable')
+
+        # 排队晚到的旧候选：更新的候选（多一个修复）已发布 v1.0.0，旧候选不得按它递增出 1.0.1，推包前停止
+        candidate = git(repo, 'rev-parse', 'HEAD')
+        git(repo, 'switch', '-qc', 'newer')
+        commit(repo, 'fix(lock): 晚到候选缺少的修复')
+        commit(repo, 'chore: 发布 v1.0.0 [skip ci]')
+        git(repo, 'tag', '-a', 'v1.0.0', '-m', 'Release v1.0.0')
+        git(repo, 'switch', '-q', '--detach', candidate)
+        run(repo, root, 'stable', expect_failure=True)
+        git(repo, 'tag', '-d', 'v1.0.0')
+        git(repo, 'switch', '-q', 'develop')
+
+        # v1.0.0 打在 main 的回写提交上（develop 经合并提交进入 main）、尚未合回 develop：develop 的 beta 必须高于 1.0.0
+        git(repo, 'switch', '-qc', 'main', 'v0.12.0')
+        git(repo, 'merge', '-q', '--no-ff', '--no-edit', 'develop')
+        commit(repo, 'chore: 发布 v1.0.0 [skip ci]')
+        git(repo, 'tag', '-a', 'v1.0.0', '-m', 'Release v1.0.0')
+        git(repo, 'switch', '-q', 'develop')
+        commit(repo, 'feat(lock): 新能力')
+        assert run(repo, root, 'beta') == ('minor', '1.1.0-beta.1'), run(repo, root, 'beta')
+
+        # 合回之后从 v1.0.0 起正常递增，1.x 的破坏性变更升 major
+        git(repo, 'merge', '-q', '--no-edit', 'main')
+        commit(repo, 'fix(lock): 修正')
+        assert run(repo, root, 'stable') == ('minor', '1.1.0'), run(repo, root, 'stable')
+        commit(repo, 'refactor(lock)!: 再改签名\n\nBREAKING CHANGE: 改用新签名')
+        assert run(repo, root, 'stable') == ('major', '2.0.0'), run(repo, root, 'stable')
+
+        # 未合回时 VERSION 低于最高正式版：从最高正式版递增
+        repo, root = version_fixture(directory, 'stale', [])
+        git(repo, 'switch', '-qc', 'main')
+        commit(repo, 'chore: 发布 v0.13.0 [skip ci]')
+        git(repo, 'tag', '-a', 'v0.13.0', '-m', 'Release v0.13.0')
+        git(repo, 'switch', '-q', 'develop')
+        commit(repo, 'fix: 修正')
+        assert run(repo, root, 'beta') == ('patch', '0.13.1-beta.1'), run(repo, root, 'beta')
+    print('PASS release version: explicit VERSION published as-is, unmerged write-back raises the base, '
+          'superseded candidate stops, 1.x breaking -> major')
+
+
 def check_release_notes_scopes():
     """Release notes group every section by Conventional Commits scope; footer-only commits are breaking."""
     step = release_step('notes')
@@ -754,7 +821,7 @@ def template_step(step_id):
 
 
 def check_template_channel_plan():
-    """Template channel decision: template-only → template release on main; framework-only → no template bump."""
+    """Template channel decision on main: framework and template publish together under one version, whichever side changed."""
     with candidate_fixture() as (repo, planner, base):
         git(repo, 'tag', 'v0.12.0', base)
         git(repo, 'tag', 'template-v0.1.0', base)
@@ -775,13 +842,20 @@ def check_template_channel_plan():
         release = plan['TemplateRelease']
         assert release == dict(Changed=True, Required=True, BaseTag='template-v0.1.0', BaseSha=base,
                                Reason='1 template commits since template-v0.1.0'), release
-        assert not plan['ReleaseRequired'] and plan['Mode'] == 'full' and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
+        # 只改模板：框架也同号发布
+        assert plan['ReleaseRequired'] and plan['ReleaseReason'] == 'Template changes publish with the framework under one version', plan
+        assert plan['Mode'] == 'full' and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
         package = plan_for('stable', 'template-package/Leistd.Templates.csproj')
-        assert package['TemplateRelease']['Required'] and not package['ReleaseRequired'], package['ReleaseReason']
+        assert package['TemplateRelease']['Required'] and package['ReleaseRequired'], package['ReleaseReason']
         assert planner.classify_inputs(base, git(repo, 'rev-parse', 'HEAD'), ['template-package/Leistd.Templates.csproj'])['unknown']
         framework = plan_for('stable', framework_source, message='fix(core): 框架修复')
+        # 只改框架：模板没有变化，但随框架同号发布
         assert framework['ReleaseRequired'] and framework['TemplateRelease'] == dict(
-            Changed=False, Required=False, BaseTag='template-v0.1.0', BaseSha=base, Reason='No template changes since template-v0.1.0'), framework
+            Changed=False, Required=True, BaseTag='template-v0.1.0', BaseSha=base,
+            Reason='No template changes since template-v0.1.0; published with the framework under one version'), framework
+        # 两边都不影响发布：都不发
+        neither = plan_for('stable', 'docs/framework/versioning.md', message='docs: 说明')
+        assert not neither['ReleaseRequired'] and not neither['TemplateRelease']['Required'], neither['TemplateRelease']
         # 框架 stable 的版本回写提交改了模板默认的 LeistdFrameworkVersion，但不是模板变更
         writeback = plan_for('stable', 'VERSION', 'template/backend/Directory.Build.props', message='chore: 发布 v0.12.1 [skip ci]')
         assert not writeback['TemplateRelease']['Changed'], writeback['TemplateRelease']
@@ -790,10 +864,10 @@ def check_template_channel_plan():
         assert docs['TemplateRelease']['Required'] and docs['Mode'] == 'full' and docs['ContainerSmoke'], docs
         develop = plan_for('beta', backend)
         assert develop['TemplateRelease']['Changed'] and not develop['TemplateRelease']['Required'], develop['TemplateRelease']
-        assert 'only on a push to main' in develop['TemplateRelease']['Reason'], develop['TemplateRelease']
-        # 手动触发 main 也是 stable 通道，但模板只在 push main 时发布
+        assert 'only from main' in develop['TemplateRelease']['Reason'] and not develop['ReleaseRequired'], develop
+        # 手动触发 main 发布框架正式版，模板同号随之发布
         dispatched = planner.create_plan('full', base, 'workflow_dispatch', git(repo, 'rev-parse', 'HEAD'), release_channel='stable')
-        assert dispatched['TemplateRelease']['Changed'] and not dispatched['TemplateRelease']['Required'], dispatched['TemplateRelease']
+        assert dispatched['ReleaseRequired'] and dispatched['TemplateRelease']['Required'], dispatched['TemplateRelease']
         nightly = planner.create_plan('full', base, 'schedule', git(repo, 'rev-parse', 'HEAD'), release_channel='nightly')
         assert not nightly['TemplateRelease']['Changed'] and not nightly['TemplateRelease']['Required'], nightly['TemplateRelease']
         pull = planner.create_plan('core', base, 'pull_request', '')
@@ -821,16 +895,16 @@ def check_template_channel_plan():
         assert validate(valid).returncode == 0, validate(valid).stderr
         for label, mutate, error in [
                 ('required on develop', lambda v: v.update(ReleaseChannel='beta'), 'Invalid template release responsibility'),
-                ('required on a manual run', lambda v: v.update(Event='workflow_dispatch'), 'Invalid template release responsibility'),
-                ('required without change', lambda v: v['TemplateRelease'].update(Changed=False), 'Invalid template release responsibility'),
+                ('template without the framework', lambda v: v.update(ReleaseRequired=False), 'Invalid template release responsibility'),
+                ('framework without the template', lambda v: v['TemplateRelease'].update(Required=False), 'Invalid template release responsibility'),
                 ('missing decision', lambda v: v.pop('TemplateRelease'), 'Invalid template release responsibility'),
                 ('narrowed publication', lambda v: v['Jobs'].update({'oidc-e2e': False}), 'Publication requires full candidate validation')]:
             invalid = json.loads(json.dumps(valid))
             mutate(invalid)
             result = validate(invalid)
             assert result.returncode != 0 and error in result.stderr, (label, result.stderr)
-    print('PASS template channel plan: template-only and packaging changes release the template on main only, '
-          'framework-only and write-back commits do not, docs-only template publication stays full, validator counterexamples')
+    print('PASS template channel plan: on main either side changing publishes both, neither publishes nothing, '
+          'write-back commits are not template changes, develop never publishes, docs-only publication stays full, validator counterexamples')
 
 
 def template_fixture(directory, name, tag, commits):
@@ -843,6 +917,7 @@ def template_fixture(directory, name, tag, commits):
     (repo / 'template/backend/Directory.Build.props').write_text(
         '<Project><PropertyGroup><LeistdFrameworkVersion>0.13.0</LeistdFrameworkVersion></PropertyGroup></Project>\n', encoding='utf-8')
     (repo / 'README.md').write_text('fixture\n', encoding='utf-8')
+    (repo / 'VERSION').write_text('0.12.0', encoding='utf-8')
     git(repo, 'add', '-A')
     git(repo, 'commit', '-qm', 'chore: 初始')
     if tag:
@@ -859,58 +934,102 @@ def template_fixture(directory, name, tag, commits):
 
 
 def check_template_release_version():
-    """The template version step: bump from template commits since the last template-v tag, same parser as the framework."""
+    """The template version step: on main the version is the framework release version; elsewhere a unique validation version.
+
+    The change check uses the plan's frozen baseline; template-v tags added after planning (the previous run of two
+    adjacent releases, this version's own tag on a rerun) must not fail it.
+    """
     step = template_step('tver')
-    values = {'needs.candidate.outputs.channel': 'stable', 'github.run_id': '77', 'github.run_attempt': '2', 'github.event_name': 'push'}
+    values = {'github.run_id': '77', 'github.run_attempt': '2'}
     t = 'template/backend/src/Api/Program.cs'
+    changed = dict(Changed=True, Required=True, BaseTag='template-v0.12.0')
+    writeback = ('chore: 发布 v0.13.0 [skip ci]', 'template/backend/Directory.Build.props')
+    # (名称, 初始 tag, 提交, 规划后新增的 tag, 通道, 计划, 框架版本, 期望版本, 期望上一版, 发布)
     cases = [
-        ('first version', '', [('feat(template): 首版', t)], 'stable', dict(Changed=True, Required=True, BaseTag=''), '0.1.0', 'initial', True),
-        ('feat', 'template-v0.1.0', [('feat(template): 新能力', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.2.0', 'minor', True),
-        ('fix', 'template-v0.1.0', [('fix(template): 修复', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
-        ('packaging only', 'template-v0.1.0', [('fix(template): 包元数据', 'template-package/Leistd.Templates.csproj')], 'stable',
-         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
-        ('breaking in 0.x', 'template-v0.1.0', [('refactor(template)!: 参数改名\n\nBREAKING CHANGE: --x 改为 --y', t)], 'stable',
-         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.2.0', 'minor', True),
-        # 框架提交与版本回写不计入模板：只有它们时没有模板变化
-        ('framework feat ignored', 'template-v0.1.0', [('feat(core): 框架能力', 'framework/x.cs'), ('fix(template): 修复', t)], 'stable',
-         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
-        ('write-back ignored', 'template-v0.1.0', [('fix(template): 修复', t), ('chore: 发布 v0.13.0 [skip ci]', 'template/backend/Directory.Build.props')], 'stable',
-         dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '0.1.1', 'patch', True),
-        ('develop validates without publishing', 'template-v0.1.0', [('feat(template): 新能力', t)], 'beta',
-         dict(Changed=True, Required=False, BaseTag='template-v0.1.0'), '0.2.0-ci.77.2', 'minor', False),
-        ('manual run on main validates without publishing', 'template-v0.1.0', [('feat(template): 新能力', t)], 'stable:workflow_dispatch',
-         dict(Changed=True, Required=False, BaseTag='template-v0.1.0'), '0.2.0-ci.77.2', 'minor', False),
+        ('first version', '', [('feat(template): 首版', t)], [], 'stable', dict(changed, BaseTag=''), '0.13.0', '0.13.0', '', True),
+        ('template feat', 'template-v0.12.0', [('feat(template): 新能力', t)], [], 'stable', changed, '0.13.0', '0.13.0', 'template-v0.12.0', True),
+        ('packaging only', 'template-v0.12.0', [('fix(template): 包元数据', 'template-package/Leistd.Templates.csproj')], [], 'stable',
+         changed, '0.13.0', '0.13.0', 'template-v0.12.0', True),
+        # 只改框架：模板无变化，仍按框架版本同号发布
+        ('framework only', 'template-v0.12.0', [('feat(core): 框架能力', 'framework/x.cs'), writeback], [],
+         'stable', dict(changed, Changed=False), '0.13.0', '0.13.0', 'template-v0.12.0', True),
+        # 相邻两次发布：规划时上一轮模板尚未发布，执行时它的 tag 已在祖先上
+        ('adjacent release', 'template-v0.11.0', [('fix(template): 上一轮', t), ('fix(template): 本轮', t)], [('template-v0.12.0', 'HEAD~1')],
+         'stable', dict(changed, BaseTag='template-v0.11.0'), '0.13.0', '0.13.0', 'template-v0.12.0', True),
+        # 重跑：本版本的 tag 已由上次运行推送
+        ('rerun after tag pushed', 'template-v0.12.0', [('fix(template): 修复', t)], [('template-v0.13.0', 'HEAD')],
+         'stable', changed, '0.13.0', '0.13.0', 'template-v0.12.0', True),
+        ('first version rerun', '', [('feat(template): 首版', t)], [('template-v0.13.0', 'HEAD')],
+         'stable', dict(changed, BaseTag=''), '0.13.0', '0.13.0', '', True),
+        ('develop validates without publishing', 'template-v0.12.0', [('feat(template): 新能力', t)], [], 'beta',
+         dict(changed, Required=False), '', '0.12.0-ci.77.2', 'template-v0.12.0', False),
     ]
     with tempfile.TemporaryDirectory(prefix='leistd-template-version-') as directory:
-        for index, (name, tag, commits, channel, decision, version, bump, publish) in enumerate(cases):
-            repo = template_fixture(directory, f'case-{index}', tag, commits)
-            channel, _, event = channel.partition(':')
-            script = substitute(step['run'], dict(values, **{'needs.candidate.outputs.channel': channel, 'github.event_name': event or 'push'}))
+        def run(name, tag, commits, later_tags, channel, decision, release_version):
+            repo = template_fixture(directory, name.replace(' ', '-'), tag, commits)
+            for later, ref in later_tags:
+                git(repo, 'tag', '-a', later, '-m', later, ref)
+            script = substitute(step['run'], dict(values, **{'needs.candidate.outputs.channel': channel,
+                                                              'needs.release.outputs.version': release_version}))
             plan = json.dumps({'TemplateRelease': dict(decision, BaseSha='', Reason='fixture')})
-            code, output, log = run_pwsh(repo, script, {'VALIDATION_PLAN': plan})
+            return repo, run_pwsh(repo, script, {'VALIDATION_PLAN': plan})
+
+        for name, tag, commits, later_tags, channel, decision, release_version, version, last_tag, publish in cases:
+            repo, (code, output, log) = run(name, tag, commits, later_tags, channel, decision, release_version)
             assert code == 0, (name, log)
             outputs = parse_outputs(output)
-            assert (outputs['version'], outputs['bump'], outputs['publish']) == (version, bump, str(publish).lower()), (name, outputs)
+            assert (outputs['version'], outputs['lastTag'], outputs['publish']) == (version, last_tag, str(publish).lower()), (name, outputs)
             assert outputs['tag'] == 'template-v' + version.split('-')[0] and outputs['frameworkVersion'] == '0.13.0', (name, outputs)
             assert outputs['sourceSha'] == git(repo, 'rev-parse', 'HEAD'), (name, outputs)
-            print(f'PASS template version: {name} -> {version} publish={publish}')
+            print(f'PASS template version: {name} -> {version} after {last_tag or "nothing"} publish={publish}')
         failures = [
-            ('! without footer', 'template-v0.1.0', [('feat(template)!: 改参数', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), 'BREAKING CHANGE'),
-            ('only framework and write-back, plan says changed', 'template-v0.1.0',
-             [('feat(core): 框架能力', 'framework/x.cs'), ('chore: 发布 v0.13.0 [skip ci]', 'template/backend/Directory.Build.props')], 'stable',
-             dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '质量计划不一致'),
-            ('baseline differs from plan', 'template-v0.2.0', [('fix(template): 修复', t)], 'stable', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '质量计划不一致'),
-            ('develop asked to publish', 'template-v0.1.0', [('fix(template): 修复', t)], 'beta', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '只有 push main 发布模板'),
-            ('manual run asked to publish', 'template-v0.1.0', [('fix(template): 修复', t)], 'stable:workflow_dispatch', dict(Changed=True, Required=True, BaseTag='template-v0.1.0'), '只有 push main 发布模板'),
+            ('! without footer', 'template-v0.12.0', [('feat(template)!: 改参数', t)], [], 'stable', changed, '0.13.0', 'BREAKING CHANGE'),
+            ('only framework and write-back, plan says changed', 'template-v0.12.0',
+             [('feat(core): 框架能力', 'framework/x.cs'), writeback], [], 'stable', changed, '0.13.0', '质量计划不一致'),
+            ('plan baseline missing', 'template-v0.11.0', [('fix(template): 修复', t)], [], 'stable', changed, '0.13.0', '不存在'),
+            ('plan baseline not an ancestor', '', [('fix(template): 修复', t)], [('template-v0.12.0', 'HEAD')], 'stable', changed, '0.13.0', 'fixture-not-ancestor'),
+            ('develop asked to publish', 'template-v0.12.0', [('fix(template): 修复', t)], [], 'beta', changed, '', '只有 main 发布模板'),
+            ('no framework release version', 'template-v0.12.0', [('fix(template): 修复', t)], [], 'stable', changed, '', '框架通道没有给出正式版本'),
+            ('default framework version is not the release', 'template-v0.12.0', [('fix(template): 修复', t)], [], 'stable', changed, '0.14.0',
+             '不是本次框架正式版'),
         ]
-        for index, (name, tag, commits, channel, decision, error) in enumerate(failures):
-            repo = template_fixture(directory, f'failure-{index}', tag, commits)
-            channel, _, event = channel.partition(':')
-            script = substitute(step['run'], dict(values, **{'needs.candidate.outputs.channel': channel, 'github.event_name': event or 'push'}))
-            plan = json.dumps({'TemplateRelease': dict(decision, BaseSha='', Reason='fixture')})
-            code, _, log = run_pwsh(repo, script, {'VALIDATION_PLAN': plan})
+        for name, tag, commits, later_tags, channel, decision, release_version, error in failures:
+            if error == 'fixture-not-ancestor':
+                # 基线 tag 打在候选之外的分支上
+                repo = template_fixture(directory, 'failure-not-ancestor', '', commits)
+                git(repo, 'switch', '-qc', 'side', 'HEAD~1')
+                (repo / 'side.txt').write_text('side\n', encoding='utf-8')
+                git(repo, 'add', 'side.txt')
+                git(repo, 'commit', '-qm', 'side')
+                git(repo, 'tag', '-a', 'template-v0.12.0', '-m', 'side')
+                git(repo, 'switch', '-q', 'main')
+                script = substitute(step['run'], dict(values, **{'needs.candidate.outputs.channel': channel,
+                                                                  'needs.release.outputs.version': release_version}))
+                code, _, log = run_pwsh(repo, script, {'VALIDATION_PLAN': json.dumps({'TemplateRelease': dict(decision, BaseSha='', Reason='fixture')})})
+                error = '不是候选的祖先'
+            else:
+                _, (code, _, log) = run('failure ' + name, tag, commits, later_tags, channel, decision, release_version)
             assert code != 0 and error in log, (name, log)
             print(f'PASS template version: {name} -> rejected')
+
+
+def check_template_existing_tag():
+    """A rerun reuses a template tag that already points at the release source; any other target stops before writing."""
+    step = template_step('texisting')
+    with tempfile.TemporaryDirectory(prefix='leistd-template-tag-') as directory:
+        repo = template_fixture(directory, 'tag', '', [('fix(template): 修复', 'template/backend/src/Api/Program.cs')])
+        head, parent = git(repo, 'rev-parse', 'HEAD'), git(repo, 'rev-parse', 'HEAD~1')
+        values = {'steps.tver.outputs.tag': 'template-v0.13.0', 'steps.tver.outputs.sourceSha': head}
+        code, output, log = run_pwsh(repo, substitute(step['run'], values))
+        assert code == 0 and parse_outputs(output)['exists'] == 'false', log
+        git(repo, 'tag', '-a', 'template-v0.13.0', '-m', 'v', head)
+        code, output, log = run_pwsh(repo, substitute(step['run'], values))
+        assert code == 0 and parse_outputs(output)['exists'] == 'true', log
+        git(repo, 'tag', '-d', 'template-v0.13.0')
+        git(repo, 'tag', '-a', 'template-v0.13.0', '-m', 'v', parent)
+        code, _, log = run_pwsh(repo, substitute(step['run'], values))
+        assert code != 0 and '不是本次源提交' in log, log
+    print('PASS template existing tag: absent creates, same source is reused, other source stops')
 
 
 def check_template_release_notes():
@@ -942,7 +1061,11 @@ def check_template_release_notes():
         code, output, log = run_pwsh(first, substitute(step['run'], dict(values, **{'steps.tver.outputs.lastTag': ''})))
         body = parse_outputs(output)['content']
         assert code == 0 and '- 首个模板版本。' in body and '## 新功能' not in body, body
-    print('PASS template release notes: install line, default framework version, template-only scoped changes, guide link, first version')
+        framework_only = template_fixture(directory, 'framework-only', 'template-v0.1.0', commits[1:2] + commits[3:])
+        code, output, log = run_pwsh(framework_only, substitute(step['run'], values))
+        body = parse_outputs(output)['content']
+        assert code == 0 and '- 模板无变更，随框架同号发布，默认框架版本更新为 0.13.0。' in body and '## 新功能' not in body, body
+    print('PASS template release notes: install line, default framework version, template-only scoped changes, guide link, first version, framework-only')
 
 
 def check_template_release_wiring():
@@ -953,20 +1076,22 @@ def check_template_release_wiring():
     ids = [s.get('id') or s.get('name') for s in steps]
     assert job['needs'] == ['candidate', 'quality', 'release'], job['needs']
     for fragment in ("needs.quality.result == 'success'", "needs.release.result == 'success' || needs.release.result == 'skipped'",
-                     '.TemplateRelease.Changed', ".Mode == 'full'", '.CandidateSha == needs.candidate.outputs.sha'):
+                     '.TemplateRelease.Changed || ', '.TemplateRelease.Required)', ".Mode == 'full'", '.CandidateSha == needs.candidate.outputs.sha'):
         assert fragment in job['if'], (fragment, job['if'])
     assert steps[0]['with']['ref'] == '${{ needs.release.outputs.release_sha || needs.candidate.outputs.sha }}', steps[0]
     assert data['jobs']['release']['outputs']['release_sha'] == '${{ steps.tag.outputs.release_sha }}'
+    assert data['jobs']['release']['outputs']['version'] == '${{ steps.ver.outputs.version }}'
     runs = '\n'.join(s.get('run', '') for s in steps)
     assert len(re.findall(r'git tag -a ', runs)) == 1 and 'git push' not in runs, 'template tag created once, pushed only through push-release-ref.ps1'
+    create = next(s for s in steps if s.get('id') == 'ttag')
+    assert create['if'] == "steps.tver.outputs.publish == 'true' && steps.texisting.outputs.exists != 'true'", create['if']
+    assert ids.index('texisting') < ids.index('ttag'), 'existing tag checked before local creation'
     assert job['if'].startswith('!cancelled()'), job['if']
     validate = ids.index('验证模板包')
     assert 'test-template-package.ps1' in steps[validate]['run'], steps[validate]
     # nuget.org 还原只在发布时：develop 上默认框架版本之后新增的包还没有正式版
     assert "$restore = @(if ('${{ steps.tver.outputs.publish }}' -eq 'true') { '-NuGetOrgRestore' })" in steps[validate]['run'], steps[validate]
     assert steps[validate]['run'].count('-NuGetOrgRestore') == 1 and '@restore' in steps[validate]['run'], steps[validate]
-    # 框架通道被跳过时没有刚推送的正式版要等索引
-    assert "if ('${{ needs.release.result }}' -eq 'skipped') { $restore += @('-RestoreTimeoutMinutes', '0') }" in steps[validate]['run'], steps[validate]
     # 升级闸门：只在发布且有上一个 template-v tag 时执行（develop 每次 push 都算有变化，不在那里跑），位于包验证之后、任何发布写操作之前
     gate = ids.index('模板升级闸门')
     gate_step = steps[gate]
@@ -1408,9 +1533,11 @@ def main():
     check_framework_test_receipts()
     check_release_links()
     check_release_version_bump()
+    check_release_version_explicit()
     check_release_notes_scopes()
     check_template_channel_plan()
     check_template_release_version()
+    check_template_existing_tag()
     check_template_release_notes()
     check_template_release_wiring()
     check_release_publish()
