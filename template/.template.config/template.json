@@ -407,6 +407,7 @@
         {
           "condition": "!LocalIdentity",
           "exclude": [
+            "docs/operations/runbooks/two-factor-reset.md",
             "frontend/src/app/features/settings/components/setting-section/widgets/email-test/**",
             "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/Identity/**",
             "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/Control/**",
@@ -645,6 +646,7 @@
         {
           "condition": "!OpenIddictServer",
           "exclude": [
+            "docs/operations/runbooks/token-certificate-rotation.md",
             "backend/src/CompanyName.ProjectName.Api/Controllers/ConnectController.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/OpenApplicationController.cs",
             "backend/src/CompanyName.ProjectName.Api/Auth/OpenIddict/**",
@@ -873,6 +875,12 @@
           "condition": "!RemoteTokenAuth || IncludeMultiTenancy",
           "exclude": [
             "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceHostPrincipalTests.cs"
+          ]
+        },
+        {
+          "condition": "!(RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))",
+          "exclude": [
+            "docs/operations/runbooks/admin-recovery.md"
           ]
         }
       ]

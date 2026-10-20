@@ -105,7 +105,7 @@ services:
       - Leistd__Email__Smtp__Username=${SMTP_USERNAME:-}
       - Leistd__Email__Smtp__Password=${SMTP_PASSWORD:-}
       # 注册邮箱验证（默认关闭）。开启时必须提供验证码摘要密钥（Base64，至少 32 字节，跨实例跨重启不变），
-      # 缺失或无效即启动失败；关闭时可以不提供。生成方式见 docs/deploy/README.md
+      # 缺失或无效即启动失败；关闭时可以不提供。生成方式见 docs/deploy/configuration.md
       - UserRegistration__EnableEmailVerification=${ENABLE_EMAIL_VERIFICATION:-false}
       - Leistd__Security__VerificationCodes__Key=${VERIFICATION_CODES_KEY:-}
 #endif
@@ -121,7 +121,7 @@ services:
       - OAuth__SigningCertificates__0__Password=${OAUTH_SIGNING_CERTIFICATE_PASSWORD:?OAUTH_SIGNING_CERTIFICATE_PASSWORD is required}
       - OAuth__EncryptionCertificates__0__Path=/run/secrets/oauth-encryption-certificate
       - OAuth__EncryptionCertificates__0__Password=${OAUTH_ENCRYPTION_CERTIFICATE_PASSWORD:?OAUTH_ENCRYPTION_CERTIFICATE_PASSWORD is required}
-      # 轮换期间新旧证书同时登记（下标 1 起），步骤见 docs/deploy/README.md 的"令牌证书轮换"
+      # 轮换期间新旧证书同时登记（下标 1 起），步骤见 docs/operations/runbooks/token-certificate-rotation.md
       # - OAuth__SigningCertificates__1__Path=/run/secrets/oauth-signing-certificate-next
       # - OAuth__SigningCertificates__1__Password=${OAUTH_SIGNING_CERTIFICATE_NEXT_PASSWORD}
       # 由本服务签发令牌的下游 API（每项登记为同名 scope；下游服务的 Authentication:Audience 取同一个值）
@@ -196,7 +196,7 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
 
     # PG18 起数据目录在 /var/lib/postgresql/18/docker，卷挂父目录；卷名带主版本号，
-    # 升级大版本时换新卷并导出导入（见 docs/deploy/README.md「PostgreSQL 与 Redis 大版本升级」）
+    # 升级大版本时换新卷并导出导入（见 docs/operations/runbooks/postgres-redis-major-upgrade.md）
     volumes:
       - pgdata-18:/var/lib/postgresql
       - ./postgres/01-create-app-role.sh:/docker-entrypoint-initdb.d/01-create-app-role.sh:ro

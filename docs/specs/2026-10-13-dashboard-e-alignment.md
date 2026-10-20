@@ -1,5 +1,7 @@
 # 仪表盘对齐 E 方案实施计划
 
+状态：已完成（PR #86）
+
 范围：模板平台仪表盘（`template/` 前端、统计接口、Mock）按对比页「Leistd 界面改版对比」E 档补齐细节；统计接口改为"日历区间 + 生效时区"；框架操作记录组件的按日计数改为按调用方给定的 UTC 桶边界计数。全部任务完成并验收后删除本计划，有效结论上收到稳定文档。
 
 方案来源：E 档原型源码（artifact `ED6nTqzZGdZ9zmf95roa9P`，本地副本 `.tmp/e-compare-artifact.html`）的 `dashC()`、`areaChart()`、`spark()`、`OPS`、`AD_NOTES.E` 与 `.mk.e` 样式。`docs/assessments/2026-10-12-ui-review` 的"全面优化"静态图不是 E；上一轮按它把失败线改成浅蓝、曲线改平滑，属于参照错误，由 T0 撤回。

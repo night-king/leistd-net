@@ -16,7 +16,7 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
 | 后端或前端骨架 | 同类实现、测试与 `template/docs/standards/` 对应章节；分页排序读 `template/docs/standards/api.md#5-分页规范`，业务验证器读 `template/docs/standards/coding-backend.md#5-命名与-dto`；Spartan 组件用专项 Skill | 受影响场景生成、构建、测试；交互变化做浏览器验证 |
 | 参数、条件、文件裁剪 | `template.json`、相邻条件块、`docs/template/development-guide.md` | 按质量规范区分局部源条件与全局生成输入，验证实际产物 |
 | 架构边界、权限、租户、数据库 | 调用链、Migrator、`docs/architecture/design-principles.md` 及相关后端规范 | 真实 PostgreSQL 与受影响生成场景 |
-| Dockerfile、Compose、部署入口 | 实际容器配置、`template/docs/deploy/README.md` | 镜像可构建、.NET 运行时层可用；实际启动另验 |
+| Dockerfile、Compose、部署入口 | 实际容器配置、`template/docs/deploy/` | 镜像可构建、.NET 运行时层可用；实际启动另验 |
 | 缺陷修复 | 复现所需的生成场景、相关测试 | 在生成项目中先写修复前失败的回归测试，回归测试与修复一起写回模板源后重新生成受影响场景验证 |
 | 项目 Skill 或规范 | 生成项目入口、官方 `skill-creator`、`template/docs/README.md` | Skill 校验和代表性生成结果 |
 | 模板包、参数增删、来源标记或模板同步 | `template-package/`、`template/.leistd/template.json`、`docs/template/quality-assurance.md#模板包与来源标记` | `pwsh template-package/test-template-package.ps1`：包内容、隔离安装、标记与重建零差异；改 `template/scripts/sync-template.ps1`、标记库或升级闸门时 `pwsh template-package/test-template-sync.ps1` |
@@ -27,7 +27,7 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
 
 ## 方案与实施计划
 
-涉及 Template 技术选型、结构调整、参数迁移或跨场景改造时，先搜索同主题最新文档；评估、计划与稳定规范的归属和生命周期见 `docs/README.md`。即使计划只影响 Template，也只写在根 `docs/`。
+中、高风险档的任务写一份规格文档 `docs/specs/YYYY-MM-DD-<topic>.md`，计划写在同一文件的 §3；结构、按档要求、生命周期与提交规则见 `docs/README.md#规格文档`。动笔前先搜索同主题的最新规格与常驻文档。即使只影响 Template，规格也写在根 `docs/specs/`，不进入 `template/`。
 
 ## 对外分发边界
 
@@ -37,16 +37,17 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
 
 ## 工作流
 
-1. 检查分支、工作区和用户已有改动，列出受影响参数、条件组合、替换项和排除文件。
-2. 需要某种基础能力（锁、缓存、事件、本地化、审计等）时，先读 `framework/docs/components/` 下对应组件的文档，
+1. 确认需求：中、高档任务把需求和验收标准（Given/When/Then）写进规格 §1；用户请求中已经明确的内容直接视为已确认，只有真正待澄清的事项或新增的关键决定才停下来询问。
+2. 检查分支、工作区和用户已有改动，列出受影响参数、条件组合、替换项和排除文件。
+3. 需要某种基础能力（锁、缓存、事件、本地化、审计等）时，先读 `framework/docs/components/` 下对应组件的文档，
    按它给出的入口接入；不要只看实现源码就自行判断，更不要在模板里另建平行抽象。
    组件文档写明的部署前提（例如分布式锁要求多副本部署配置 Redis）属于契约，不是待修的缺陷；
    确有缺口就反馈到框架组件，由那一层收口。
-3. 沿用最新同类模板实现，修改源码、测试和确有长期价值的文档。
-4. 框架包内容变化或无法确认现有包对应当前源码时，打包到 `.tmp/local-feed`；否则复用已验证的包，经 NuGet 路径消费。
-5. 在`docs/framework/quality-assurance.md#模板开发工作区`里同步受影响场景，检查占位符、条件裁剪与格式；只改文案时不重复运行无关测试。
-6. 代码或配置变化时，按下方验证入口在工作区里验证。
-7. 权限、审计、通知、实时或数据库变化时补充对应业务闭环验证。
+4. 沿用最新同类模板实现，修改源码、测试和确有长期价值的文档。
+5. 框架包内容变化或无法确认现有包对应当前源码时，打包到 `.tmp/local-feed`；否则复用已验证的包，经 NuGet 路径消费。
+6. 在`docs/template/development-guide.md#5-模板开发工作区`里同步受影响场景，检查占位符、条件裁剪与格式；只改文案时不重复运行无关测试。
+7. 代码或配置变化时，按下方验证入口在工作区里验证。
+8. 权限、审计、通知、实时或数据库变化时补充对应业务闭环验证。
 
 用户要求提交时只暂存本任务文件，核对生成场景与验证结果；提交格式按 `docs/framework/versioning.md` 的相关章节执行。仓库版本交付由 `maintaining-leistd-repository` 负责；Template 维护完成不等于生成项目已部署。
 
@@ -54,4 +55,4 @@ description: 在 leistd-net 仓库中为 template 的后端、前端、条件参
 
 ## 验证入口
 
-本地只产出定向证据，按`docs/framework/quality-assurance.md#本地验证配方`选择，重复验证与等待 CI 按`docs/framework/quality-assurance.md#证据复用`；多场景完整阶段与全集由 CI 承担，矩阵失败用对应场景复现。未执行的场景、档位和风险必须说明。审查与失败重跑按`docs/framework/quality-assurance.md#审查与失败后的重跑`，交付时据此提醒用户审查。
+本地验证按`docs/framework/quality-assurance.md#本地验证配方`选择，重复验证与等待 CI 按`docs/framework/quality-assurance.md#证据复用`；多场景完整阶段与全集由 CI 承担，矩阵失败用对应场景复现。未执行的场景、档位和风险必须说明。审查与失败重跑按`docs/framework/quality-assurance.md#审查与失败后的重跑`，交付时据此提醒用户审查。

@@ -315,6 +315,7 @@ def self_test_gitlab_ci():
     """
     valid = """stages:
   - verify
+  - publish
 verify:
   stage: verify
   image: mcr.microsoft.com/dotnet/sdk:10.0
@@ -347,10 +348,28 @@ verify:
     - apt-get update
   script:
     - pwsh -NoProfile -File scripts/verify.ps1
+publish-images:
+  stage: publish
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - |
+      if [ -f VERSION ]; then version_arg="APP_VERSION=$(cat VERSION)"; fi
+      for target in api migrator; do
+        image="$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHA"
+        docker build --target "$target" --build-arg "APP_REVISION=$CI_COMMIT_SHA" -t "$image" .
+      done
+  artifacts:
+    reports:
+      dotenv: images.env
 """
     failures = []
     check_gitlab_ci(valid, False)
     for label, text in [('语法错误', valid.replace('  stage: verify', '  stage: [verify')),
+                        ('发布与验证同阶段', valid.replace('  stage: publish', '  stage: verify')),
+                        ('发布用 needs 绕过阶段屏障', valid.replace('  stage: publish\n', '  stage: publish\n  needs: [verify]\n')),
+                        ('合并请求也发布', valid.replace('$CI_PIPELINE_SOURCE == "push" && ', '')),
                         ('缺 DOCKER_HOST', valid.replace('    DOCKER_HOST: "tcp://docker:2375"\n', '')),
                         ('合并请求缓存可写', valid.replace('CACHE_POLICY: pull\n', 'CACHE_POLICY: pull-push\n')),
                         ('缓存在项目目录外', valid.replace('"$CI_PROJECT_DIR/.nuget/packages"', '"/root/.nuget/packages"'))]:
@@ -488,8 +507,16 @@ def check_gitlab_ci(text, spa_frontend):
         raise SystemExit('需要 PyYAML 解析生成的 .gitlab-ci.yml（python -m pip install PyYAML==6.0.3）') from error
     document = yaml.safe_load(text)
     audit_expected = ['frontend-audit'] if spa_frontend else []
-    assert isinstance(document, dict) and list(document) == ['stages', 'verify'] + audit_expected, f'GitLab CI top-level keys: {document and list(document)}'
-    assert document['stages'] == ['verify'], f'GitLab CI stages: {document["stages"]}'
+    assert isinstance(document, dict) and list(document) == ['stages', 'verify'] + audit_expected + ['publish-images'], f'GitLab CI top-level keys: {document and list(document)}'
+    assert document['stages'] == ['verify', 'publish'], f'GitLab CI stages: {document["stages"]}'
+    # 镜像发布：靠阶段屏障等 verify 阶段全部作业（含审计），不用 needs 绕过；只在默认分支的 push 上运行
+    publish = document['publish-images']
+    assert publish['stage'] == 'publish' and 'needs' not in publish and 'allow_failure' not in publish, 'GitLab CI publish job must wait for the whole verify stage'
+    assert publish['rules'] == [{'if': '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'}], f'GitLab CI publish rules: {publish["rules"]}'
+    publish_script = '\n'.join(publish['script'])
+    assert '$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHA' in publish_script and 'for target in api migrator' in publish_script, 'GitLab CI image names and tag'
+    assert 'APP_REVISION=$CI_COMMIT_SHA' in publish_script and '-f VERSION' in publish_script and '--password-stdin "$CI_REGISTRY"' in publish_script, 'GitLab CI build identity and registry login'
+    assert publish['artifacts']['reports']['dotenv'] == 'images.env', 'GitLab CI publish digests report'
     job = document['verify']
     assert job['stage'] == 'verify', 'GitLab CI job stage'
     assert str(job['image']).startswith('mcr.microsoft.com/dotnet/sdk:'), f'GitLab CI image: {job["image"]}'
@@ -517,6 +544,20 @@ def check_gitlab_ci(text, spa_frontend):
         changes = [rule for rule in audit['rules'] if 'changes' in rule]
         assert len(changes) == 1 and changes[0]['changes'] == ['frontend/package-lock.json'], 'GitLab CI audit must follow the lock file'
         assert any('"schedule"' in rule['if'] and '"web"' in rule['if'] for rule in audit['rules']), 'GitLab CI audit schedule and manual runs'
+
+
+def check_github_publish(text):
+    """GitHub 镜像发布作业：等 verify（审计是其中一步）成功，只在默认分支的 push 上运行，作业级 packages 写权限。"""
+    import yaml
+    jobs = yaml.safe_load(text)['jobs']
+    assert list(jobs) == ['verify', 'publish-images'], f'GitHub CI jobs: {list(jobs)}'
+    publish = jobs['publish-images']
+    assert publish['needs'] == 'verify', 'GitHub CI publish must need verify'
+    assert publish['if'] == "${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}", f'GitHub CI publish condition: {publish["if"]}'
+    assert publish['permissions'] == {'contents': 'read', 'packages': 'write'}, 'GitHub CI publish permissions'
+    script = '\n'.join(step.get('run', '') for step in publish['steps'])
+    assert 'ghcr.io/${GITHUB_REPOSITORY,,}' in script and '$base-$target:$GITHUB_SHA' in script and 'for target in api migrator' in script, 'GitHub CI image names and tag'
+    assert 'APP_REVISION=$GITHUB_SHA' in script and '-f VERSION' in script and 'GITHUB_STEP_SUMMARY' in script, 'GitHub CI build identity and digest summary'
 
 
 def verify_key(output, values):
@@ -637,6 +678,17 @@ def validate(output, values, config, verify=True, sdk=None):
     readme = (output / 'README.md').read_text(encoding='utf-8')
     testing = (output / 'docs/standards/testing.md').read_text(encoding='utf-8')
     deployment = (output / 'docs/deploy/README.md').read_text(encoding='utf-8')
+    configuration = (output / 'docs/deploy/configuration.md').read_text(encoding='utf-8')
+    # 运维手册按适用形态整份裁剪（template.json 文件级排除）；部署说明的索引只列出随形态下发的手册
+    runbooks = {'token-certificate-rotation.md': values['OpenIddictServer'],
+                'postgres-redis-major-upgrade.md': True,
+                'grant-new-permissions.md': True,
+                'admin-recovery.md': values['RemoteTokenAuth'] or (values['LocalIdentity'] and values['IncludeMultiTenancy']),
+                'two-factor-reset.md': values['LocalIdentity']}
+    for name, applicable in runbooks.items():
+        assert (f'docs/operations/runbooks/{name}' in digests) == applicable, f'Runbook applicability: {name}'
+        assert (f'../operations/runbooks/{name}' in deployment) == applicable, f'Deployment index lists runbook: {name}'
+    assert not any(p.startswith('docs/operations/') and p.removeprefix('docs/operations/runbooks/') not in runbooks for p in digests), 'Unexpected files under docs/operations'
     invocation = (output / 'docs/standards/service-invocation.md').read_text(encoding='utf-8')
     assert ('前端使用 Angular 22。' in readme) == values['SpaFrontend'], 'Frontend introduction applicability'
     assert ('npm ' in testing) == values['SpaFrontend'], 'Frontend testing instructions applicability'
@@ -663,6 +715,7 @@ def validate(output, values, config, verify=True, sdk=None):
         github_ci = (output / ci_files['github']).read_text(encoding='utf-8')
         assert "hashFiles('backend/Directory.Packages.props', 'backend/**/*.csproj')" in github_ci and 'path: ~/.nuget/packages' in github_ci, 'GitHub CI NuGet cache'
         assert ('cache: npm' in github_ci) == values['SpaFrontend'], 'GitHub CI npm cache applicability'
+        check_github_publish(github_ci)
     # 前端生产依赖审计不在 verify 里：GitHub 为 verify 作业内的一步（锁文件变化、定时、手动才执行），GitLab 为独立作业
     if values['Ci'] == 'github':
         assert 'merge_group:' in github_ci, 'GitHub CI must report the required check for merge queue'
@@ -679,7 +732,7 @@ def validate(output, values, config, verify=True, sdk=None):
     assert ('npm run e2e' in testing) == values['LocalIdentity'], 'E2E command instructions applicability'
     if verify:
         check_verify_script(output, values)
-    assert ('单实例配 `KeysPath`' in deployment) == values['SpaFrontend'], 'Browser session deployment prerequisite applicability'
+    assert ('单实例配 `KeysPath`' in configuration) == values['SpaFrontend'], 'Browser session deployment prerequisite applicability'
     assert ('/api/v1/auth/signin' in invocation) == (values['OpenIddictServer'] or values['ResourceBrowserSession']), 'Browser relying-party instructions applicability'
     assert ('tenant-routing.read' in invocation) == values['IncludeMultiTenancy'], 'Tenant machine scope instructions applicability'
     examples = re.findall(r'```json\s*\n(.*?)\n```', invocation, re.S)
@@ -902,7 +955,8 @@ def main():
             assert role_digests[variant_id] == digests[index], f'Ignored role parameter changed actual bytes: {role}/{variant_id}'
             comparisons.append({'variant': variant_id, 'representative': index, 'role': role, 'Digest': shape_digest(role_digests[variant_id])})
         ci_variants = []
-        ci_dependent = {'.github/workflows/ci.yml', '.gitlab-ci.yml', 'README.md', 'docs/standards/testing.md', 'docs/standards/project-structure.md'}
+        ci_dependent = {'.github/workflows/ci.yml', '.gitlab-ci.yml', 'README.md', 'docs/standards/testing.md', 'docs/standards/project-structure.md',
+                        'docs/deploy/README.md'}
         for variant_id, _, index, choice in ci_items:
             digest, expected = ci_digests[variant_id], digests[index]
             changed = {path for path in digest.keys() | expected.keys() if digest.get(path) != expected.get(path)}

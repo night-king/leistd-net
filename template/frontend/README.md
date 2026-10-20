@@ -114,7 +114,7 @@ npm run build                   # 默认 production 配置
 
 ### 部署
 
-页面与所属 API 必须同源：默认由后端同镜像托管构建产物，也可分进程部署、由网关统一外部源。同源要求见 [浏览器认证](../docs/standards/auth.md#浏览器认证)，镜像构建与转发规则见 [部署说明](../docs/deploy/README.md)。
+页面与所属 API 必须同源：默认由后端同镜像托管构建产物，也可分进程部署、由网关统一外部源。同源要求见 [浏览器认证](../docs/standards/auth.md#浏览器认证)，镜像构建见 [部署说明](../docs/deploy/README.md)，转发头见 [配置参考](../docs/deploy/configuration.md#部署环境的必填项)。
 <!--#if (IncludeLocalization)-->
 
 ## 多语言

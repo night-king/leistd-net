@@ -159,7 +159,7 @@ foreach ($set in $skillSets) {
                 Add-ValidationError "[$skillName] project workflow SKILL.md must stay concise (expected <= 120 lines)"
             }
 
-            $expectedReferences = @("bootstrap.md", "delivery.md", "development.md", "documentation.md", "quality.md", "template-sync.md")
+            $expectedReferences = @("bootstrap.md", "delivery.md", "development.md", "documentation.md", "operations.md", "quality.md", "template-sync.md")
             $referencesRoot = Join-Path $directory.FullName "references"
             $actualReferences = if (Test-Path -LiteralPath $referencesRoot) {
                 @(Get-ChildItem -LiteralPath $referencesRoot -File -Filter "*.md" | ForEach-Object Name | Sort-Object)

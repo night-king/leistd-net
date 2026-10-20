@@ -77,9 +77,13 @@ function Assert-GeneratedDocumentation([string]$ProjectRoot) {
         ".agents/skills/leistd-project-workflow/references/development.md",
         ".agents/skills/leistd-project-workflow/references/quality.md",
         ".agents/skills/leistd-project-workflow/references/documentation.md",
+        ".agents/skills/leistd-project-workflow/references/operations.md",
         ".agents/skills/spartan/SKILL.md",
         "docs/README.md",
         "docs/deploy/README.md",
+        "docs/deploy/configuration.md",
+        "docs/operations/runbooks/postgres-redis-major-upgrade.md",
+        "docs/operations/runbooks/grant-new-permissions.md",
         "backend/README.md",
         "frontend/components.json"
     )

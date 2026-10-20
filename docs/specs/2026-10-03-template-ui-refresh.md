@@ -1,5 +1,7 @@
 # 模板前端 UI 优化实施计划
 
+状态：已废弃（被 [2026-10-12-template-ui-refresh-e.md](2026-10-12-template-ui-refresh-e.md) 取代）
+
 源码基线：`467bd455`（已合入 develop）。范围：
 
 - `template/frontend` 的两个区域：管理平台（`/platform`，侧栏布局）和工作空间（`/workspace`，顶栏布局）；

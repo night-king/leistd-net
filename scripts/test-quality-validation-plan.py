@@ -44,7 +44,7 @@ def main():
         repo = Path(directory) / 'repo'
         repo.mkdir()
         paths = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
-        for path in (p for p in paths if p and not p.startswith("docs/reports/")):
+        for path in (p for p in paths if p and not p.startswith("docs/specs/")):
             source = ROOT / path
             if source.is_file():
                 target = repo / path

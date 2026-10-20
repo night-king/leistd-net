@@ -7,9 +7,9 @@
 ├── .agents/skills/          # 跨工具项目 Skill
 ├── .leistd/template.json    # 来源标记：生成所用的模板包版本与源提交、生成输入、UserSecretsId 与 SDK，不手工修改
 <!--#if (Ci == "github")-->
-├── .github/workflows/       # CI 薄壳，只准备环境并调用 scripts/verify.ps1
+├── .github/workflows/       # CI 薄壳，调用 scripts/verify.ps1，默认分支通过后发布镜像
 <!--#elseif (Ci == "gitlab")-->
-├── .gitlab-ci.yml           # CI 薄壳，只准备环境并调用 scripts/verify.ps1
+├── .gitlab-ci.yml           # CI 薄壳，调用 scripts/verify.ps1，默认分支通过后发布镜像
 <!--#endif-->
 ├── backend/                 # .NET 后端
 <!--#if (SpaFrontend)-->
@@ -99,8 +99,8 @@ SDK 扩展为多个业务模块时，客户端接口与 DTO 按模块归位；�
 
 ## 4. 文档与 Skill
 
-`docs/README.md` 是唯一文档索引。`docs/standards/` 是模板提供的规范基线，随模板版本整体更新（`scripts/sync-template.ps1` 按来源标记三方合并模板的新版本）；项目自己的规则写入 `docs/project/`，冲突时以项目规则为准（见 [文档索引](../README.md#规范归属)）。`docs/project/`、`docs/modules/`、`docs/requirements/` 和额外部署文档按需创建。
+`docs/README.md` 是唯一文档索引。`docs/standards/` 是模板提供的规范基线，随模板版本整体更新（`scripts/sync-template.ps1` 按来源标记三方合并模板的新版本）；项目自己的规则写入 `docs/project/`，冲突时以项目规则为准（见 [文档索引](../README.md#规范归属)）。`docs/project/`、`docs/modules/`、`docs/requirements/`、`docs/specs/`、`docs/operations/` 下除 `runbooks/` 以外的子目录和额外部署文档按需创建。
 
-业务开发与环境交付由 `.agents/skills/leistd-project-workflow/` 按场景加载对应 reference，不携带固定文档模板。根目录 `AGENTS.md`（`CLAUDE.md` 引用它）只指向该 Skill 与 `docs/README.md`，不承载规则。
+业务开发与环境交付由 `.agents/skills/leistd-project-workflow/` 按场景加载对应 reference，不携带固定文档模板。根目录 `AGENTS.md`（`CLAUDE.md` 引用它）只指向该 Skill 与 `docs/README.md`，并写明规格文档位置，不承载其他规则。
 
 目录和普通 Markdown 文件使用小写 kebab-case（前端多语言 scope 目录名跟随 scope 名）；目录入口统一命名为 `README.md`。代码命名遵循对应语言规范。调整现有目录时同步检查项目引用、导入、构建、部署、测试和文档链接。
