@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
+import { userEvent } from 'vitest/browser';
 
 import { TruncatedTooltip } from './truncated-tooltip';
+import { parkPointer } from '../utils/pointer.testing';
 
 @Component({
   imports: [...HlmTooltipImports, TruncatedTooltip],
@@ -31,9 +33,16 @@ describe('TruncatedTooltip', () => {
   const tooltip = () => document.querySelector<HTMLElement>('[role="tooltip"]');
 
   beforeEach(async () => {
+    await createHost();
+  });
+
+  async function createHost(): Promise<void> {
     fixture = TestBed.createComponent(Host);
     await settle();
-  });
+    // 物理指针会跨用例保留；就绪后移到空白处，避免先前悬停的提示干扰键盘断言。
+    await parkPointer();
+    await expect.poll(() => tooltip()).toBeNull();
+  }
 
   async function settle(): Promise<void> {
     fixture.detectChanges();
@@ -45,7 +54,7 @@ describe('TruncatedTooltip', () => {
   /** 聚焦后有没有出现提示；失焦后提示收起。延时由假时钟推进到期，"没出现"即禁用。 */
   async function focusTooltip(): Promise<string | null> {
     const button = (fixture.nativeElement as HTMLElement).querySelector('button')!;
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     let text: string | null;
     try {
       button.focus();
@@ -66,6 +75,20 @@ describe('TruncatedTooltip', () => {
   });
 
   it('stays silent when the label fits', async () => {
+    fixture.componentInstance.width.set(400);
+    await settle();
+
+    expect(await focusTooltip()).toBeNull();
+  });
+
+  it('clears a retained pointer before testing focus on a replacement host', async () => {
+    const button = (fixture.nativeElement as HTMLElement).querySelector('button')!;
+    await userEvent.hover(button);
+    await expect.poll(() => tooltip()?.textContent?.trim()).toBe('Account & security settings');
+
+    // 销毁宿主不会移动物理指针，新宿主在相同位置出现时仍可能被悬停。
+    fixture.destroy();
+    await createHost();
     fixture.componentInstance.width.set(400);
     await settle();
 
