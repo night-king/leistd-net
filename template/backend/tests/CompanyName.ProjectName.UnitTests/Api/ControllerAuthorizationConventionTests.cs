@@ -23,6 +23,8 @@ public class ControllerAuthorizationConventionTests
         new(ExemptionKind.AnonymousProtocol, "POST api/v1/auth/logout", "注销对无会话的请求同样成功"),
         new(ExemptionKind.AnonymousProtocol, "POST api/v1/auth/send-email-code", "注册前的邮箱验证码"),
         new(ExemptionKind.AnonymousProtocol, "POST api/v1/auth/register", "自助注册"),
+        new(ExemptionKind.AnonymousProtocol, "POST api/v1/auth/password-reset/send-code", "忘记口令时发验证码，对任意邮箱同一响应"),
+        new(ExemptionKind.AnonymousProtocol, "POST api/v1/auth/password-reset", "凭邮箱验证码设置新口令，不签发会话"),
         new(ExemptionKind.AnonymousProtocol, "POST api/v1/external-auth/{provider}/complete", "外部登录回调完成登录"),
         new(ExemptionKind.AnonymousProtocol, "POST connect/authorize", "OIDC 授权端点，由 OpenIddict 校验请求"),
         new(ExemptionKind.AnonymousProtocol, "POST connect/logout", "OIDC 注销端点"),
