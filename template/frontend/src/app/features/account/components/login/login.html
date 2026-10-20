@@ -24,14 +24,89 @@
           </p>
         }
       </div>
-      <!--#if (ExternalLogin)-->
-      <app-external-login-buttons
-        [returnUrl]="returnUrl"
-        [blocked]="isLoading() || authBlocked()"
-        [dividerLabel]="t('account.login.or')"
-      />
-      <!--#endif-->
-
+<!--#if (IncludeMultiTenancy)-->
+      <!--
+        租户在最前：它决定凭据在哪里校验，也决定下面的注册、外部登录与找回入口。
+        默认收成一行（当前租户 + 切换），点「切换租户」才展开输入框；留空即宿主
+      -->
+      <div hlmField>
+        @if (tenantEditing()) {
+          <label hlmFieldLabel for="tenantName">{{ t('account.login.tenant') }}</label>
+          <hlm-input-group>
+            <input
+              hlmInputGroupInput
+              id="tenantName"
+              autocomplete="off"
+              [disabled]="tenantSelectionBlocked()"
+              [value]="tenantName()"
+              (input)="tenantName.set($any($event.target).value); tenantError.set(null)"
+              (keydown.enter)="$event.preventDefault(); applyTenantInput()"
+              [placeholder]="t('account.login.tenantPlaceholder')"
+            />
+            <button
+              hlmInputGroupButton
+              type="button"
+              align="inline-end"
+              [disabled]="tenantSelectionBlocked()"
+              (click)="applyTenantInput()"
+            >
+              {{ t('account.login.tenantConfirm') }}
+            </button>
+          </hlm-input-group>
+        } @else {
+          <div class="flex min-h-8 items-center gap-2 text-sm" data-testid="tenant-row">
+            <ng-icon name="lucideBuilding2" class="text-muted-foreground shrink-0" />
+            <span class="text-muted-foreground">{{ t('account.login.tenant') }}</span>
+            <span class="min-w-0 truncate font-medium">{{
+              tenantContext.current()?.key ?? t('account.login.tenantHost')
+            }}</span>
+            @if (!tenantSelectionBlocked()) {
+              <button
+                hlmBtn
+                type="button"
+                variant="link"
+                size="sm"
+                class="ms-auto px-0"
+                data-testid="tenant-switch"
+                (click)="
+                  tenantName.set(tenantContext.current()?.key ?? ''); tenantEditing.set(true)
+                "
+              >
+                {{ t('account.login.tenantSwitch') }}
+              </button>
+            }
+          </div>
+        }
+        <!-- 不能切换时也要交代原因，否则看不出为什么没有「切换租户」 -->
+        @if (hostProbe() === 'pending') {
+          <p class="text-muted-foreground text-xs">{{ t('account.login.tenantResolving') }}</p>
+        } @else if (tenantLocked()) {
+          <p class="text-muted-foreground text-xs">{{ t('account.login.tenantFromDomain') }}</p>
+        }
+        @if (tenantError(); as error) {
+          <!-- forceShow：租户探测是业务错误而非 Signal Forms 校验错误，
+           没有 validator key 可匹配，但仍应复用组件的 role="alert" 与样式 -->
+          <hlm-field-error forceShow>{{ t(error) }}</hlm-field-error>
+        }
+        @if (hostProbe() === 'failed') {
+          <!-- 按钮套一层 div：hlm-field 的容器给直接子元素铺了整行宽的规则，
+           那条规则的优先级高于按钮自己的 w-fit，套一层让 div 去铺满，
+           按钮就按内容宽度收住了。 -->
+          <div>
+            <button
+              hlmBtn
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="tenant-probe-retry"
+              (click)="retryHostProbe()"
+            >
+              {{ t('account.login.tenantProbeRetry') }}
+            </button>
+          </div>
+        }
+      </div>
+<!--#endif-->
       <form
         novalidate
         class="flex flex-col gap-5"
@@ -87,88 +162,18 @@
               t('validation.' + error.kind, error)
             }}</hlm-field-error>
           }
+          <!-- 找回入口紧跟口令框：忘记的正是它。套一层 div 的原因见租户区的重试按钮 -->
+          <div class="flex justify-end">
+            <a
+              [routerLink]="['/auth/forgot-password']"
+              [queryParams]="returnUrl ? { returnUrl: returnUrl } : null"
+              [state]="forgotPasswordState()"
+              class="text-primary text-sm font-medium hover:underline"
+              data-testid="forgot-password"
+              >{{ t('account.login.forgotPassword') }}</a
+            >
+          </div>
         </div>
-<!--#if (IncludeMultiTenancy)-->
-
-        <!-- 租户默认收成一行（当前租户 + 切换），点「切换租户」才展开输入框；留空即宿主 -->
-        <div hlmField>
-          @if (tenantEditing()) {
-            <label hlmFieldLabel for="tenantName">{{ t('account.login.tenant') }}</label>
-            <hlm-input-group>
-              <input
-                hlmInputGroupInput
-                id="tenantName"
-                autocomplete="off"
-                [disabled]="tenantSelectionBlocked()"
-                [value]="tenantName()"
-                (input)="tenantName.set($any($event.target).value); tenantError.set(null)"
-                (keydown.enter)="$event.preventDefault(); applyTenantInput()"
-                [placeholder]="t('account.login.tenantPlaceholder')"
-              />
-              <button
-                hlmInputGroupButton
-                type="button"
-                align="inline-end"
-                [disabled]="tenantSelectionBlocked()"
-                (click)="applyTenantInput()"
-              >
-                {{ t('account.login.tenantConfirm') }}
-              </button>
-            </hlm-input-group>
-          } @else {
-            <div class="flex min-h-8 items-center gap-2 text-sm" data-testid="tenant-row">
-              <ng-icon name="lucideBuilding2" class="text-muted-foreground shrink-0" />
-              <span class="text-muted-foreground">{{ t('account.login.tenant') }}</span>
-              <span class="min-w-0 truncate font-medium">{{
-                tenantContext.current()?.key ?? t('account.login.tenantHost')
-              }}</span>
-              @if (!tenantSelectionBlocked()) {
-                <button
-                  hlmBtn
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  class="ms-auto px-0"
-                  data-testid="tenant-switch"
-                  (click)="
-                    tenantName.set(tenantContext.current()?.key ?? ''); tenantEditing.set(true)
-                  "
-                >
-                  {{ t('account.login.tenantSwitch') }}
-                </button>
-              }
-            </div>
-          }
-          <!-- 不能切换时也要交代原因，否则看不出为什么没有「切换租户」 -->
-          @if (hostProbe() === 'pending') {
-            <p class="text-muted-foreground text-xs">{{ t('account.login.tenantResolving') }}</p>
-          } @else if (tenantLocked()) {
-            <p class="text-muted-foreground text-xs">{{ t('account.login.tenantFromDomain') }}</p>
-          }
-          @if (tenantError(); as error) {
-            <!-- forceShow：租户探测是业务错误而非 Signal Forms 校验错误，
-             没有 validator key 可匹配，但仍应复用组件的 role="alert" 与样式 -->
-            <hlm-field-error forceShow>{{ t(error) }}</hlm-field-error>
-          }
-          @if (hostProbe() === 'failed') {
-            <!-- 按钮套一层 div：hlm-field 的容器给直接子元素铺了整行宽的规则，
-             那条规则的优先级高于按钮自己的 w-fit，套一层让 div 去铺满，
-             按钮就按内容宽度收住了。 -->
-            <div>
-              <button
-                hlmBtn
-                type="button"
-                variant="outline"
-                size="sm"
-                data-testid="tenant-probe-retry"
-                (click)="retryHostProbe()"
-              >
-                {{ t('account.login.tenantProbeRetry') }}
-              </button>
-            </div>
-          }
-        </div>
-<!--#endif-->
 
         @if (loginError(); as message) {
           <div hlmAlert variant="destructive" data-testid="login-error">
@@ -184,6 +189,14 @@
           {{ t('account.login.submit') }}
         </button>
       </form>
+      <!--#if (ExternalLogin)-->
+      <!-- 账号密码是主路径，外部登录作为替代放在表单之后 -->
+      <app-external-login-buttons
+        [returnUrl]="returnUrl"
+        [blocked]="isLoading() || authBlocked()"
+        [dividerLabel]="t('account.login.or')"
+      />
+      <!--#endif-->
     }
 
     <!-- 开发环境的测试账号：表单下方一行淡色提示，与真正的登录表单分开 -->

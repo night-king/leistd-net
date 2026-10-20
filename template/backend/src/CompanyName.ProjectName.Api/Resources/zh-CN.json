@@ -147,6 +147,12 @@
     "Role:StaticRoleCannotBeDeleted": "内置角色“{Name}”不可删除。",
     "Roles": "角色",
     "Search keyword": "搜索关键字",
+//#if (Email)
+    "PasswordReset:Email:Expiry": "验证码 {0} 分钟内有效，请勿告诉他人。",
+    "PasswordReset:Email:Ignore": "如果不是你本人申请，请忽略这封邮件，你的密码不会改变。",
+    "PasswordReset:Email:Intro": "你正在重置账号的密码，验证码是：",
+    "PasswordReset:Email:Subject": "重置密码验证码",
+//#endif
     "Security:CurrentPasswordIncorrect": "当前密码不正确。",
     "Security:HashedPasswordRequired": "哈希密码不能为空。",
     "Security:LocalPasswordNotSet": "当前账号未设置本地密码，无法修改密码。",
@@ -165,6 +171,10 @@
     "SecurityAlert:NewDeviceSignIn:Title": "账号在新设备上登录",
     "SecurityAlert:PasswordChanged:Content": "如果不是你本人操作，请立即联系管理员。",
     "SecurityAlert:PasswordChanged:Title": "密码已修改",
+//#if (Email)
+    "SecurityAlert:PasswordRecovered:Content": "所有设备上的登录都已退出。如果不是你本人操作，请立即联系管理员。",
+    "SecurityAlert:PasswordRecovered:Title": "你的密码已通过邮箱验证码重置",
+//#endif
     "SecurityAlert:PasswordReset:Content": "你在其他设备上的登录已全部退出。",
     "SecurityAlert:PasswordReset:Title": "管理员重置了你的密码",
     "SecurityAlert:TwoFactorAuthenticatorReplaced:Content": "原来的身份验证器和旧恢复码都已失效。如果不是你本人操作，请立即联系管理员。",

@@ -668,4 +668,117 @@ describe('mock two-factor requirement', () => {
     expect(me({})).toMatchObject({ twoFactorSetupRequired: false });
   });
 });
+//#if (Email)
+
+/** 找回密码：响应不承认邮箱是否对应账号；挑战绑定用户与安全版本，一次改密后其余挑战作废。 */
+describe('mock password reset', () => {
+  const send = AUTH_API['POST /api/v1/auth/password-reset/send-code'] as Handler;
+  const reset = AUTH_API['POST /api/v1/auth/password-reset'] as Handler;
+  const captcha = AUTH_API['GET /api/v1/auth/captcha'] as () => {
+    captchaToken: string;
+    captchaImageBase64: string;
+  };
+  let users: MockUser[];
+  let demo: MockUser;
+  // 发送间隔与日额度按地址记在模块里：每个用例从一个相隔两天的时刻开始，互不占用配额
+  let day = 0;
+
+  beforeEach(() => {
+    users = USERS.map((user) => ({ ...user }));
+    demo = USERS.find((u) => u.username === 'demo')!;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.UTC(2030, 0, 1) + ++day * 2 * 86_400_000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    USERS.length = 0;
+    USERS.push(...users);
+  });
+
+  /** 发码：从验证码图片里读出文字，模拟用户照图输入。 */
+  function sendCode(email: string): { challengeId: string } {
+    const { captchaToken, captchaImageBase64 } = captcha();
+    const svg = atob(captchaImageBase64.split(',')[1]);
+    const captchaCode = /<text[^>]*>([^<]+)<\/text>/.exec(svg)![1];
+    return send({ headers: new HttpHeaders(), body: { email, captchaToken, captchaCode } }) as {
+      challengeId: string;
+    };
+  }
+
+  function resetWith(challengeId: string, email: string, newPassword = 'Recovered@123456') {
+    return reset({
+      headers: new HttpHeaders(),
+      body: { email, challengeId, code: '123456', newPassword },
+    });
+  }
+
+  it('answers an unknown email exactly like a known one, but its code never works', () => {
+    const unknown = sendCode('nobody@example.com');
+
+    expect(Object.keys(unknown).sort()).toEqual(
+      ['challengeId', 'expiresInSeconds', 'retryAfterSeconds'].sort(),
+    );
+    expect(rejectionOf(() => resetWith(unknown.challengeId, 'nobody@example.com')).error.code).toBe(
+      'Auth:EmailCodeInvalid',
+    );
+  });
+
+  it('resets the password of a verified account with the emailed code', () => {
+    const { challengeId } = sendCode(demo.email);
+
+    resetWith(challengeId, demo.email);
+
+    expect(demo.password).toBe('Recovered@123456');
+  });
+
+  it('releases a temporary lockout once the password is recovered', () => {
+    demo.lockoutEnd = new Date(Date.now() + 30 * 60_000).toISOString();
+    const { challengeId } = sendCode(demo.email);
+
+    resetWith(challengeId, demo.email);
+
+    expect(demo.lockoutEnd).toBeUndefined();
+  });
+
+  // 与后端轮换 SecurityStamp 一致：哪怕设回同一个口令，另一份挑战也随之作废
+  it('voids the other outstanding challenge once one of them succeeds', () => {
+    demo.password = 'Same@1234567890';
+    const first = sendCode(demo.email);
+    vi.setSystemTime(Date.now() + 61_000); // 过了发送间隔
+    const second = sendCode(demo.email);
+
+    resetWith(first.challengeId, demo.email, 'Same@1234567890');
+
+    expect(
+      rejectionOf(() => resetWith(second.challengeId, demo.email, 'Another@123456')).error.code,
+    ).toBe('Auth:EmailCodeInvalid');
+  });
+
+  it('does not send a usable code to an unverified or administrator-locked account', () => {
+    demo.isEmailVerified = false;
+    const unverified = sendCode(demo.email);
+    expect(rejectionOf(() => resetWith(unverified.challengeId, demo.email)).error.code).toBe(
+      'Auth:EmailCodeInvalid',
+    );
+
+    demo.isEmailVerified = true;
+    demo.lockoutEnd = null;
+    vi.setSystemTime(Date.now() + 61_000);
+    const locked = sendCode(demo.email);
+    expect(rejectionOf(() => resetWith(locked.challengeId, demo.email)).error.code).toBe(
+      'Auth:EmailCodeInvalid',
+    );
+  });
+
+  it('stops sending after ten codes in the same day for one address', () => {
+    for (let i = 0; i < 10; i++) {
+      sendCode('nobody@example.com');
+      vi.setSystemTime(Date.now() + 61_000);
+    }
+
+    expect(rejectionOf(() => sendCode('nobody@example.com')).status).toBe(429);
+  });
+});
+//#endif
 //#endif

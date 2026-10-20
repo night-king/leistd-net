@@ -209,6 +209,16 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
             OperationVisibility.Actor,
             OperationSeverity.Notice,
             targetIsActor: true);
+#if (Email)
+        // 忘记口令：请求是匿名的，"谁"由目标承载（与注册同一写法）。租户管理员要看得到，
+        // 才能对上"我没找回过口令"的报告
+        context.Add(
+            OperationRecordActions.AuthPasswordRecovered,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Tenant,
+            OperationSeverity.Notice,
+            targetIsActor: true);
+#endif
         // 本人资料上的这几件事，只本人（与上层）可见，与改密码同一口径。
         context.Add(
             OperationRecordActions.AuthAvatarChanged,

@@ -53,6 +53,7 @@
     "auth.login.failed": "登录失败（{{target}}）",
     "auth.locked-out": "账号 {{target}} 因连续登录失败被锁定",
     "auth.password.changed": "修改了自己的密码",
+    "auth.password.recovered": "账号 {{target}} 通过邮箱验证码重置了密码",
     "auth.avatar.changed": "更换了头像",
     "auth.email.changed": "更换了邮箱",
     "auth.email.verified": "验证了邮箱",

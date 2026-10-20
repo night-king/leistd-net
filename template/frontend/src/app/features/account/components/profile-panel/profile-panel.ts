@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   effect,
   inject,
   signal,
@@ -49,6 +48,9 @@ import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 import { UpdateCurrentUserInputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
+//#if (Email)
+import { resendCountdown } from '../../utils/resend-countdown';
+//#endif
 
 const PHONE_PATTERN = /^[0-9+\-()\s]{0,20}$/;
 
@@ -112,7 +114,6 @@ export class ProfilePanel {
 //#if (Email)
   private readonly securityConfig = inject(SecurityConfigService);
 //#endif
-  private readonly destroyRef = inject(DestroyRef);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -181,9 +182,9 @@ export class ProfilePanel {
   readonly emailCode = signal('');
   readonly sendingCode = signal(false);
   readonly confirmingCode = signal(false);
+  private readonly resendCountdown = resendCountdown();
   /** 距离可以重发还剩几秒；0 表示可以发。 */
-  readonly resendSeconds = signal(0);
-  private resendTimer: ReturnType<typeof setInterval> | undefined;
+  readonly resendSeconds = this.resendCountdown.remaining;
   /** 倒计时针对的地址：服务端按地址限频，换了地址的倒计时不再适用。 */
   private resendEmail: string | null = null;
 
@@ -210,9 +211,6 @@ export class ProfilePanel {
       this.savedProfile();
       untracked(() => this.reset());
     });
-//#if (Email)
-    this.destroyRef.onDestroy(() => clearInterval(this.resendTimer));
-//#endif
   }
 
   /** 按当前用户回填表单，丢掉未保存的修改。 */
@@ -348,21 +346,12 @@ export class ProfilePanel {
   }
 
   private startResendCountdown(email: string, seconds: number): void {
-    clearInterval(this.resendTimer);
     this.resendEmail = email;
-    this.resendSeconds.set(Math.max(0, Math.ceil(seconds)));
-    this.resendTimer = setInterval(() => {
-      const next = this.resendSeconds() - 1;
-      this.resendSeconds.set(Math.max(0, next));
-      if (next <= 0) {
-        this.stopResendCountdown();
-      }
-    }, 1000);
+    this.resendCountdown.start(seconds);
   }
 
   private stopResendCountdown(): void {
-    clearInterval(this.resendTimer);
-    this.resendSeconds.set(0);
+    this.resendCountdown.stop();
     this.resendEmail = null;
   }
 

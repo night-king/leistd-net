@@ -73,6 +73,16 @@ export interface EmailVerificationChallengeOutputDto {
   retryAfterSeconds: number;
 }
 //#endif
+//#if (Email)
+
+/** 忘记密码：凭发到账号邮箱的验证码设置新口令。 */
+export interface ResetPasswordInputDto {
+  email: string;
+  challengeId: string;
+  code: string;
+  newPassword: string;
+}
+//#endif
 
 export interface UpdateCurrentUserInputDto {
   username: string;

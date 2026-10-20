@@ -346,6 +346,21 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     {
         Lockout = LockoutState.None;
     }
+#if (Email)
+
+    /// <summary>能凭邮箱验证码找回口令：邮箱已验证、账号启用、没有被管理员锁定。</summary>
+    /// <remarks>
+    /// 未验证的邮箱没有证明属于本人（可能是填错的地址），把找回码发过去等于把账号交给那个地址的主人。
+    /// 临时锁定不挡找回，找回成功时一并解除；管理员锁定与停用是管理决定，不能靠找回绕过。
+    /// </remarks>
+    public bool CanRecoverPasswordByEmail => EmailConfirmed && IsActive && !Lockout.IsAdministrative;
+
+    /// <summary>解除登录失败触发的临时锁定并清零失败次数；管理员锁定保留。</summary>
+    public void ReleaseTemporaryLockout()
+    {
+        Lockout = Lockout.ReleaseTemporary();
+    }
+#endif
 
     /// <summary>记一次密码错误；累计达到 <paramref name="policy"/> 的阈值时锁定一段时间，返回 true。</summary>
     /// <remarks>规则见 <see cref="LockoutState.RecordFailure"/>。</remarks>

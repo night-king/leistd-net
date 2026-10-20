@@ -61,6 +61,14 @@ public sealed class LockoutState : ValueObject
     /// <summary>此刻处于登录失败触发的临时锁定中。</summary>
     public bool IsTemporaryAt(DateTime now) => IsLocked && End is { } end && end > now;
 
+    /// <summary>管理员锁定（没有截止时间）。</summary>
+    public bool IsAdministrative => IsLocked && End is null;
+#if (Email)
+
+    /// <summary>解除登录失败触发的临时锁定并清零失败次数；管理员锁定原样保留。</summary>
+    public LockoutState ReleaseTemporary() => IsAdministrative ? this : None;
+#endif
+
     /// <summary>有可解除的内容：已锁定，或留有失败次数。</summary>
     public bool HasAnythingToClear => IsLocked || AccessFailedCount > 0;
 

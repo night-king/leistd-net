@@ -756,6 +756,9 @@
           "exclude": [
             "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/IEmailVerificationAppService.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/EmailVerificationAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/IPasswordResetAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/PasswordResetAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/PasswordResetInputDto.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/EmailVerification/**",
             "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/SendEmailCodeInputDto.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/EmailVerificationChallengeOutputDto.cs",
@@ -767,8 +770,11 @@
             "backend/src/CompanyName.ProjectName.Infrastructure/Shared/Security/VerificationCodes/**",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/EmailSettingsTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/EmailVerificationChallengeTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PasswordResetTests.cs",
             "backend/tests/CompanyName.ProjectName.UnitTests/Application/EmailChallengeStoreTests.cs",
             "frontend/src/app/features/settings/components/setting-section/widgets/email-test/**",
+            "frontend/src/app/features/account/utils/resend-countdown.ts",
+            "frontend/src/app/features/account/utils/resend-countdown.spec.ts",
             "backend/src/CompanyName.ProjectName.Application/Settings/Dtos/SendTestEmailInputDto.cs"
           ]
         },
@@ -844,7 +850,8 @@
             "frontend/src/app/core/services/tenant-context-service.ts",
             "frontend/src/app/core/services/tenant-context-service.spec.ts",
             "frontend/src/app/core/interceptors/tenant-interceptor.ts",
-            "frontend/src/app/core/interceptors/tenant-interceptor.spec.ts"
+            "frontend/src/app/core/interceptors/tenant-interceptor.spec.ts",
+            "frontend/src/app/features/account/utils/host-tenant-probe.ts"
           ]
         },
         {

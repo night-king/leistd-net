@@ -1,16 +1,12 @@
-// prettier-ignore
 import {
   ChangeDetectionStrategy,
   Component,
-  //#if (Email)
-  DestroyRef,
-  //#endif
   OnInit,
-  computed,
   effect,
   inject,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import {
   form,
@@ -37,7 +33,6 @@ import {
   HlmInputGroupButton,
 } from '@spartan-ng/helm/input-group';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
-import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { lastValueFrom } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
@@ -49,11 +44,15 @@ import {
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
-import { CaptchaOutputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
+//#if (Email)
+import { resendCountdown } from '../../utils/resend-countdown';
+//#endif
+import { CaptchaImage } from '../../widgets/captcha-image/captcha-image';
 //#if (ExternalLogin)
 import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
 //#endif
+import { PasswordLengthMeter } from '../../widgets/password-length-meter/password-length-meter';
 import { AuthShell } from '../auth-shell/auth-shell';
 
 @Component({
@@ -70,11 +69,12 @@ import { AuthShell } from '../auth-shell/auth-shell';
     HlmInputGroupInput,
     HlmInputGroupButton,
     ...HlmFieldImports,
-    ...HlmTooltipImports,
     //#if (IncludeLocalization)
     TranslocoDirective,
     //#endif
     AuthShell,
+    CaptchaImage,
+    PasswordLengthMeter,
     //#if (ExternalLogin)
     ExternalLoginButtons,
     //#endif
@@ -92,9 +92,6 @@ export class Register implements OnInit {
   private accountService = inject(AccountService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  //#if (Email)
-  private destroyRef = inject(DestroyRef);
-  //#endif
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -115,11 +112,10 @@ export class Register implements OnInit {
 //#if (Email)
   protected readonly securityConfig = this.securityConfigService.config;
 //#endif
-  public captchaData = signal<CaptchaOutputDto | null>(null);
+  private readonly captcha = viewChild.required(CaptchaImage);
 
 //#if (Email)
-  public countdown = signal(0);
-  private countdownIntervalId: ReturnType<typeof setInterval> | null = null;
+  readonly countdown = resendCountdown();
   private readonly emailVerificationChallenge = signal<{
     challengeId: string;
     email: string;
@@ -138,21 +134,6 @@ export class Register implements OnInit {
 //#endif
     password: '',
   });
-
-  /**
-   * 口令长度进度：口令策略只看长度（见 PASSWORD_MIN_LENGTH 与服务端 PasswordPolicy），这里不另立
-   * 复杂度规则，只把「离最小长度还差多少」画成四格进度，够长即达标。
-   */
-  readonly passwordStrength = computed(() => {
-    const length = this.model().password.length;
-    return {
-      met: length >= PASSWORD_MIN_LENGTH,
-      filled: Math.min(4, Math.ceil((length / PASSWORD_MIN_LENGTH) * 4)),
-      remaining: Math.max(0, PASSWORD_MIN_LENGTH - length),
-    };
-  });
-  protected readonly passwordMinLength = PASSWORD_MIN_LENGTH;
-  protected readonly strengthSegments = [1, 2, 3, 4];
 
   readonly registerForm = form(this.model, (path) => {
     required(path.email);
@@ -179,10 +160,6 @@ export class Register implements OnInit {
   private lastDerivedUsername = '';
 
   constructor() {
-//#if (Email)
-    this.destroyRef.onDestroy(() => this.clearCountdown());
-
-//#endif
     // 从邮箱前缀自动推导 username，用户手动改过 username 后停止推导。
     effect(() => {
       const email = this.model().email;
@@ -194,7 +171,7 @@ export class Register implements OnInit {
         if (challenge && challenge.email !== this.normalizeEmail(email)) {
           this.emailVerificationChallenge.set(null);
           this.model.update((m) => ({ ...m, emailVerificationCode: '' }));
-          this.clearCountdown();
+          this.countdown.stop();
         }
 
 //#endif
@@ -221,23 +198,12 @@ export class Register implements OnInit {
   ngOnInit() {
     // 进入注册页时取当前策略：开关与验证方式可能在别的页面读过之后被管理员改过
     this.securityConfigService.refresh();
-    this.refreshCaptcha();
-  }
-
-  async refreshCaptcha() {
-    try {
-      const captcha = await lastValueFrom(this.accountService.getCaptcha());
-      this.captchaData.set(captcha);
-      this.model.update((m) => ({ ...m, captchaCode: '' }));
-    } catch (err) {
-      this.showRequestError(err);
-    }
   }
   //#if (Email)
 
   async sendEmailCode() {
     const { email, captchaCode } = this.model();
-    const captchaToken = this.captchaData()?.captchaToken;
+    const captchaToken = this.captcha().token();
 
     if (!email || this.registerForm.email().invalid()) {
       //#if (IncludeLocalization)
@@ -282,38 +248,13 @@ export class Register implements OnInit {
       //#else
       toast.success('Success', { description: 'Verification code sent, please check your email' });
       //#endif
-      this.startCountdown(challenge.retryAfterSeconds);
+      this.countdown.start(challenge.retryAfterSeconds);
     } catch (error) {
       this.showRequestError(error);
-      this.refreshCaptcha(); // 如果验证码错误，刷新图形验证码
+      void this.captcha().reload(); // 令牌只能用一次：失败后换一张
     } finally {
       this._isSendingEmailCode.set(false);
     }
-  }
-  //#endif
-  //#if (Email)
-
-  private startCountdown(seconds: number) {
-    this.clearCountdown();
-    this.countdown.set(seconds);
-    this.countdownIntervalId = setInterval(() => {
-      const current = this.countdown();
-      if (current <= 1) {
-        this.clearCountdown();
-      } else {
-        this.countdown.set(current - 1);
-      }
-    }, 1000);
-  }
-  //#endif
-  //#if (Email)
-
-  private clearCountdown() {
-    if (this.countdownIntervalId) {
-      clearInterval(this.countdownIntervalId);
-      this.countdownIntervalId = null;
-    }
-    this.countdown.set(0);
   }
   //#endif
 
@@ -340,7 +281,7 @@ export class Register implements OnInit {
     //#endif
     this._isLoading.set(true);
     try {
-      const captchaToken = this.captchaData()?.captchaToken;
+      const captchaToken = this.captcha().token();
 
       if (!captchaToken) {
         //#if (IncludeLocalization)
@@ -385,7 +326,7 @@ export class Register implements OnInit {
       });
     } catch (error) {
       this.showRequestError(error);
-      this.refreshCaptcha();
+      void this.captcha().reload();
     } finally {
       this._isLoading.set(false);
     }
@@ -417,10 +358,8 @@ const ENGLISH: Record<string, string> = {
   'account.register.username': 'Username',
   'account.register.usernamePlaceholder':
     'Extracted from email prefix, letters, digits and underscores allowed',
-  'account.register.captcha': 'Captcha',
-  'account.register.captchaPlaceholder': 'Enter the captcha on the right',
-  'account.register.captchaRefresh': "Can't see clearly? Click to refresh",
-  'account.register.captchaAlt': 'Captcha',
+  'account.captcha.label': 'Captcha',
+  'account.captcha.placeholder': 'Enter the captcha on the right',
   'account.register.emailCode': 'Email Verification Code',
   'account.register.emailCodePlaceholder': 'Enter the 6-digit code',
   'account.register.resendCountdown': 'Resend in {{seconds}}s',
@@ -434,10 +373,7 @@ const ENGLISH: Record<string, string> = {
   'account.register.loginNow': 'Sign in',
   'account.register.closed': 'Self sign-up is not open here. Ask an administrator for an account.',
   //#if (ExternalLogin)
-  'account.register.or': 'Or sign up with email',
+  'account.register.or': 'Or sign up with',
   //#endif
-  'account.register.passwordLengthProgress':
-    'At least {{min}} characters, {{remaining}} more to go',
-  'account.register.passwordLengthMet': 'Length requirement met',
 };
 //#endif

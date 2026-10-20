@@ -34,6 +34,8 @@ describe('Register', () => {
   >;
   //#endif
   let queryParams: Record<string, string>;
+  /** 验证码图片接口的应答；个别用例在建组件前换成失败。 */
+  let captchaResponse: () => ReturnType<AccountService['getCaptcha']>;
 
   //#if (Email)
   async function setUp(enableEmailVerification = false, registrationEnabled = true): Promise<void> {
@@ -48,9 +50,7 @@ describe('Register', () => {
       //#endif
     };
     accountService.register.mockReturnValue(of(undefined));
-    accountService.getCaptcha.mockReturnValue(
-      of({ captchaToken: 'token-1', captchaImage: 'data:image/png;base64,' }) as never,
-    );
+    accountService.getCaptcha.mockImplementation(captchaResponse);
     //#if (Email)
     accountService.sendEmailCode.mockReturnValue(
       of({
@@ -119,6 +119,8 @@ describe('Register', () => {
 
   beforeEach(() => {
     queryParams = {};
+    captchaResponse = () =>
+      of({ captchaToken: 'token-1', captchaImageBase64: 'data:image/png;base64,' });
   });
 
   it('does not submit the registration request when the form is invalid', async () => {
@@ -187,24 +189,28 @@ describe('Register', () => {
       '/connect/authorize?client_id=resource',
     );
   });
+
+  // 与登录页同一顺序：表单在前，外部注册作为替代放在注册按钮之后
+  it('puts the external providers after the submit button', async () => {
+    await setUp();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const divider = host.querySelector('[data-testid="external-divider"]')!;
+    const following = (a: Element, b: Element) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    expect(following(host.querySelector('button[type="submit"]')!, divider)).toBe(true);
+    expect(following(divider, host.querySelector('[data-testid="external-login-github"]')!)).toBe(
+      true,
+    );
+  });
   //#endif
 
-  // 进度只反映口令策略的最小长度：不另立复杂度规则，够长即达标
-  it('fills the length progress toward the minimum and reports how many characters remain', async () => {
-    await setUp();
-    const password = component.registerForm.password().value;
-
-    password.set('abcdef');
-    expect(component.passwordStrength()).toEqual({ met: false, filled: 2, remaining: 6 });
-
-    password.set('abcdefghijkl');
-    expect(component.passwordStrength()).toEqual({ met: true, filled: 4, remaining: 0 });
-  });
-
   it('does not submit without a captcha token and resets loading', async () => {
+    captchaResponse = () => throwError(() => new Error('captcha unavailable'));
     await setUp();
     fillValidForm();
-    component.captchaData.set(null);
 
     await component.onSubmit();
 
@@ -256,7 +262,7 @@ describe('Register', () => {
 
     await component.sendEmailCode();
 
-    expect(component.countdown()).toBe(37);
+    expect(component.countdown.remaining()).toBe(37);
   });
 
   it('submits the nested challenge contract when email verification is on', async () => {

@@ -17,10 +17,14 @@ using Leistd.ExceptionHandling;
 using Leistd.Timing;
 using Leistd.Lock.Abstractions;
 using Leistd.MultiTenancy.Context;
+using Leistd.BackgroundJobs.Queues;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CompanyName.ProjectName.Application.Auth.EmailVerification;
 
-/// <summary>邮箱验证码挑战：签发（含按邮箱限流）与一次性校验。注册与验证已有账号的邮箱各用一种用途，互不通用。</summary>
+/// <summary>
+/// 邮箱验证码挑战：签发（含按邮箱限流）与一次性校验。注册、验证已有账号的邮箱与找回口令各用一种用途，互不通用。
+/// </summary>
 public class EmailChallengeStore(
     IDistributedCache distributedCache,
     IDistributedLock distributedLock,
@@ -30,6 +34,7 @@ public class EmailChallengeStore(
     ILogger<EmailChallengeStore> logger,
     IClock clock,
     ICurrentTenant currentTenant,
+    IBackgroundTaskQueue taskQueue,
     IOptions<VerificationCodeOptions> verificationCodeOptions)
 {
     private const string RegistrationPurpose = "registration-email";
@@ -37,6 +42,19 @@ public class EmailChallengeStore(
     // 已登录用户验证自己当前的邮箱。与注册分开成两种用途：挑战绑定用途，
     // 注册时发出的验证码不能拿来验证已有账号的邮箱，反之亦然。
     private const string AccountEmailPurpose = "account-email";
+
+    // 找回口令：挑战另外绑定目标用户与签发时的安全版本，码对了也要在凭据锁内核对这两项
+    private const string PasswordResetPurpose = "password-reset";
+
+    /// <summary>同一邮箱（按租户）找回口令发码的上限，按 <see cref="PasswordResetWindow"/> 的固定窗口计。</summary>
+    /// <remarks>
+    /// 发送间隔之外再加这一道：每个码可试的次数有限，但只靠间隔一天仍能换几千个码来猜。
+    /// 窗口从该邮箱本窗口第一次发码起算，到期后重新计数；不是任意滚动 24 小时内的上限。
+    /// </remarks>
+    public const int PasswordResetLimitPerWindow = 10;
+
+    /// <summary>找回口令发码上限的计数窗口。</summary>
+    public static readonly TimeSpan PasswordResetWindow = TimeSpan.FromHours(24);
     private const string CacheKeyPrefix = "MyProject:email-verification";
 
     /// <summary>为注册签发验证码；调用方已确认功能开启、图形验证码通过且邮箱未被占用。</summary>
@@ -58,11 +76,113 @@ public class EmailChallengeStore(
         return await IssueChallengeAsync(NormalizeEmail(email), AccountEmailPurpose, policy, cancellationToken);
     }
 
-    private async Task<EmailVerificationChallengeOutputDto> IssueChallengeAsync(
-        string normalizedEmail,
-        string purpose,
+    /// <summary>为找回口令签发验证码。</summary>
+    /// <remarks>
+    /// <para>不论邮箱是否对应一个能找回的账号，都走同一条路：签发挑战、占用发送间隔、计入窗口上限，响应一样。
+    /// <paramref name="target"/> 为 null 时挑战照样签发，但码没有发给任何人，也不绑定账号，永远校验不过。</para>
+    /// <para>邮件在后台发送（<see cref="PasswordResetCodeMailer"/>），请求不等待 SMTP；发送失败、队列已满都只记日志，
+    /// 配额不退回——退回与否本身会泄露这个邮箱对应着账号。</para>
+    /// </remarks>
+    /// <param name="email">请求里的邮箱。</param>
+    /// <param name="target">能找回的账号及其此刻的安全版本；没有时为 null。</param>
+    /// <param name="policy">验证码的有效期、发送间隔与尝试次数。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task<EmailVerificationChallengeOutputDto> IssuePasswordResetAsync(
+        string email,
+        PasswordResetTarget? target,
         UserRegistrationPolicy policy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
+    {
+        EnsureKeyUsable();
+
+        var scope = GetScope();
+        var emailDigest = GetEmailDigest(NormalizeEmail(email));
+        var rateKey = GetRateCacheKey(scope, emailDigest);
+        var windowKey = GetPasswordResetWindowCacheKey(scope, emailDigest);
+        await using var rateLock = await distributedLock.LockAsync(GetRateLockKey(scope, emailDigest), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, rateLock.LockLost);
+        var operationToken = lockScope.Token;
+
+        await EnsureSendIntervalElapsedAsync(scope, rateKey, operationToken);
+        var now = clock.Now;
+        var window = await ReadPasswordResetWindowAsync(windowKey, now, operationToken);
+        if (window is { Count: >= PasswordResetLimitPerWindow })
+        {
+            throw new BusinessException(AuthErrorCodes.EmailCodeSendTooFrequent, "Verification codes are being sent too frequently. Please try again later.");
+        }
+
+        var challengeId = Guid.NewGuid();
+        var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
+        var expiresIn = TimeSpan.FromMinutes(policy.EmailCodeExpiryMinutes);
+        var expiresAt = now.Add(expiresIn);
+        var challenge = new EmailVerificationChallengeState
+        {
+            Scope = scope,
+            Purpose = PasswordResetPurpose,
+            EmailDigest = emailDigest,
+            CodeHash = codeDigest.Compute(code),
+            ExpiresAt = expiresAt,
+            RemainingAttempts = policy.EmailCodeMaxAttempts,
+            UserId = target?.UserId,
+            SecurityStamp = target?.SecurityStamp
+        };
+        var windowStartedAt = window?.StartedAt ?? now;
+
+        await distributedCache.SetStringAsync(
+            rateKey,
+            challengeId.ToString("N"),
+            new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(policy.EmailCodeSendIntervalSeconds)
+            },
+            operationToken);
+        await distributedCache.SetStringAsync(
+            windowKey,
+            JsonSerializer.Serialize(new PasswordResetWindowState(windowStartedAt, (window?.Count ?? 0) + 1)),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = windowStartedAt + PasswordResetWindow - now },
+            operationToken);
+        await distributedCache.SetStringAsync(
+            GetChallengeCacheKey(challengeId),
+            JsonSerializer.Serialize(challenge),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = expiresIn },
+            operationToken);
+
+        if (target is not null)
+        {
+            var delivery = new PasswordResetCodeDelivery(
+                challengeId, target.UserId, target.Email, code, policy.EmailCodeExpiryMinutes, expiresAt);
+            if (!taskQueue.TryQueue((services, token) =>
+                    new ValueTask(services.GetRequiredService<PasswordResetCodeMailer>().SendAsync(delivery, token))))
+            {
+                logger.LogWarning(
+                    "Password reset code {ChallengeId} for user {UserId} was not sent: the background queue is full",
+                    challengeId,
+                    target.UserId);
+            }
+        }
+
+        return new EmailVerificationChallengeOutputDto
+        {
+            ChallengeId = challengeId,
+            ExpiresInSeconds = checked((int)expiresIn.TotalSeconds),
+            RetryAfterSeconds = policy.EmailCodeSendIntervalSeconds
+        };
+    }
+
+    /// <summary>校验找回口令的验证码；通过即作废，返回挑战绑定的账号与安全版本。</summary>
+    /// <remarks>返回值只说明码对了：账号是否仍是这一版凭据、是否仍能找回，由调用方在凭据锁内核对。</remarks>
+    public async Task<PasswordResetProof?> ValidatePasswordResetAsync(
+        string email,
+        EmailVerificationInputDto input,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await ConsumeChallengeAsync(email, input, PasswordResetPurpose, cancellationToken);
+        return challenge is { UserId: { } userId, SecurityStamp: { } securityStamp }
+            ? new PasswordResetProof(userId, securityStamp)
+            : null;
+    }
+
+    private void EnsureKeyUsable()
     {
         // 缺摘要密钥时返回安全的暂不可用提示；具体部署原因由错误码与服务端日志定位。
         if (!verificationCodeOptions.Value.IsKeyUsable)
@@ -73,6 +193,38 @@ public class EmailChallengeStore(
             throw new BusinessException(AuthErrorCodes.EmailVerificationUnavailable,
                 "Email verification is temporarily unavailable. Please contact your administrator.");
         }
+    }
+
+    // 配额键的值是占位那次的挑战 Id；那次发送失败时另写一个按 Id 的失败标记，它的预留随之作废。
+    private async Task EnsureSendIntervalElapsedAsync(string scope, string rateKey, CancellationToken cancellationToken)
+    {
+        var reservation = await distributedCache.GetStringAsync(rateKey, cancellationToken);
+        if (!string.IsNullOrEmpty(reservation) &&
+            string.IsNullOrEmpty(await distributedCache.GetStringAsync(
+                GetFailedReservationCacheKey(scope, reservation), cancellationToken)))
+        {
+            throw new BusinessException(AuthErrorCodes.EmailCodeSendTooFrequent, "Verification codes are being sent too frequently. Please try again later.");
+        }
+    }
+
+    // 窗口到期以注入的时钟为准，缓存条目的过期只负责回收
+    private async Task<PasswordResetWindowState?> ReadPasswordResetWindowAsync(
+        string windowKey,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var json = await distributedCache.GetStringAsync(windowKey, cancellationToken);
+        var window = json is null ? null : JsonSerializer.Deserialize<PasswordResetWindowState>(json);
+        return window is not null && window.StartedAt + PasswordResetWindow > now ? window : null;
+    }
+
+    private async Task<EmailVerificationChallengeOutputDto> IssueChallengeAsync(
+        string normalizedEmail,
+        string purpose,
+        UserRegistrationPolicy policy,
+        CancellationToken cancellationToken)
+    {
+        EnsureKeyUsable();
 
         var scope = GetScope();
         var emailDigest = GetEmailDigest(normalizedEmail);
@@ -81,14 +233,7 @@ public class EmailChallengeStore(
         using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, rateLock.LockLost);
         var operationToken = lockScope.Token;
 
-        // 配额键的值是占位那次的挑战 Id；那次发送失败时另写一个按 Id 的失败标记，它的预留随之作废。
-        var reservation = await distributedCache.GetStringAsync(rateKey, operationToken);
-        if (!string.IsNullOrEmpty(reservation) &&
-            string.IsNullOrEmpty(await distributedCache.GetStringAsync(
-                GetFailedReservationCacheKey(scope, reservation), operationToken)))
-        {
-            throw new BusinessException(AuthErrorCodes.EmailCodeSendTooFrequent, "Verification codes are being sent too frequently. Please try again later.");
-        }
+        await EnsureSendIntervalElapsedAsync(scope, rateKey, operationToken);
 
         var challengeId = Guid.NewGuid();
         var code = RandomNumberGenerator.GetInt32(100000, 1000000).ToString(CultureInfo.InvariantCulture);
@@ -163,20 +308,21 @@ public class EmailChallengeStore(
     }
 
     /// <summary>校验注册验证码；通过即作废。</summary>
-    public Task<bool> ValidateRegistrationAsync(
+    public async Task<bool> ValidateRegistrationAsync(
         string email,
         EmailVerificationInputDto input,
         CancellationToken cancellationToken = default)
-        => ValidateChallengeAsync(email, input, RegistrationPurpose, cancellationToken);
+        => await ConsumeChallengeAsync(email, input, RegistrationPurpose, cancellationToken) is not null;
 
     /// <summary>校验已有账号的邮箱验证码；通过即作废。</summary>
-    public Task<bool> ValidateAccountEmailAsync(
+    public async Task<bool> ValidateAccountEmailAsync(
         string email,
         EmailVerificationInputDto input,
         CancellationToken cancellationToken = default)
-        => ValidateChallengeAsync(email, input, AccountEmailPurpose, cancellationToken);
+        => await ConsumeChallengeAsync(email, input, AccountEmailPurpose, cancellationToken) is not null;
 
-    private async Task<bool> ValidateChallengeAsync(
+    // 码对且挑战有效时作废它并返回其内容，否则返回 null
+    private async Task<EmailVerificationChallengeState?> ConsumeChallengeAsync(
         string email,
         EmailVerificationInputDto input,
         string purpose,
@@ -187,7 +333,7 @@ public class EmailChallengeStore(
             challengeId == Guid.Empty ||
             string.IsNullOrWhiteSpace(input.Code))
         {
-            return false;
+            return null;
         }
 
         var challengeKey = GetChallengeCacheKey(challengeId);
@@ -202,7 +348,7 @@ public class EmailChallengeStore(
         var serializedChallenge = await distributedCache.GetStringAsync(challengeKey, operationToken);
         if (string.IsNullOrEmpty(serializedChallenge))
         {
-            return false;
+            return null;
         }
 
         EmailVerificationChallengeState? challenge;
@@ -213,13 +359,13 @@ public class EmailChallengeStore(
         catch (JsonException)
         {
             await distributedCache.RemoveAsync(challengeKey, operationToken);
-            return false;
+            return null;
         }
 
         if (challenge is null)
         {
             await distributedCache.RemoveAsync(challengeKey, operationToken);
-            return false;
+            return null;
         }
 
         var emailDigest = GetEmailDigest(NormalizeEmail(email));
@@ -228,14 +374,14 @@ public class EmailChallengeStore(
             !FixedTimeEquals(challenge.EmailDigest, emailDigest))
         {
             // A request from another tenant/email must not be able to consume or exhaust this challenge.
-            return false;
+            return null;
         }
 
         var remainingLifetime = challenge.ExpiresAt - clock.Now;
         if (remainingLifetime <= TimeSpan.Zero)
         {
             await distributedCache.RemoveAsync(challengeKey, operationToken);
-            return false;
+            return null;
         }
 
         bool codeMatches;
@@ -246,20 +392,20 @@ public class EmailChallengeStore(
         catch (Exception exception) when (exception is FormatException or ArgumentException)
         {
             await distributedCache.RemoveAsync(challengeKey, operationToken);
-            return false;
+            return null;
         }
 
         if (codeMatches)
         {
             await distributedCache.RemoveAsync(challengeKey, operationToken);
-            return true;
+            return challenge;
         }
 
         challenge = challenge with { RemainingAttempts = challenge.RemainingAttempts - 1 };
         if (challenge.RemainingAttempts <= 0)
         {
             await distributedCache.RemoveAsync(challengeKey, operationToken);
-            return false;
+            return null;
         }
 
         await distributedCache.SetStringAsync(
@@ -267,7 +413,7 @@ public class EmailChallengeStore(
             JsonSerializer.Serialize(challenge),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = remainingLifetime },
             operationToken);
-        return false;
+        return null;
     }
 
     private static string BuildEmailBody(string code, int expiryMinutes, string purpose)
@@ -323,6 +469,12 @@ public class EmailChallengeStore(
     private static string GetRateLockKey(string scope, string emailDigest)
         => $"{scope}:lock:rate:{emailDigest}";
 
+    private static string GetPasswordResetWindowCacheKey(string scope, string emailDigest)
+        => $"{scope}:password-reset-window:{emailDigest}";
+
+    // 找回口令发码计数的固定窗口
+    private sealed record PasswordResetWindowState(DateTime StartedAt, int Count);
+
     private sealed record EmailVerificationChallengeState
     {
         public required string Scope { get; init; }
@@ -336,5 +488,22 @@ public class EmailChallengeStore(
         public required DateTime ExpiresAt { get; init; }
 
         public required int RemainingAttempts { get; init; }
+
+        /// <summary>找回口令：码发给的账号；收不到码的挑战与其他用途为 null。</summary>
+        public Guid? UserId { get; init; }
+
+        /// <summary>找回口令：签发时账号的安全版本，此后凭据一变挑战即作废。</summary>
+        public string? SecurityStamp { get; init; }
     }
 }
+
+/// <summary>能收到找回口令验证码的账号。</summary>
+/// <param name="UserId">账号 Id。</param>
+/// <param name="Email">账号当前的已验证邮箱，验证码发往这里。</param>
+/// <param name="SecurityStamp">发码时账号的安全版本。</param>
+public sealed record PasswordResetTarget(Guid UserId, string Email, string SecurityStamp);
+
+/// <summary>找回口令的验证码已通过：挑战签发给的账号与当时的安全版本。</summary>
+/// <param name="UserId">账号 Id。</param>
+/// <param name="SecurityStamp">发码时账号的安全版本；与当前不一致说明凭据已经变过，证明作废。</param>
+public sealed record PasswordResetProof(Guid UserId, string SecurityStamp);

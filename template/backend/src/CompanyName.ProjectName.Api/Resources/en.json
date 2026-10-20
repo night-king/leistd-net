@@ -147,6 +147,12 @@
     "Role:StaticRoleCannotBeDeleted": "Built-in role '{Name}' cannot be deleted.",
     "Roles": "Roles",
     "Search keyword": "Search keyword",
+//#if (Email)
+    "PasswordReset:Email:Expiry": "This code will expire in {0} minutes. Please do not share it with anyone.",
+    "PasswordReset:Email:Ignore": "If you did not request this, you can ignore this email. Your password stays unchanged.",
+    "PasswordReset:Email:Intro": "You are resetting the password of your account. Your verification code is:",
+    "PasswordReset:Email:Subject": "Password Reset Verification Code",
+//#endif
     "Security:CurrentPasswordIncorrect": "The current password is incorrect.",
     "Security:HashedPasswordRequired": "Hashed password cannot be empty.",
     "Security:LocalPasswordNotSet": "The current account has no local password set and cannot change the password.",
@@ -165,6 +171,10 @@
     "SecurityAlert:NewDeviceSignIn:Title": "New sign-in to your account",
     "SecurityAlert:PasswordChanged:Content": "If you didn't do this, contact your administrator right away.",
     "SecurityAlert:PasswordChanged:Title": "Your password was changed",
+//#if (Email)
+    "SecurityAlert:PasswordRecovered:Content": "All devices were signed out. If you didn't do this, contact your administrator right away.",
+    "SecurityAlert:PasswordRecovered:Title": "Your password was reset with an email code",
+//#endif
     "SecurityAlert:PasswordReset:Content": "Your other devices were signed out.",
     "SecurityAlert:PasswordReset:Title": "Your password was reset by an administrator",
     "SecurityAlert:TwoFactorAuthenticatorReplaced:Content": "Codes from your previous authenticator and your old recovery codes no longer work. If you didn't do this, contact your administrator right away.",

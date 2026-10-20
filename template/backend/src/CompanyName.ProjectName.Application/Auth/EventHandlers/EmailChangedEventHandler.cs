@@ -81,7 +81,8 @@ internal sealed class EmailChangedEventHandler(ISecurityAlertPublisher securityA
                 },
                 cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // 只有调用方真的取消了才让取消传出去；下游自己的超时、取消也是投递失败，按尽力而为吞掉
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             // 修改已经提交：发不出去只记日志，不让它报失败
             logger.LogWarning(

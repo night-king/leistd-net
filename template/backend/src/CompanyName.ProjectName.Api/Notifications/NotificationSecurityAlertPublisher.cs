@@ -52,7 +52,8 @@ public sealed class NotificationSecurityAlertPublisher(
                 },
                 cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // 只有调用方真的取消了才让取消传出去；下游自己的超时、取消也是投递失败，按尽力而为吞掉
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             // 提醒是尽力而为的：发不出去不能让登录、改密码失败
             logger.LogWarning(ex, "Could not publish security alert {Kind} for user {UserId}", alert.Kind, userId);
@@ -97,6 +98,9 @@ public sealed class NotificationSecurityAlertPublisher(
             SecurityAlertKind.TwoFactorReset => ("Two-factor authentication was reset by an administrator", "Set it up again from your security settings."),
             SecurityAlertKind.LockedOut => ("Your account was locked", "There were too many failed sign-in attempts. It unlocks at {Until}."),
             SecurityAlertKind.EmailChanged => ("Your account email address was changed", "If you didn't do this, contact your administrator right away."),
+#if (Email)
+            SecurityAlertKind.PasswordRecovered => ("Your password was reset with an email code", "All devices were signed out. If you didn't do this, contact your administrator right away."),
+#endif
             _ => (alert.Kind.ToString(), null)
         };
         return Task.FromResult((title, content is null ? null : Fill(content, alert, until)));
