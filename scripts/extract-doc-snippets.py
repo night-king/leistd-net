@@ -362,7 +362,7 @@ public class IncomingMessageHandler
     public Task HandleAsync(IncomingMessage message, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
-public class MyApiClient(HttpClient httpClient);
+public class ThirdPartyClient(HttpClient httpClient);
 
 public class OrderSubmitter
 {

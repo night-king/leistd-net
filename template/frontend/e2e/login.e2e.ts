@@ -8,7 +8,7 @@ test('signs in through the login page', { tag: '@auth' }, async ({ page }) => {
   await page.goto('/auth/login');
   await page.getByLabel('Username or Email').fill(account.username);
   await page.getByLabel('Password', { exact: true }).fill(account.password);
-  await page.getByRole('button', { name: 'Sign In' }).click();
+  await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(page).not.toHaveURL(/\/auth\/login/);
   await page.goto('/platform/roles');

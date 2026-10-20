@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
 
-import { operationFailureReason, operationRecordActor } from './operation-record-texts';
+import { operationFailureReason } from './operation-record-texts';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
 //#if (!IncludeLocalization)
@@ -13,7 +13,8 @@ import { OperationRecordOutputDto } from '../../../../dtos/operation-record.dto'
 
 /**
  * 一条操作记录的追查字段：目标标识、失败原因与技术详情、授权依据、操作人租户、链路标识。操作记录表的行展开
- * 与仪表盘的最近操作共用；列表里已经显示的操作人与时间由调用方决定是否再列。
+ * 与仪表盘的最近操作共用。表格被折叠的列由调用方以 `dt`/`dd` 投影进来，排在追查字段之前、共用同一个网格；
+ * 列表里没有完整时间时由 `showTime` 补上。
  */
 @Component({
   selector: 'app-operation-record-detail',
@@ -36,21 +37,15 @@ export class OperationRecordDetail {
   //#endif
 
   readonly record = input.required<OperationRecordOutputDto>();
-  /** 列表里操作人一列被裁掉时补上。 */
-  readonly showActor = input(false);
   /** 列表里没有完整时间时补上（裁掉了时间列，或只显示了相对时间）。 */
   readonly showTime = input(false);
 
-  protected readonly actor = computed(() => operationRecordActor(this.record()));
   protected readonly failure = computed(() => operationFailureReason(this.record()));
 }
 //#if (!IncludeLocalization)
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'operationRecords.table.colActor': 'Operator',
-  'operationRecords.table.unknownActor': 'Anonymous',
-  'operationRecords.table.impersonatedBy': 'acting on behalf, by {{name}}',
   'operationRecords.table.colTarget': 'Target',
   'operationRecords.table.colFailure': 'Reason',
   'operationRecords.table.colFailureDetail': 'Technical detail',

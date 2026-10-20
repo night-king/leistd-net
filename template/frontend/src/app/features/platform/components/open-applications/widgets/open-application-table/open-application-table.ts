@@ -42,6 +42,7 @@ import {
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
 import { ColumnValue } from '../../../../../../shared/directives/column-value';
 import { TableFit } from '../../../../../../shared/directives/table-fit';
+import { TruncatedTooltip } from '../../../../../../shared/directives/truncated-tooltip';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
 import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
@@ -86,6 +87,7 @@ type BadgeVariant = 'secondary' | 'outline';
     ColumnValue,
     ReadonlyListPopover,
     TableFit,
+    TruncatedTooltip,
     AppDate,
     AppNumber,
     NgIcon,

@@ -123,7 +123,6 @@ public static class DependencyInjection
 #if (ExternalLogin)
         // 绑定登记了配置变更令牌：宿主级设置改了开关或凭据，监视器随配置重载拿到新值
         services.AddOptions<ExternalAuthOptions>().BindConfiguration(ExternalAuthOptions.SectionName);
-        services.AddHttpClient();
 #endif
 
         return services;

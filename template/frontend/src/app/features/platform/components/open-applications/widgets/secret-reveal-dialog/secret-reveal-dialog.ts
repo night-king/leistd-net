@@ -118,15 +118,15 @@ export class SecretRevealDialog {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'openApp.secret.resetHeader': 'Client Secret reset',
+  'openApp.secret.resetHeader': 'Client secret reset',
   'openApp.secret.createdHeader': 'Client credentials created',
   'openApp.secret.applicationLabel': 'Application:',
   'openApp.secret.warning':
     'Please copy and store it securely now; the secret will not be shown in plain text again.',
   'openApp.field.clientId': 'Client ID',
   'openApp.secret.copyClientId': 'Copy Client ID',
-  'openApp.secret.clientSecret': 'Client Secret',
-  'openApp.secret.copySecret': 'Copy Client Secret',
+  'openApp.secret.clientSecret': 'Client secret',
+  'openApp.secret.copySecret': 'Copy client secret',
   'common.close': 'Close',
   'openApp.secret.copyAndClose': 'Copy and close',
 };

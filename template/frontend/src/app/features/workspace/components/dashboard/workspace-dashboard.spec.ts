@@ -2,7 +2,13 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+// prettier-ignore
+import {
+  provideRouter,
+  //#if (IncludeNotifications)
+  Router,
+  //#endif
+} from '@angular/router';
 //#if (IncludeLocalization)
 import { TranslocoService } from '@jsverse/transloco';
 //#endif
@@ -37,10 +43,7 @@ import {
 } from '../../../../shared/dtos/account-security.dto';
 //#endif
 //#if (IncludeNotifications)
-import {
-  expectTouchTarget,
-  setCoarsePointer,
-} from '../../../../shared/utils/coarse-pointer.testing';
+import { setCoarsePointer } from '../../../../shared/utils/coarse-pointer.testing';
 //#endif
 //#if (IncludeLocalization)
 import { parkPointer } from '../../../../shared/utils/pointer.testing';
@@ -112,31 +115,19 @@ describe('WorkspaceDashboard', () => {
   });
   //#if (IncludeNotifications)
 
-  it('reports a failed mark-all-as-read and lets the user try again', async () => {
-    const dashboard = await setup();
-    const markAll = vi
-      .spyOn(TestBed.inject(NotificationService), 'markAllAsRead')
-      .mockRejectedValue(new Error('offline'));
-    const error = vi.spyOn(toast, 'error');
-
-    await dashboard.markAllNotificationsRead();
-
-    expect(markAll).toHaveBeenCalledOnce();
-    expect(error).toHaveBeenCalledOnce();
-    expect(dashboard.markingAllRead()).toBe(false);
-  });
-
-  // 标为已读是附带动作：失败时提示原因，全文照常展开，通知仍是未读
-  it('still expands a notification when marking it as read fails', async () => {
+  // 标为已读是附带动作：失败时提示原因，跳转照常进行，通知仍是未读
+  it('still follows the link of a notification when marking it as read fails', async () => {
     const dashboard = await setup();
     vi.spyOn(TestBed.inject(NotificationService), 'markAsRead').mockRejectedValue(
       new Error('offline'),
     );
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     const error = vi.spyOn(toast, 'error');
     const notification = {
       id: 'a',
       title: 'A notification',
       content: 'Its full body.',
+      link: '/workspace/settings',
       type: 'System',
       isRead: false,
       creationTime: new Date().toISOString(),
@@ -145,34 +136,38 @@ describe('WorkspaceDashboard', () => {
 
     await dashboard.openNotification(notification);
 
-    expect(dashboard.expandedNotificationId()).toBe('a');
+    expect(navigate).toHaveBeenCalledWith('/workspace/settings');
     expect(error).toHaveBeenCalledOnce();
     expect(TestBed.inject(NotificationService).unreadCount()).toBe(1);
   });
 
-  // 收起时是摘要，点一行展开全文并标为已读（与铃铛面板一致）；同时只展开一条
-  it('expands one notification at a time and marks it as read', async () => {
+  // 行的排版与截断由 NotificationItem 负责（见其 spec）；这里验工作台接线：各条独立展开，展开即标为已读
+  it('expands clipped notifications independently and marks them read', async () => {
     await setup();
     const markAsRead = vi
       .spyOn(TestBed.inject(NotificationService), 'markAsRead')
       .mockResolvedValue(undefined);
-    const notification = (id: string) => ({
+    const notification = (id: string, content: string) => ({
       id,
-      title: `A long notification title ${id}`,
-      content: `The full body of notification ${id}, longer than one line on a phone.`,
+      title: `Notification ${id}`,
+      content,
       type: 'System',
       isRead: false,
       creationTime: new Date().toISOString(),
     });
-    TestBed.inject(SignalRService).notifications.set([notification('a'), notification('b')]);
+    const long = 'Three entries could not be matched against the bank statement. '.repeat(8);
+    TestBed.inject(SignalRService).notifications.set([
+      notification('a', long),
+      notification('b', long),
+      notification('c', 'Short.'),
+    ]);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     const toggles = () => [
-      ...host.querySelectorAll<HTMLButtonElement>('[data-testid="workbench-notification-toggle"]'),
+      ...host.querySelectorAll<HTMLButtonElement>('[data-testid="notification-expand"]'),
     ];
-    const body = (id: string) =>
-      host.querySelector(`#workbench-notification-${id} .text-xs`) as HTMLElement;
-    expect(body('a').classList).toContain('truncate');
+
+    await expect.poll(() => toggles().length).toBe(2);
 
     toggles()[0].click();
     fixture.detectChanges();
@@ -180,19 +175,28 @@ describe('WorkspaceDashboard', () => {
       'true',
       'false',
     ]);
-    expect(body('a').classList).not.toContain('truncate');
     expect(markAsRead).toHaveBeenCalledWith('a');
 
+    toggles()[0].click();
+    fixture.detectChanges();
+    expect(markAsRead, 'collapsing does not mark again').toHaveBeenCalledOnce();
+
+    toggles()[0].click();
     toggles()[1].click();
     fixture.detectChanges();
     expect(toggles().map((toggle) => toggle.getAttribute('aria-expanded'))).toEqual([
-      'false',
+      'true',
       'true',
     ]);
+    expect(markAsRead).toHaveBeenCalledWith('b');
+    expect(
+      host.querySelector('[data-testid="notification-remove"]'),
+      'the workbench summary does not delete',
+    ).toBeNull();
   });
 
   // 图标由工作台自己整组注册（测试不在父级预先提供）：漏注册不会报错，列表里只剩一块空白
-  it('renders the type icon of a notification centred in its row', async () => {
+  it('registers the type icons it shows', async () => {
     await setup();
     TestBed.inject(SignalRService).notifications.set([
       {
@@ -209,25 +213,14 @@ describe('WorkspaceDashboard', () => {
     ]);
     fixture.detectChanges();
 
-    const toggle = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
-      '[data-testid="workbench-notification-toggle"]',
-    )!;
-    const icon = toggle.querySelector('ng-icon')!;
-    const svg = icon.querySelector('svg');
+    const svg = (fixture.nativeElement as HTMLElement).querySelector(
+      'app-notification-item ng-icon svg',
+    );
     expect(svg, 'the icon must be registered by the dashboard itself').not.toBeNull();
-    const svgBox = svg!.getBoundingClientRect();
-    const iconBox = icon.getBoundingClientRect();
-    const toggleBox = toggle.getBoundingClientRect();
-    expect(svgBox.width).toBeGreaterThan(0);
-    expect(
-      Math.abs(svgBox.left + svgBox.width / 2 - (iconBox.left + iconBox.width / 2)),
-    ).toBeLessThan(1);
-    expect(
-      Math.abs(svgBox.top + svgBox.height / 2 - (toggleBox.top + toggleBox.height / 2)),
-    ).toBeLessThan(1);
+    expect(svg!.getBoundingClientRect().width).toBeGreaterThan(0);
   });
 
-  // 短标题、无正文时按钮高度只由图标决定，触屏下仍要补足 44px
+  // 短标题、无正文时整行可点区域仍不小于 44px（整行由铺满的主按钮响应，时间与展开叠在它上面，所以量尺寸不点按）
   it('gives a one-line notification a 44px target on touch screens', async () => {
     await setCoarsePointer(true);
     await setup();
@@ -242,9 +235,10 @@ describe('WorkspaceDashboard', () => {
     ]);
     fixture.detectChanges();
 
-    expectTouchTarget(
-      fixture.nativeElement.querySelector('[data-testid="workbench-notification-toggle"]'),
-    );
+    const open = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="notification-open"]',
+    )!;
+    expect(open.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   });
   //#endif
 

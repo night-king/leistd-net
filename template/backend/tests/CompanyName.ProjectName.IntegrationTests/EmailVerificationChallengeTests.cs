@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CompanyName.ProjectName.Application.Auth.Captcha;
+using CompanyName.ProjectName.Application.Auth.Policies;
 using Leistd.Email.Abstractions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -203,8 +204,12 @@ public sealed partial class EmailVerificationChallengeTests(ProjectWebApplicatio
     public async Task Confirming_the_old_address_while_the_email_changes_never_verifies_the_new_one()
     {
         var gate = new InterleavingGate();
+        var waits = new LockWaitProbe();
         using var host = CreateEmailVerificationHost(services =>
-            gate.GateLock(services, key => key.Contains(":lock:challenge:", StringComparison.Ordinal)));
+        {
+            gate.GateLock(services, key => key.Contains(":lock:challenge:", StringComparison.Ordinal));
+            waits.Install(services);
+        });
         var username = $"race_{Guid.NewGuid():N}"[..30];
         const string password = "VerificationTests!Pw1";
         var oldEmail = $"{username}@example.test";
@@ -226,14 +231,15 @@ public sealed partial class EmailVerificationChallengeTests(ProjectWebApplicatio
         using var challenge = JsonDocument.Parse(await send.Content.ReadAsStringAsync());
         var challengeId = challenge.RootElement.GetProperty("challengeId").GetGuid();
         var code = host.Services.GetRequiredService<CapturingEmailSender>().GetCode(oldEmail);
+        var userId = (await user.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me")).GetProperty("id").GetGuid();
 
         gate.Arm();
         var confirm = user.Client.PostAsJsonAsync("/api/v1/auth/me/email-verification/confirm", new { ChallengeId = challengeId, Code = code });
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(userId));
         var newEmail = $"new-{oldEmail}";
         var change = user.Client.PutAsJsonAsync("/api/v1/auth/me", new { Username = username, Email = newEmail });
-        var finished = await Task.WhenAny(change, Task.Delay(TimeSpan.FromMilliseconds(500)));
-        Assert.NotSame(change, finished);
+        await waits.AssertWaitingAsync(change);
         gate.Release();
 
         using (var confirmed = await confirm)

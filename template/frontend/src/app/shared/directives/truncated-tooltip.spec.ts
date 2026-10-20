@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { userEvent } from 'vitest/browser';
 
@@ -105,5 +106,18 @@ describe('TruncatedTooltip', () => {
     await settle();
 
     expect(await focusTooltip()).toBe('A much longer label that no longer fits the button');
+  });
+
+  // 不可聚焦的宿主按它决定 tabindex：只有截断时才是 Tab 停靠点
+  it('reports whether the text is cut for hosts that add tabindex only then', async () => {
+    const directive = fixture.debugElement
+      .query(By.directive(TruncatedTooltip))
+      .injector.get(TruncatedTooltip);
+    expect(directive.truncated()).toBe(true);
+
+    fixture.componentInstance.width.set(400);
+    await settle();
+
+    expect(directive.truncated()).toBe(false);
   });
 });

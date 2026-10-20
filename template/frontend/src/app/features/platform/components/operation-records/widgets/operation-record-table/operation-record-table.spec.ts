@@ -19,9 +19,12 @@ import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.t
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { OperationRecordOutputDto } from '../../../../dtos/operation-record.dto';
 
-/** 行展开：追查字段由共用的记录详情给出，宽屏下已显示的操作人与时间不再重复。 */
+/**
+ * 行展开：先按列定义顺序列出被折叠的数据列（与表头同一份标签），后接共用记录详情给出的追查字段；
+ * 宽屏下已显示的操作人不再重复。
+ */
 describe('OperationRecordTable rows', () => {
-  it('shows the trace fields of a record when its row is expanded', async () => {
+  async function renderExpanded(breakpoints: Record<string, boolean>): Promise<HTMLElement> {
     await TestBed.configureTestingModule({
       imports: [OperationRecordTable],
       providers: [
@@ -33,7 +36,7 @@ describe('OperationRecordTable rows', () => {
         //#endif
         {
           provide: BreakpointObserver,
-          useValue: { observe: () => of({ matches: true, breakpoints: {} }) },
+          useValue: { observe: () => of({ matches: true, breakpoints }) },
         },
       ],
     }).compileComponents();
@@ -61,13 +64,39 @@ describe('OperationRecordTable rows', () => {
       .querySelector<HTMLButtonElement>('button[aria-expanded]')!
       .click();
     fixture.detectChanges();
+    await fixture.whenStable();
 
-    const detail = (fixture.nativeElement as HTMLElement).querySelector(
+    return (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
       'app-operation-record-detail',
+    )!;
+  }
+
+  it('lists the collapsed operator column first, then the trace fields, on a phone', async () => {
+    const detail = await renderExpanded({});
+
+    const labels = Array.from(detail.querySelectorAll('dt')).map((dt) => dt.textContent?.trim());
+    // 测试用词条只返回键，不含本地化时是英文表的值；两种形态都按"操作人在目标之前"断言
+    expect(labels[0]).toMatch(/^(Operator|operationRecords\.table\.colActor)$/);
+    expect(labels[1]).toMatch(/^(Target|operationRecords\.table\.colTarget)$/);
+    expect(detail.querySelector('[data-detail-column="actor"]')?.textContent).toMatch(
+      /Anonymous|operationRecords\.table\.unknownActor/,
     );
-    expect(detail?.textContent).toContain('target-42');
-    expect(detail?.textContent).toContain('Order:Unknown');
-    expect(detail?.textContent).toContain('trace-7');
+    expect(detail.textContent).toContain('target-42');
+    expect(detail.textContent).toContain('Order:Unknown');
+    expect(detail.textContent).toContain('trace-7');
+  });
+
+  it('does not repeat the operator column in the detail when it is shown', async () => {
+    const detail = await renderExpanded({
+      '(min-width: 768px)': true,
+      '(min-width: 1024px)': true,
+    });
+
+    expect(detail.querySelector('[data-detail-column]')).toBeNull();
+    expect(detail.querySelector('dt')?.textContent?.trim()).toMatch(
+      /^(Target|operationRecords\.table\.colTarget)$/,
+    );
+    expect(detail.textContent).toContain('trace-7');
   });
 });
 //#if (IncludeLocalization)

@@ -34,6 +34,11 @@ public sealed class OfficialClientTests : IAsyncLifetime
     private int tokenRequests;
     private int exchangeRequests;
     private readonly List<IFormCollection> exchanges = [];
+    // 合并并发取令牌的前提是请求真的重叠：令牌端点等到指定数量的业务请求都已在途、挂起等待，才发出令牌
+    private int requiredInFlight;
+    private int inFlight;
+    private bool tokenIssuedWhileAllInFlight;
+    private readonly TaskCompletionSource allInFlight = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public async Task InitializeAsync()
     {
@@ -59,7 +64,12 @@ public sealed class OfficialClientTests : IAsyncLifetime
             var form = await context.Request.ReadFormAsync();
             if (form["client_id"] != "orders-api" || form["client_secret"] != "test-secret")
                 return Results.Json(new { error = "invalid_client" }, statusCode: 400);
-            await Task.Delay(40);
+            if (requiredInFlight > 0)
+            {
+                // 上限兜底：凑不齐时照常发令牌，由断言 tokenIssuedWhileAllInFlight 报告
+                await Task.WhenAny(allInFlight.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+                tokenIssuedWhileAllInFlight = allInFlight.Task.IsCompleted;
+            }
             if (form["grant_type"] == "client_credentials")
             {
                 var serial = Interlocked.Increment(ref machineRequests);
@@ -82,6 +92,7 @@ public sealed class OfficialClientTests : IAsyncLifetime
         services.AddLogging(logging => logging.AddConsole());
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<IHttpMessageHandlerBuilderFilter>(new ProtocolTransport(host.GetTestServer()));
+        services.AddSingleton<IHttpMessageHandlerBuilderFilter>(new InFlightProbe(this));
         if (distributed is not null) services.AddSingleton(distributed);
         services.AddServiceAuthentication(value =>
         {
@@ -110,6 +121,27 @@ public sealed class OfficialClientTests : IAsyncLifetime
             builder.PrimaryHandler.Dispose();
             builder.PrimaryHandler = server.CreateHandler();
         };
+    }
+
+    // 包在业务客户端最外层：内层管道返回未完成的任务即视为该请求已在途挂起
+    private sealed class InFlightProbe(OfficialClientTests owner) : IHttpMessageHandlerBuilderFilter
+    {
+        public Action<HttpMessageHandlerBuilder> Configure(Action<HttpMessageHandlerBuilder> next) => builder =>
+        {
+            next(builder);
+            if (builder.Name == "Billing") builder.AdditionalHandlers.Insert(0, new Counter(owner));
+        };
+
+        private sealed class Counter(OfficialClientTests owner) : DelegatingHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                var response = base.SendAsync(request, cancellationToken);
+                if (owner.requiredInFlight > 0 && Interlocked.Increment(ref owner.inFlight) >= owner.requiredInFlight)
+                    owner.allInFlight.TrySetResult();
+                return response;
+            }
+        }
     }
 
     private sealed class Destination(bool unauthorized = false) : HttpMessageHandler
@@ -164,8 +196,10 @@ public sealed class OfficialClientTests : IAsyncLifetime
     {
         await using var provider = Caller(exchange: false);
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient("Billing");
+        requiredInFlight = 16;
         var tokens = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => client.GetStringAsync("https://billing.test/")));
         Assert.All(tokens, token => Assert.Equal("machine-1", token));
+        Assert.True(tokenIssuedWhileAllInFlight, "The token was issued before all 16 requests were in flight.");
         Assert.Equal("machine-1", await client.GetStringAsync("https://billing.test/"));
         Assert.Equal(1, machineRequests);
     }
@@ -176,8 +210,10 @@ public sealed class OfficialClientTests : IAsyncLifetime
         var accessor = new Accessor("subject-one");
         await using var provider = Caller(exchange: true, accessor);
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient("Billing");
+        requiredInFlight = 16;
         var tokens = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => client.GetStringAsync("https://billing.test/")));
         Assert.All(tokens, token => Assert.Equal("exchange-1", token));
+        Assert.True(tokenIssuedWhileAllInFlight, "The token was issued before all 16 requests were in flight.");
         accessor.Token = "subject-two";
         Assert.Equal("exchange-2", await client.GetStringAsync("https://billing.test/"));
         Assert.Equal(2, exchangeRequests);

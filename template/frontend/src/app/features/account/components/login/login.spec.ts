@@ -591,6 +591,29 @@ describe('Login', () => {
   });
   //#endif
 
+  // 不是 Problem Details 的 4xx（网关页、限流页）说不出填写哪里有问题：与故障一样用 toast，不当作凭据被拒
+  it('keeps a 4xx without problem details in a toast', async () => {
+    await setUp();
+    fillValidCredentials();
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => '');
+    authService.login.mockReturnValue(
+      throwError(() =>
+        ApplicationHttpError.from(
+          new HttpErrorResponse({ status: 429, error: '<html>Too Many Requests</html>' }),
+          { method: 'POST' },
+        ),
+      ),
+    );
+
+    await component.onSubmit();
+    fixture.detectChanges();
+
+    expect(error).toHaveBeenCalledOnce();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="login-error"]'),
+    ).toBeNull();
+  });
+
   // 连不上服务器这类全局问题仍用 toast，不占表单里的位置
   it('keeps network failures in a toast', async () => {
     await setUp();
@@ -894,7 +917,7 @@ describe('Login', () => {
       ).toBeNull();
     });
 
-    it('shows the trace ID of a failed provider list and clears it on retry', async () => {
+    it('shows the normalized failure with its trace ID and clears it on retry', async () => {
       externalProviders = throwError(() =>
         ApplicationHttpError.from(
           new HttpErrorResponse({
@@ -907,9 +930,9 @@ describe('Login', () => {
 
       const trace = () =>
         (fixture.nativeElement as HTMLElement).querySelector(
-          '[data-testid="external-login-trace"]',
+          '[data-testid="external-login-failure-detail"]',
         );
-      expect(trace()?.textContent?.trim()).toBe('Trace ID: 00-trace-01');
+      expect(trace()?.textContent?.trim()).toBe('Service Unavailable (Trace ID: 00-trace-01)');
 
       externalProviders = of({ providers: ['google'] });
       (fixture.nativeElement as HTMLElement)

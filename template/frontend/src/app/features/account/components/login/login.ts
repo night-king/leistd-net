@@ -356,9 +356,12 @@ export class Login implements OnInit {
   readonly authBlocked = signal(false);
   //#endif
 }
-/** 服务端按请求内容拒绝（4xx）：说明这次填写的问题，就地显示；断网与服务故障不在此列。 */
+/**
+ * 服务端以 Problem Details 拒绝了这次填写（登录是写请求，5xx 已归为 `uncertain`，`problem` 只剩按内容拒绝）：
+ * 原因就地显示；断网、服务故障与无法识别的响应不在此列。
+ */
 function isRejection(error: unknown): error is ApplicationHttpError {
-  return error instanceof ApplicationHttpError && error.status >= 400 && error.status < 500;
+  return error instanceof ApplicationHttpError && error.category === 'problem';
 }
 //#if (!IncludeLocalization)
 
@@ -382,7 +385,7 @@ const ENGLISH: Record<string, string> = {
   'common.showPassword': 'Show password',
   'account.login.noAccount': "Don't have an account?",
   'account.login.registerNow': 'Sign up',
-  'account.login.submit': 'Sign In',
+  'account.login.submit': 'Sign in',
   //#if (ExternalLogin)
   'account.login.or': 'Or continue with',
   //#endif

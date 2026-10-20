@@ -36,7 +36,7 @@ export class ResourceLogin {
 //#if (!IncludeLocalization)
 
 const ENGLISH = {
-  'common.signIn': 'Sign In',
+  'common.signIn': 'Sign in',
   'common.continueToSignIn': 'Continue to sign in',
 } as const;
 //#endif

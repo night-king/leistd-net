@@ -6,7 +6,10 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmButton } from '@spartan-ng/helm/button';
 
-import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
+import {
+  ApplicationHttpError,
+  applicationErrorMessage,
+} from '../../../../core/errors/application-http-error';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
@@ -57,8 +60,8 @@ export class ExternalLoginButtons {
   /** 部署已配置的外部登录提供商；null 表示还在加载，此时不显示任何入口。 */
   protected readonly providers = signal<readonly string[] | null>(null);
   protected readonly loadFailed = signal(false);
-  /** 5xx 失败时带上本地化的追踪 ID，供支持人员关联服务端日志。 */
-  protected readonly trace = signal<string | null>(null);
+  /** 归一化后的失败说明（按分类的通用文案或服务端原因，有追踪 ID 时附上），供用户反馈与支持人员关联日志。 */
+  protected readonly failureDetail = signal<string | null>(null);
   /** 已发起整页跳转：在页面离开前禁用按钮，避免重复点击。 */
   protected readonly redirecting = signal(false);
 
@@ -69,14 +72,13 @@ export class ExternalLoginButtons {
   /** 读取已配置的提供商。失败单独提示并可重试；本地登录、注册不受影响。 */
   protected loadProviders(): void {
     this.loadFailed.set(false);
-    this.trace.set(null);
+    this.failureDetail.set(null);
     this.accountService.getExternalLoginProviders().subscribe({
       next: (result) => this.providers.set(result.providers),
       error: (error: unknown) => {
-        this.trace.set(
-          error instanceof ApplicationHttpError && error.status >= 500 && error.traceId
-            ? `${error.traceIdLabel}: ${error.traceId}`
-            : null,
+        // 只展示归一化过的错误；其他异常的 message 可能带内部细节
+        this.failureDetail.set(
+          error instanceof ApplicationHttpError ? applicationErrorMessage(error) : null,
         );
         this.loadFailed.set(true);
       },

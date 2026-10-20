@@ -134,7 +134,6 @@ public sealed class ProjectWebApplicationFactory : WebApplicationFactory<Program
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["OAuth:DisableHttpsRequirement"] = "true",
                 ["DefaultAdmin:Username"] = "admin",
                 ["DefaultAdmin:Password"] = TestAdminPassword,
                 // 每个宿主都要播种管理员、每次登录都要校验口令；生产工作因子让这两步占去集成测试的大半 CPU。

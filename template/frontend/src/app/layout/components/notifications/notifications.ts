@@ -1,16 +1,25 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 //#if (IncludeLocalization)
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideBell, lucideCircleAlert, lucideInbox, lucideTrash2 } from '@ng-icons/lucide';
+import { lucideBell, lucideCircleAlert, lucideInbox } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmPopoverImports } from '@spartan-ng/helm/popover';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
-import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
+import { interval } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../core/feedback/confirm-service';
@@ -19,12 +28,14 @@ import {
   NotificationService,
 } from '../../../core/services/notification-service';
 import { SettingContextService } from '../../../core/settings/setting-context-service';
+import { NotificationItem } from '../../../shared/components/notification-item/notification-item';
+import { RelativeTimeLabel } from '../../../shared/components/relative-time-label/relative-time-label';
 import { PopoverAria } from '../../../shared/directives/popover-aria';
 import { NotificationOutputDto } from '../../../shared/dtos/notification.dto';
-import { AppDate } from '../../../shared/pipes/app-date-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
+import { resolveDisplayTimeZone } from '../../../shared/utils/zoned-time';
 
 /** 通知中心：铃铛 + 未读角标 + popover 通知列表；仅在启用通知功能时生成（见 template.json 排除规则）。 */
 @Component({
@@ -37,10 +48,10 @@ import { englishText } from '../../../shared/utils/english-text';
     HlmButton,
     HlmBadge,
     HlmSpinner,
-    AppDate,
+    RelativeTimeLabel,
     ...HlmPopoverImports,
-    ...HlmTooltipImports,
     PopoverAria,
+    NotificationItem,
     //#if (IncludeLocalization)
     TranslocoDirective,
     //#endif
@@ -51,7 +62,6 @@ import { englishText } from '../../../shared/utils/english-text';
       lucideBell,
       lucideCircleAlert,
       lucideInbox,
-      lucideTrash2,
     }),
   ],
   templateUrl: './notifications.html',
@@ -59,8 +69,13 @@ import { englishText } from '../../../shared/utils/english-text';
 })
 export class Notifications implements OnInit {
   private readonly router = inject(Router);
-  // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间。
-  protected readonly displayTimeZone = inject(SettingContextService).timeZone;
+  // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间；设置里的时区当前运行时用不了时回落到浏览器时区。
+  private readonly displayTimeZoneSetting = inject(SettingContextService).timeZone;
+  protected readonly displayTimeZone = computed(() =>
+    resolveDisplayTimeZone(this.displayTimeZoneSetting()),
+  );
+  /** 分钟级时钟："多久以前"随它更新，组件销毁时停止。 */
+  protected readonly now = signal(Date.now());
   protected readonly displayLocale = inject(SettingContextService).displayLocale;
   private readonly confirmService = inject(ConfirmService);
   //#if (IncludeLocalization)
@@ -73,27 +88,60 @@ export class Notifications implements OnInit {
   readonly notifications = this.notificationService.notifications;
   // 通知 popover 开合状态（Spartan popover 的 state 受控绑定）。
   readonly notificationOpen = signal<'open' | 'closed'>('closed');
+  /** 「全部标为已读」请求在途：禁用按钮，避免重复提交。 */
+  readonly markingAllRead = signal(false);
+  /** 已展开全文的通知；摘要被截断的才有展开按钮。 */
+  readonly expanded = signal<ReadonlySet<string>>(new Set());
+
+  constructor() {
+    interval(60_000)
+      .pipe(takeUntilDestroyed(inject(DestroyRef)))
+      .subscribe(() => this.now.set(Date.now()));
+  }
+
+  /** 展开 / 收起全文；展开即读完了全文，未读的同时标为已读。 */
+  async toggleExpanded(item: NotificationOutputDto): Promise<void> {
+    const expanding = !this.expanded().has(item.id);
+    this.expanded.update((current) => {
+      const next = new Set(current);
+      if (!next.delete(item.id)) {
+        next.add(item.id);
+      }
+      return next;
+    });
+    if (expanding) {
+      await this.markAsRead(item);
+    }
+  }
 
   async onNotificationClick(item: NotificationOutputDto): Promise<void> {
-    if (!item.isRead) {
-      try {
-        await this.notificationService.markAsRead(item.id);
-      } catch (error: unknown) {
-        // 标记已读是附带动作：失败只提示，不阻断跳转这一主动作。
-        this.showRequestError(error);
-      }
-    }
+    await this.markAsRead(item);
     if (item.link) {
       this.notificationOpen.set('closed');
       this.router.navigateByUrl(item.link);
     }
   }
 
+  /** 标记已读是附带动作：失败只提示，不阻断跳转或展开这些主动作。 */
+  private async markAsRead(item: NotificationOutputDto): Promise<void> {
+    if (item.isRead) {
+      return;
+    }
+    try {
+      await this.notificationService.markAsRead(item.id);
+    } catch (error: unknown) {
+      this.showRequestError(error);
+    }
+  }
+
   async markAllNotificationsRead(): Promise<void> {
+    this.markingAllRead.set(true);
     try {
       await this.notificationService.markAllAsRead();
     } catch (error: unknown) {
       this.showRequestError(error);
+    } finally {
+      this.markingAllRead.set(false);
     }
   }
 
@@ -169,7 +217,6 @@ const ENGLISH: Record<string, string> = {
   'layout.notifications.loadFailed': "Couldn't load notifications.",
   'layout.notifications.historyStale': "Couldn't refresh earlier notifications.",
   'common.retry': 'Retry',
-  'layout.notifications.clearOne': 'Dismiss',
   'layout.notifications.clearAll': 'Clear all',
 };
 //#endif

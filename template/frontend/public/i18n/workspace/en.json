@@ -32,7 +32,6 @@
     },
     "notifications": {
       "title": "Recent notifications",
-      "markAllRead": "Mark all as read",
       "empty": "No notifications"
     },
     "security": {

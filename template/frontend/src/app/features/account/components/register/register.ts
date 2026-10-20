@@ -368,7 +368,7 @@ const ENGLISH: Record<string, string> = {
   'account.register.passwordPlaceholder': 'At least 12 characters',
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
-  'account.register.submit': 'Sign Up',
+  'account.register.submit': 'Sign up',
   'account.register.haveAccount': 'Already have an account?',
   'account.register.loginNow': 'Sign in',
   'account.register.closed': 'Self sign-up is not open here. Ask an administrator for an account.',

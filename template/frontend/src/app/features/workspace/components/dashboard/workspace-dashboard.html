@@ -138,78 +138,29 @@
                 }}</span>
               }
             </h3>
-            @if (notificationService.unreadCount()) {
-              <div hlmCardAction>
-                <button
-                  hlmBtn
-                  variant="ghost"
-                  size="sm"
-                  class="text-muted-foreground -my-1 text-xs"
-                  data-testid="workbench-mark-all-read"
-                  [disabled]="markingAllRead()"
-                  (click)="markAllNotificationsRead()"
-                >
-                  {{ t('workspace.dashboard.notifications.markAllRead') }}
-                </button>
-              </div>
-            }
           </div>
           <div hlmCardContent>
             @if (recentNotifications().length) {
-              <ul class="flex flex-col gap-1">
+              <!-- 与铃铛面板共用一行的排版：工作台是最近几条的摘要，只看与展开（点开或展开即标已读）；
+                   全部标为已读、删除与清空属于整理收件箱，统一在顶栏的铃铛面板 -->
+              <ul class="-mx-3 flex flex-col gap-0.5">
                 @for (notification of recentNotifications(); track notification.id) {
-                  @let expanded = expandedNotificationId() === notification.id;
-                  <!-- 与铃铛面板同一写法：图标垂直居中、未读加粗带圆点；点一行展开全文并标为已读。
-                       时间带可聚焦的完整时刻提示，放在按钮外做兄弟节点，避免交互元素嵌套 -->
-                  <li
-                    class="hover:bg-muted -mx-2 flex items-start gap-3 rounded-md px-2 py-2.5 transition-colors"
-                  >
-                    <button
-                      type="button"
-                      class="focus-visible:ring-ring flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-sm text-start focus-visible:ring-2 focus-visible:outline-none pointer-coarse:min-h-11"
-                      data-testid="workbench-notification-toggle"
-                      [attr.aria-expanded]="expanded"
-                      [attr.aria-controls]="'workbench-notification-' + notification.id"
-                      (click)="openNotification(notification)"
+                  <li>
+                    <app-notification-item
+                      [notification]="notification"
+                      [icon]="notificationService.getIcon(notification.type)"
+                      [expanded]="expandedNotifications().has(notification.id)"
+                      (expandedChange)="toggleNotification(notification)"
+                      (opened)="openNotification(notification)"
                     >
-                      <ng-icon
-                        class="text-muted-foreground shrink-0 self-center text-2xl"
-                        [name]="notificationService.getIcon(notification.type)"
-                      />
-                      <!-- 收起时标题最多两行、正文一行摘要 -->
-                      <span
-                        class="flex min-w-0 flex-1 flex-col gap-1"
-                        [id]="'workbench-notification-' + notification.id"
-                      >
-                        <span
-                          class="text-sm wrap-anywhere"
-                          [class.line-clamp-2]="!expanded"
-                          [class.font-semibold]="!notification.isRead"
-                          [class.text-muted-foreground]="notification.isRead"
-                          >{{ notification.title }}</span
-                        >
-                        @if (notification.content) {
-                          <span
-                            class="text-muted-foreground text-xs leading-relaxed wrap-anywhere"
-                            [class.truncate]="!expanded"
-                            [class.whitespace-pre-line]="expanded"
-                            >{{ notification.content }}</span
-                          >
-                        }
-                      </span>
-                    </button>
-                    <span class="flex shrink-0 items-center gap-1.5 pt-0.5">
-                      @if (!notification.isRead) {
-                        <span class="bg-primary size-2 rounded-full"></span>
-                      }
                       <app-relative-time-label
-                        class="text-muted-foreground text-xs"
+                        notificationTime
                         [instant]="notification.creationTime"
                         [now]="now()"
                         [timeZone]="timeZone()"
                         [locale]="displayLocale()"
                       />
-                    </span>
+                    </app-notification-item>
                   </li>
                 }
               </ul>

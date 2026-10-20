@@ -105,7 +105,7 @@ export class App {
   });
   protected readonly failedHeader = this.startupText({
     key: 'app.startup.failed',
-    english: 'Application Failed to Load',
+    english: 'Application failed to load',
   });
   protected readonly retryLabel = this.startupText({ key: 'common.retry', english: 'Retry' });
   private readonly appName = this.startupText({ key: 'app.name', english: APP_NAME });
@@ -123,7 +123,7 @@ export class App {
   );
   //#else
   protected readonly loadingLabel = () => 'Loading...';
-  protected readonly failedHeader = () => 'Application Failed to Load';
+  protected readonly failedHeader = () => 'Application failed to load';
   protected readonly retryLabel = () => 'Retry';
   private readonly appName = () => APP_NAME;
   protected readonly errorMessage = computed(

@@ -167,8 +167,44 @@ describe('Notifications', () => {
     expect(component.notificationOpen()).toBe('closed');
   });
 
+  // 行的排版与截断由 NotificationItem 负责（见其 spec）；这里只验面板接线：展开只作用于那一条，不触发跳转
+  it('expands one notification from its summary without opening it', async () => {
+    const long = 'Three entries could not be matched against the bank statement. '.repeat(6);
+    service.notifications.set([
+      {
+        id: 'n-long',
+        title: 'Reconciliation finished',
+        content: long,
+        link: '/platform/users',
+        type: 'System',
+        isRead: true,
+        creationTime: new Date().toISOString(),
+      } as NotificationOutputDto,
+    ]);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(Notifications);
+    fixture.detectChanges();
+    fixture.componentInstance.notificationOpen.set('open');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
+
+    const expand = () =>
+      document.querySelector<HTMLButtonElement>(
+        '.cdk-overlay-container [data-testid="notification-expand"]',
+      );
+    await expect.poll(expand).not.toBeNull();
+    expand()!.click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.expanded().has('n-long')).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.notificationOpen()).toBe('open');
+  });
+
   // 图标由使用方自己整组注册（测试不在父级预先提供）：漏注册不会报错，面板里只剩一块空白
-  it('renders the type icon of a notification centred beside its title', async () => {
+  it('registers the type icons it shows', async () => {
     service.getIcon.mockImplementation((type: string) =>
       NotificationService.prototype.getIcon.call(service, type),
     );
@@ -192,25 +228,11 @@ describe('Notifications', () => {
     await fixture.whenStable();
     onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
 
-    const findItem = () =>
-      Array.from(
-        document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button'),
-      ).find((button) => button.textContent?.includes('Sign-in from a new device'));
-    await expect.poll(findItem).toBeDefined();
-    const item = findItem()!;
-    const icon = item.querySelector('ng-icon')!;
-    const svg = icon.querySelector('svg');
+    const item = () => document.querySelector('.cdk-overlay-container app-notification-item');
+    await expect.poll(item).not.toBeNull();
+    const svg = item()!.querySelector('ng-icon svg');
     expect(svg, 'the icon must be registered by the panel itself').not.toBeNull();
-    const svgBox = svg!.getBoundingClientRect();
-    const iconBox = icon.getBoundingClientRect();
-    const itemBox = item.getBoundingClientRect();
-    expect(svgBox.width).toBeGreaterThan(0);
-    expect(
-      Math.abs(svgBox.left + svgBox.width / 2 - (iconBox.left + iconBox.width / 2)),
-    ).toBeLessThan(1);
-    expect(
-      Math.abs(svgBox.top + svgBox.height / 2 - (itemBox.top + itemBox.height / 2)),
-    ).toBeLessThan(1);
+    expect(svg!.getBoundingClientRect().width).toBeGreaterThan(0);
   });
 
   it('surfaces an error when dismissing a single notification fails', async () => {

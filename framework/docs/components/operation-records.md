@@ -290,6 +290,8 @@ await recorder.RecordSucceededAsync(
 public Task<Role> UpdateAsync(Guid id, ...) => ...;
 ```
 
+示例省略了控制器上的类级 `[Authorize]`：命名策略不叠加宿主的默认策略。
+
 打了注解就记，没打就不记，不按 HTTP 方法等启发式筛选。授权依据记实际未通过的具名策略：
 端点叠了多个策略时逐个重新评估，取最后声明的未通过者。
 

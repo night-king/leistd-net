@@ -61,7 +61,10 @@
           <!-- 时间范围按展示时区选日期，写回 URL 前换算成 UTC（见 onRangeChange）。用输入框形态
              （hlm-date-range-input，官方 Input Picker）：自带清空与日历按钮且可收缩；触发器形态选中后
              会顶掉投影的图标。parseDate / formatInputDates 必须自己传：默认实现按浏览器时区，
-             与本页的展示时区不一致（见 zoned-time.ts）。 -->
+             与本页的展示时区不一致（见 zoned-time.ts）。占位文字不是标签，另给读屏用的 label。 -->
+          <label class="sr-only" for="filter-date-range">{{
+            t('operationRecords.filter.dateRange')
+          }}</label>
           <hlm-date-range-picker
             class="w-full sm:w-auto"
             [date]="selectedRange()"

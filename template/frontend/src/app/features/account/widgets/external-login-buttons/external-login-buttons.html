@@ -20,9 +20,9 @@
           {{ t('common.retry') }}
         </button>
       </p>
-      @if (trace(); as trace) {
-        <p class="text-xs text-muted-foreground" data-testid="external-login-trace">
-          {{ trace }}
+      @if (failureDetail(); as detail) {
+        <p class="text-xs text-muted-foreground" data-testid="external-login-failure-detail">
+          {{ detail }}
         </p>
       }
     </div>

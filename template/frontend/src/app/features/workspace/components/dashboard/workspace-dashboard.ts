@@ -9,7 +9,13 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
+// prettier-ignore
+import {
+  //#if (IncludeNotifications)
+  Router,
+  //#endif
+  RouterLink,
+} from '@angular/router';
 //#if (IncludeLocalization)
 // prettier-ignore
 import {
@@ -66,6 +72,9 @@ import {
 } from '../../../../core/services/notification-service';
 //#endif
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
+//#if (IncludeNotifications)
+import { NotificationItem } from '../../../../shared/components/notification-item/notification-item';
+//#endif
 //#if (LocalIdentity || IncludeNotifications)
 import { RelativeTimeLabel } from '../../../../shared/components/relative-time-label/relative-time-label';
 //#endif
@@ -135,6 +144,7 @@ const DEVICE_ICONS: Record<DeviceKind, string> = {
     TruncatedTooltip,
     //#if (IncludeNotifications)
     AppNumber,
+    NotificationItem,
     //#endif
     //#if (IncludeLocalization)
     TranslocoDirective,
@@ -167,11 +177,10 @@ export class WorkspaceDashboard {
   readonly now = signal(Date.now());
   //#if (IncludeNotifications)
   protected readonly notificationService = inject(NotificationService);
+  private readonly router = inject(Router);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#endif
-  /** 「全部标记已读」请求在途：禁用按钮，避免重复提交。 */
-  readonly markingAllRead = signal(false);
   //#endif
   //#if (LocalIdentity)
   private readonly workbenchService = inject(WorkbenchService);
@@ -249,19 +258,38 @@ export class WorkspaceDashboard {
   //#endif
   //#if (IncludeNotifications)
 
-  /** 展开了全文的那条通知；同时只展开一条。 */
-  readonly expandedNotificationId = signal<string | null>(null);
+  /** 已展开全文的通知，各条独立展开；摘要被截断的才有展开按钮。 */
+  readonly expandedNotifications = signal<ReadonlySet<string>>(new Set());
 
-  /** 点一行展开 / 收起全文，未读的同时标为已读（与铃铛面板点一条的效果一致）。 */
+  /** 展开 / 收起全文；展开即读完了全文，未读的同时标为已读（与铃铛面板一致）。 */
+  async toggleNotification(notification: NotificationOutputDto): Promise<void> {
+    const expanding = !this.expandedNotifications().has(notification.id);
+    this.expandedNotifications.update((current) => {
+      const next = new Set(current);
+      if (!next.delete(notification.id)) {
+        next.add(notification.id);
+      }
+      return next;
+    });
+    if (expanding) {
+      await this.markNotificationRead(notification);
+    }
+  }
+
+  /** 点一行标为已读，有链接时跳转（与铃铛面板点一条的效果一致）。 */
   async openNotification(notification: NotificationOutputDto): Promise<void> {
-    this.expandedNotificationId.update((current) =>
-      current === notification.id ? null : notification.id,
-    );
+    await this.markNotificationRead(notification);
+    if (notification.link) {
+      await this.router.navigateByUrl(notification.link);
+    }
+  }
+
+  /** 标记已读是附带动作：失败只提示，不阻断跳转或展开这些主动作。 */
+  private async markNotificationRead(notification: NotificationOutputDto): Promise<void> {
     if (notification.isRead) return;
     try {
       await this.notificationService.markAsRead(notification.id);
     } catch (error: unknown) {
-      // 标记已读是附带动作：失败只提示，展开照常
       this.showRequestError(error);
     }
   }
@@ -403,18 +431,6 @@ export class WorkspaceDashboard {
   }
   //#if (IncludeNotifications)
 
-  /** 与铃铛共用通知状态；失败时提示原因，已读状态保持原样。 */
-  async markAllNotificationsRead(): Promise<void> {
-    this.markingAllRead.set(true);
-    try {
-      await this.notificationService.markAllAsRead();
-    } catch (error: unknown) {
-      this.showRequestError(error);
-    } finally {
-      this.markingAllRead.set(false);
-    }
-  }
-
   private showRequestError(error: unknown): void {
     //#if (IncludeLocalization)
     toast.error(this.transloco.translate('common.requestError'), {
@@ -464,7 +480,6 @@ const ENGLISH: Record<string, string> = {
   'workspace.dashboard.shortcuts.title': 'Shortcuts',
   //#if (IncludeNotifications)
   'workspace.dashboard.notifications.title': 'Recent notifications',
-  'workspace.dashboard.notifications.markAllRead': 'Mark all as read',
   'workspace.dashboard.notifications.empty': 'No notifications',
   //#endif
   //#if (LocalIdentity)

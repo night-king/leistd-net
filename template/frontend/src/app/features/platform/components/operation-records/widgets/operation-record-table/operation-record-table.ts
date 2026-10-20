@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 //#if (IncludeLocalization)
 import { TranslocoDirective } from '@jsverse/transloco';
@@ -19,13 +20,17 @@ import { ColumnDef, PaginationState } from '@tanstack/angular-table';
 import { injectOperationActionSentence } from './operation-action-sentence';
 import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
+import { ColumnValue } from '../../../../../../shared/directives/column-value';
 import { StatusDot } from '../../../../../../shared/directives/status-dot';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
 import { AppNumber } from '../../../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
 //#endif
-import { tableColumnVisibility } from '../../../../../../shared/utils/table-column-meta';
+import {
+  hiddenDetailColumns,
+  tableColumnVisibility,
+} from '../../../../../../shared/utils/table-column-meta';
 import {
   injectAppTable,
   type AppTableFeatures,
@@ -39,6 +44,8 @@ import { operationRecordActor } from '../operation-record-detail/operation-recor
 @Component({
   selector: 'app-operation-record-table',
   imports: [
+    NgTemplateOutlet,
+    ColumnValue,
     StatusDot,
     AppDate,
     AppNumber,
@@ -103,7 +110,7 @@ export class OperationRecordTable {
       accessorKey: 'actorName',
       id: 'actor',
       enableSorting: false,
-      meta: { priority: 'secondary' },
+      meta: { priority: 'secondary', detail: true },
     },
     {
       accessorKey: 'action',
@@ -125,10 +132,6 @@ export class OperationRecordTable {
     tableColumnVisibility(this.columns, this.tableViewport()),
   );
 
-  isColumnHidden(id: string): boolean {
-    return this.table.getColumn(id)?.getIsVisible() === false;
-  }
-
   protected readonly table = injectAppTable(() => ({
     data: this.records(),
     columns: this.columns,
@@ -142,6 +145,19 @@ export class OperationRecordTable {
       pagination: this.pagination(),
     },
   }));
+
+  /** 列标签的词条键：表头与展开详情共用，切换语言时两处一起更新。 */
+  protected readonly columnLabelKeys: Readonly<Record<string, string>> = {
+    creationTime: 'operationRecords.table.colTime',
+    actor: 'operationRecords.table.colActor',
+    action: 'operationRecords.table.colAction',
+    outcome: 'operationRecords.table.colOutcome',
+  };
+
+  /** 展开详情里列出的列：被折叠的数据列，按列定义顺序；追查字段由记录详情接在后面。 */
+  protected detailColumns() {
+    return hiddenDetailColumns(this.table);
+  }
 
   readonly currentPage = computed(() => this.pagination().pageIndex + 1);
   readonly totalPages = computed(() => Math.max(1, this.table.getPageCount()));

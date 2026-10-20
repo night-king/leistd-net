@@ -272,17 +272,17 @@ export class SecurityPanel {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'account.changePassword.header': 'Change Password',
+  'account.changePassword.header': 'Change password',
   'account.changePassword.subtitle':
     'Enter your current password and set a new sign-in password. Other devices will be signed out.',
-  'account.changePassword.currentPassword': 'Current Password',
+  'account.changePassword.currentPassword': 'Current password',
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
-  'account.changePassword.newPassword': 'New Password',
+  'account.changePassword.newPassword': 'New password',
   'account.changePassword.rules':
     'Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.',
-  'account.changePassword.confirmPassword': 'Confirm New Password',
-  'account.changePassword.submit': 'Update Password',
+  'account.changePassword.confirmPassword': 'Confirm new password',
+  'account.changePassword.submit': 'Update password',
   //#if (ExternalLogin)
   'account.setPassword.header': 'Set a password',
   'account.setPassword.subtitle':

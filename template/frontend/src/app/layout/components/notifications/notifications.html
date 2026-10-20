@@ -35,7 +35,7 @@
 
       <hlm-popover-content
         *hlmPopoverPortal
-        class="w-[360px] max-w-[90vw] !gap-0 !p-0"
+        class="w-[400px] max-w-[90vw] !gap-0 !p-0"
         [appPopoverAria]="t('layout.notifications.title')"
       >
         <div class="flex items-center justify-between border-b border-border px-4 py-3">
@@ -43,7 +43,8 @@
           @if (notificationCount() > 0) {
             <button
               type="button"
-              class="text-xs text-primary hover:underline"
+              class="text-xs text-primary hover:underline disabled:opacity-50"
+              [disabled]="markingAllRead()"
               (click)="markAllNotificationsRead()"
             >
               {{ t('layout.notifications.markAllRead') }}
@@ -97,62 +98,26 @@
             }
           </div>
         } @else {
-          <div class="flex max-h-[360px] flex-col gap-1 overflow-y-auto p-1">
-            @for (n of notifications(); track n.id; let last = $last) {
-              <!-- 主操作用原生 button（自带 Enter/Space 语义），删除按钮是兄弟节点，避免交互元素嵌套。 -->
-              <div
-                class="hover:bg-muted flex items-start gap-2 rounded-md px-3 py-2 transition-colors"
+          <!-- 条目之间只留间距：本项目的虚线表示添加 -->
+          <div class="flex max-h-[420px] flex-col gap-0.5 overflow-y-auto p-1">
+            @for (n of notifications(); track n.id) {
+              <app-notification-item
+                [notification]="n"
+                [icon]="notificationIcon(n.type)"
+                [expanded]="expanded().has(n.id)"
+                (expandedChange)="toggleExpanded(n)"
+                [removable]="true"
+                (opened)="onNotificationClick(n)"
+                (removed)="clearOneNotification(n.id)"
               >
-                <button
-                  type="button"
-                  class="focus-visible:ring-ring flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-md text-start focus-visible:outline-none focus-visible:ring-2"
-                  (click)="onNotificationClick(n)"
-                >
-                  <!-- 图标放进 flex 盒：行内的 ng-icon 会带上行高与基线，比标题行偏下 -->
-                  <span class="flex shrink-0 self-center">
-                    <ng-icon
-                      [name]="notificationIcon(n.type)"
-                      class="text-muted-foreground text-2xl"
-                    />
-                  </span>
-                  <span class="flex min-w-0 flex-1 flex-col gap-1">
-                    <span class="flex items-center gap-6">
-                      <span
-                        class="min-w-0 flex-1 truncate text-sm"
-                        [class.font-semibold]="!n.isRead"
-                        [class.text-muted-foreground]="n.isRead"
-                        [hlmTooltip]="n.title"
-                        >{{ n.title }}</span
-                      >
-                      <span class="flex shrink-0 items-center gap-1.5">
-                        @if (!n.isRead) {
-                          <span class="bg-primary h-2 w-2 rounded-full"></span>
-                        }
-                        <span class="text-muted-foreground text-xs whitespace-nowrap">{{
-                          n.creationTime
-                            | appDate: 'monthDayTime' : displayTimeZone() : displayLocale()
-                        }}</span>
-                      </span>
-                    </span>
-                    <span
-                      class="text-muted-foreground min-h-[1rem] min-w-0 truncate text-xs leading-relaxed"
-                      [hlmTooltip]="n.content || ''"
-                      >{{ n.content }}</span
-                    >
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  class="text-muted-foreground hover:text-destructive focus-visible:ring-ring shrink-0 self-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
-                  [attr.aria-label]="t('layout.notifications.clearOne')"
-                  (click)="clearOneNotification(n.id)"
-                >
-                  <ng-icon name="lucideTrash2" class="text-sm" />
-                </button>
-              </div>
-              @if (!last) {
-                <div class="border-t border-dashed border-border"></div>
-              }
+                <app-relative-time-label
+                  notificationTime
+                  [instant]="n.creationTime"
+                  [now]="now()"
+                  [timeZone]="displayTimeZone()"
+                  [locale]="displayLocale()"
+                />
+              </app-notification-item>
             }
           </div>
           <div class="border-t border-border p-1">

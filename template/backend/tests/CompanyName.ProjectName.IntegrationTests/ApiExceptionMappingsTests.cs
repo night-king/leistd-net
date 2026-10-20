@@ -12,6 +12,7 @@ using CompanyName.ProjectName.Application.OpenApplications.Errors;
 using Leistd.Authorization.Errors;
 using Leistd.ExceptionHandling.Options;
 using Leistd.MultiTenancy.Errors;
+using Leistd.OperationRecords.Errors;
 using Leistd.Settings.Errors;
 #if (IncludeNotifications)
 using Leistd.Notifications.Errors;
@@ -122,7 +123,7 @@ public sealed class ApiExceptionMappingsTests(ProjectWebApplicationFactory facto
 #if (OpenIddictServer)
             typeof(OpenAppErrorCodes),
 #endif
-            typeof(PermissionErrorCodes), typeof(MultiTenancyErrorCodes), typeof(SettingErrorCodes),
+            typeof(PermissionErrorCodes), typeof(MultiTenancyErrorCodes), typeof(SettingErrorCodes), typeof(OperationFailureCodes),
 #if (IncludeNotifications)
             typeof(NotificationErrorCodes),
 #endif

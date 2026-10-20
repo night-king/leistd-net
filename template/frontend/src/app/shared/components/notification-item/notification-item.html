@@ -1,0 +1,105 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  @let n = notification();
+  <div
+    class="group/notification hover:bg-muted/60 focus-within:bg-muted/60 relative flex items-start gap-4 rounded-md px-3 py-3 transition-colors"
+  >
+    <!-- 铺满整行的主按钮：名称是标题（读屏专用文字）、描述取正文。只有删除、时间与展开这几个控件定位到它上面，
+         标题与正文所在的容器不能定位（relative 等），否则会盖住主按钮，点文字就点不到这一行 -->
+    <button
+      type="button"
+      data-testid="notification-open"
+      class="focus-visible:ring-ring absolute inset-0 cursor-pointer rounded-md focus-visible:ring-2 focus-visible:outline-none"
+      [attr.aria-describedby]="n.content ? contentId() : null"
+      (click)="opened.emit()"
+    >
+      <span class="sr-only">{{ n.title }}</span>
+    </button>
+    <!-- 图标与标题顶部对齐 -->
+    <span
+      class="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-full"
+    >
+      <ng-icon [name]="icon()" class="text-base" />
+    </span>
+    <!-- 标题与正文是业务数据生成的内容：标题一行、正文两行，行高一致。
+         最下面一行左边是时间，右边是展开入口（被截断的才有） -->
+    <div appOverflowProbe #summary="appOverflowProbe" class="min-w-0 flex-1" [id]="summaryId()">
+      <div class="flex items-start gap-6">
+        <span
+          data-clamp
+          aria-hidden="true"
+          class="min-w-0 flex-1 text-sm leading-5 wrap-anywhere"
+          [id]="titleId()"
+          [class.truncate]="!expanded()"
+          [class.font-medium]="!n.isRead"
+          [class.text-muted-foreground]="n.isRead"
+          >{{ n.title }}</span
+        >
+        <!-- 标题右侧一个固定宽度的位置：平时显示未读圆点；可删除的列表在悬停或聚焦这一行时换成删除按钮
+             （此时未读由标题加粗表达）。触屏没有悬停，圆点与删除并排显示。宽度固定，切换时标题不跳动 -->
+        <span class="relative flex h-5 min-w-5 shrink-0 items-center justify-center gap-1">
+          @if (!n.isRead) {
+            <span
+              data-testid="notification-unread"
+              [class]="
+                removable()
+                  ? 'bg-primary size-2 rounded-full group-focus-within/notification:invisible group-hover/notification:invisible pointer-coarse:visible'
+                  : 'bg-primary size-2 rounded-full'
+              "
+            ></span>
+          }
+          @if (removable()) {
+            <button
+              type="button"
+              data-testid="notification-remove"
+              class="text-muted-foreground hover:text-destructive focus-visible:ring-ring invisible absolute inset-0 flex items-center justify-center rounded-sm group-focus-within/notification:visible group-hover/notification:visible focus-visible:ring-2 focus-visible:outline-none pointer-coarse:visible pointer-coarse:static pointer-coarse:-my-3 pointer-coarse:size-11"
+              [attr.aria-label]="t('common.remove')"
+              (click)="removed.emit()"
+            >
+              <ng-icon name="lucideTrash2" class="text-sm" />
+            </button>
+          }
+        </span>
+      </div>
+      @if (n.content) {
+        <p
+          data-clamp
+          class="text-muted-foreground mt-0.5 text-xs leading-relaxed wrap-anywhere"
+          [id]="contentId()"
+          [class.line-clamp-2]="!expanded()"
+          [class.whitespace-pre-line]="expanded()"
+        >
+          {{ n.content }}
+        </p>
+      }
+      <div
+        class="text-muted-foreground mt-1.5 flex min-h-5 items-center justify-between gap-4 text-xs"
+      >
+        <span class="relative">
+          <ng-content select="[notificationTime]" />
+        </span>
+        @if (summary.overflowing() || expanded()) {
+          <!-- 折叠时 › 指向右，展开后转向下 -->
+          <button
+            type="button"
+            data-testid="notification-expand"
+            class="hover:text-foreground focus-visible:ring-ring relative inline-flex items-center gap-0.5 rounded-sm font-medium focus-visible:ring-2 focus-visible:outline-none pointer-coarse:-my-3 pointer-coarse:min-h-11"
+            [attr.aria-expanded]="expanded()"
+            [attr.aria-controls]="summaryId()"
+            (click)="expandedChange.emit(!expanded())"
+          >
+            {{ t(expanded() ? 'common.showLess' : 'common.showFullText') }}
+            <ng-icon
+              name="lucideChevronRight"
+              class="text-sm transition-transform motion-reduce:transition-none"
+              [class.rotate-90]="expanded()"
+            />
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+</ng-container>

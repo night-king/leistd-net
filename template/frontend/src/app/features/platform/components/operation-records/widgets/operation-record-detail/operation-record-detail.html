@@ -4,19 +4,8 @@
 <ng-container>
 <!--#endif-->
   <dl class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm">
-    @if (showActor()) {
-      <dt class="text-muted-foreground">
-        {{ t('operationRecords.table.colActor') }}
-      </dt>
-      <dd class="min-w-0">
-        <span class="truncate">{{ actor() ?? t('operationRecords.table.unknownActor') }}</span>
-        @if (record().impersonatorName; as name) {
-          <span class="block text-xs text-warning">{{
-            t('operationRecords.table.impersonatedBy', { name })
-          }}</span>
-        }
-      </dd>
-    }
+    <!-- 调用方被折叠的列（dt/dd）排在最前，与追查字段共用一个网格 -->
+    <ng-content />
     <!-- 目标标识常驻："对谁做的"的精确答案；有名称时名称在上，句子或列表里折叠掉的名称在这里仍看得到。 -->
     <dt class="text-muted-foreground">
       {{ t('operationRecords.table.colTarget') }}

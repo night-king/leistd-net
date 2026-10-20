@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Settings.Provider;
 using Leistd.Security.OneTimeCodes;
@@ -587,10 +588,12 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
     public async Task Concurrent_regeneration_accepts_one_totp_step_and_commits_one_new_code_set()
     {
         var gate = new RecorderGate(OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated);
-        var (host, clock) = CreateHost(services => gate.Install(services));
+        var waits = new LockWaitProbe();
+        var (host, clock) = CreateHost(services => Install(services, gate, waits));
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_regen_race");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var userId = await CurrentUserIdAsync(session.Client);
         var setup = await BeginSetupAsync(session.Client);
         var secret = setup.Secret;
         var old = await EnableAsync(session.Client, setup, clock);
@@ -599,8 +602,9 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
 
         var first = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = code });
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(userId));
         var second = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = code });
-        await AssertStillWaitingAsync(second);
+        await waits.AssertWaitingAsync(second);
         gate.Release();
 
         using var firstResponse = await first;
@@ -616,10 +620,12 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
     public async Task Recovery_code_sign_in_waits_for_an_in_flight_regeneration()
     {
         var gate = new RecorderGate(OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated);
-        var (host, clock) = CreateHost(services => gate.Install(services));
+        var waits = new LockWaitProbe();
+        var (host, clock) = CreateHost(services => Install(services, gate, waits));
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_consume_regen");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var userId = await CurrentUserIdAsync(session.Client);
         var setup = await BeginSetupAsync(session.Client);
         var secret = setup.Secret;
         var old = await EnableAsync(session.Client, setup, clock);
@@ -629,8 +635,9 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
 
         var regenerate = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = Code(secret, clock) });
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(userId));
         var consume = login.PostAsJsonAsync("/api/v1/auth/two-factor", new { Token = token, RecoveryCode = old[0] });
-        await AssertStillWaitingAsync(consume);
+        await waits.AssertWaitingAsync(consume);
         gate.Release();
 
         using var regenerated = await regenerate;
@@ -708,10 +715,12 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
     public async Task A_password_change_waits_for_an_in_flight_second_step_and_revokes_its_session()
     {
         var gate = new RecorderGate(OperationRecordActions.AuthLoginSucceeded) { Armed = false };
-        var (host, clock) = CreateHost(services => gate.Install(services));
+        var waits = new LockWaitProbe();
+        var (host, clock) = CreateHost(services => Install(services, gate, waits));
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_pwd_race");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
+        var userId = await CurrentUserIdAsync(session.Client);
         var setup = await BeginSetupAsync(session.Client);
         await EnableAsync(session.Client, setup, clock);
         Step(clock);
@@ -721,9 +730,10 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         gate.Armed = true;
         var secondStep = login.PostAsJsonAsync("/api/v1/auth/two-factor", new { Token = token, Code = Code(setup.Secret, clock) });
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(userId));
         var change = session.Client.PostAsJsonAsync(
             "/api/v1/auth/change-password", new { CurrentPassword = Password, NewPassword = Password + "1", ConfirmPassword = Password + "1" });
-        await AssertStillWaitingAsync(change);
+        await waits.AssertWaitingAsync(change);
         gate.Release();
 
         using (var signedIn = await secondStep)
@@ -743,7 +753,8 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
     public async Task Admin_reset_waits_for_an_in_flight_regeneration_and_leaves_two_factor_off()
     {
         var gate = new RecorderGate(OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated);
-        var (host, clock) = CreateHost(services => gate.Install(services));
+        var waits = new LockWaitProbe();
+        var (host, clock) = CreateHost(services => Install(services, gate, waits));
         using var _ = host;
         var username = await CreateUserAsync(host, "tfa_reset_race");
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
@@ -756,8 +767,9 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
 
         var regenerate = session.Client.PostAsJsonAsync(RecoveryCodesUrl, new { Code = Code(secret, clock) });
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(userId));
         var reset = admin.Client.PostAsJsonAsync($"/api/v1/users/{userId}/reset-two-factor", new { });
-        await AssertStillWaitingAsync(reset);
+        await waits.AssertWaitingAsync(reset);
         gate.Release();
 
         using var regenerated = await regenerate;
@@ -879,12 +891,15 @@ public sealed class TwoFactorTests(ProjectWebApplicationFactory factory) : IClas
         }
     }
 
-    /// <summary>另一个请求被同一把锁挡住：放行之前它不能完成。</summary>
-    private static async Task AssertStillWaitingAsync(Task request)
+    // 交错门停在提交之前、持着凭据锁；另一个请求在同一把锁上开始等待时由探针发出信号
+    private static void Install(IServiceCollection services, RecorderGate gate, LockWaitProbe waits)
     {
-        var finished = await Task.WhenAny(request, Task.Delay(TimeSpan.FromMilliseconds(500)));
-        Assert.NotSame(request, finished);
+        gate.Install(services);
+        waits.Install(services);
     }
+
+    private static async Task<Guid> CurrentUserIdAsync(HttpClient client) =>
+        (await client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me")).GetProperty("id").GetGuid();
 
     private static async Task<List<string>> RecoveryCodesOfAsync(HttpResponseMessage response)
     {
