@@ -136,6 +136,11 @@ public static class OperationRecordActions
 
     /// <summary>用户自助修改密码。</summary>
     public const string AuthPasswordChanged = "auth.password.changed";
+#if (Email)
+
+    /// <summary>忘记口令时凭邮箱验证码设置了新口令（目标为该账号，请求是匿名的）。</summary>
+    public const string AuthPasswordRecovered = "auth.password.recovered";
+#endif
 
     /// <summary>用户更换或清除了自己的头像。</summary>
     public const string AuthAvatarChanged = "auth.avatar.changed";
@@ -251,5 +256,10 @@ public static class OperationRecordAuthorizations
 
     /// <summary>自助注册，凭的是租户的注册策略放行。</summary>
     public const string SelfRegistration = "SelfRegistration";
+#if (Email)
+
+    /// <summary>出示了发到账号已验证邮箱的验证码（忘记口令），此刻同样还没有主体。</summary>
+    public const string EmailCodePresented = "EmailCodePresented";
+#endif
 #endif
 }

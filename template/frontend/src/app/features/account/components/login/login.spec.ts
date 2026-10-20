@@ -230,6 +230,65 @@ describe('Login', () => {
     expect(currentUser()).not.toBeNull();
   });
 
+  /** b 在文档顺序上位于 a 之后。 */
+  function follows(a: Element, b: Element): boolean {
+    return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }
+
+  // 找回入口紧跟口令框、在登录按钮之前；填的是邮箱时经导航状态带过去，地址栏里不留邮箱
+  it('links to password recovery after the password and carries an entered email', async () => {
+    await setUp();
+    const host = fixture.nativeElement as HTMLElement;
+    const link = host.querySelector<HTMLAnchorElement>('[data-testid="forgot-password"]')!;
+
+    expect(link.getAttribute('href')).toBe('/auth/forgot-password');
+    expect(follows(host.querySelector('#password')!, link)).toBe(true);
+    expect(follows(link, host.querySelector('button[type="submit"]')!)).toBe(true);
+
+    component.loginForm.usernameOrEmail().value.set('someone@example.test');
+    fixture.detectChanges();
+    link.click();
+    expect(router.navigateByUrl).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ state: { email: 'someone@example.test' } }),
+    );
+
+    component.loginForm.usernameOrEmail().value.set('admin');
+    fixture.detectChanges();
+    link.click();
+    expect(router.navigateByUrl).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ state: {} }),
+    );
+  });
+  //#if (IncludeMultiTenancy || ExternalLogin)
+
+  // 租户先于凭据（它决定凭据在哪里校验）；外部登录是替代路径，放在登录按钮之后
+  it('puts the tenant before the credentials and external sign-in after the submit button', async () => {
+    await setUp();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    //#if (IncludeMultiTenancy)
+
+    expect(
+      follows(
+        host.querySelector('[data-testid="tenant-row"]')!,
+        host.querySelector('#usernameOrEmail')!,
+      ),
+    ).toBe(true);
+    //#endif
+    //#if (ExternalLogin)
+    const divider = host.querySelector('[data-testid="external-divider"]')!;
+
+    expect(follows(host.querySelector('button[type="submit"]')!, divider)).toBe(true);
+    expect(follows(divider, host.querySelector('[data-testid="external-login-github"]')!)).toBe(
+      true,
+    );
+    //#endif
+  });
+  //#endif
+
   /** 页面上显示出来的校验提示（未显示的 hlm-field-error 不渲染内容）。 */
   function shownErrors(): string[] {
     return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('hlm-field-error'))
@@ -502,6 +561,35 @@ describe('Login', () => {
 
     expect(host.querySelector('[data-testid="login-error"]')).toBeNull();
   });
+  //#if (IncludeMultiTenancy)
+
+  // 租户区在表单之外：换了租户，上一个租户下的拒绝原因不再对应当前上下文
+  it('drops the previous rejection once the tenant is switched', async () => {
+    await setUp();
+    await fixture.whenStable();
+    fillValidCredentials();
+    authService.login.mockReturnValue(
+      throwError(() =>
+        ApplicationHttpError.from(
+          new HttpErrorResponse({
+            status: 401,
+            error: { code: 'Auth:InvalidCredentials', detail: 'Incorrect username or password.' },
+          }),
+        ),
+      ),
+    );
+    await component.onSubmit();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="login-error"]')).not.toBeNull();
+
+    component.tenantName.set('acme');
+    await component.applyTenantInput();
+    fixture.detectChanges();
+
+    expect(host.querySelector('[data-testid="login-error"]')).toBeNull();
+  });
+  //#endif
 
   // 连不上服务器这类全局问题仍用 toast，不占表单里的位置
   it('keeps network failures in a toast', async () => {

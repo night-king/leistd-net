@@ -6,6 +6,17 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using CompanyName.ProjectName.Application.Auth.AppServices;
+#if (Email)
+using System.Text.RegularExpressions;
+using CompanyName.ProjectName.Application.Auth.Captcha;
+using Leistd.Email.Abstractions;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Internal;
+#endif
+#if (Email && IncludeNotifications)
+using Leistd.Notifications.Dtos;
+using Leistd.Notifications.Publishing;
+#endif
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Settings.Provider;
@@ -36,7 +47,7 @@ namespace CompanyName.ProjectName.IntegrationTests;
 /// 失败注入在用例写完用户行、撤完会话之后的那一步：本人用例注入在成功审计，管理员用例注入在最后的令牌撤销
 /// （没有令牌签发时注入在成功审计）。断言落在"另一台设备的 Cookie 还能不能用""旧口令还能不能登录"上。
 /// </remarks>
-public sealed class CredentialChangeTransactionTests(CredentialChangeTransactionTests.Host fixture)
+public sealed partial class CredentialChangeTransactionTests(CredentialChangeTransactionTests.Host fixture)
     : IClassFixture<CredentialChangeTransactionTests.Host>
 {
     private const string Password = "TxTests!Passw0rd";
@@ -224,6 +235,108 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
 #endif
     }
 
+#if (Email)
+    /// <summary>
+    /// 找回口令中途失败：口令、其他会话、令牌与成功审计整体回滚，也不发提醒。码在提交前已经用掉，
+    /// 重新获取一个后成功：其他会话与令牌作废，提醒只发一次。
+    /// </summary>
+    [Fact]
+    public async Task Failed_password_recovery_rolls_back_and_a_fresh_code_succeeds()
+    {
+        var (username, userId) = await CreateUserAsync("tx_recover", emailVerified: true);
+        var email = $"{username}@example.test";
+        using var other = await LoginAsync(username, Password);
+#if (OpenIddictServer)
+        var tokenId = await IssueAccessTokenEntryAsync(userId);
+        fixture.Faults.FailTokenRevocation = true;
+#else
+        fixture.Faults.FailRecordingOf = OperationRecordActions.AuthPasswordRecovered;
+#endif
+        try
+        {
+            using var failed = await RecoverPasswordAsync(email, Password + "N");
+            Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        }
+        finally
+        {
+            fixture.Faults.Clear();
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await other.Client.GetAsync("/api/v1/auth/me")).StatusCode);
+        using (await LoginAsync(username, Password))
+        {
+        }
+
+        Assert.Empty(fixture.Alerts.For(userId));
+        Assert.Equal(0, await CountSucceededAsync(OperationRecordActions.AuthPasswordRecovered, userId));
+#if (OpenIddictServer)
+        Assert.Equal(Statuses.Valid, await TokenStatusAsync(tokenId));
+#endif
+
+        // 过了发送间隔：缓存与应用共用本类的假时钟
+        fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        using (var recovered = await RecoverPasswordAsync(email, Password + "N"))
+            Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await other.Client.GetAsync("/api/v1/auth/me")).StatusCode);
+        Assert.Equal([SecurityAlertKind.PasswordRecovered], fixture.Alerts.For(userId));
+        Assert.Equal(1, await CountSucceededAsync(OperationRecordActions.AuthPasswordRecovered, userId));
+#if (OpenIddictServer)
+        Assert.Equal(Statuses.Revoked, await TokenStatusAsync(tokenId));
+#endif
+    }
+
+#if (IncludeNotifications)
+    /// <summary>
+    /// 提醒在提交之后发出、尽力而为：通知组件下游自己超时或取消（请求并没取消）时，已经提交的找回照样成功，
+    /// 旧口令与旧会话照样作废。
+    /// </summary>
+    [Fact]
+    public async Task A_downstream_cancellation_while_alerting_does_not_fail_a_committed_recovery()
+    {
+        var (username, userId) = await CreateUserAsync("tx_alertcancel", emailVerified: true);
+        using var other = await LoginAsync(username, Password);
+        fixture.Faults.CancelNotifications = true;
+        try
+        {
+            using var recovered = await RecoverPasswordAsync($"{username}@example.test", Password + "N");
+            Assert.Equal(HttpStatusCode.OK, recovered.StatusCode);
+        }
+        finally
+        {
+            fixture.Faults.Clear();
+        }
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await other.Client.GetAsync("/api/v1/auth/me")).StatusCode);
+        using (await LoginAsync(username, Password + "N"))
+        {
+        }
+        Assert.Equal(1, await CountSucceededAsync(OperationRecordActions.AuthPasswordRecovered, userId));
+    }
+
+#endif
+    private async Task<HttpResponseMessage> RecoverPasswordAsync(string email, string newPassword)
+    {
+        using var anonymous = ProjectWebApplicationFactory.CreateProjectClient(fixture.Server);
+        using var sent = await anonymous.PostAsJsonAsync("/api/v1/auth/password-reset/send-code", new
+        {
+            Email = email,
+            CaptchaToken = "accepted",
+            CaptchaCode = "accepted"
+        });
+        Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
+        var challengeId = (await sent.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("challengeId").GetGuid();
+        var code = await fixture.Mailbox.NextCodeAsync(email);
+        return await anonymous.PostAsJsonAsync("/api/v1/auth/password-reset", new
+        {
+            Email = email,
+            ChallengeId = challengeId,
+            Code = code,
+            NewPassword = newPassword
+        });
+    }
+
+#endif
     /// <summary>再认证失败触发锁定时，改口令的工作单元随拒绝回滚，锁定提醒仍要送达本人。</summary>
     [Fact]
     public async Task Lockout_during_password_change_still_alerts_the_user()
@@ -248,7 +361,7 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
 
     /// <summary>
     /// 令牌撤销不进业务事务：OpenIddict 存储用自己的上下文与连接，工作单元回滚撤不回它。
-    /// <c>UserAppService.RevokeAllAccessAsync</c> 因此放在提交前的最后一步，而不是指望回滚。
+    /// <c>UserAccessRevoker</c> 因此放在提交前的最后一步，而不是指望回滚。
     /// </summary>
     [Fact]
     public async Task Token_revocation_takes_effect_even_when_the_business_unit_of_work_rolls_back()
@@ -346,7 +459,7 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
     private static async Task<bool> IsTwoFactorEnabledAsync(HttpClient client) =>
         (await client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor")).GetProperty("enabled").GetBoolean();
 
-    private async Task<(string Username, Guid UserId)> CreateUserAsync(string prefix)
+    private async Task<(string Username, Guid UserId)> CreateUserAsync(string prefix, bool emailVerified = false)
     {
         var username = $"{prefix}_{Guid.NewGuid():N}"[..30];
         using var admin = await LoginAsync("admin", ProjectWebApplicationFactory.TestAdminPassword);
@@ -355,7 +468,8 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
             Username = username,
             Email = $"{username}@example.test",
             Password,
-            IsActive = true
+            IsActive = true,
+            IsEmailVerified = emailVerified
         });
         Assert.Equal(HttpStatusCode.OK, create.StatusCode);
         var body = await create.Content.ReadFromJsonAsync<JsonElement>();
@@ -371,6 +485,14 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
         {
             Server = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             {
+#if (Email)
+                // 找回口令的发送间隔与码的有效期都按这只假时钟走：缓存条目也用它判断过期
+                services.Configure<MemoryDistributedCacheOptions>(options => options.Clock = new CacheClock(Clock));
+                services.RemoveAll<ICaptchaVerifier>();
+                services.AddSingleton<ICaptchaVerifier, AcceptingCaptcha>();
+                services.RemoveAll<IEmailSender>();
+                services.AddSingleton<IEmailSender>(Mailbox);
+#endif
                 // 从此刻起步：缓存条目按真实时钟回收，假时钟落在过去会让刚写入的设置密钥被当成已过期
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(Clock);
@@ -381,6 +503,9 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
                         && Faults.FailRecordingOf is { } action
                         && Equals(args?[0], action)));
                 Decorate<ISecurityAlertPublisher>(services, (inner, _) => new RecordingSecurityAlertPublisher(inner, Alerts));
+#if (Email && IncludeNotifications)
+                Decorate<INotificationPublisher>(services, (inner, _) => new CancelingNotificationPublisher(inner, Faults));
+#endif
 #if (OpenIddictServer)
                 Decorate<IOpenIddictTokenManager>(services, (inner, _) => FaultProxy<IOpenIddictTokenManager>.Create(
                     inner,
@@ -399,6 +524,10 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
         public InjectedFaults Faults { get; } = new();
 
         public SecurityAlertLog Alerts { get; } = new();
+#if (Email)
+
+        public CodeMailbox Mailbox { get; } = new();
+#endif
 
         /// <summary>推进到下一个验证码时间步：同一步的码只认一次。</summary>
         public void Step() => Clock.Advance(TimeSpan.FromSeconds(30));
@@ -434,11 +563,18 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
     {
         public volatile string? FailRecordingOf;
         public volatile bool FailTokenRevocation;
+#if (Email && IncludeNotifications)
+        /// <summary>通知组件下游抛出它自己的取消（请求并没取消）。</summary>
+        public volatile bool CancelNotifications;
+#endif
 
         public void Clear()
         {
             FailRecordingOf = null;
             FailTokenRevocation = false;
+#if (Email && IncludeNotifications)
+            CancelNotifications = false;
+#endif
         }
     }
 
@@ -463,6 +599,52 @@ public sealed class CredentialChangeTransactionTests(CredentialChangeTransaction
         }
     }
 
+#if (Email)
+    private sealed class CacheClock(TimeProvider time) : ISystemClock
+    {
+        public DateTimeOffset UtcNow => time.GetUtcNow();
+    }
+
+#if (IncludeNotifications)
+    private sealed class CancelingNotificationPublisher(INotificationPublisher inner, InjectedFaults faults) : INotificationPublisher
+    {
+        public Task PublishToUserAsync(string userId, NotificationInputDto notification, CancellationToken ct = default)
+            => faults.CancelNotifications
+                ? throw new TaskCanceledException("Injected downstream timeout.")
+                : inner.PublishToUserAsync(userId, notification, ct);
+    }
+
+#endif
+    private sealed class AcceptingCaptcha : ICaptchaVerifier
+    {
+        public Task<bool> VerifyAsync(string token, string code, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+    }
+
+    /// <summary>收下找回口令的验证码：码在后台发送，按地址排队等它到达。</summary>
+    public sealed partial class CodeMailbox : IEmailSender
+    {
+        private readonly ConcurrentDictionary<string, System.Threading.Channels.Channel<string>> codes = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
+        {
+            var match = CodeRegex().Match(message.Body);
+            if (match.Success)
+                Inbox(message.To).Writer.TryWrite(match.Groups[1].Value);
+            return Task.CompletedTask;
+        }
+
+        public async Task<string> NextCodeAsync(string email) =>
+            await Inbox(email).Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+
+        private System.Threading.Channels.Channel<string> Inbox(string email) =>
+            codes.GetOrAdd(email, _ => System.Threading.Channels.Channel.CreateUnbounded<string>());
+
+        [GeneratedRegex(@">(\d{6})<", RegexOptions.CultureInvariant)]
+        private static partial Regex CodeRegex();
+    }
+
+#endif
     /// <summary>转发到原实现，命中条件的调用改为抛出。</summary>
     public class FaultProxy<TService> : DispatchProxy where TService : class
     {

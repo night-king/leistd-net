@@ -38,6 +38,35 @@ public sealed class NotificationSecurityAlertPublisherTests
         Assert.Contains("2026-03-01 05:30 (UTC)", content, StringComparison.Ordinal);
     }
 
+    /// <summary>提醒是尽力而为的：下游自己的超时或取消不能让已经提交的改密、找回报失败；调用方取消时照常传出。</summary>
+    [Fact]
+    public async Task A_downstream_cancellation_is_swallowed_but_a_caller_cancellation_is_not()
+    {
+        var alerts = CreatePublisher(new CancelingPublisher());
+
+        await alerts.PublishAsync(Recipient, new SecurityAlert(SecurityAlertKind.PasswordChanged));
+
+        using var caller = new CancellationTokenSource();
+        await caller.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => alerts.PublishAsync(Recipient, new SecurityAlert(SecurityAlertKind.PasswordChanged), caller.Token));
+    }
+
+    private static NotificationSecurityAlertPublisher CreatePublisher(INotificationPublisher publisher) => new(
+        publisher,
+        new PerUserTimeZones(new Dictionary<Guid, string>()),
+#if (IncludeLocalization)
+        new NoLanguageSettings(),
+        new TemplateLocalizerFactory(),
+#endif
+        NullLogger<NotificationSecurityAlertPublisher>.Instance);
+
+    private sealed class CancelingPublisher : INotificationPublisher
+    {
+        public Task PublishToUserAsync(string userId, NotificationInputDto notification, CancellationToken ct = default)
+            => ct.IsCancellationRequested ? Task.FromCanceled(ct) : throw new TaskCanceledException("Downstream timed out.");
+    }
+
     private static async Task<string> PublishLockoutAsync(IReadOnlyDictionary<Guid, string> timeZones)
     {
         var publisher = new CapturingPublisher();

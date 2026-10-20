@@ -25,6 +25,9 @@ import {
   //#if (Email)
   EmailVerificationInputDto,
   //#endif
+  //#if (Email)
+  ResetPasswordInputDto,
+  //#endif
   SetAvatarInputDto,
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
@@ -56,6 +59,7 @@ import {
   USERS,
   isEmailTaken,
   isUsernameTaken,
+  rotateSecurityVersion,
   toUserOutput,
 } from '../data/user';
 import {
@@ -85,12 +89,19 @@ const EMAIL_CODE_MAX_ATTEMPTS = 5;
 
 interface EmailVerificationChallenge {
   scope: string;
-  purpose: 'registration-email' | 'account-email';
+  purpose: 'registration-email' | 'account-email' | 'password-reset';
   email: string;
   code: string;
   expiresAt: number;
   remainingAttempts: number;
+  /** 找回挑战绑定的用户与签发时的安全版本；收不到码的挑战两者都没有。 */
+  userId?: string;
+  securityVersion?: number;
 }
+
+/** 找回发码的 24 小时固定窗口上限，与后端一致。 */
+const PASSWORD_RESET_DAILY_LIMIT = 10;
+const passwordResetWindows = new Map<string, { startedAt: number; count: number }>();
 
 const emailChallengeStore = new Map<string, EmailVerificationChallenge>();
 const emailRateLimitStore = new Map<string, number>();
@@ -307,6 +318,7 @@ function changePassword(req: MockRequest): 'ok' {
   ensureAcceptablePassword(body.newPassword, 'New password');
 
   user.password = body.newPassword;
+  rotateSecurityVersion(user);
   // 与服务端一致：改密码后其他设备退出登录
   mockSessions = mockSessions.filter((s) => s.isCurrent);
   return 'ok';
@@ -335,6 +347,7 @@ function setPassword(req: MockRequest): 'ok' {
   ensureMockReauthentication(user, { twoFactorCode: body.twoFactorCode });
 
   user.password = body.newPassword;
+  rotateSecurityVersion(user);
   mockSessions = mockSessions.filter((s) => s.isCurrent);
   return 'ok';
 }
@@ -772,6 +785,109 @@ function sendEmailCode(req: MockRequest): EmailVerificationChallengeOutputDto {
   };
 }
 //#endif
+//#if (Email)
+
+/** 收得到找回码的账号：邮箱已验证、启用、没有被管理员锁定（管理员锁定没有截止时间）。 */
+function isPasswordResetDeliverable(user: MockUser): boolean {
+  // Mock 数据里 lockoutEnd 为 null 即管理员锁定，undefined 为未锁定
+  return user.isEmailVerified && user.isActive && user.lockoutEnd !== null;
+}
+
+/**
+ * 与后端同一口径：不论邮箱是否对应账号都签发挑战、占用配额，响应一样；
+ * 只有可投递的账号才“收得到”验证码（Mock 下固定为 EMAIL_CODE）。
+ */
+function sendPasswordResetCode(req: MockRequest): EmailVerificationChallengeOutputDto {
+  const body = req.body as SendEmailCodeInputDto;
+  validateCaptcha(body.captchaToken, body.captchaCode);
+
+  const email = normalizeEmail(body.email);
+  const scope = getRequestScope(req);
+  const rateKey = `${scope}:${email}`;
+  const now = Date.now();
+  const window = passwordResetWindows.get(rateKey);
+  const activeWindow = window && window.startedAt + 24 * 3600 * 1000 > now ? window : undefined;
+  if (
+    (emailRateLimitStore.get(rateKey) ?? 0) > now ||
+    (activeWindow?.count ?? 0) >= PASSWORD_RESET_DAILY_LIMIT
+  ) {
+    throw new MockException(429, {
+      code: 'Auth:EmailCodeSendTooFrequent',
+      message: 'Verification codes are being sent too frequently',
+    });
+  }
+  passwordResetWindows.set(rateKey, {
+    startedAt: activeWindow?.startedAt ?? now,
+    count: (activeWindow?.count ?? 0) + 1,
+  });
+
+  const user = USERS.find((u) => u.email === body.email.trim());
+  const target = user && isPasswordResetDeliverable(user) ? user : undefined;
+  const challengeId = crypto.randomUUID();
+  emailRateLimitStore.set(rateKey, now + EMAIL_CODE_RETRY_SECONDS * 1000);
+  emailChallengeStore.set(challengeId, {
+    scope,
+    purpose: 'password-reset',
+    email,
+    // 收不到的挑战没有人知道码：用一个永远对不上的值占位
+    code: target ? EMAIL_CODE : crypto.randomUUID(),
+    expiresAt: now + EMAIL_CODE_EXPIRY_SECONDS * 1000,
+    remainingAttempts: EMAIL_CODE_MAX_ATTEMPTS,
+    userId: target?.id,
+    securityVersion: target ? (target.securityVersion ?? 0) : undefined,
+  });
+
+  return {
+    challengeId,
+    expiresInSeconds: EMAIL_CODE_EXPIRY_SECONDS,
+    retryAfterSeconds: EMAIL_CODE_RETRY_SECONDS,
+  };
+}
+
+/** 码对之后还要核对目标：仍是同一个用户、安全版本未变（含别的找回挑战已经改过）、仍可投递，否则一律按码无效拒绝。 */
+function resetPassword(req: MockRequest): 'ok' {
+  const body = req.body as ResetPasswordInputDto;
+  const email = normalizeEmail(body.email);
+  const challenge = emailChallengeStore.get(body.challengeId);
+  if (
+    !challenge ||
+    challenge.scope !== getRequestScope(req) ||
+    challenge.purpose !== 'password-reset' ||
+    challenge.email !== email ||
+    challenge.expiresAt <= Date.now()
+  ) {
+    throw invalidEmailChallenge();
+  }
+
+  if (challenge.code !== body.code?.trim()) {
+    challenge.remainingAttempts--;
+    if (challenge.remainingAttempts <= 0) {
+      emailChallengeStore.delete(body.challengeId);
+    }
+    throw invalidEmailChallenge();
+  }
+
+  ensureAcceptablePassword(body.newPassword, 'NewPassword');
+  emailChallengeStore.delete(body.challengeId);
+  const user = USERS.find((u) => u.id === challenge.userId);
+  if (
+    !user ||
+    (user.securityVersion ?? 0) !== challenge.securityVersion ||
+    normalizeEmail(user.email) !== email ||
+    !isPasswordResetDeliverable(user)
+  ) {
+    throw invalidEmailChallenge();
+  }
+
+  user.password = body.newPassword;
+  rotateSecurityVersion(user);
+  // 与后端一致：解除登录失败触发的临时锁定（有截止时间的那种）；管理员锁定在前面已经拒绝
+  if (user.lockoutEnd) {
+    user.lockoutEnd = undefined;
+  }
+  return 'ok';
+}
+//#endif
 
 function register(req: MockRequest): 'ok' {
   ensureRegistrationOpen(req);
@@ -974,6 +1090,10 @@ export const AUTH_API = {
   'GET /api/v1/auth/captcha': () => getCaptcha(),
   //#if (Email)
   'POST /api/v1/auth/send-email-code': (req: MockRequest) => sendEmailCode(req),
+  //#endif
+  //#if (Email)
+  'POST /api/v1/auth/password-reset/send-code': (req: MockRequest) => sendPasswordResetCode(req),
+  'POST /api/v1/auth/password-reset': (req: MockRequest) => resetPassword(req),
   //#endif
   'POST /api/v1/auth/logout': () => logout(),
   'POST /api/v1/auth/session-login': (req: MockRequest) => {

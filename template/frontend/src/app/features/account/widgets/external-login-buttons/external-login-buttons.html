@@ -3,7 +3,7 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <!-- 外部登录放在表单上方、左右并排：入口按已配置的提供商渲染；加载失败单独提示，不当作"未配置"。 -->
+  <!-- 外部登录放在表单下方、左右并排，分隔线在上：入口按已配置的提供商渲染；加载失败单独提示，不当作"未配置"。 -->
   @if (loadFailed()) {
     <div class="flex flex-col gap-1">
       <p class="flex items-center gap-2 text-sm text-muted-foreground">
@@ -27,6 +27,12 @@
       }
     </div>
   } @else if (hasRenderable()) {
+    <div class="flex items-center gap-3" data-testid="external-divider">
+      <div class="flex-1 border-t"></div>
+      <span class="text-muted-foreground text-xs">{{ dividerLabel() }}</span>
+      <div class="flex-1 border-t"></div>
+    </div>
+
     <div class="flex gap-3">
       @if (has('github')) {
         <button
@@ -79,12 +85,6 @@
           Google
         </button>
       }
-    </div>
-
-    <div class="flex items-center gap-3" data-testid="external-divider">
-      <div class="flex-1 border-t"></div>
-      <span class="text-muted-foreground text-xs">{{ dividerLabel() }}</span>
-      <div class="flex-1 border-t"></div>
     </div>
   }
 </ng-container>

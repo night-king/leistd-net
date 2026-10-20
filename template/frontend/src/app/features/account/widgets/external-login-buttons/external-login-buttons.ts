@@ -51,7 +51,7 @@ export class ExternalLoginButtons {
   readonly returnUrl = input<string | null>(null);
   /** 父页面不接受认证（租户上下文未定案、正在提交）时为 true。 */
   readonly blocked = input(false);
-  /** 入口与下方表单之间分隔线上的文字，如"或使用账号登录""或使用邮箱注册"。 */
+  /** 表单与下方入口之间分隔线上的文字，如"或使用以下方式登录""或使用以下方式注册"。 */
   readonly dividerLabel = input.required<string>();
 
   /** 部署已配置的外部登录提供商；null 表示还在加载，此时不显示任何入口。 */

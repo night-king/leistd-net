@@ -36,6 +36,9 @@ import {
 //#if (Email)
   EmailVerificationChallengeOutputDto,
 //#endif
+//#if (Email)
+  ResetPasswordInputDto,
+//#endif
   BeginTwoFactorSetupInputDto,
   DisableTwoFactorInputDto,
   TwoFactorLoginInputDto,
@@ -85,6 +88,20 @@ export class AccountService {
       '/api/v1/auth/send-email-code',
       data,
     );
+  }
+
+  /** 忘记密码发码：不论邮箱是否对应账号，响应都一样。 */
+  sendPasswordResetCode(
+    data: SendEmailCodeInputDto,
+  ): Observable<EmailVerificationChallengeOutputDto> {
+    return this.http.post<EmailVerificationChallengeOutputDto>(
+      '/api/v1/auth/password-reset/send-code',
+      data,
+    );
+  }
+
+  resetPassword(data: ResetPasswordInputDto): Observable<void> {
+    return this.http.post('/api/v1/auth/password-reset', data).pipe(map(() => undefined));
   }
   //#endif
 

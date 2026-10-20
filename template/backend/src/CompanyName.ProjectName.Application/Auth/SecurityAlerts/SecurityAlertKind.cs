@@ -29,6 +29,11 @@ public enum SecurityAlertKind
     LockedOut,
 
     /// <summary>账号的邮箱换成了另一个地址（本人或管理员修改）。</summary>
-    EmailChanged
+    EmailChanged,
+#if (Email)
+
+    /// <summary>本人凭邮箱验证码找回了口令（忘记口令）。</summary>
+    PasswordRecovered,
+#endif
 }
 #endif

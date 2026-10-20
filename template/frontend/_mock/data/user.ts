@@ -8,6 +8,8 @@ export interface MockUser {
   email: string;
   /** 本地口令；只经外部登录建立的账号没有。 */
   password?: string;
+  /** 安全版本（对应后端 SecurityStamp）：Mock 只在口令变更时递增，绑定它的找回挑战随之作废。 */
+  securityVersion?: number;
   displayName?: string;
   avatar?: string;
   phoneNumber?: string;
@@ -168,6 +170,11 @@ export function isUsernameTaken(username: string, excludeUserId?: string): boole
   return [...USERS, ...DELETED_USERS].some(
     (user) => user.username === username && user.id !== excludeUserId,
   );
+}
+
+/** 凭据变了：递增安全版本，与后端轮换 SecurityStamp 同义（同值改口令也算一次）。 */
+export function rotateSecurityVersion(user: MockUser): void {
+  user.securityVersion = (user.securityVersion ?? 0) + 1;
 }
 
 /** 邮箱是否已被占用（含已删除用户），按唯一索引原样比较，只差大小写的是另一个地址。 */

@@ -53,6 +53,7 @@
     "auth.login.failed": "Failed to sign in ({{target}})",
     "auth.locked-out": "Account {{target}} was locked after repeated failed sign-ins",
     "auth.password.changed": "Changed their own password",
+    "auth.password.recovered": "Account {{target}} reset its password with an email code",
     "auth.avatar.changed": "Changed their avatar",
     "auth.email.changed": "Changed their email address",
     "auth.email.verified": "Verified their email address",

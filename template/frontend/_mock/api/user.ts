@@ -15,6 +15,7 @@ import {
   //#if (LocalIdentity)
   isEmailTaken,
   isUsernameTaken,
+  rotateSecurityVersion,
   //#endif
   toUserManagementOutput,
 } from '../data/user';
@@ -241,6 +242,7 @@ export function resetPassword(id: string, value: any) {
     twoFactorCode: value.twoFactorCode,
   });
   user.password = value.password;
+  rotateSecurityVersion(user);
 }
 
 export function unlockUser(id: string) {

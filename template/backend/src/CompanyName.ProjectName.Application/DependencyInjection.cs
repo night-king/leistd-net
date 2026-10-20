@@ -92,7 +92,9 @@ public static class DependencyInjection
         services.TryAddTransient<ICaptchaAppService, CaptchaAppService>();
 #if (Email)
         services.TryAddTransient<EmailChallengeStore>();
+        services.TryAddTransient<PasswordResetCodeMailer>();
         services.TryAddTransient<IEmailVerificationAppService, EmailVerificationAppService>();
+        services.TryAddTransient<IPasswordResetAppService, PasswordResetAppService>();
 #endif
         services.TryAddTransient<SessionIssuer>();
         services.TryAddTransient<IUserSessionValidator, UserSessionValidator>();
@@ -101,6 +103,7 @@ public static class DependencyInjection
         services.TryAddScoped<ICurrentSessionState, CurrentSessionState>();
         services.AddUserSessionCacheEviction();
         services.TryAddTransient<CurrentSessionTerminator>();
+        services.TryAddTransient<UserAccessRevoker>();
         services.TryAddTransient<IUserSessionAppService, UserSessionAppService>();
         // 安全提醒默认不发；启用通知时宿主换成经通知组件发布的实现
         services.TryAddTransient<ISecurityAlertPublisher, NullSecurityAlertPublisher>();

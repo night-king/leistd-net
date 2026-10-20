@@ -65,7 +65,7 @@ describe('ExternalLoginButtons', () => {
     expect(host.querySelector('[data-testid="external-divider"]')).toBeNull();
   });
 
-  // 页面只内置 GitHub、Google 的入口；目录里只有别的提供方时，留一条分隔线等于暗示上面还有东西
+  // 页面只内置 GitHub、Google 的入口；目录里只有别的提供方时，留一条分隔线等于暗示下面还有东西
   it('renders nothing when the directory only lists providers without a built-in button', async () => {
     const host = await render({ providers: ['microsoft'] });
 

@@ -30,6 +30,7 @@ public sealed class AuthController(
     ICaptchaAppService captchaAppService,
 #if (Email)
     IEmailVerificationAppService emailVerificationAppService,
+    IPasswordResetAppService passwordResetAppService,
 #endif
 #if (Impersonation)
     ITenantImpersonationAppService impersonationAppService,
@@ -131,6 +132,24 @@ public sealed class AuthController(
         CancellationToken cancellationToken)
     {
         return await emailVerificationAppService.SendEmailCodeAsync(input, cancellationToken);
+    }
+
+    /// <summary>忘记口令：发送验证码。不论邮箱是否对应能找回的账号，响应都一样。</summary>
+    [AllowAnonymous]
+    [HttpPost("password-reset/send-code")]
+    public async Task<EmailVerificationChallengeOutputDto> SendPasswordResetCodeAsync(
+        [FromBody] SendEmailCodeInputDto input,
+        CancellationToken cancellationToken)
+    {
+        return await passwordResetAppService.SendCodeAsync(input, cancellationToken);
+    }
+
+    /// <summary>忘记口令：凭验证码设置新口令，并退出该账号的全部会话。不签发新会话。</summary>
+    [AllowAnonymous]
+    [HttpPost("password-reset")]
+    public async Task ResetPasswordAsync([FromBody] PasswordResetInputDto input, CancellationToken cancellationToken)
+    {
+        await passwordResetAppService.ResetAsync(input, cancellationToken);
     }
 #endif
 

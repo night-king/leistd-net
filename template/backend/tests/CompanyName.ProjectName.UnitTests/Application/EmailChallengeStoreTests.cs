@@ -5,14 +5,22 @@ using CompanyName.ProjectName.Application.Auth.Dtos;
 using CompanyName.ProjectName.Application.Auth.EmailVerification;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Domain.Auth.Errors;
+using Leistd.BackgroundJobs.Queues;
 using Leistd.Email.Abstractions;
 using Leistd.ExceptionHandling;
 using Leistd.Lock.Abstractions;
 using Leistd.MultiTenancy.Context;
+#if (IncludeLocalization)
+using Leistd.Settings.Resolution;
+#endif
 using Leistd.Timing;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Internal;
+#if (IncludeLocalization)
+using Microsoft.Extensions.Localization;
+#endif
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -35,6 +43,7 @@ public sealed partial class EmailChallengeStoreTests
     private readonly LeaseLock _lock = new();
     private readonly GatedCache _cache;
     private readonly ScriptedEmailSender _sender = new();
+    private readonly CapturingQueue _queue = new();
     private readonly EmailChallengeStore _store;
 
     public EmailChallengeStoreTests()
@@ -54,6 +63,7 @@ public sealed partial class EmailChallengeStoreTests
             NullLogger<EmailChallengeStore>.Instance,
             new UtcClockProvider(_time),
             new CurrentTenant(AsyncLocalCurrentTenantAccessor.Instance),
+            _queue,
             verificationCode);
     }
 
@@ -213,6 +223,136 @@ public sealed partial class EmailChallengeStoreTests
 
         await AssertTooFrequentAsync(email);
         Assert.True(await ValidateAsync(email, issued.ChallengeId, _sender.Calls.Single().Code));
+    }
+
+    /// <summary>找回口令：不论邮箱是否对应账号都签发挑战、占用配额；只有可投递的账号才在后台收到码。</summary>
+    [Fact]
+    public async Task A_password_reset_without_a_target_sends_nothing_and_never_validates()
+    {
+        const string email = "nobody@example.test";
+        var issued = await _store.IssuePasswordResetAsync(email, target: null, FixedRegistrationPolicy.Policy);
+
+        Assert.Empty(_queue.Items);
+        await AssertPasswordResetTooFrequentAsync(email, target: null);
+        foreach (var code in new[] { "000000", "123456", "999999" })
+        {
+            Assert.Null(await ValidatePasswordResetAsync(email, issued.ChallengeId, code));
+        }
+    }
+
+    [Fact]
+    public async Task A_password_reset_code_is_sent_in_the_background_and_proves_the_user_and_stamp()
+    {
+        const string email = "known@example.test";
+        var target = new PasswordResetTarget(Guid.NewGuid(), email, "stamp-1");
+        var issued = await _store.IssuePasswordResetAsync(email, target, FixedRegistrationPolicy.Policy);
+        Assert.Empty(_sender.Calls);
+
+        await _queue.RunAllAsync(_sender, _time);
+        var code = Assert.Single(_sender.Calls).Code;
+
+        // 用途隔离：找回码不能拿去注册
+        Assert.False(await ValidateAsync(email, issued.ChallengeId, code));
+        Assert.Equal(
+            new PasswordResetProof(target.UserId, target.SecurityStamp),
+            await ValidatePasswordResetAsync(email.ToUpperInvariant(), issued.ChallengeId, code));
+        Assert.Null(await ValidatePasswordResetAsync(email, issued.ChallengeId, code));
+    }
+
+    /// <summary>排队跨过挑战到期就不再发：发出去的码也用不了。</summary>
+    [Fact]
+    public async Task A_password_reset_code_that_expired_in_the_queue_is_not_sent()
+    {
+        const string email = "late@example.test";
+        await _store.IssuePasswordResetAsync(
+            email, new PasswordResetTarget(Guid.NewGuid(), email, "stamp"), FixedRegistrationPolicy.Policy);
+
+        _time.Advance(TimeSpan.FromMinutes(FixedRegistrationPolicy.Policy.EmailCodeExpiryMinutes));
+        await _queue.RunAllAsync(_sender, _time);
+
+        Assert.Empty(_sender.Calls);
+    }
+
+    /// <summary>发送失败只记日志：配额不退，响应早已返回，失败与否不能让人看出邮箱对应着账号。</summary>
+    [Fact]
+    public async Task A_failed_password_reset_delivery_keeps_the_quota()
+    {
+        const string email = "smtp-down@example.test";
+        _sender.Enqueue(_ => throw new InvalidOperationException("Simulated SMTP failure."));
+        await _store.IssuePasswordResetAsync(
+            email, new PasswordResetTarget(Guid.NewGuid(), email, "stamp"), FixedRegistrationPolicy.Policy);
+
+        await _queue.RunAllAsync(_sender, _time);
+
+        await AssertPasswordResetTooFrequentAsync(email, target: null);
+    }
+
+    /// <summary>
+    /// 下游自己的超时或取消（消费者并没停机）也只是投递失败：记安全日志后吞掉，不让原始异常落到队列的通用失败日志里；
+    /// 消费者停机时的取消照常传出去。
+    /// </summary>
+    [Fact]
+    public async Task Only_a_stopping_consumer_lets_a_canceled_delivery_escape()
+    {
+        const string email = "canceled@example.test";
+        var target = new PasswordResetTarget(Guid.NewGuid(), email, "stamp");
+        _sender.Enqueue(_ => throw new TaskCanceledException("SMTP timed out."));
+        await _store.IssuePasswordResetAsync(email, target, FixedRegistrationPolicy.Policy);
+
+        await _queue.RunAllAsync(_sender, _time);
+
+        _time.Advance(SendInterval);
+        using var stopping = new CancellationTokenSource();
+        await stopping.CancelAsync();
+        _sender.Enqueue(token => Task.FromCanceled(token));
+        await _store.IssuePasswordResetAsync(email, target, FixedRegistrationPolicy.Policy);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _queue.RunAllAsync(_sender, _time, stopping.Token));
+    }
+
+    /// <summary>窗口从本窗口第一次发码起算 24 小时，期间至多发 10 次；到期后重新计数。</summary>
+    [Fact]
+    public async Task Password_reset_codes_are_capped_per_fixed_window()
+    {
+        const string email = "capped@example.test";
+        for (var i = 0; i < EmailChallengeStore.PasswordResetLimitPerWindow; i++)
+        {
+            await _store.IssuePasswordResetAsync(email, target: null, FixedRegistrationPolicy.Policy);
+            _time.Advance(SendInterval);
+        }
+
+        await AssertPasswordResetTooFrequentAsync(email, target: null);
+
+        // 窗口自第一次发码起算：到期前一秒仍被拒，到期即放行
+        _time.Advance(EmailChallengeStore.PasswordResetWindow
+            - SendInterval * EmailChallengeStore.PasswordResetLimitPerWindow - TimeSpan.FromSeconds(1));
+        await AssertPasswordResetTooFrequentAsync(email, target: null);
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await _store.IssuePasswordResetAsync(email, target: null, FixedRegistrationPolicy.Policy);
+    }
+
+    /// <summary>上限只管找回：注册发码不计入，也不受它限制（发送间隔仍共用）。</summary>
+    [Fact]
+    public async Task The_password_reset_cap_does_not_count_registration_codes()
+    {
+        const string email = "shared@example.test";
+        for (var i = 0; i < EmailChallengeStore.PasswordResetLimitPerWindow; i++)
+        {
+            await IssueAsync(email);
+            _time.Advance(SendInterval);
+        }
+
+        await _store.IssuePasswordResetAsync(email, target: null, FixedRegistrationPolicy.Policy);
+    }
+
+    private Task<PasswordResetProof?> ValidatePasswordResetAsync(string email, Guid challengeId, string code)
+        => _store.ValidatePasswordResetAsync(email, new EmailVerificationInputDto { ChallengeId = challengeId, Code = code });
+
+    private async Task AssertPasswordResetTooFrequentAsync(string email, PasswordResetTarget? target)
+    {
+        var exception = await Assert.ThrowsAsync<BusinessException>(
+            () => _store.IssuePasswordResetAsync(email, target, FixedRegistrationPolicy.Policy));
+        Assert.Equal(AuthErrorCodes.EmailCodeSendTooFrequent, exception.Code);
     }
 
     private Task<EmailVerificationChallengeOutputDto> IssueAsync(string email, CancellationToken cancellationToken = default)
@@ -378,6 +518,74 @@ public sealed partial class EmailChallengeStoreTests
     }
 
     private sealed record SentCode(string Code);
+
+#if (IncludeLocalization)
+    /// <summary>收件人没设过语言：按当前文化渲染。</summary>
+    private sealed class NoSettings : ISettingProvider
+    {
+        public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<string?> GetOrNullForUserAsync(string name, string userId, CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<T?> GetAsync<T>(string name, CancellationToken cancellationToken = default)
+            => Task.FromResult<T?>(default);
+
+        public Task<IReadOnlyDictionary<string, string?>> GetAllAsync(
+            bool visibleToClientsOnly = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>());
+    }
+
+    /// <summary>文案回落成键名：测试只关心信里的验证码。</summary>
+    private sealed class KeyLocalizer : IStringLocalizer
+    {
+        public LocalizedString this[string name] => new(name, name);
+
+        public LocalizedString this[string name, params object[] arguments] => new(name, name);
+
+        public IEnumerable<LocalizedString> GetAllStrings(bool includeParentCultures) => [];
+    }
+
+#endif
+    /// <summary>记下入队的工作项，由测试决定何时执行：执行时像后台消费者一样给新的服务提供器。</summary>
+    private sealed class CapturingQueue : IBackgroundTaskQueue
+    {
+        private readonly ConcurrentQueue<Func<IServiceProvider, CancellationToken, ValueTask>> _items = new();
+
+        public IReadOnlyList<Func<IServiceProvider, CancellationToken, ValueTask>> Items => [.. _items];
+
+        public ValueTask QueueAsync(Func<IServiceProvider, CancellationToken, ValueTask> workItem, CancellationToken cancellationToken = default)
+        {
+            _items.Enqueue(workItem);
+            return ValueTask.CompletedTask;
+        }
+
+        public bool TryQueue(Func<IServiceProvider, CancellationToken, ValueTask> workItem)
+        {
+            _items.Enqueue(workItem);
+            return true;
+        }
+
+        public async Task RunAllAsync(IEmailSender sender, TimeProvider time, CancellationToken stopping = default)
+        {
+            await using var services = new ServiceCollection()
+                .AddLogging()
+                .AddSingleton(sender)
+                .AddSingleton<IClock>(new UtcClockProvider(time))
+#if (IncludeLocalization)
+                .AddSingleton<ISettingProvider, NoSettings>()
+                .AddSingleton<IStringLocalizer, KeyLocalizer>()
+#endif
+                .AddTransient<PasswordResetCodeMailer>()
+                .BuildServiceProvider();
+            while (_items.TryDequeue(out var item))
+            {
+                await item(services, stopping);
+            }
+        }
+    }
 
     private sealed class FixedRegistrationPolicy : IUserRegistrationPolicyProvider
     {

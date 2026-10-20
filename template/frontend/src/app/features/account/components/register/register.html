@@ -25,14 +25,6 @@
         {{ t('account.register.closed') }}
       </p>
     } @else {
-      <!--#if (ExternalLogin)-->
-      <!-- 首次外部登录即建账号，注册页给同一组入口；租户上下文与本页的邮箱注册一致 -->
-      <app-external-login-buttons
-        [returnUrl]="returnUrl"
-        [blocked]="isLoading()"
-        [dividerLabel]="t('account.register.or')"
-      />
-      <!--#endif-->
       <form novalidate (submit)="$event.preventDefault(); onSubmit()" class="flex flex-col gap-5">
         <div hlmField>
           <label hlmFieldLabel for="email">{{ t('account.register.email') }}</label>
@@ -92,35 +84,7 @@
               <ng-icon [name]="showPassword() ? 'lucideEyeOff' : 'lucideEye'" />
             </button>
           </hlm-input-group>
-          <!-- 长度进度：只反映口令策略的最小长度，不另立复杂度规则 -->
-          <div class="flex flex-col gap-1.5" data-testid="password-strength">
-            <div class="grid grid-cols-4 gap-1" aria-hidden="true">
-              @for (segment of strengthSegments; track segment) {
-                <span
-                  class="h-1 rounded-full"
-                  [class]="
-                    segment > passwordStrength().filled
-                      ? 'bg-muted'
-                      : passwordStrength().met
-                        ? 'bg-success'
-                        : 'bg-warning'
-                  "
-                ></span>
-              }
-            </div>
-            <p hlmFieldDescription class="text-xs" aria-live="polite">
-              @if (passwordStrength().met) {
-                {{ t('account.register.passwordLengthMet') }}
-              } @else {
-                {{
-                  t('account.register.passwordLengthProgress', {
-                    min: passwordMinLength,
-                    remaining: passwordStrength().remaining,
-                  })
-                }}
-              }
-            </p>
-          </div>
+          <app-password-length-meter [password]="registerForm.password().value()" />
           @for (error of registerForm.password().errors(); track error.kind) {
             <hlm-field-error [validator]="error.kind">{{
               t('validation.' + error.kind, error)
@@ -130,31 +94,17 @@
 
         <!-- 图形验证码紧挨提交；开启邮箱验证时获取邮件验证码前要先填它，所以邮件验证码排在它后面 -->
         <div hlmField>
-          <label hlmFieldLabel for="captchaCode">{{ t('account.register.captcha') }}</label>
-          <div class="flex gap-3 h-9 items-center">
+          <label hlmFieldLabel for="captchaCode">{{ t('account.captcha.label') }}</label>
+          <div class="flex items-center gap-3">
             <input
               hlmInput
               id="captchaCode"
               autocomplete="off"
               class="w-full flex-1"
               [formField]="registerForm.captchaCode"
-              [placeholder]="t('account.register.captchaPlaceholder')"
+              [placeholder]="t('account.captcha.placeholder')"
             />
-            @if (captchaData(); as captcha) {
-              <button
-                type="button"
-                class="h-9 w-[95px] rounded-md overflow-hidden border border-border p-0 shadow-sm shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all bg-muted flex items-center justify-center"
-                (click)="refreshCaptcha()"
-                [hlmTooltip]="t('account.register.captchaRefresh')"
-                position="top"
-              >
-                <img
-                  [src]="captcha.captchaImageBase64"
-                  class="block w-full h-full"
-                  [alt]="t('account.register.captchaAlt')"
-                />
-              </button>
-            }
+            <app-captcha-image (changed)="registerForm.captchaCode().value.set('')" />
           </div>
           @for (error of registerForm.captchaCode().errors(); track error.kind) {
             <hlm-field-error [validator]="error.kind">{{
@@ -183,13 +133,13 @@
                 type="button"
                 variant="outline"
                 class="w-[120px] whitespace-nowrap px-0 shrink-0"
-                [disabled]="countdown() > 0 || isSendingEmailCode()"
+                [disabled]="countdown.remaining() > 0 || isSendingEmailCode()"
                 (click)="sendEmailCode()"
               >
                 {{
-                  countdown() > 0
+                  countdown.remaining() > 0
                     ? t('account.register.resendCountdown', {
-                        seconds: countdown(),
+                        seconds: countdown.remaining(),
                       })
                     : t('account.register.sendCode')
                 }}
@@ -211,6 +161,14 @@
           {{ t('account.register.submit') }}
         </button>
       </form>
+      <!--#if (ExternalLogin)-->
+      <!-- 首次外部登录即建账号，注册页给同一组入口，与登录页一样放在表单之后；租户上下文与本页的邮箱注册一致 -->
+      <app-external-login-buttons
+        [returnUrl]="returnUrl"
+        [blocked]="isLoading()"
+        [dividerLabel]="t('account.register.or')"
+      />
+      <!--#endif-->
     }
   </app-auth-shell>
 </ng-container>

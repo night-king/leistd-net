@@ -1,0 +1,40 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  @if (captcha(); as current) {
+    <!-- 粗指针下与输入框同为 44px 高，点按目标不小于 44px -->
+    <button
+      type="button"
+      class="border-border bg-muted hover:ring-primary/50 flex h-9 w-[95px] shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border p-0 shadow-sm transition-all hover:ring-2 pointer-coarse:h-11"
+      data-testid="captcha-image"
+      (click)="reload()"
+      [hlmTooltip]="t('account.captcha.refresh')"
+      position="top"
+    >
+      <img
+        [src]="current.captchaImageBase64"
+        class="block h-full w-full"
+        [alt]="t('account.captcha.alt')"
+      />
+    </button>
+  } @else if (loadFailed()) {
+    <!-- 取图失败：没有令牌就提交不了，给一个能键盘操作的重试入口，不让人只能刷新整页 -->
+    <button
+      hlmBtn
+      type="button"
+      variant="outline"
+      class="w-[95px] shrink-0 px-0"
+      data-testid="captcha-retry"
+      (click)="reload()"
+    >
+      {{ t('common.retry') }}
+    </button>
+  } @else {
+    <!-- 取图中：占住同样的位置，输入框不跳动 -->
+    <span
+      class="bg-muted h-9 w-[95px] shrink-0 animate-pulse rounded-md pointer-coarse:h-11"
+    ></span>
+  }
+</ng-container>

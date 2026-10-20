@@ -1,9 +1,10 @@
-// prettier-ignore
 import {
-  ChangeDetectionStrategy, Component, inject, OnInit, signal,
-  //#if (IncludeMultiTenancy)
+  ChangeDetectionStrategy,
+  Component,
   computed,
-  //#endif
+  inject,
+  OnInit,
+  signal,
 } from '@angular/core';
 import { form, minLength, maxLength, required, FormField } from '@angular/forms/signals';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -44,9 +45,8 @@ import { PASSWORD_MAX_LENGTH } from '../../../../core/validation/password-rule';
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 //#if (IncludeMultiTenancy)
-import { HostTenantDecision } from '../../dtos/tenant-by-host.dto';
+import { hostTenantProbe } from '../../utils/host-tenant-probe';
 //#endif
-import { AccountService } from '../../services/account-service';
 //#if (ExternalLogin)
 import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
 //#endif
@@ -91,7 +91,6 @@ import { TwoFactorChallenge } from '../two-factor-challenge/two-factor-challenge
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Login implements OnInit {
-  private accountService = inject(AccountService);
   private authService = inject(AuthService);
   private readonly authorizationService = inject(AuthorizationService);
   private readonly sessionContext = inject(SessionContextService);
@@ -123,10 +122,11 @@ export class Login implements OnInit {
 
   // 登录接口由 Mock 应答时才提示演示账号：只 Mock 了别的模块时，演示账号登不进真实后端
   public readonly isMockEnabled = signal(inject(MOCKED_URL)(AuthService.loginUrl));
-  //#if (ExternalLogin)
-  /** 外部登录完成后回到的地址（OIDC 授权回跳等），与本地登录同一个来源。 */
+  /**
+   * 登录完成后回到的地址（OIDC 授权回跳等）。外部登录与去找回页都原样带上它，找回后回到登录页仍能接续；
+   * 是否可接续只在登录完成时由 ReturnUrlService 判定。
+   */
   protected readonly returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
-  //#endif
 
   private readonly model = signal({
     usernameOrEmail: '',
@@ -140,6 +140,15 @@ export class Login implements OnInit {
     required(path.password);
     // 登录只设防滥用上限，不校验口令策略：策略生效前设置的旧口令也必须能登录。
     maxLength(path.password, PASSWORD_MAX_LENGTH);
+  });
+
+  /**
+   * 带去找回页的预填：填的是邮箱就带上，省得再输一遍。走导航状态而不是查询串：邮箱不进地址栏，
+   * 也不随地址进 Referer（导航状态本身会写入 history.state）。
+   */
+  protected readonly forgotPasswordState = computed(() => {
+    const value = this.model().usernameOrEmail.trim();
+    return value.includes('@') ? { email: value } : {};
   });
 
   /**
@@ -159,10 +168,6 @@ export class Login implements OnInit {
   constructor() {
     // 进入登录页时取当前注册策略，决定是否给出注册入口
     this.securityConfig.refresh();
-//#if (IncludeMultiTenancy)
-    // 子域名部署下按主机名把租户定住，用户完全不必填；未命中则保持原状（上次记住的或空白）。
-    void this.resolveTenantFromHost();
-//#endif
   }
 
   ngOnInit(): void {
@@ -282,26 +287,13 @@ export class Login implements OnInit {
   //#if (IncludeMultiTenancy)
   // 租户选择：确认后写入本地上下文，登录请求由拦截器附租户提示头；不选即宿主登录。
   readonly tenantName = signal('');
-  /** 租户区的错误说明，存词条键、由模板按当前语言取：存成文字的话切换语言时它不会跟着变。 */
-  readonly tenantError = signal<string | null>(null);
 
-  /**
-   * 主机名探测的进度与结果：
-   * - `pending` 未回来：定案会覆盖当前上下文，租户区与认证入口都不放行；
-   * - `tenant` / `host` 域名已定案，不能再改；
-   * - `undecided` 域名不表态（未配置子域名格式），交回用户手填；
-   * - `failed` 探测没能完成（租户不可用时中间件返回 404，或网络故障），不能当作 `undecided`。
-   */
-  readonly hostProbe = signal<HostTenantDecision | 'pending' | 'failed'>('pending');
-
-  /**
-   * 租户由域名定案（指向租户或宿主）时锁定：服务端按主机名解析且不允许请求头改写，
-   * 放开选择会让界面显示的租户与请求实际落到的上下文不一致。
-   */
-  readonly tenantLocked = computed(() => {
-    const decision = this.hostProbe();
-    return decision === 'host' || decision === 'tenant';
-  });
+  /** 主机名探测（与找回密码页共用）：定案前认证入口一律等待，见 {@link hostTenantProbe}。 */
+  private readonly probe = hostTenantProbe();
+  readonly hostProbe = this.probe.decision;
+  /** 租户区的错误说明（词条键）：探测失败或域名指向的租户不可用。 */
+  readonly tenantError = this.probe.error;
+  readonly tenantLocked = this.probe.locked;
 
   /** 租户区不接受操作：探测未回来、失败或已定案；只有 `undecided` 开放手选。 */
   readonly tenantSelectionBlocked = computed(
@@ -312,54 +304,11 @@ export class Login implements OnInit {
    * 租户上下文未定案时认证入口一律等待。与 {@link tenantSelectionBlocked} 不同：已定案时
    * 不许选择但允许登录；探测未回来或失败时提交会落到与界面不一致的上下文。
    */
-  readonly authBlocked = computed(
-    () => this.hostProbe() === 'pending' || this.hostProbe() === 'failed',
-  );
-
-  /** 启动时按主机名探测租户。宿主定案与不表态分开处理，否则宿主域上会残留上次记住的租户。 */
-  private async resolveTenantFromHost(): Promise<void> {
-    try {
-      const result = await lastValueFrom(this.accountService.getTenantByHost());
-      switch (result.decision) {
-        case 'tenant':
-          // 租户不存在或已停用时 tenant 为空：清掉记住的那个，并保持锁定，
-          // 让界面提示这个域名不可用，而不是让人换一个反正会被覆盖的租户。
-          if (result.tenant) {
-            this.tenantContext.set(result.tenant.name);
-          } else {
-            this.tenantContext.clear();
-            this.tenantError.set('account.login.tenantUnavailable');
-          }
-          break;
-
-        case 'host':
-          // 受管域但不指向租户：服务端会按宿主处理，记住的租户必须清掉。
-          this.tenantContext.clear();
-          break;
-
-        case 'undecided':
-          // 域名不表态：保持现状（上次记住的租户，或空白待填）。
-          break;
-      }
-
-      this.hostProbe.set(result.decision);
-    } catch {
-      // 未配置子域名格式的部署正常返回 undecided，走不到这里；失败只能是租户解析不了（404）
-      // 或后端不可达，因此不开放手选也不放行登录，只给原因和重试。
-      this.hostProbe.set('failed');
-      this.tenantError.set('account.login.tenantProbeFailed');
-    }
-  }
+  readonly authBlocked = this.probe.blocked;
 
   /** 重试域名探测：瞬时故障不该只剩刷新整页（表单可能已填好）。 */
-  async retryHostProbe(): Promise<void> {
-    if (this.hostProbe() !== 'failed') {
-      return;
-    }
-
-    this.hostProbe.set('pending');
-    this.tenantError.set(null);
-    await this.resolveTenantFromHost();
+  retryHostProbe(): Promise<void> {
+    return this.probe.retry();
   }
 
   async onConfirmTenant(): Promise<void> {
@@ -376,6 +325,8 @@ export class Login implements OnInit {
     // （两种情形不区分，停用状态本身也是情报），不是由登录接口判凭据。
     this.tenantContext.set(name);
     this.tenantName.set('');
+    // 上一个租户下的拒绝原因（凭据不对、已锁定）不再对应新的上下文
+    this.loginError.set(null);
   }
 
   clearTenant(): void {
@@ -386,6 +337,7 @@ export class Login implements OnInit {
 
     this.tenantContext.clear();
     this.tenantError.set(null);
+    this.loginError.set(null);
   }
 
   /** 「切换租户」展开的输入框；默认收起，只显示当前租户一行。 */
@@ -425,13 +377,14 @@ const ENGLISH: Record<string, string> = {
   'account.login.usernameOrEmailPlaceholder': 'Please enter your username or email',
   'account.login.password': 'Password',
   'account.login.passwordPlaceholder': 'Please enter your password',
+  'account.login.forgotPassword': 'Forgot password?',
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
   'account.login.noAccount': "Don't have an account?",
   'account.login.registerNow': 'Sign up',
   'account.login.submit': 'Sign In',
   //#if (ExternalLogin)
-  'account.login.or': 'Or sign in with your account',
+  'account.login.or': 'Or continue with',
   //#endif
   'account.login.testAccount': 'Development test account',
   'account.login.tenantUnavailable':
