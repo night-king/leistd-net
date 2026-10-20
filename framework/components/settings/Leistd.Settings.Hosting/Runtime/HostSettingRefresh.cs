@@ -12,7 +12,6 @@ using Microsoft.Extensions.Options;
 namespace Leistd.Settings.Hosting.Runtime;
 
 // 其它实例跟上：设置行是共享的，进程内配置不是。每个副本按周期重读一次宿主行。
-// 应用失败原样抛出，调度器记为失败并在下一轮重试；被拒的一组未变时每轮照常失败。
 internal sealed class HostSettingRefreshJob(HostSettingApplier applier) : IRecurringJob
 {
     public const string Name = "settings.host-refresh";
@@ -42,7 +41,7 @@ internal sealed class HostSettingChangedHandler(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Applying host setting {SettingName} failed; the next refresh will retry.", @event.Name);
+            logger.LogWarning(ex, "Applying host setting {SettingName} failed; the next refresh will retry.", @event.Name);
         }
     }
 }
@@ -70,7 +69,7 @@ internal sealed class HostSettingStartupService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Applying host settings at startup failed; the deployment configuration stays in effect until the next refresh.");
+            logger.LogWarning(ex, "Applying host settings at startup failed; the deployment configuration stays in effect until the next refresh.");
         }
     }
 

@@ -11,7 +11,6 @@ internal sealed class HostSettingsConfigurationProvider : ConfigurationProvider
     // 写全名：引用 Leistd.Lock 包后，Leistd.* 命名空间内的裸 Lock 会解析成该命名空间
     private readonly System.Threading.Lock _gate = new();
     private Dictionary<string, string?>? _rejected;
-    private IReadOnlyList<string> _rejectedFailures = [];
 
     public bool IsAttached { get; private set; }
 
@@ -19,19 +18,14 @@ internal sealed class HostSettingsConfigurationProvider : ConfigurationProvider
 
     // 换上新的一组配置键值；新值让某个 Options 校验不过时换回上一组再重载，整组不生效。
     // 校验失败来自重载回调（已订阅的 IOptionsMonitor）或 validate（无人订阅的选项）。
-    // 与当前一组相同时不做任何事；与上次被拒的一组相同时不重算，原样返回上次的失败，周期刷新照常报告仍未生效。
+    // 与当前一组或上次被拒的一组相同时不做任何事，周期刷新不重复重算或报错。
     public IReadOnlyList<string> Apply(IReadOnlyDictionary<string, string?> values, Func<IReadOnlyList<string>> validate)
     {
         lock (_gate)
         {
-            if (Matches(Data, values))
+            if (Matches(Data, values) || (_rejected is not null && Matches(_rejected, values)))
             {
                 return [];
-            }
-
-            if (_rejected is not null && Matches(_rejected, values))
-            {
-                return _rejectedFailures;
             }
 
             var previous = Data;
@@ -45,13 +39,11 @@ internal sealed class HostSettingsConfigurationProvider : ConfigurationProvider
             if (failures.Count == 0)
             {
                 _rejected = null;
-                _rejectedFailures = [];
                 return [];
             }
 
             Data = previous;
             _rejected = new Dictionary<string, string?>(values, StringComparer.OrdinalIgnoreCase);
-            _rejectedFailures = failures;
             // 换回的上一组若也不合规，是部署配置本身有误，不是这里能纠正的
             _ = Reload();
             return failures;

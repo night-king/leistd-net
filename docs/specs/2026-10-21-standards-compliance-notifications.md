@@ -29,11 +29,10 @@
 | --- | --- | --- | --- |
 | 1 | 第二个请求等同一把锁 | 等锁信号先到，再断言请求未完成，不靠固定等待 | `LockWaitProbe` 及 4 个集成测试类；变异：换锁键即失败 |
 | 2 | 回滚或跨租户的事件不应推送 | 同一连接先收到对照推送，且它是唯一一条 | `RealTimeSubscriptionTests`；变异：改为提交即失败 |
-| 3 | 宿主设置周期刷新时，被拒的一组未变 | 每轮都报失败，不记成功 | `HostSettingsTests`；变异：恢复"只记日志返回"即失败 |
-| 4 | 通知标题超出一行，或正文超出两行 | 正文下方右侧出现「展开全文 ›」，展开后显示全文、箭头转向下 | `notification-item.spec.ts` |
-| 5 | 点通知的标题或正文 | 命中整行按钮：标为已读，有链接时跳转；展开也算已读 | `notification-item.spec.ts`（命中测试，变异：内容容器加 `relative` 即失败）、铃铛与工作台 spec |
-| 6 | 悬停或聚焦铃铛里的一行 | 标题右侧的未读圆点换成删除；触屏两者并排，点按区域 44px | `notification-item.spec.ts` |
-| 7 | 工作台的最近通知 | 没有删除，也没有全部标为已读 | 工作台 spec |
+| 3 | 通知标题超出一行，或正文超出两行 | 正文下方右侧出现「展开全文 ›」，展开后显示全文、箭头转向下 | `notification-item.spec.ts` |
+| 4 | 点通知的标题或正文 | 命中整行按钮：标为已读，有链接时跳转；展开也算已读 | `notification-item.spec.ts`（命中测试，变异：内容容器加 `relative` 即失败）、铃铛与工作台 spec |
+| 5 | 悬停或聚焦铃铛里的一行 | 标题右侧的未读圆点换成删除；触屏两者并排，点按区域 44px | `notification-item.spec.ts` |
+| 6 | 工作台的最近通知 | 没有删除，也没有全部标为已读 | 工作台 spec |
 
 方案：铃铛与工作台共用 `shared/components/notification-item`，截断检测抽成 `OverflowProbe` 指令，时间复用 `RelativeTimeLabel`；排版经 4311 演示站与截图对比页逐轮确认。
 
@@ -53,6 +52,7 @@ PR #136 一次交付 §1 全部内容。
 - 工作台先加后撤删除，并去掉「全部标为已读」，确定"工作台只看、整理在铃铛"。
 
 - 审视时一度把只读溢出列表的被截断条目改为可聚焦，与 `frontend-lists.md` 明文写下的例外冲突（APG：提示只给本身可交互的控件，不为提示把只读内容变成 Tab 停靠点），且新增的真实焦点测试在 CI 上收不起提示；已撤回，恢复原设计。
+- 宿主设置应用失败一度改为周期刷新每轮抛出、启动与写入后记错误，与 `settings.md` 写明的设计冲突（被拒的同一组只报一次，不每轮重算；推进失败不抛）。"周期任务失败要抛出"针对推进水位的 `Cluster` 任务，`EveryInstance` 的刷新没有水位，不适用；已撤回。
 
 ### 验收记录
 
@@ -62,12 +62,12 @@ PR #136 一次交付 §1 全部内容。
 | `identity-notifications`（关闭本地化）lint、相关单测 | 通过 |
 | `identity`（关闭通知）lint、构建、全量单测 | 通过，1131 个 |
 | 后端单元测试、受影响集成测试 | 通过，231 个、183 个 |
-| 框架 Settings、ServiceClient、Security 相关测试 | 通过 |
-| 变异证伪 | 验收 1、2、3、5 去掉判据后对应测试失败 |
+| 框架 ServiceClient、Security 相关测试；Settings 撤回后 176 个 | 通过 |
+| 变异证伪 | 验收 1、2、4 去掉判据后对应测试失败 |
 | `scripts/check-all.ps1` | 50 道静态闸门通过 |
 
 未验证：矩阵其他场景与浏览器端到端由 CI 承担；Redis 锁下的 `LockWaitProbe` 未单独验证（只经锁接口）。
 
 ### 已上收的常驻文档
 
-框架组件文档 `settings.md`、`authorization.md`、`operation-records.md`、`tracing.md`。
+框架组件文档 `authorization.md`、`operation-records.md`、`tracing.md`。

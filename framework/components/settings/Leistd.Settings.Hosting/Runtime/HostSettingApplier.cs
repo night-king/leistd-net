@@ -5,19 +5,20 @@ using Leistd.Settings.Hosting.Configuration;
 using Leistd.Settings.Hosting.Options;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Leistd.Settings.Hosting.Runtime;
 
 // 把宿主级设置按绑定推进配置源。只推存储里有行的项；值经 ISettingProvider 取，机密设置由它解密，明文只在进程内。
-// 读不到宿主范围，或新值让某个 Options 校验不过（整组不生效、沿用上一组）时抛 InvalidOperationException，
-// 由调用方决定记录方式：周期任务据此记失败并在下一轮重试；值已落库，不因此回滚。
+// 新值让某个 Options 校验不过时整组不生效、沿用上一组，只记错误不抛（值已落库）。
 internal sealed class HostSettingApplier(
     HostSettingsConfigurationProvider configuration,
     ISettingStore settingStore,
     ISettingProvider settingProvider,
     IOptions<HostSettingBindingCollection> bindings,
-    IServiceProvider services)
+    IServiceProvider services,
+    ILogger<HostSettingApplier> logger)
 {
     private static readonly MethodInfo ValidateMethod =
         typeof(HostSettingApplier).GetMethod(nameof(Validate), BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -27,8 +28,8 @@ internal sealed class HostSettingApplier(
         // 租户上下文下读不到宿主行，不能当成“都没设”推进配置
         if (!settingStore.CanAccessHostScope)
         {
-            throw new InvalidOperationException(
-                "Host settings were not applied: the host scope is not reachable in the current context.");
+            logger.LogWarning("Host settings were not applied: the host scope is not reachable in the current context.");
+            return;
         }
 
         var stored = await settingStore.GetAllAsync(SettingScopes.Host, userId: null, cancellationToken);
@@ -45,9 +46,9 @@ internal sealed class HostSettingApplier(
         var failures = configuration.Apply(values, ValidateBoundOptions);
         if (failures.Count > 0)
         {
-            throw new InvalidOperationException(
-                "Host settings were not applied because some options would fail validation; keeping the previous values: "
-                + string.Join("; ", failures));
+            logger.LogError(
+                "Host settings were not applied because some options would fail validation; keeping the previous values: {Failures}",
+                string.Join("; ", failures));
         }
     }
 
