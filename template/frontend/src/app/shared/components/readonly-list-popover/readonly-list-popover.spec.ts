@@ -53,9 +53,10 @@ describe('ReadonlyListPopover', () => {
     return (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('button')!;
   }
 
-  /** 真实点按：按钮因此获得焦点，关闭时焦点才有处可回。 */
+  /** 规则用例经 DOM 点击进入处理器，并保留关闭时的焦点归还目标。 */
   async function open(trigger: HTMLButtonElement): Promise<HTMLElement> {
-    await userEvent.click(trigger);
+    trigger.focus();
+    trigger.click();
     await expect.poll(() => panel()).not.toBeNull();
     await settle();
     return panel()!;
@@ -77,10 +78,18 @@ describe('ReadonlyListPopover', () => {
     return Array.from(list().querySelectorAll('li')).map((li) => li.textContent!.trim());
   }
 
-  /** 进出场动画结束后再量尺寸、查焦点。 */
+  /** 等待动画与 ResizeObserver 测量完成，避免布局已更新而截断绑定尚未更新。 */
   async function settle(): Promise<void> {
     await fixture.whenStable();
     await Promise.all(document.getAnimations().map((animation) => animation.finished));
+    await new Promise<void>((resolve) => {
+      const observer = new ResizeObserver(() => {
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(list());
+    });
+    await fixture.whenStable();
   }
 
   it('wraps the projected summary in one button named by the trigger label', async () => {
@@ -202,18 +211,19 @@ describe('ReadonlyListPopover', () => {
   const tooltip = () => document.querySelector<HTMLElement>('[role="tooltip"]');
 
   /**
-   * 悬停一行后有没有出现全文提示；移开后提示收起，再测下一行。提示的显示与隐藏延时（默认 0）由计时器
-   * 驱动：悬停与移开期间用假时钟推进到期，"没出现"即禁用，不靠固定等待；渲染帧与布局仍是真实的。
+   * 规则矩阵用 DOM 指针事件进入提示处理器，保留真实布局与全文断言；窄屏用例另验真实指针。
+   * 提示的显示与隐藏延时（默认 0）由假时钟推进，渲染帧与布局仍是真实的。
    */
   async function hoverTooltip(element: HTMLElement): Promise<string | null> {
+    await settle();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     let text: string | null;
     try {
-      await userEvent.hover(element);
+      element.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
       await vi.advanceTimersByTimeAsync(0);
       await fixture.whenStable();
       text = tooltip()?.textContent?.trim() ?? null;
-      await userEvent.unhover(element);
+      element.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
       await vi.advanceTimersByTimeAsync(0);
     } finally {
       vi.useRealTimers();
@@ -342,7 +352,9 @@ describe('ReadonlyListPopover', () => {
       { id: 'uri', label: uri },
       { id: 'unbroken', label: name, detail },
     ]);
-    await open(trigger);
+    await userEvent.click(trigger);
+    await expect.poll(() => panel()).not.toBeNull();
+    await settle();
 
     await expectFullTextTooltipInViewport(row('uri'), uri);
     await expectFullTextTooltipInViewport(row('unbroken'), `${name} · ${detail}`);

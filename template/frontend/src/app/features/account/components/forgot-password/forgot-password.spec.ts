@@ -249,7 +249,7 @@ describe('ForgotPassword', () => {
 
   // 由授权端点或业务深链进入时，找回后回到登录页仍要接续原目标；是否可接续由登录页判定
   it('hands the return address back to the sign-in page', async () => {
-    queryParams = { returnUrl: '/connect/authorize?client_id=demo' };
+    queryParams = { returnUrl: '/platform/users?tab=roles' };
     await setUp();
     await sendCode();
     component.resetForm.code().value.set('123456');
@@ -258,10 +258,10 @@ describe('ForgotPassword', () => {
     await component.reset();
 
     expect(router.navigate).toHaveBeenCalledWith(['/auth/login'], {
-      queryParams: { returnUrl: '/connect/authorize?client_id=demo' },
+      queryParams: { returnUrl: '/platform/users?tab=roles' },
     });
     expect(host.querySelector('[data-testid="back-to-login"]')!.getAttribute('href')).toBe(
-      '/auth/login?returnUrl=%2Fconnect%2Fauthorize%3Fclient_id%3Ddemo',
+      '/auth/login?returnUrl=%2Fplatform%2Fusers%3Ftab%3Droles',
     );
   });
 

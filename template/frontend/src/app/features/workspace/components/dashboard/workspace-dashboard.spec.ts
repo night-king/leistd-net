@@ -42,6 +42,9 @@ import {
   setCoarsePointer,
 } from '../../../../shared/utils/coarse-pointer.testing';
 //#endif
+//#if (IncludeLocalization)
+import { parkPointer } from '../../../../shared/utils/pointer.testing';
+//#endif
 //#if (LocalIdentity)
 import { WorkbenchService } from '../../services/workbench-service';
 //#endif
@@ -269,7 +272,7 @@ describe('WorkspaceDashboard', () => {
   /** 聚焦一张卡片后有没有出现提示；失焦后收起。延时由假时钟推进到期，"没出现"即未启用。 */
   async function focusTooltip(card: HTMLElement): Promise<string | null> {
     const tooltip = () => document.querySelector<HTMLElement>('[role="tooltip"]');
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     let text: string | null;
     try {
       card.focus();
@@ -300,6 +303,9 @@ describe('WorkspaceDashboard', () => {
     nav.style.width = '13rem';
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     await fixture.whenStable();
+    // 卡片布局定下来之后把残留的物理指针移开：落在哪张卡片上，它的提示就会在聚焦之前先被悬停打开
+    await parkPointer();
+    await expect.poll(() => document.querySelector('[role="tooltip"]')).toBeNull();
 
     const cards = Array.from(nav.querySelectorAll<HTMLElement>('a[hlmCard]'));
     expect(cards.length).toBeGreaterThan(0);
