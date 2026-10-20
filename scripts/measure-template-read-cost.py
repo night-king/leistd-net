@@ -69,14 +69,10 @@ TASKS: dict[str, tuple[str, list[str]]] = {
 BASELINE = {'backend-crud': 53365, 'fullstack-crud': 97875, 'ui-change': 63719,
             'new-text': 33266, 'review-only': 78841}
 
-# 当前上限：调整后不得回升；有意放宽时连同理由一并修改。
-# 阶段六完成时的读数加约 1%（计入 Spartan 必读 rules 的口径）；领域分层对齐给后端规范新增值对象、
-# 映射用默认约定、协作类型命名与同模块应用服务不互调等规则，后端相关的三项按当时读数再加约 1%；
-# E1–E6 给生成项目测试规范新增合并设置、依赖审计、时间边界三点与风格闸门等规则，backend-crud 按读数放宽 200（含 merge queue 与缓存共享说明）；
-# 多语言界面复核改为代表语言组加伪语言区域 spec（界面规范 §1），fullstack-crud 在压缩措辞后按读数放宽 240；
-# 测试规范补"悬停提示依赖初态时先移开残留物理指针"（CRM R36 的根因之一），backend-crud、fullstack-crud 在压缩措辞后按读数各放宽 120
-LIMITS = {'backend-crud': 34800, 'fullstack-crud': 68020, 'ui-change': 51810,
-          'new-text': 17640, 'review-only': 40090}
+# 当前上限：调整后不得回升。只有新增必要规则且已删去重复后才按读数放宽，理由写在提交说明里，
+# 历次放宽由 Git 记录，不在此累积。
+LIMITS = {'backend-crud': 36610, 'fullstack-crud': 69830, 'ui-change': 52540,
+          'new-text': 19100, 'review-only': 40620}
 
 
 def missing_companions(tasks: dict[str, tuple[str, list[str]]]) -> list[str]:

@@ -20,14 +20,18 @@
 <!--#endif-->
 <!--#endif-->
 | 只审查代码 | 改动所属任务行的必读文档（全栈改动按全栈功能行） | 改动触及的专题 |
-| 部署、迁移、回滚或恢复管理员 | [部署](deploy/README.md) | [技术栈](standards/tech-stack.md) |
+| 部署、迁移或回滚 | [部署](deploy/README.md) | [配置参考](deploy/configuration.md)、[技术栈](standards/tech-stack.md) |
+| 证书轮换、数据库升级等运维操作 | [运维手册](operations/runbooks/)中对应的一份 | |
+| 线上查询、客户问题排查、数据修正、事件复盘 | 项目 Skill 的运维操作流程 | [部署](deploy/README.md) |
 
 完整回归入口：`scripts/verify.ps1`。同步到新的模板版本：`scripts/sync-template.ps1`，按项目 Skill 的同步模板流程执行。
 
-业务开发和环境交付由项目 Skill [leistd-project-workflow](../.agents/skills/leistd-project-workflow/SKILL.md) 处理。
+业务开发、环境交付和运维操作由项目 Skill `leistd-project-workflow` 处理。
 
 ## 规范归属
 
-`standards/` 是项目模板提供的 .NET/Angular 工程规范基线，随模板版本整体更新，项目内不改写。项目自己的规则写入 `project/{topic}.md`，首次需要时创建并登记到本索引；与 `standards/` 冲突时以 `project/` 的规则为准。
+`standards/` 是项目模板提供的 .NET/Angular 工程规范基线，随模板版本整体更新，项目内不改写。项目自己的规则写入 `project/{topic}.md`，与 `standards/` 冲突时以它为准。
 
-需求决策、模块契约等按需文档只在产生已确认、需复用的信息时创建，并登记到本索引；一个事实只维护一处，其他位置链接。
+业务规则、模块契约、运维手册与可复用查询分别写入 `requirements/`、`modules/`，以及 `operations/` 下的 `runbooks/`、`queries/`；除模板自带的手册外，这些常驻文档首次有内容时创建并登记到本索引，一个事实只维护一处。
+
+`specs/` 与 `operations/` 下的 `data-fixes/`、`incidents/` 是按日期命名的依据文档，记录某次变更或操作的原因与结果；AI 默认不读，需要追溯时再读，不登记到本索引。

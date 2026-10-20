@@ -1,9 +1,11 @@
-# 只准备运行环境，验证步骤全部在 scripts/verify.ps1（与本地完整回归同一入口）。
+# 只准备运行环境，验证步骤全部在 scripts/verify.ps1（与本地完整回归同一入口）；
+# 默认分支的 push 验证通过后由 publish-images 构建并推送 api、migrator 两个镜像。
 # 设为合并必过的方法见 docs/standards/testing.md §1.1。
 name: CI
 
 on:
   push:
+    # 默认分支不是 main 时同步修改这里，否则默认分支的 push 不会触发验证与镜像发布
     branches: [main]
   pull_request:
   # merge queue 要求必过检查对队列分支也报告状态
@@ -103,3 +105,38 @@ jobs:
             frontend/test-results/
           if-no-files-found: ignore
 #endif
+
+  # 镜像发布：只在默认分支的 push 上、同一提交的 verify（含适用的依赖审计）成功后运行；
+  # PR、merge queue、定时审计与手动运行不发布。标签为提交 SHA，部署按作业摘要里的 digest 晋级。
+  publish-images:
+    name: publish-images
+    needs: verify
+    if: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and push images
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # GHCR 镜像名必须小写
+          base="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version_args=()
+          if [ -f VERSION ]; then version_args=(--build-arg "APP_VERSION=$(tr -d '[:space:]' < VERSION)"); fi
+          echo "| 镜像 | digest |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for target in api migrator; do
+            image="$base-$target:$GITHUB_SHA"
+            docker build --target "$target" --build-arg "APP_REVISION=$GITHUB_SHA" "${version_args[@]}" -t "$image" .
+            docker push "$image"
+            digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+            echo "$image@$digest"
+            echo "| \`$base-$target\` | \`$digest\` |" >> "$GITHUB_STEP_SUMMARY"
+          done

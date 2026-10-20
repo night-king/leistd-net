@@ -1,4 +1,5 @@
-# 只准备运行环境，验证步骤全部在 scripts/verify.ps1（与本地完整回归同一入口）。
+# 只准备运行环境，验证步骤全部在 scripts/verify.ps1（与本地完整回归同一入口）；
+# 默认分支的 push 验证通过后由 publish-images 构建并推送 api、migrator 两个镜像。
 # 设为合并必过的方法见 docs/standards/testing.md §1.1。
 #
 # Runner 前提：Docker executor 且 privileged = true（Docker-in-Docker）。集成测试经 Testcontainers
@@ -6,6 +7,8 @@
 # DOCKER_HOST 指向 dind 服务，关闭 TLS（DOCKER_TLS_CERTDIR 置空，daemon 带 --tls=false 避免启动延迟）。
 stages:
   - verify
+  # 镜像发布在 verify 阶段全部作业（verify 与适用的依赖审计）成功之后
+  - publish
 
 verify:
   stage: verify
@@ -98,3 +101,38 @@ frontend-audit:
       done
       exit 1
 #endif
+
+# 镜像发布：只在默认分支的 push 流水线上运行，阶段屏障保证同一提交的 verify 与依赖审计都已成功；
+# 合并请求、定时与手动运行不发布。前提是项目已启用 Container Registry，Runner 要求同 verify（privileged）。
+# 标签为提交 SHA，部署按日志与 dotenv 报告里的 digest 晋级。
+publish-images:
+  stage: publish
+  image: docker:cli
+  services:
+    - name: docker:dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+  timeout: 30m
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - |
+      set -eu
+      version_arg=""
+      if [ -f VERSION ]; then version_arg="APP_VERSION=$(tr -d '[:space:]' < VERSION)"; fi
+      : > images.env
+      for target in api migrator; do
+        image="$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHA"
+        docker build --target "$target" --build-arg "APP_REVISION=$CI_COMMIT_SHA" ${version_arg:+--build-arg "$version_arg"} -t "$image" .
+        docker push "$image"
+        digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+        echo "$image@$digest"
+        echo "$(echo "$target" | tr '[:lower:]' '[:upper:]')_IMAGE_DIGEST=$digest" >> images.env
+      done
+  artifacts:
+    reports:
+      dotenv: images.env

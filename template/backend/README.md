@@ -46,7 +46,7 @@ dotnet user-secrets list --project src/CompanyName.ProjectName.Api
 
 除开发 compose 的本机口令与演示管理员口令这类公开的本机开发值外，不要把密码、证书或生产连接字符串写进任何 `appsettings*.json`。集成测试宿主跑在 `Testing` 环境，不加载 user-secrets 与 `appsettings.Development.json`，所需配置由测试夹具显式给出。
 
-开发环境以外，只在单机上成立的配置回落不再生效，缺配即启动失败，逐项见 [部署说明](../docs/deploy/README.md#配置与机密的分层)。
+开发环境以外，只在单机上成立的配置回落不再生效，缺配即启动失败，逐项见 [配置参考](../docs/deploy/configuration.md#部署环境的必填项)。
 <!--#if (LocalIdentity && IncludeMultiTenancy)-->
 
 控制库使用 Data Protection 加密租户连接串，API 与 `DbMigrator` 必须共用密钥环与应用名。本机两边的内容根不同，需要时把密钥目录指向同一处：`dotnet user-secrets set "DataProtection:KeysPath" "<本机目录>" --project src/CompanyName.ProjectName.Api`。
@@ -83,7 +83,7 @@ dotnet user-secrets set "Leistd:ServiceAuth:ClientSecret" "<机器客户端密�
 
 ### 邮件
 
-`Leistd:Email:Smtp` 默认指向开发 compose 里的本机邮件捕获器，收件箱在 `http://localhost:8025`。邮箱验证默认关闭（`UserRegistration:EnableEmailVerification`）；开启后没有可达的 SMTP 会**发信失败并向调用方报错**，不会静默跳过，注册流程据此撤回已占用的限流槽位；注册时通过了发往该地址的验证码，账号邮箱即为已验证，关闭时注册只过图形验证码、邮箱保持未验证。宿主管理员可以在「系统设置 → 邮件发送」里在运行期覆盖配置文件的发信参数（口令加密落库、界面只写不读）并发送测试邮件；清除覆盖值即回到配置文件里的值。部署时的必填项见 [部署说明](../docs/deploy/README.md#配置与机密的分层)。
+`Leistd:Email:Smtp` 默认指向开发 compose 里的本机邮件捕获器，收件箱在 `http://localhost:8025`。邮箱验证默认关闭（`UserRegistration:EnableEmailVerification`）；开启后没有可达的 SMTP 会**发信失败并向调用方报错**，不会静默跳过，注册流程据此撤回已占用的限流槽位；注册时通过了发往该地址的验证码，账号邮箱即为已验证，关闭时注册只过图形验证码、邮箱保持未验证。宿主管理员可以在「系统设置 → 邮件发送」里在运行期覆盖配置文件的发信参数（口令加密落库、界面只写不读）并发送测试邮件；清除覆盖值即回到配置文件里的值。部署时的必填项见 [配置参考](../docs/deploy/configuration.md#部署环境的必填项)。
 
 账号邮箱被本人或管理员换掉时，修改提交之后向**旧的已验证地址**直接发送一封账号安全邮件（`EmailChangedEventHandler` 经 `IEmailSender` 发送）：不受普通通知偏好影响，未验证的旧地址不发；投递尽力而为，发送失败只记日志、不让已提交的修改报错。规则见 [换邮箱的提醒](../docs/standards/auth.md#换邮箱的提醒)。
 <!--#endif-->
@@ -107,7 +107,7 @@ GET http://localhost:5240/api/health/ready
 
 ## 数据库迁移
 
-模板携带可审查的基线迁移。API 启动时不自动迁移，也不使用 `EnsureCreatedAsync`；先运行独立的 `DbMigrator`，成功后再启动 API。发布时的 DDL/DML 身份分离与执行顺序见 [部署说明](../docs/deploy/README.md#生产边界)。
+模板携带可审查的基线迁移。API 启动时不自动迁移，也不使用 `EnsureCreatedAsync`；先运行独立的 `DbMigrator`，成功后再启动 API。发布时的 DDL/DML 身份分离与执行顺序见 [部署说明](../docs/deploy/README.md#环境晋级)。
 
 `DbMigrator` **默认只读预演**：列出待执行的迁移与 SQL，不改库；确认后再加 `--apply` 施加。
 
@@ -123,7 +123,7 @@ dotnet run --project src/CompanyName.ProjectName.Api
 
 **首次安装**时控制库尚未迁移，租户注册表还不存在，预演只列出此刻能确定的目标（控制面、OIDC 存储、默认业务库），这时本就不可能有独立库租户，计划是准确的；`--apply` 先建好控制表，再枚举独立库租户目标并一并施加。控制库**已迁移**之后仍读不到租户注册表（表被误删、schema 配错、迁移与模型不一致）属于损坏而不是首装：预演与 `--apply` 都以非零退出码结束，不会当作"没有独立目标"。
 
-**单个租户出问题不挡住其他租户**：某个租户取不出本服务的连接（只登记了别的服务的连接名、连接串解不开），或它的独立库迁移出错（连不上、迁移失败），只记在它名下，其余独立库照常预演或施加；跑完后逐个报出这些租户与库（租户标识、库的指纹与原因，不含连接串），并以非零退出码结束。控制库、OIDC 存储与默认业务库出错仍立即结束本次运行。因此非零退出可能意味着**部分库已经迁移**：迁移不会回滚，修好问题后重跑 `--apply`，已迁移的库不会重复执行；发布如何据此停下见 [部署说明](../docs/deploy/README.md#生产边界)。
+**单个租户出问题不挡住其他租户**：某个租户取不出本服务的连接（只登记了别的服务的连接名、连接串解不开），或它的独立库迁移出错（连不上、迁移失败），只记在它名下，其余独立库照常预演或施加；跑完后逐个报出这些租户与库（租户标识、库的指纹与原因，不含连接串），并以非零退出码结束。控制库、OIDC 存储与默认业务库出错仍立即结束本次运行。因此非零退出可能意味着**部分库已经迁移**：迁移不会回滚，修好问题后重跑 `--apply`，已迁移的库不会重复执行；发布如何据此停下见 [部署说明](../docs/deploy/README.md#环境晋级)。
 
 新建 DedicatedDatabase 租户前，必须先对新目标执行一次业务 schema 迁移，再在 Identity 中建立租户与 Secret Reference：
 
@@ -165,7 +165,7 @@ dotnet user-secrets set "DefaultAdmin:Password" "<至少 12 个字符的口令>"
 角色、权限和超级管理员属于不同授权维度；业务接口应同时覆盖允许、拒绝和超级管理员旁路场景。
 <!--#if (OpenIddictServer)-->
 
-OpenIddict 的 issuer、证书和 HTTPS 要求通过 `OAuth` 配置，部署要求与证书轮换见 [部署说明](../docs/deploy/README.md)。`OAuth:Resource`、`OAuth:ApiResources` 与各类客户端的登记见 [服务间调用](../docs/standards/service-invocation.md#identity-与资源服务对接)。
+OpenIddict 的 issuer、证书和 HTTPS 要求通过 `OAuth` 配置，部署要求见 [配置参考](../docs/deploy/configuration.md)，证书轮换见 [令牌证书轮换](../docs/operations/runbooks/token-certificate-rotation.md)。`OAuth:Resource`、`OAuth:ApiResources` 与各类客户端的登记见 [服务间调用](../docs/standards/service-invocation.md#identity-与资源服务对接)。
 <!--#endif-->
 <!--#if (ExternalLogin)-->
 

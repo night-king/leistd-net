@@ -5,7 +5,7 @@ description: 在业务项目中进行需求分析、代码实现、审查、测�
 
 # 项目协作
 
-文中 `docs/`、`scripts/` 等路径都相对项目根。
+文中与 references 里反引号内的路径都相对项目根，references 之间用文件相对链接。
 
 ## 建立事实
 
@@ -30,6 +30,10 @@ description: 在业务项目中进行需求分析、代码实现、审查、测�
 | 跨会话、多任务或多人协作 | 以真实产物和验证证据跟踪每个完成条件 | [规划与实现](references/development.md) |
 | 要求 Git 提交 | 完成本任务提交 | [规划与实现](references/development.md) |
 | 部署、发布、迁移或回滚 | 按当前项目流程完成环境验收 | [环境交付](references/delivery.md)、项目部署规范与实际流水线 |
+| 线上数据只读查询、客户问题排查 | 查询结果或排查结论：证据、原因、下一步；不写入数据 | [运维操作](references/operations.md) |
+| 线上数据修正 | 预演结果经用户确认后单事务执行并留痕 | [运维操作](references/operations.md) |
+| 配置或运维变更 | 用户确认后执行，并验证已生效、可恢复 | [环境交付](references/delivery.md)、项目部署规范 |
+| 紧急热修 | 先止损，再交付最小修复，事后补简短规格 | [环境交付](references/delivery.md) |
 | 同步或升级模板版本、存量项目接入模板 | 合并到目标版本、冲突已按语义解决、verify 通过，并列出未自动合并的项 | [同步模板](references/template-sync.md) |
 
 文档创建与去重读 [文档沉淀](references/documentation.md)；要求初始化或文档缺失影响长期协作时读 [项目协作初始化](references/bootstrap.md)。

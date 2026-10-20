@@ -172,7 +172,7 @@
 - 授权按签发时的事实处理：开启前签发的刷新令牌在开启后被拒，客户端须重新授权；签发时已绑定的授权在关闭后仍受约束。早于该设置的登记读作未设置（按关闭处理），编辑时须明确选择。
 - 修改登记只在当前实例立即生效，多实例须滚动重启 Identity（见部署文档）。
 
-依赖方的登记见 [服务间调用](service-invocation.md#identity-与资源服务对接)。退出确认、重新认证证明与 Cookie 都依赖 Data Protection，多实例 Identity 须共享的资源见 [部署说明](../deploy/README.md#配置与机密的分层)。
+依赖方的登记见 [服务间调用](service-invocation.md#identity-与资源服务对接)。退出确认、重新认证证明与 Cookie 都依赖 Data Protection，多实例 Identity 须共享的资源见 [配置参考](../deploy/configuration.md#配置与机密的分层)。
 <!--#endif-->
 <!--#if (ExternalLogin)-->
 ### 外部账号

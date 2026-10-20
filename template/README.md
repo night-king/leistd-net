@@ -18,9 +18,9 @@ CompanyName.ProjectName/
 |-- scripts/                 # 完整回归入口 verify.ps1 与静态检查脚本（Python 3）
 |-- .agents/skills/          # 跨工具项目 Skill
 <!--#if (Ci == "github")-->
-|-- .github/workflows/       # CI 薄壳，调用 scripts/verify.ps1
+|-- .github/workflows/       # CI 薄壳，调用 scripts/verify.ps1，默认分支通过后发布镜像
 <!--#elseif (Ci == "gitlab")-->
-|-- .gitlab-ci.yml           # CI 薄壳，调用 scripts/verify.ps1
+|-- .gitlab-ci.yml           # CI 薄壳，调用 scripts/verify.ps1，默认分支通过后发布镜像
 <!--#endif-->
 `-- Dockerfile
 ```

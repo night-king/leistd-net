@@ -13,7 +13,7 @@
 
 ## 接入 Claude Code
 
-`.claude/skills` 不存在、或不是指向 `.agents/skills` 的目录链接时，按 `README.md#ai-协作` 的命令替用户建好（Windows 需开发者模式与 `core.symlinks`），然后提醒用户提交。
+`.claude/skills` 不存在、或不是指向 `.agents/skills` 的目录链接时，按 `README.md` 中“AI 协作”一节的命令替用户建好（Windows 需开发者模式与 `core.symlinks`），然后提醒用户提交。
 
 ## 最小沉淀
 
