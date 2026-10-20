@@ -296,7 +296,7 @@ export class OpenApplications {
     const title = translateSignal('openApp.page.title', {}, { scope: 'openApp' });
     effect(() => this.layoutService.title.set(title()));
     //#else
-    this.layoutService.title.set('Open Applications');
+    this.layoutService.title.set('Open applications');
     //#endif
   }
 

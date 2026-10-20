@@ -101,6 +101,8 @@ describe('UserTable', () => {
     const badges = host.querySelectorAll('[data-testid="user-locked"]');
     expect(badges.length).toBe(1);
     expect(badges[0].closest('tr')?.textContent).toContain('alice');
+    // 锁定期限在 Tooltip 里，徽章要能被键盘聚焦才看得到
+    expect(badges[0].getAttribute('tabindex')).toBe('0');
   });
 
   //#endif

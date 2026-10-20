@@ -96,7 +96,7 @@ return new PagedResult<UserOutputDto>(totalCount, objectMapper.Map<List<User>, L
 
 ### 3.7 Controller 与组件端点
 
-框架组件已提供端点的能力（设置、权限管理、操作记录、通知、租户与租户连接）不写 Controller：在 `backend/src/CompanyName.ProjectName.Api/Hosting/ComponentEndpoints.cs` 用组件的 `Map*` 给前缀与授权策略。组件不认识的业务动作才写 Controller，路由不与组件端点重叠。
+框架组件已提供端点的能力（设置、权限管理、操作记录、通知、租户与租户连接）不写 Controller：在 `backend/src/CompanyName.ProjectName.Api/Hosting/ComponentEndpoints.cs` 用组件的 `Map*` 给前缀与授权策略。组件不认识的业务动作才写 Controller，路由不与组件端点重叠。偏离组件默认按配置 → 端点约定（`WithMetadataOn`）→ 钩子 → 替换服务 → 自写端点取第一个够用的；组件路由组不加无参 `RequireAuthorization()`（默认策略要求自然人，会拦机器端点）。
 
 - Controller 放 Api 的 `Controllers/` 目录，命名 `*Controller`，继承 `BaseController`（视图渲染、透传代理、机器端点等例外就近注释）；只做路由、鉴权与调用应用服务。
 - 返回类型（含何时用 `IActionResult`）见 [API 规范 §2](./api.md#2-响应格式)，方法名与路由见 [§6](./api.md#6-http-方法与路由规范)。

@@ -127,11 +127,15 @@ public sealed class ApiExceptionMappingsTests(ProjectWebApplicationFactory facto
             typeof(NotificationErrorCodes),
 #endif
         };
-        var knownCodes = codeTypes
+        var codes = codeTypes
             .SelectMany(type => type.GetFields(BindingFlags.Public | BindingFlags.Static))
             .Where(field => field.IsLiteral && field.FieldType == typeof(string))
             .Select(field => (string)field.GetRawConstantValue()!)
-            .ToHashSet(StringComparer.Ordinal);
+            .ToList();
+        var knownCodes = codes.ToHashSet(StringComparer.Ordinal);
+
+        // 宿主码与组件码重名时，组件的状态映射与词条会静默接管宿主码。
+        Assert.Equal(codes.Count, knownCodes.Count);
 
         Assert.All(options.CodeStatusMappings, mapping =>
         {

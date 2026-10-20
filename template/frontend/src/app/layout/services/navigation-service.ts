@@ -154,13 +154,13 @@ export class NavigationService {
       label: 'Identity & access',
       items: [
         {
-          label: 'User Management',
+          label: 'User management',
           icon: 'lucideUsers',
           route: '/platform/users',
           permissions: [PERMISSIONS.users.default],
         },
         {
-          label: 'Role Management',
+          label: 'Role management',
           icon: 'lucideShieldCheck',
           route: '/platform/roles',
           permissions: [PERMISSIONS.roles.default],
@@ -168,7 +168,7 @@ export class NavigationService {
         //#if (LocalIdentity && IncludeMultiTenancy)
         // 宿主侧专属：租户用户的 current 权限里不会出现 App.Tenants，按权限自动裁剪。
         {
-          label: 'Tenant Management',
+          label: 'Tenant management',
           icon: 'lucideBuilding2',
           route: '/platform/tenants',
           permissions: [PERMISSIONS.tenants.default],
@@ -181,7 +181,7 @@ export class NavigationService {
       label: 'Developer',
       items: [
         {
-          label: 'Open Applications',
+          label: 'Open applications',
           icon: 'lucideIdCard',
           route: '/platform/open-applications',
           permissions: [PERMISSIONS.openApplications.default],

@@ -31,8 +31,10 @@ import { GlobalErrorHandler } from './core/handlers/global-error-handler';
 import { provideAppA11yLabels } from './core/i18n/a11y-labels';
 import { TranslocoHttpLoader } from './core/i18n/transloco-loader';
 import {
+  DEFAULT_LANG,
   provideLanguageFallbackStrategy,
   provideLanguageInitializer,
+  SUPPORTED_LANGS,
 } from './core/services/language-service';
 //#endif
 import { StartupService } from './core/services/startup-service';
@@ -61,9 +63,9 @@ export const appConfig: ApplicationConfig = {
     //#if (IncludeLocalization)
     provideTransloco({
       config: {
-        availableLangs: ['en', 'zh-CN'],
-        defaultLang: 'en',
-        fallbackLang: 'en',
+        availableLangs: [...SUPPORTED_LANGS],
+        defaultLang: DEFAULT_LANG,
+        fallbackLang: DEFAULT_LANG,
         reRenderOnLangChange: true,
         scopes: { autoPrefixKeys: false },
         prodMode: environment.production,

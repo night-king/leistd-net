@@ -96,7 +96,7 @@
 
 `SessionCookie:SameSite` 只控制应用会话 Cookie；默认 Lax，放宽到 None 也不会让跨源浏览器认证导航成立。OAuth correlation 与 OIDC nonce Cookie 保持官方 SameSite=None、Secure=Always，HTTPS 回调不可省略。开发回调在 `/api/**` 下，由开发代理转发。
 
-浏览器写 API 请求与实时 Hub（`/hubs/**`，含 WebSocket 握手）检查 Origin，接受本源及显式 `Cors:AllowedOrigins`。使用 `Leistd.Security.AspNetCore` 的显式来源防护，宿主选择 `/api` 写路径与 `/hubs` 全方法路径。Authorization 或成功 Bearer 均不豁免；跨源浏览器 Bearer 写请求也须来自允许携带凭据的 CORS 源，否则403。CORS 不约束 WebSocket，Hub 独立检查来源。没有 Origin 时看 `Sec-Fetch-Site`：单值 `same-origin`、`none` 放行，其余值或多值拒绝；两个头都没有的非浏览器调用保持支持。API 写请求不使用 ASP.NET Core antiforgery，也不把 Angular 默认 XSRF 拦截器当成完整防护；唯一用到官方 antiforgery 的是 Identity 的退出确认表单（见下文）。浏览器认证不支持独立跨源 API 地址；进程分离须由部署代理将页面、认证导航、协议回调与 API 暴露在同一个外部源。`environment.api.gateway` 保持空值，以相对路径访问同源 API；其他服务通过同源微服务路由前缀访问。整页认证导航不经过 HTTP 拦截器；不要将任意源加入允许列表。OIDC form_post 回调由官方处理器消费，依靠 state、correlation 与 nonce 校验。
+浏览器写 API 请求与实时 Hub（`/hubs/**`，含 WebSocket 握手）检查 Origin，接受本源及显式 `Cors:AllowedOrigins`。使用 `Leistd.Security.AspNetCore` 的显式来源防护，宿主选择 Cookie 会话可达的写路径（模板为 `/api`；新增 `/api` 外接受 Cookie 的写端点时一并加入 `WritePaths`）与 `/hubs` 全方法路径。Authorization 或成功 Bearer 均不豁免；跨源浏览器 Bearer 写请求也须来自允许携带凭据的 CORS 源，否则403。CORS 不约束 WebSocket，Hub 独立检查来源。没有 Origin 时看 `Sec-Fetch-Site`：单值 `same-origin`、`none` 放行，其余值或多值拒绝；两个头都没有的非浏览器调用保持支持。API 写请求不使用 ASP.NET Core antiforgery，也不把 Angular 默认 XSRF 拦截器当成完整防护；唯一用到官方 antiforgery 的是 Identity 的退出确认表单（见下文）。浏览器认证不支持独立跨源 API 地址；进程分离须由部署代理将页面、认证导航、协议回调与 API 暴露在同一个外部源。`environment.api.gateway` 保持空值，以相对路径访问同源 API；其他服务通过同源微服务路由前缀访问。整页认证导航不经过 HTTP 拦截器；不要将任意源加入允许列表。OIDC form_post 回调由官方处理器消费，依靠 state、correlation 与 nonce 校验。
 
 <!--#if (LocalIdentity)-->
 ### 本地账号

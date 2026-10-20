@@ -748,7 +748,7 @@ export class Dashboard {
         //#if (IncludeLocalization)
         label: 'layout.sidebar.users',
         //#else
-        label: 'User Management',
+        label: 'User management',
         //#endif
         icon: 'lucideUsers',
         route: '/platform/users',
@@ -758,7 +758,7 @@ export class Dashboard {
         //#if (IncludeLocalization)
         label: 'layout.sidebar.roles',
         //#else
-        label: 'Role Management',
+        label: 'Role management',
         //#endif
         icon: 'lucideShieldCheck',
         route: '/platform/roles',
@@ -769,7 +769,7 @@ export class Dashboard {
         //#if (IncludeLocalization)
         label: 'layout.sidebar.tenants',
         //#else
-        label: 'Tenant Management',
+        label: 'Tenant management',
         //#endif
         icon: 'lucideBuilding2',
         route: '/platform/tenants',
@@ -781,7 +781,7 @@ export class Dashboard {
         //#if (IncludeLocalization)
         label: 'layout.sidebar.openApplications',
         //#else
-        label: 'Open Applications',
+        label: 'Open applications',
         //#endif
         icon: 'lucideIdCard',
         route: '/platform/open-applications',

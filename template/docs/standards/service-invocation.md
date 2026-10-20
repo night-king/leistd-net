@@ -1,6 +1,6 @@
 # 服务间调用
 
-本项目使用 Leistd.ServiceClient 的强类型客户端、关联标识、官方 OpenIddict.Client 机器认证及 Token Exchange。身份来自签发方令牌，业务代码面向接口；随包文档 docs/service-client.md 说明框架入口与错误契约。
+本项目使用 Leistd.ServiceClient 的强类型客户端、关联标识、官方 OpenIddict.Client 机器认证及 Token Exchange。身份来自签发方令牌，业务代码面向接口，不直接用 `IHttpClientFactory` 绕开标准管道；随包文档 docs/service-client.md 说明框架入口与错误契约。
 
 ## 调用其他服务
 
@@ -18,7 +18,7 @@ builder.Services.AddBillingClient().AddTokenExchange();
 
 ## 被其他服务调用
 
-接收端验证令牌签名、issuer、audience 和有效期，再从同一个主体读取用户与租户。旧的用户/租户委托头不参与认证与租户判定；机器令牌即使附带伪造头，也不能通过要求自然人的默认策略。纯工作负载端点单独声明机器策略。机器调用不会自动转发环境租户，租户须作为路由或请求参数显式传递；机器端点校验调用权限及租户有效性。
+接收端验证令牌签名、issuer、audience 和有效期，再从同一个主体读取用户与租户。旧的用户/租户委托头不参与认证与租户判定；机器令牌即使附带伪造头，也不能通过要求自然人的默认策略。纯工作负载端点单独声明机器策略。命名策略不叠加默认策略，带权限策略的控制器仍在类上标 `[Authorize]`。机器调用不会自动转发环境租户，租户须作为路由或请求参数显式传递；机器端点校验调用权限及租户有效性。
 
 Token Exchange 令牌保留用户、租户与身份库的用户名/邮箱/显示名，带 act 说明调用方；不继承来源角色和超管标记。下游使用本地授权主体和权限决定业务操作。非法租户 claim 失败关闭，不回退宿主。诊断入口 GET /api/v1/service-info/whoami 返回当前用户和 client 身份。
 
@@ -61,7 +61,7 @@ Identity 自身 API 的标识是 OAuth:Resource，同名登记为 scope，本服
 }
 ```
 
-工作负载身份全局注册一次，客户端配置名与注册名一致；示例中的 Billing 经 AddTokenExchange 注册。
+工作负载身份全局注册一次，客户端配置名与注册名一致；示例中的 Billing 经 AddTokenExchange 注册。同一下游有多个客户端时用 `configSectionPath` 共用地址节，认证节按客户端名各自配置。
 <!--#if (RemoteTokenAuth)-->
 Resource 已注册用户访问令牌适配器。
 <!--#if (IncludeMultiTenancy)-->

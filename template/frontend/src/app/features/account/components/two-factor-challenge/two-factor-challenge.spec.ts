@@ -183,6 +183,11 @@ describe('TwoFactorChallenge', () => {
 
     expect(shownError()?.textContent?.trim()).toBe('The verification code is incorrect.');
     expect(reuseHint()).toBeNull();
+    // forceShow 的错误由 Field 统一挂到输入框的 aria-describedby，只出现一次
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      '[data-testid="two-factor-recovery-input"]',
+    )!;
+    expect(input.getAttribute('aria-describedby')).toBe(shownError()!.id);
   });
 
   // 输满 6 位自动提交，随后的回车与请求在途时的再次提交都不再发

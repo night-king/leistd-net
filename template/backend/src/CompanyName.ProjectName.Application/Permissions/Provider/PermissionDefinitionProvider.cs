@@ -40,7 +40,7 @@ public class PermissionDefinitionProvider : IPermissionDefinitionProvider
         var usersPermission = identityGroup.AddPermission(
             PermissionConstant.Users.Default,
             MultiTenancySides.Both,
-            displayName: "User Management"
+            displayName: "User management"
         );
 #if (LocalIdentity)
         usersPermission.AddChild(PermissionConstant.Users.Create, displayName: CreateText);
@@ -57,7 +57,7 @@ public class PermissionDefinitionProvider : IPermissionDefinitionProvider
         var rolesPermission = identityGroup.AddPermission(
             PermissionConstant.Roles.Default,
             MultiTenancySides.Both,
-            displayName: "Role Management"
+            displayName: "Role management"
         );
         rolesPermission.AddChild(PermissionConstant.Roles.Create, displayName: CreateText);
         rolesPermission.AddChild(PermissionConstant.Roles.Update, displayName: EditText);
@@ -69,7 +69,7 @@ public class PermissionDefinitionProvider : IPermissionDefinitionProvider
         var tenantsPermission = identityGroup.AddPermission(
             PermissionConstant.Tenants.Default,
             MultiTenancySides.Host,
-            displayName: "Tenant Management"
+            displayName: "Tenant management"
         );
         tenantsPermission.AddChild(PermissionConstant.Tenants.Create, displayName: CreateText);
         tenantsPermission.AddChild(PermissionConstant.Tenants.Update, displayName: EditText);
@@ -88,7 +88,7 @@ public class PermissionDefinitionProvider : IPermissionDefinitionProvider
         var openApplicationsPermission = developerGroup.AddPermission(
             PermissionConstant.OpenApplications.Default,
             MultiTenancySides.Host,
-            displayName: "Open Applications"
+            displayName: "Open applications"
         );
         openApplicationsPermission.AddChild(PermissionConstant.OpenApplications.Create, displayName: CreateText);
         openApplicationsPermission.AddChild(PermissionConstant.OpenApplications.Update, displayName: EditText);
