@@ -10,4 +10,4 @@
 | [隔离与授权场景](./isolation-and-authorization-scenarios.md) | 多租户、功能权限、数据范围的适用边界、组合顺序与各自的验证策略 |
 | [操作记录长期约束](./operation-records-principles.md) | 记录粒度、语言与快照、注解安全边界、可见性分层、归档与输出取舍 |
 
-具体框架维护规范位于 [`docs/framework/`](../framework/README.md)，模板维护规范位于 [`docs/template/`](../template/README.md)。一次性诊断和实施计划的归属与生命周期见[仓库维护文档](../README.md#在途文档)。
+具体框架维护规范位于 [`docs/framework/`](../framework/README.md)，模板维护规范位于 [`docs/template/`](../template/README.md)。规格文档（需求、方案、计划与结果）的归属与生命周期见[仓库维护文档](../README.md#规格文档)。

@@ -96,7 +96,7 @@ dotnet new install ./template
 dotnet new fullstack-app -n Acme.Shop
 ```
 
-模板发布为 NuGet 包 `Leistd.Templates`，版本独立于框架（tag `template-vX.Y.Z`，规则见 [版本与发布规范](docs/framework/versioning.md#模板包发布template-通道)），可用 `dotnet new install Leistd.Templates::<版本>` 安装；生成项目在来源标记（模板源 `template/.leistd/template.json`）里记录来源模板版本与生成参数。
+模板发布为 NuGet 包 `Leistd.Templates`，版本独立于框架（tag `template-vX.Y.Z`，规则见 [模板版本与发布](docs/template/versioning.md)），可用 `dotnet new install Leistd.Templates::<版本>` 安装；生成项目在来源标记（模板源 `template/.leistd/template.json`）里记录来源模板版本与生成参数。
 
 生成的后端默认通过 NuGet 引用 `Leistd.*` 框架包，并自带按场景触发的 AI 协作能力。可用参数以 `dotnet new fullstack-app --help` 为准：
 
@@ -169,7 +169,7 @@ pwsh framework/build/pack-local-feed.ps1
 | 给框架新增或修改组件 | [开发规范](docs/framework/development-guide.md) |
 | 修改模板、条件裁剪或生成项目工作流 | [模板开发规范](docs/template/development-guide.md) |
 | 了解版本与发布机制 | [版本与发布](docs/framework/versioning.md) |
-| 联调本地框架与模板 | [模板联调说明](docs/template/development-guide.md#5-本地框架联调) |
+| 联调本地框架与模板 | [模板开发工作区](docs/template/development-guide.md#5-模板开发工作区) |
 
 ---
 

@@ -65,6 +65,24 @@ BREAKING CHANGE: 失败响应的 message/details 改为标准字段 detail/error
 
 `1.0.0` 代表 API 稳定承诺，须显式抬 `VERSION`，不能由一条破坏性提交自动触发。0.x 的破坏性变化仍列入 release notes，升级小版本须阅读。
 
+## 分支与 PR
+
+功能分支经 PR 合入 `develop`，`develop` 经 PR 合入 `main` 发版。
+
+1. 从最新的 `develop` 拉功能分支，在分支上提交。
+2. 开 PR 前先 `git fetch origin`，再 rebase 到最新的 `origin/develop`；冲突在功能分支上解决，解决后重新运行受影响的本地验证。
+3. PR 指向 `develop`。`ci.yml` 在指向 `develop` 或 `main` 的 PR 上运行，按[同候选输入计划](./ci-release-gates.md#同候选输入计划)执行必过检查。
+4. PR 以合并提交（merge commit）合入。版本推算与发布说明逐条读取范围内的非合并提交（`scripts/release-commits.ps1`），功能分支上每个提交的标题都要符合 Conventional Commits。
+5. 合入 `develop` 触发 beta；`develop` 合入 `main` 触发正式版，属于[需单独授权的发布操作](#需单独授权的发布操作)。
+
+PR 描述写三项：
+
+| 项 | 写什么 |
+| --- | --- |
+| 变更 | 背景与改了什么，按交付面分组 |
+| 验证 | 实际运行的检查与结果；未执行的检查和原因 |
+| 风险 | 影响面、未验证项；破坏性变更写明下游必要动作 |
+
 ## 分支 → 包类型
 
 | 分支 / 触发 | 版本形态 | 发布目标 | 工作流 |
@@ -72,11 +90,13 @@ BREAKING CHANGE: 失败响应的 message/details 改为标准字段 detail/error
 | push `main` | `x.y.z`（正式，自动递增） | nuget.org | `release.yml`（stable 通道） |
 | push `develop` | `x.y.z-beta.<N>` | nuget.org（预发布） | `release.yml`（beta 通道） |
 | 每工作日定时（develop） | `x.y.z-preview.<yyyyMMdd>.<run_number>` | GitHub Packages（内部） | `release.yml`（nightly 通道） |
-| push `main`，模板有变化 | `Leistd.Templates` `x.y.z`（tag `template-vx.y.z`） | nuget.org | `release.yml`（template 通道） |
+| push `main`，模板有变化 | `Leistd.Templates` `x.y.z`（tag `template-vx.y.z`） | nuget.org | `release.yml`（template 通道，见[模板版本与发布](../template/versioning.md)） |
 
 > 框架三个通道由**单个** `release.yml` 内部按 `github.ref` / `github.event_name` 自动判定；template 通道是同一 workflow 的 `template-release` 作业。
 
 > 预发布后缀用**点分数字**（`-beta.12`、`-preview.20260623.123`），保证 NuGet 数值排序正确。
+
+beta 由下游试点项目验收，试点项目按上文引用确切的 `-beta.<N>` 全称。
 
 ## 正式版发布（全自动）
 
@@ -91,9 +111,9 @@ BREAKING CHANGE: 失败响应的 message/details 改为标准字段 detail/error
 机制要点：
 发布差异从本通道最近已发布且为候选祖先的 tag 起算，独立于本次 push before。stable 只认正式 tag；beta 认 beta/正式 tag，排除 nightly，按 Git 祖先距离选择，不按版本字符串大小。正式 tag 在 main 的 VERSION 回写提交上，不是 develop 祖先时 beta 使用最近 beta 基线。取消或失败的发布没有完成 tag，下一次文档推送仍纳入尚未发布的框架改动；找不到可靠基线时保守发布。
 
-框架生产源码与真实 Pack 文档（含 `framework/NuGet.md`）触发发布。明确共享发布输入包括 `VERSION`、`framework/common.props`、根 `Directory.Build.props`、`Directory.Packages.props`、`global.json` 与 `NuGet.config`；脚本、workflow、未知输入/打包规则保守发布。内部说明、仓库配置（`.github/dependabot.yml`、根 `.mcp.json`）、框架测试、模板与模板打包项目（`template/`、`template-package/`）的变化不触发框架包发布，模板由[模板通道](#模板包发布template-通道)独立发布。stable/beta 使用同一分类定义。
+框架生产源码与真实 Pack 文档（含 `framework/NuGet.md`）触发发布。明确共享发布输入包括 `VERSION`、`framework/common.props`、根 `Directory.Build.props`、`Directory.Packages.props`、`global.json` 与 `NuGet.config`；脚本、workflow、未知输入/打包规则保守发布。内部说明、仓库配置（`.github/dependabot.yml`、根 `.mcp.json`）、框架测试、模板与模板打包项目（`template/`、`template-package/`）的变化不触发框架包发布，模板由[模板通道](../template/versioning.md)独立发布。stable/beta 使用同一分类定义。
 
-candidate 与 CI 固定相同 SHA，显式传递质量和发布基线，CI 据此计算计划。发布必须取得成功汇总输出的 full 计划、全部发布责任和相同候选身份。非发布 push 也执行适用质量验证；轻量文档 push 的前次成功条件见[质量规范](./quality-assurance.md#pr-的内部文档例外)。
+candidate 与 CI 固定相同 SHA，显式传递质量和发布基线，CI 据此计算计划。发布必须取得成功汇总输出的 full 计划、全部发布责任和相同候选身份。非发布 push 也执行适用质量验证；轻量文档 push 的前次成功条件见[CI 质量计划与放行](./ci-release-gates.md#pr-的内部文档例外)。
 - 回写提交带 `[skip ci]` 且过滤 `github-actions[bot]`，避免死循环。
 - ⚠️ NuGet 包不可删（只能 unlist）。框架源码每次有效变更都会产出一个正式版，请把控合入 main 的节奏。
 
@@ -114,6 +134,8 @@ tag 记录已发布版本，不能因发布后发现的问题而删除后复用�
 
 `release.yml` 按 Conventional Commits 生成 release notes，`!` 与 `BREAKING CHANGE` 脚注进入“破坏性变更”。每个小节内按提交的 scope（组件家族，如 `settings`、`multi-tenancy`）分组，没有 scope 的条目归入最后的“未标注范围”。Release 正文就是变更记录，不另建 CHANGELOG 文件；因此提交标题的 scope 应写组件家族名。公共 API、配置、路由、授权、数据库模型与译文变化同步源码、消费者和当前文档；不保留过渡 API 或旧版对照。
 
+stable 或模板版本发布后，按下游清单通知使用方（目前只有 CRM）：给出版本与 Release 链接，含破坏性变更时附上必要动作。
+
 开发期不强制独立升级指南。用户明确要求迁移说明时按需提供，发布工具仍支持 `docs/framework/upgrades/<基础版本>.md` 这一可选文件；没有指南不能推断无需改代码，最终用法以目标包文档、XML 和程序集为准。
 
 ### 包与 Release 链接
@@ -129,20 +151,6 @@ tag 记录已发布版本，不能因发布后发现的问题而删除后复用�
 `python scripts/test-workflow-change-scope.py` 执行实际 workflow 步骤，验证三个渠道的有／无指南链接及夹具包 `.nuspec`、以及发布说明的 scope 分组。本地打包不设置 `PackageReleaseNotes`。
 
 当前不启用 Package Validation：开发期以最终 API 和真实消费验证为准；建立 API 稳定承诺时再评估兼容性基线。
-
-## 模板包发布（template 通道）
-
-模板打包为 `Leistd.Templates`（`template-package/Leistd.Templates.csproj`，`PackageType=Template`），版本独立于框架，tag 为 `template-vX.Y.Z`，包版本由包元数据承载。
-
-- **何时发布**：自最高的 `template-v*` tag（须为候选祖先）起，有提交改动 `template/` 或 `template-package/` 时，push `main` 发布；在 `main` 上手动触发（workflow_dispatch）同样是 stable 通道，但只验证不发布模板。只改框架时不升模板版本；框架 stable 的版本回写提交（`chore: 发布 vX.Y.Z [skip ci]`，改了模板默认的 `LeistdFrameworkVersion`）不计为模板变更，新的默认框架版本随下一次模板变更发布。push `develop` 只打包并跑包内容、隔离安装、来源标记与重建确定性的验证（版本带 `-ci.<run_id>.<attempt>`），不做 nuget.org 还原、不推送、不打 tag；develop 上默认版本仍是上一个正式版，之后才首次发布的框架包还没有正式版，还原必然失败。nightly 没有模板通道。
-- **版本推算**：与框架通道共用 `scripts/release-commits.ps1` 的提交解析，只取改动模板输入的提交：`!` 或 `BREAKING CHANGE:` 脚注 → Major（0.x 期间按 Minor），`feat` → Minor，其余 → Patch；`!` 同样必须带脚注。没有任何 `template-v*` tag 时首版为 `0.1.0`。scope 只用于发布说明分组，判定看提交是否改动模板输入。
-- **放行条件**：质量计划的 `TemplateRelease.Required` 为真时（只可能是 push `main`），计划不得收窄，适用与框架发布相同的全部放行责任；`template-release` 作业还要求同一候选 SHA 的质量汇总成功，且框架通道成功或本次无需发布。作业在 `scripts/release-commits.ps1` 上独立重算基线 tag 与"有无模板变化"，与计划不一致即失败。
-- **晚于依赖的框架正式版**：框架通道本次发布了 stable 时，模板从版本回写提交打包，默认 `LeistdFrameworkVersion` 即本次正式版；默认版本必须是正式版。`template-package/test-template-package.ps1 -NuGetOrgRestore` 只在发布时运行：在仓库外生成两个代表场景，都只用 nuget.org（独立包缓存、不用 HTTP 缓存）还原该版本。只有"找不到 Leistd.* 的默认版本"（NU1102/NU1103，刚推送的正式版尚未建好索引）与取不到源（NU1301）在限时内重试；包 ID 不存在（NU1101）等其他失败立即失败。还原不到即不发布。
-- **验证与推送**：打包后核对包内文件与 `git ls-files template` 一致、包内 `template.json` 只写入了本次版本与源提交，再从隔离安装的包生成 `identity-all-features` 与 `resource-capabilities-03`，核对来源标记并验证重建零差异（见[模板质量规范](../template/quality-assurance.md#模板包与来源标记)）。框架通道本次被跳过时没有刚推送的正式版，nuget.org 还原不等待索引（`-RestoreTimeoutMinutes 0`）。发布且已有上一个 `template-v*` tag 时另跑升级闸门 `template-package/test-template-upgrade.ps1`（develop 与手动触发不跑：自上一个 tag 起每次 push 都算模板有变化，同步逻辑由本地 `test-template-sync.ps1` 覆盖）：上一版生成两个代表场景并提交项目定制，同步到候选包，验收无冲突合并、冲突退出 2 与 `-Complete` 三类，verify 使用本次源码打的候选 Framework 包；首个模板版本没有上一版，只做上面的首版自举验证。全部通过后才创建 tag、经 Trusted Publishing 推 nuget.org、推 tag（`scripts/push-release-ref.ps1`）并创建 GitHub Release（不标记为 latest，latest 留给框架正式版）。
-- **重跑**：nuget.org 已有同版本模板包时，先读取其 nuspec 的源提交：与本次相同则跳过推包，继续补齐 tag 与 Release；不同则停止，同一版本号不能对应两份源码。
-- **变更说明**：就是该 tag 的 GitHub Release 正文，不另建 CHANGELOG：安装命令、默认框架版本、变更范围，以及按 scope 分组的模板提交（与框架发布说明同一分类）。已发布模板版本的升级说明可按需写入 `docs/template/upgrades/<版本>.md`，存在时 Release 正文链接到该 tag 下的地址。
-
-`python scripts/test-workflow-change-scope.py` 覆盖模板通道：只改模板 / 只改打包项目 → main 上发布模板、不触发框架；只改框架或只有版本回写 → 不升模板版本；develop 与 main 上手动触发只验证不推送、nuget.org 还原只在发布时、框架通道被跳过时还原不等待、升级闸门只在发布且有上一个 tag 时执行、先于全部发布写操作；版本推算与发布说明的实际步骤及反例（`!` 无脚注、基线或变化判定与计划不一致、develop 或手动触发被要求发布）。
 
 ## 需单独授权的发布操作
 
@@ -191,7 +199,7 @@ pwsh framework/build/pack-local-feed.ps1
 # 想发布更高的基准版本：直接编辑 VERSION 文件即可（CI 在此基础上按提交递增）
 ```
 
-> `.tmp/local-feed` 仅用于本地开发并由 `.gitignore` 忽略；CI 发布继续使用 `framework/artifacts`。版本推算、模板同步、打包发布逻辑在 `.github/workflows/release.yml`，提交解析与升版判据在两条通道共用的 `scripts/release-commits.ps1`；发布由 push 自动触发，本地通常无需手动介入。本地验证模板包：`pwsh template-package/test-template-package.ps1`（打包、隔离安装、来源标记与重建确定性，不发布）；同步脚本与升级闸门：`pwsh template-package/test-template-sync.ps1`（本地打包几个模板版本，覆盖三类验收、反例与存量接入）。
+> `.tmp/local-feed` 仅用于本地开发并由 `.gitignore` 忽略；CI 发布继续使用 `framework/artifacts`。版本推算、模板同步、打包发布逻辑在 `.github/workflows/release.yml`，提交解析与升版判据在两条通道共用的 `scripts/release-commits.ps1`；发布由 push 自动触发，本地通常无需手动介入。模板包的本地验证见[模板版本与发布](../template/versioning.md#本地验证与自检)。
 
 ### 候选包版本
 

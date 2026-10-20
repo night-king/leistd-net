@@ -29,17 +29,20 @@ description: 在 leistd-net 仓库中为 framework/components、framework/ddd-st
 
 ## 方案与实施计划
 
-涉及通用组件、DDD 基座、公共 API 或包边界的方案设计时，先搜索同主题最新文档；评估、计划与稳定规范的归属和生命周期见 `docs/README.md`。`framework/docs/` 随 NuGet 分发，只写已实现且使用者必须知道的公共契约，分发边界同见该文。同时影响 Template、Skill、CI 或发布流程时，改用 `maintaining-leistd-repository` 维护一份跨交付面计划。
+- 中、高风险档的任务写一份规格文档 `docs/specs/YYYY-MM-DD-<topic>.md`，计划写在同一文件的 §3；结构、按档要求、生命周期与提交规则见 `docs/README.md#规格文档`。动笔前先搜索同主题的最新规格与常驻文档。
+- `framework/docs/` 随 NuGet 分发，只写已实现且使用者必须知道的公共契约，分发边界见 `docs/README.md#分发边界`。
+- 同时影响 Template、Skill、CI 或发布流程时，改用 `maintaining-leistd-repository` 写一份跨交付面规格。
 
 ## 工作流
 
-1. 检查分支、工作区和用户已有改动，确认受影响家族、依赖方向、公共表面和消费点。
-2. 用邻近实现、现有测试和调用方建立当前行为基线。
-3. 实施最小变更，并为行为风险补充对应测试和 XML 注释。
-4. 公共 API、包依赖、注册、默认值或运行时语义变化时同步所有当前消费者和目标家族文档，不保留未发布兼容层。
-5. 按变化选择验证：Markdown 检查引用与骨架；XML 变更构建受影响项目，关键示例单独编译；行为变化运行相关测试。
-6. 随包内容或公共契约变化时打包到 `.tmp/local-feed`，检查 XML、文档及依赖；包依赖或集成契约变化时用 `framework/build/test-package-consumption.ps1` 验证隔离消费。
-7. 影响 Template 消费方式时使用 `developing-leistd-template` 验证相关生成场景；其他运行时语义由组件测试或最小宿主验证。
+1. 确认需求：中、高档任务把需求和验收标准（Given/When/Then）写进规格 §1；用户请求中已经明确的内容直接视为已确认，只有真正待澄清的事项或新增的关键决定才停下来询问。
+2. 检查分支、工作区和用户已有改动，确认受影响家族、依赖方向、公共表面和消费点。
+3. 用邻近实现、现有测试和调用方建立当前行为基线。
+4. 实施最小变更，并为行为风险补充对应测试和 XML 注释。
+5. 公共 API、包依赖、注册、默认值或运行时语义变化时同步所有当前消费者和目标家族文档，不保留未发布兼容层。
+6. 按变化选择验证：Markdown 检查引用与骨架；XML 变更构建受影响项目，关键示例单独编译；行为变化运行相关测试。
+7. 随包内容或公共契约变化时打包到 `.tmp/local-feed`，检查 XML、文档及依赖；包依赖或集成契约变化时用 `framework/build/test-package-consumption.ps1` 验证隔离消费。
+8. 影响 Template 消费方式时使用 `developing-leistd-template` 验证相关生成场景；其他运行时语义由组件测试或最小宿主验证。
 
 用户要求提交时只暂存本任务文件，核对验证结果；提交格式按 `docs/framework/versioning.md` 执行。破坏性提交在 `BREAKING CHANGE:` 脚注说明变化与必要动作，不强制维护旧版对照。实际发布由 `maintaining-leistd-repository` 负责；开发完成本身不触发发版。
 
@@ -47,4 +50,4 @@ description: 在 leistd-net 仓库中为 framework/components、framework/ddd-st
 
 ## 验证入口
 
-本地只产出定向证据，按`docs/framework/quality-assurance.md#本地验证配方`选择，重复验证与等待 CI 按`docs/framework/quality-assurance.md#证据复用`；命令见`docs/framework/development-guide.md#8-提交前自检`。只读任务不运行无关测试；未执行项和原因必须如实说明。审查与失败重跑按`docs/framework/quality-assurance.md#审查与失败后的重跑`，交付时据此提醒用户审查。
+本地验证按`docs/framework/quality-assurance.md#本地验证配方`选择，重复验证与等待 CI 按`docs/framework/quality-assurance.md#证据复用`；命令见`docs/framework/development-guide.md#8-提交前自检`。只读任务不运行无关测试；未执行项和原因必须如实说明。审查与失败重跑按`docs/framework/quality-assurance.md#审查与失败后的重跑`，交付时据此提醒用户审查。

@@ -112,7 +112,7 @@ export const next = 1;
 
 场景、档位、分片及形态断言唯一维护在 `scripts/template-matrix-scenarios.ps1`。保留原有回归场景，同时覆盖最小本地身份、Resource 纯 API、单租户、日志模式、邮件关闭及通知/实时交互。
 
-档位与覆盖口径：`full` 档执行全部登记场景，登记场景覆盖全部可达条件行和有效能力两两取值（`check-template-scenario-coverage.py` 在 `full` 上判定），高阶交互由关键场景与真实端到端补齐；它在合入后、夜间与每次放行前运行。`core` 档是 PR 的代表场景，PR 只保证改动文件的 `core` 消费者，以及被改条件块的每一臂、条件文件被裁掉的一侧各生成一次（规则见[PR 增量保证](../framework/quality-assurance.md#pr-增量保证)）。因此改共享声明时，只存在于非 `core` 场景的消费者要到 develop 的 `full` 才验证；修改条件块或 `template.json` 前，按[本地验证配方](../framework/quality-assurance.md#本地验证配方)用选择器算出场景做 `-GenerateOnly`。
+档位与覆盖口径：`full` 档在合入后、夜间与每次放行前执行全部登记场景，登记场景覆盖全部可达条件行和有效能力两两取值，高阶交互由关键场景与真实端到端补齐；`core` 档是 PR 的代表场景，PR 只承担[增量保证](./quality-assurance.md#pr-增量保证)，执行规则见[模板矩阵](./quality-assurance.md#模板矩阵)。修改条件块或 `template.json` 前，按[本地验证配方](../framework/quality-assurance.md#本地验证配方)用选择器算出场景做 `-GenerateOnly`。
 
 登记 `Verify` 的场景（有/无前端、开/关本地化、三种 `Ci`）在完整阶段直接运行生成项目的 `verify.ps1` 完成构建与测试，矩阵补运行时冒烟、spec 发现范围与产物断言；其余场景与按前后端拆分的阶段由矩阵逐步执行。`verify -Fast` 是生成项目的本地快速检查（静态脚本、构建、单元测试与 lint），矩阵只用默认模式。每个场景都核对 `verify -List` 的两种模式：默认模式与矩阵阶段一致，`-Fast` 恰好是其中静态检查、还原、构建与风格检查、单元测试项目和前端 lint 组成的子序列，两处步骤不会漂移。`verify` 在构建之后含 `backend-format`（`dotnet format style --verify-no-changes --no-restore --diagnostics IDE0001 IDE0002`，补上构建期不执行的两条风格规则，`-Fast` 同样执行），但不含生产依赖审计：生成项目的 CI 在锁文件变化、定时和手动时单独运行（`npm audit --omit=dev --audit-level=high --package-lock-only`，有限重试），矩阵不论场景是否走 `verify`，都按实际生成的锁文件各审一次（相同内容只审一次）；测试诊断闸门在每个场景的生成检查中执行，不论是否走 `verify`。
 
@@ -149,9 +149,9 @@ Identity 形态用 `MapTenantConnections` 映射端点，Resource 形态用 `Lei
 - 前端 UI 走 Spartan UI：选型依据见 [`docs/architecture/frontend-ui-library.md`](../architecture/frontend-ui-library.md)，组件用法见生成项目 [前端界面规范](../../template/docs/standards/frontend-ui.md)；确认组件 API 按「`spartan` skill → 本地 `libs/ui` 源码与锁定版本 → 匹配版本的官方文档」，不臆造 Helm/Brain API。`@spartan-ng/mcp` 是仓库维护者的可选工具（根 `.mcp.json`），模板不内置。
 - 生成项目 [Spartan 维护约定](../../template/docs/standards/frontend-spartan.md) 的定制登记表由 `scripts/check-spartan-customizations.mjs` 核对，边界是组件集合：用锁定版本的 Spartan CLI 还原上游后，与上游有差异的组件集合必须等于登记表列出的组件集合；它不核对行内改动描述，改 helm 组件或升级时人工逐项核对描述与源码一致。
 
-## 5. 本地框架联调
+## 5. 模板开发工作区
 
-先在仓库根目录打包候选版本（`<VERSION 下一补丁>-local.<时间戳>`，见 [版本规范](../framework/versioning.md#候选包版本)），再在模板开发工作区里消费：
+模板局部源码在常驻的生成项目里验证，模板工作区的规则只在本节维护。入口是 `scripts/template-dev-workspace.ps1 -Scenario <场景>`，场景名与生成参数取自 `scripts/template-matrix-scenarios.ps1`。
 
 ```powershell
 pwsh framework/build/pack-local-feed.ps1
@@ -159,7 +159,26 @@ pwsh scripts/template-dev-workspace.ps1 -Scenario <场景>          # 首次：�
 pwsh scripts/template-dev-workspace.ps1 -Scenario <场景> -Sync    # 改了模板源码或重新打包之后
 ```
 
-工作区的同步规则、防丢改动与锁见[质量规范的模板开发工作区](../framework/quality-assurance.md#模板开发工作区)。重新打包会换候选版本，下次 `-Sync` 自动重新 restore。工作区里手工执行的 `dotnet build`/`dotnet test` 不必带 `--no-restore`：工作区的 `Directory.Build.rsp` 同时以 `-p` 与 `-restoreProperty` 传入候选版本，隐式 restore 也取到候选包。
+1. **准备候选包**：在仓库根打包候选版本（`<VERSION 下一补丁>-local.<时间戳>`，见[版本规范](../framework/versioning.md#候选包版本)）到 `.tmp/local-feed`。
+   - 工作区与矩阵的消费方式相同：packageSourceMapping 让 `Leistd.*` 只走候选源，上层 `Directory.Build.rsp` 传入 `candidate.json` 里的候选版本，restore 之后执行来源断言。
+   - 框架源码变化后重新打包；重新打包会换候选版本，下次 `-Sync` 发现候选版本变化就重新 restore。
+2. **首次运行**：生成、restore，有前端时 `npm ci`。
+3. **改模板源码后 `-Sync`**：从模板源重新生成到临时目录，再镜像进工作区，只改写内容变化的文件。
+   - 模板里已删除的文件在工作区同样删除。
+   - 工作区自己的 `bin/`、`obj/`、`node_modules/`、`.cache/`、`.angular/` 不进入、不动（模板自带的同名目录照常镜像）。
+   - 生成项目 `.gitignore` 忽略的本地文件（`.env`、`DataProtection-Keys/`、IDE 设置、日志等，用 `git check-ignore` 按项目自己的规则判定）不算修改、也不删除。
+   - 路径区分大小写，模板只改文件名大小写时工作区随之改名。
+   - `package.json` 或锁文件的摘要变化时 `npm ci`；候选包版本或 `*.props`、`*.targets`、项目与解决方案文件变化时重新 restore。
+4. **防丢改动**：工作区记录上次同步写入的每个文件的摘要。工作区里有与记录不符的修改（改动、删除或新增）时，`-Sync` 停止并列出这些文件，不覆盖；改动要保留就手工写回模板源，确认可以丢弃时加 `-Discard`。同步方向只有模板源 → 工作区：修复写在模板源里再 `-Sync`，不把工作区里的修改复制回模板。
+5. **在 `project/` 里验证**：目标测试类、目标 spec、lint，或 `pwsh scripts/verify.ps1 -Fast`。工作区里手工执行的 `dotnet build`/`dotnet test` 不必带 `--no-restore`：工作区的 `Directory.Build.rsp` 同时以 `-p` 与 `-restoreProperty` 传入候选版本，隐式 restore 也取到候选包。
+
+目录与隔离：
+
+- 一个工作区对应一个场景，位于常驻目录 `.tmp/dev/<场景>/`，不在矩阵 run 目录的清理范围内。
+- `project/` 是生成项目；旁边是工作区专用的 `nuget-packages/`（解包目录，候选版本变化时清掉旧的 `leistd.*` 再 restore）、`template-hive/`、`NuGet.Config`、`Directory.Build.rsp`、同步记录 `workspace.json`，以及判定 `.gitignore` 用的空仓库 `ignore-probe/`。
+- 工作区随工作树隔离，每个工作树由一个会话使用，不设锁；并行任务各用自己的工作树。不再需要时直接删除该场景目录。
+
+模板维护的 L0 包含同步准备，不能承诺同步、构建和测试都在一分钟内。改动的条件分支、裁剪与替换要在受影响的场景上生成验证，场景选择与多场景完整阶段由 CI 承担。生成后业务项目使用自身测试规范，不执行仓库生成矩阵。
 
 复现 CI 的矩阵失败时，用同一份包源跑失败的场景；需要人工观看前端测试运行时，改用有头 Chromium（CI 仍默认无头的 `chromiumHeadless`）：
 
@@ -198,13 +217,16 @@ pwsh scripts/test-template-matrix.ps1 -SkipPack -Scenarios <失败场景> -Front
 
 ## 10. 验证
 
-按改动选择本地验证见[质量检查与验证分工](../framework/quality-assurance.md#本地验证配方)的配方表；测试分层、端到端分工与 lint 缓存口径见[模板质量验证](./quality-assurance.md)。删除检查或测试按[删除与替换的验收](../framework/quality-assurance.md#删除与替换的验收)。
+按改动选择本地验证见[本地验证配方](../framework/quality-assurance.md#本地验证配方)；测试分层、矩阵、端到端分工与 lint 缓存口径见[模板质量验证](./quality-assurance.md)。删除检查或测试按[删除与替换的验收](../framework/quality-assurance.md#删除与替换的验收)。
 
 `test-template-postgresql-e2e.ps1` 在真实 PostgreSQL 上验证本地 Framework 包→Identity/Resource 生成→DbMigrator→API→Shared/Dedicated 隔离的整条链路，要求本机 Docker 与 PowerShell（psql 用容器自带的）。矩阵与该脚本默认各自打包当前 Framework 源码。
 
-每次运行使用独立的 run 目录 `.tmp/runs/<run-id>/`（`<run-id>` = PID+时间戳），其下含 `generated-template/`、`local-feed/`、`template-hive/`、`nuget-cache/` 与一次性 NuGet 配置——生成物、包源和 `globalPackagesFolder` 都不跨 run 写入，因此**多个 AI/终端可并行执行**。不得共享解包目录后再“定点清理 Leistd.*”：清理会在另一个并发 build 期间抽走 DLL。生成目录上层的 `Directory.Build.rsp` 把包源 `candidate.json` 的候选版本传给生成项目（含其 `verify` 子进程）；restore 后核对每个 `Leistd.*` 都是候选版本、来自本 run 的包源，矩阵回执记录 `CandidateVersion`。NuGet 自身的 HTTP 缓存仍会避免重复下载。启动时只清理超过 2 小时未活动且非当前 run 的旧目录（据 `.run.lock` 判活），绝不删正在运行的 run。CI 发布目录仍使用 `framework/artifacts`。
+每次矩阵运行使用独立的 run 目录 `.tmp/runs/<run-id>/`（`<run-id>` = PID+时间戳），因此**多个 AI/终端可并行执行**：
 
-模板开发工作区是常驻目录 `.tmp/dev/<场景>/`，不在上述清理范围：`project/` 是生成项目，旁边是工作区专用的 `nuget-packages/`（解包目录，候选版本变化时清掉旧的 `leistd.*` 再 restore）、`template-hive/`、`NuGet.Config`、`Directory.Build.rsp`、同步记录 `workspace.json`，以及判定 `.gitignore` 用的空仓库 `ignore-probe/`。工作区随工作树隔离，每个工作树由一个会话使用，不设锁。不再需要时直接删除该场景目录。
+- 其下含 `generated-template/`、`local-feed/`、`template-hive/`、`nuget-cache/` 与一次性 NuGet 配置；生成物、包源和 `globalPackagesFolder` 都不跨 run 写入。
+- 不得共享解包目录后再“定点清理 Leistd.*”：清理会在另一个并发 build 期间抽走 DLL。
+- 生成目录上层的 `Directory.Build.rsp` 把包源 `candidate.json` 的候选版本传给生成项目（含其 `verify` 子进程）；restore 后核对每个 `Leistd.*` 都是候选版本、来自本 run 的包源，矩阵回执记录 `CandidateVersion`。NuGet 自身的 HTTP 缓存仍会避免重复下载。
+- 启动时只清理超过 2 小时未活动且非当前 run 的旧目录（据 `.run.lock` 判活），绝不删正在运行的 run。CI 发布目录仍使用 `framework/artifacts`。
 
 重复调试同一份已 pack 的本地包时可用 `-SkipPack`（读取共享的 `.tmp/local-feed` 及其 `candidate.json`）；Framework 包内容变化后必须重新 pack，每次 pack 产生新的候选版本，旧包不会以同版本号混入。
 

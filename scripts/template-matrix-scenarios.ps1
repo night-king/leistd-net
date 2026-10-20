@@ -301,7 +301,7 @@ if ($listedOnly.Count -gt 0) {
 $MatrixTiers = @("core", "full")
 
 # 每档的逻辑分组（与 $AllScenarios 同序）。core 每个场景一片（PR 墙钟取决于最慢的单个场景）；
-# full 按最近 full 运行各场景耗时区间静态均衡，成员调整时重测并更新 docs/framework/quality-assurance.md 的依据。
+# full 按最近 full 运行各场景耗时区间静态均衡，成员调整时重测并更新 docs/template/quality-assurance.md「执行组与分组依据」。
 $MatrixSlices = [ordered]@{
     core = [ordered]@{
         "identity"                  = "Identity 默认产物"

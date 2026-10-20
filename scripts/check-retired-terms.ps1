@@ -44,8 +44,8 @@ $historicalPaths = @(
     # template/ 载荷与 docs/template/ 的其他文档照常扫描。
     "docs/framework/upgrades/",
     "docs/template/upgrades/",
-    "docs/plans/",
-    "docs/assessments/"
+    # 规格文档是保留不改的历史依据，记录当时的名称。
+    "docs/specs/"
 )
 
 # 依据当前契约登记已删除的名称，避免源码和分发文档继续引用。
@@ -87,7 +87,7 @@ $retiredSymbols = @(
 #     一份我们并不遵循、也不会同步的外部契约；
 #   - docs/ 里的稳定规范同理，读者无法判断哪部分是我们的决定、哪部分是照抄。
 #
-# 历史 assessment 与 plan 里记录"当时参考了什么"是证据，因此走 $historicalPaths 豁免。
+# 规格文档（docs/specs/）里记录"当时参考了什么"是证据，因此走 $historicalPaths 豁免。
 #
 # 用单词边界而不是子串：abp 是常见的 base64/哈希片段（package-lock 已排除，但 .md 里的
 # 校验和、示例令牌同样会命中），裸子串会把它们一并报掉。

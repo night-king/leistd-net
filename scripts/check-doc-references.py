@@ -12,8 +12,8 @@
   在对应场景中失败。
 
 扫描排除 node_modules、libs/ui、bin、obj、dist、.angular（另排除 .git、.tmp）。源码模式另按目录
-排除在途工作文档（SOURCE_EXCLUDED_DIRS）：按 docs/README.md 的分类，它们随工作结束删除，
-引用的多是本次运行产物。
+排除规格文档（SOURCE_EXCLUDED_DIRS）：按 docs/README.md 的分类，它们是保留不改的历史依据，
+引用的多是当时的路径和当次运行产物。
 
 路径解析：
 
@@ -61,11 +61,9 @@ from urllib.parse import unquote
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 SOURCE_SCAN = ['README.md', 'AGENTS.md', 'docs', 'framework/docs', '.agents/skills', 'skills', 'template']
-# 源码模式按目录排除的在途工作文档（仓库相对目录，整棵排除；不按路径内容匹配）。
+# 源码模式按目录排除的历史依据（仓库相对目录，含附件子目录，整棵排除；不按路径内容匹配）。
 SOURCE_EXCLUDED_DIRS = (
-    'docs/plans',        # 实施计划：任务全部完成后删除
-    'docs/assessments',  # 现状诊断与候选比较：选定方案后删除
-    'docs/reports',      # 跨层验证结果：引用的是当次运行的 .tmp 产物
+    'docs/specs',  # 规格文档：完成后保留不改，引用的是当时的路径和当次运行的 .tmp 产物
 )
 TEMPLATE_PREFIX = 'template/'
 # 反引号路径带 `#锚点` 时核对锚点的文档：Skill 与 AGENTS.md（仓库层与模板层各一套）。
@@ -103,6 +101,8 @@ CONTEXT_ROOTS = {
 WHITELIST = [
     {'source': 'template/docs/deploy/README.md', 'ref': 'deploy/.env', 'mode': 'both',
      'reason': '使用者按 deploy/.env.example 自建的机密文件，不随模板分发'},
+    {'source': 'template/docs/operations/runbooks/postgres-redis-major-upgrade.md', 'ref': 'deploy/.env', 'mode': 'both',
+     'reason': '使用者按 deploy/.env.example 自建的机密文件，不随模板分发'},
     {'source': 'template/README.md', 'ref': '.claude/skills/', 'mode': 'both',
      'reason': '使用者在项目根自建的目录链接，指向 .agents/skills'},
     {'source': 'template/docs/standards/project-structure.md', 'ref': 'docs/modules/', 'mode': 'both',
@@ -113,6 +113,10 @@ WHITELIST = [
      'reason': '项目按需创建的文档目录，生成时不存在'},
     {'source': 'template/.agents/skills/leistd-project-workflow/references/documentation.md', 'ref': 'docs/project/', 'mode': 'both',
      'reason': '项目按需创建的文档目录，生成时不存在'},
+    {'source': 'template/docs/standards/project-structure.md', 'ref': 'docs/specs/', 'mode': 'both',
+     'reason': '项目按需创建的文档目录，生成时不存在'},
+    {'source': 'template/docs/standards/testing.md', 'ref': 'docs/project/testing.md', 'mode': 'both',
+     'reason': '项目按需创建的测试规则文件，生成时不存在'},
     {'source': 'docs/framework/development-guide.md', 'ref': 'framework/ddd-struct/Leistd.Ddd.Xxx/', 'mode': 'source',
      'reason': '命名占位：Xxx 代表具体包名'},
     {'source': 'docs/framework/development-guide.md', 'ref': 'framework/artifacts', 'mode': 'source',
@@ -627,12 +631,12 @@ SOURCE_FIXTURE = {
     'docs/指南.md': '# 中文文件名\n',
     'docs/logo.png': '',
     'docs/notes.md': '近似拼写不豁免：`deploy/.ENV`、`./deploy/.env`；精确匹配豁免：`deploy/.env`。\n',
-    # 在途工作文档按目录整棵排除；其余 docs/ 文档照常检查，目录名相近也不排除
-    'docs/plans/p.md': '[被排除](missing.md) `.tmp/runs/x/`\n',
-    'docs/assessments/a.md': '[被排除](missing.md)\n',
-    'docs/reports/r.md': '`.tmp/runs/x/result.json`\n',
+    # 规格文档按目录整棵排除（含附件子目录）；其余 docs/ 文档照常检查，目录名相近、旧的在途目录也不排除
+    'docs/specs/2026-01-01-p.md': '[被排除](missing.md) `.tmp/runs/x/`\n',
+    'docs/specs/2026-01-01-p/report.md': '`.tmp/runs/x/result.json` [被排除](missing.md)\n',
     'docs/architecture/a.md': '[未排除的断链](missing.md)\n',
-    'docs/planning/a.md': '[目录名相近不排除](missing.md)\n',
+    'docs/specs-draft/a.md': '[目录名相近不排除](missing.md)\n',
+    'docs/plans/p.md': '[旧在途目录不再排除](missing.md)\n',
     'scripts/run.ps1': '',
     'node_modules/pkg/README.md': '[被排除](missing.md)\n',
     'template/README.md': '\n'.join([
@@ -688,7 +692,8 @@ SOURCE_EXPECTED = {
     ('docs/notes.md', 'deploy/.ENV'),
     ('docs/notes.md', './deploy/.env'),
     ('docs/architecture/a.md', 'missing.md'),
-    ('docs/planning/a.md', 'missing.md'),
+    ('docs/specs-draft/a.md', 'missing.md'),
+    ('docs/plans/p.md', 'missing.md'),
     ('template/README.md', '../docs/guide.md'),
     ('template/README.md', 'src/a.cs'),
 }
@@ -789,8 +794,8 @@ def self_test():
         actual = problem_keys(problems)
         if actual != SOURCE_EXPECTED:
             failures.append(f'源码模式命中 {sorted(actual)}，期望 {sorted(SOURCE_EXPECTED)}')
-        if docs != 12:
-            failures.append(f'源码模式扫描了 {docs} 份文档，期望 12（排除口径有变）')
+        if docs != 13:
+            failures.append(f'源码模式扫描了 {docs} 份文档，期望 13（排除口径有变）')
         if used != {0, 1, 2}:
             failures.append(f'源码模式命中的白名单项为 {sorted(used)}，期望三项都命中')
         stale, _ = run(source_root, None, SELF_TEST_CONTEXT_ROOTS,

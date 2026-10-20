@@ -66,7 +66,7 @@ def candidate_fixture():
         repo = Path(directory)
         paths = git(ROOT, 'ls-files', '--cached', '--others', '--exclude-standard', '-z').split('\0')
         for path in paths:
-            if not path or path.startswith('docs/reports/'):
+            if not path or path.startswith('docs/specs/'):
                 continue
             source = ROOT / path
             if source.is_file():

@@ -40,5 +40,5 @@ framework/
 | 组件用法 | 各组件的场景、安装、配置、API | [组件总览](docs/components/README.md) |
 | 版本机制 | 版本基准在仓库根 `VERSION`，CI 按 Conventional Commits 推算 | [版本与发布](../docs/framework/versioning.md) |
 | 消费组件 | 按家族查安装、注册、API 与运行时语义 | [使用者文档](docs/README.md) |
-| 本地联调 | 模板通过固定本地 NuGet feed 消费框架包 | [模板联调说明](../template/README.md#联调本地框架开发者) |
+| 本地联调 | 模板在模板开发工作区里经本地候选包源消费框架包 | [模板开发工作区](../docs/template/development-guide.md#5-模板开发工作区) |
 | 新增组件 | 命名、csproj、CPM、加入 slnx 的规范 | [开发规范](../docs/framework/development-guide.md) |

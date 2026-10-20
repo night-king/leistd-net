@@ -1,5 +1,7 @@
 # 界面与 E 方案差异收口实施计划
 
+状态：已完成（PR #86）
+
 日期：2026-10-13　分支：`zengqinglei/template-ui-refresh-e2`（PR #86，目标 develop）
 
 ## 背景与范围
