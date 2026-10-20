@@ -1,6 +1,6 @@
 # 吸收 CRM 对齐模板基线的反馈
 
-状态：已完成 · 风险档：中 · 关联：（待开 PR）
+状态：已完成 · 风险档：中 · 关联：https://github.com/zengqinglei/leistd-net/pull/135
 
 ## 1. 需求
 
