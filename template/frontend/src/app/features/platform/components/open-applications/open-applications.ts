@@ -439,7 +439,7 @@ export class OpenApplications {
       cancelText: this.transloco.translate('common.cancel'),
       //#else
       message:
-        "Are you sure you want to reset this open application's Client Secret? The old secret will be invalidated immediately.",
+        "Are you sure you want to reset this open application's client secret? The old secret will be invalidated immediately.",
       header: 'Confirm secret reset',
       //#endif
       variant: 'destructive',
@@ -508,6 +508,6 @@ const ENGLISH: Record<string, string> = {
   'common.noResults': 'No results',
   'openApp.filter.clientTypeLabel': 'Client type',
   'common.refresh': 'Refresh',
-  'openApp.action.create': 'New Open Application',
+  'openApp.action.create': 'New open application',
 };
 //#endif

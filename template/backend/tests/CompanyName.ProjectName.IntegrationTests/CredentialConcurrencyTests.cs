@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using Leistd.OperationRecords.Models;
 using Leistd.OperationRecords.Recording;
@@ -28,16 +29,18 @@ public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory fact
     public async Task A_sign_in_racing_a_password_change_does_not_outlive_the_change()
     {
         var gate = new InterleavingGate();
-        using var host = CreateHost(services => InterleavingGate.Wrap<IOperationRecorder>(services, inner => new LoginRecorderGate(gate, inner)));
-        var (username, _) = await CreateUserAsync(host, "race_pwd");
+        var waits = new LockWaitProbe();
+        using var host = CreateGatedHost(gate, waits);
+        var (username, userId) = await CreateUserAsync(host, "race_pwd");
         using var current = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
 
         gate.Arm();
         var signIn = SignInAsync(host, username, Password);
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(userId));
         var change = current.Client.PostAsJsonAsync(
             "/api/v1/auth/change-password", new { CurrentPassword = Password, NewPassword, ConfirmPassword = NewPassword });
-        await AssertStillWaitingAsync(change);
+        await waits.AssertWaitingAsync(change);
         gate.Release();
 
         using var raced = await signIn;
@@ -54,17 +57,19 @@ public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory fact
     public async Task A_sign_in_racing_an_admin_password_reset_does_not_outlive_the_reset()
     {
         var gate = new InterleavingGate();
-        using var host = CreateHost(services => InterleavingGate.Wrap<IOperationRecorder>(services, inner => new LoginRecorderGate(gate, inner)));
+        var waits = new LockWaitProbe();
+        using var host = CreateGatedHost(gate, waits);
         var (username, userId) = await CreateUserAsync(host, "race_reset");
         using var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
 
         gate.Arm();
         var signIn = SignInAsync(host, username, Password);
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(userId));
         var reset = admin.Client.PostAsJsonAsync(
             $"/api/v1/users/{userId}/reset-password",
             new { Password = NewPassword, CurrentPassword = ProjectWebApplicationFactory.TestAdminPassword });
-        await AssertStillWaitingAsync(reset);
+        await waits.AssertWaitingAsync(reset);
         gate.Release();
 
         using var raced = await signIn;
@@ -101,6 +106,13 @@ public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory fact
     private WebApplicationFactory<Program> CreateHost(Action<IServiceCollection> configure) =>
         factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(configure));
 
+    // 登录停在成功记录处（持着凭据锁）；另一边在同一把锁上开始等待时发出信号
+    private WebApplicationFactory<Program> CreateGatedHost(InterleavingGate gate, LockWaitProbe waits) => CreateHost(services =>
+    {
+        InterleavingGate.Wrap<IOperationRecorder>(services, inner => new LoginRecorderGate(gate, inner));
+        waits.Install(services);
+    });
+
     private static async Task<HttpClient> SignInAsync(WebApplicationFactory<Program> host, string username, string password)
     {
         var client = ProjectWebApplicationFactory.CreateProjectClient(host);
@@ -131,13 +143,6 @@ public sealed class CredentialConcurrencyTests(ProjectWebApplicationFactory fact
     {
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return body.RootElement.TryGetProperty("code", out var code) ? code.GetString() : null;
-    }
-
-    // 另一边还在等锁：不取锁的实现在这段时间里早已跑完
-    private static async Task AssertStillWaitingAsync(Task request)
-    {
-        var finished = await Task.WhenAny(request, Task.Delay(TimeSpan.FromMilliseconds(500)));
-        Assert.NotSame(request, finished);
     }
 
     // 只拦登录成功的记录：它在会话登记之后、工作单元提交之前写入，此时登录持着凭据锁

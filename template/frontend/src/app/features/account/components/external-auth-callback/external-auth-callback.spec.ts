@@ -181,6 +181,7 @@ describe('ExternalAuthCallback', () => {
             status: 409,
             error: { code: 'ExternalAuth:AccountExistsSignInToLink', detail: reason },
           }),
+          { method: 'POST' },
         ),
       ),
     );
@@ -193,12 +194,15 @@ describe('ExternalAuthCallback', () => {
     expect(calls).not.toContain('navigate');
   });
 
+  // 完成端点是写请求：拦截器带上 POST，5xx 归为结果不确定，不展示服务端正文
   it('shows a generic message when the server fails', async () => {
     vi.spyOn(console, 'error').mockReturnValue(undefined);
     const detail = 'Internal failure detail';
     accountService.externalLoginCallback.mockReturnValue(
       throwError(() =>
-        ApplicationHttpError.from(new HttpErrorResponse({ status: 500, error: { detail } })),
+        ApplicationHttpError.from(new HttpErrorResponse({ status: 500, error: { detail } }), {
+          method: 'POST',
+        }),
       ),
     );
 

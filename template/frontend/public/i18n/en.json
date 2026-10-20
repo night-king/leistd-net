@@ -1,6 +1,6 @@
 {
   "common": {
-    "signIn": "Sign In",
+    "signIn": "Sign in",
     "continueToSignIn": "Continue to sign in",
     "workspace": "Workspace",
     "unknownError": "Unknown error",
@@ -27,6 +27,8 @@
     "edit": "Edit",
     "delete": "Delete",
     "details": "View details",
+    "showFullText": "Show full text",
+    "showLess": "Show less",
     "close": "Close",
     "copy": "Copy",
     "add": "Add",
@@ -153,7 +155,6 @@
       "title": "Notifications",
       "markAllRead": "Mark all as read",
       "clearAll": "Clear all",
-      "clearOne": "Dismiss",
       "empty": "No notifications",
       "loading": "Loading notifications…",
       "loadFailed": "Couldn't load notifications.",
@@ -175,7 +176,7 @@
     "name": "Template Project",
     "startup": {
       "loading": "Loading...",
-      "failed": "Application Failed to Load",
+      "failed": "Application failed to load",
       "clientError": "Client error: {{message}}",
       "requestFailed": "Request failed: {{message}} (code: {{code}})",
       "serverError": "Unknown server error: {{status}} - {{statusText}}",

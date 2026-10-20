@@ -57,7 +57,7 @@ test(
     await expect(page.getByTestId('tenant-row')).toContainText(tenant);
     await page.getByLabel('Username or Email').fill(username);
     await page.getByLabel('Password', { exact: true }).fill(password);
-    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('button', { name: 'Sign in' }).click();
 
     // 受限会话只能去设置页；密钥取自页面，验证码按 RFC 6238 现算
     await expect(page).toHaveURL(/\/auth\/two-factor-setup/);

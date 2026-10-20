@@ -66,12 +66,13 @@
     >
       @for (item of visibleItems(); track item.id) {
         <!-- 一行：圆点、名称在左，补充说明在右（两列至少隔 24px），统一 20px 行高后垂直居中；放不下时
-             单行省略，名称优先占宽，被截断的行悬停给出全文（截断与否由 measure 量出） -->
+             单行省略，名称优先占宽，被截断的行可聚焦，悬停或聚焦给出全文（截断与否由 measure 量出） -->
         <li
           hlmItem
           size="xs"
           class="min-h-8 flex-nowrap items-center gap-6 px-2 py-1"
           [attr.data-item-id]="item.id"
+          [attr.tabindex]="truncated().has(item.id) ? 0 : null"
           [hlmTooltip]="fullText"
           [tooltipDisabled]="!truncated().has(item.id)"
         >

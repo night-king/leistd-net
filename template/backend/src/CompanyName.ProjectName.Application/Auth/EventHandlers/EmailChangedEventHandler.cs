@@ -14,9 +14,6 @@ using CompanyName.ProjectName.Application.Settings.Provider;
 using Leistd.Email.Abstractions;
 #endif
 using Leistd.EventBus.EventHandlers;
-#if (Email)
-using Leistd.Redaction;
-#endif
 #if (Email && IncludeLocalization)
 using Leistd.Settings.Resolution;
 #endif
@@ -87,10 +84,9 @@ internal sealed class EmailChangedEventHandler(ISecurityAlertPublisher securityA
             // 修改已经提交：发不出去只记日志，不让它报失败
             logger.LogWarning(
                 ex,
-                "Could not send the email-changed notice for user {UserId} (changed by {ChangedBy}) to {OldEmail}",
+                "Could not send the email-changed notice for user {UserId} (changed by {ChangedBy})",
                 @event.UserId,
-                @event.ChangedBy,
-                TextRedactor.RedactEmail(@event.OldEmail));
+                @event.ChangedBy);
         }
     }
 

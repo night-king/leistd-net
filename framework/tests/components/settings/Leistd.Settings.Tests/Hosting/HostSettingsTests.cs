@@ -79,9 +79,47 @@ public sealed class HostSettingsTests : IDisposable
 
         _store.Host["Demo.Level"] = "Information";
         _store.Host["Demo.Days"] = "10";
-        await ApplyAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(ApplyAsync);
 
         Assert.Equal(("Debug", 90), (Options.Level, Options.Days));
+    }
+
+    /// <summary>
+    /// 周期刷新没把值推进去时要让调度器记失败，而不是记成功；被拒的一组未改正前每轮都失败，
+    /// 否则只有第一轮留下痕迹，之后看起来一切正常。
+    /// </summary>
+    [Fact]
+    public async Task Refresh_fails_while_the_stored_set_is_rejected()
+    {
+        _store.Host["Demo.Days"] = "10";
+
+        var first = await Assert.ThrowsAsync<InvalidOperationException>(RefreshAsync);
+        var second = await Assert.ThrowsAsync<InvalidOperationException>(RefreshAsync);
+
+        Assert.Contains("keeping the previous values", first.Message);
+        Assert.Contains("Days must be at least 30.", second.Message);
+        Assert.Equal(90, Options.Days);
+    }
+
+    [Fact]
+    public async Task Refresh_fails_when_the_host_scope_is_unreachable()
+    {
+        _store.CanAccessHostScope = false;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(RefreshAsync);
+
+        Assert.Contains("host scope is not reachable", error.Message);
+    }
+
+    // 写入已提交，应用失败不能变成写入方看到的异常；下一轮周期刷新再试
+    [Fact]
+    public async Task A_committed_host_write_that_fails_to_apply_does_not_throw()
+    {
+        _store.Host["Demo.Days"] = "10";
+
+        await HandleAsync(new SettingChangedEvent("Demo.Days", SettingScopes.Host, null));
+
+        Assert.Equal(90, Options.Days);
     }
 
     [Fact]
@@ -114,7 +152,7 @@ public sealed class HostSettingsTests : IDisposable
         _store.CanAccessHostScope = false;
         _store.Host.Clear();
 
-        await ApplyAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(ApplyAsync);
 
         Assert.Equal("Debug", Options.Level);
     }
@@ -171,6 +209,13 @@ public sealed class HostSettingsTests : IDisposable
     {
         await using var scope = _host.Services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<HostSettingApplier>().ApplyAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        await using var scope = _host.Services.CreateAsyncScope();
+        var job = ActivatorUtilities.CreateInstance<HostSettingRefreshJob>(scope.ServiceProvider);
+        await job.ExecuteAsync(new RecurringJobContext(HostSettingRefreshJob.Name, DateTimeOffset.UtcNow), CancellationToken.None);
     }
 
     private async Task HandleAsync(SettingChangedEvent @event)

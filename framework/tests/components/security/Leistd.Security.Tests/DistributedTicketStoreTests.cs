@@ -296,13 +296,16 @@ public sealed class DistributedTicketStoreTests
     [Fact]
     public async Task A_renewal_and_deletion_are_serialized_and_late_renewal_cannot_resurrect_the_ticket()
     {
-        using var host = new Harness("callback");
+        using var locks = new ContendedLock(new MemoryLocalLock(Microsoft.Extensions.Logging.Abstractions.NullLogger<MemoryLocalLock>.Instance));
+        using var host = new Harness("callback", locks);
         var ticket = host.Ticket();
         var key = await host.Store.StoreAsync(ticket);
         host.Cache.Arm();
         var renewal = host.Store.RenewAsync(key, ticket);
         await host.Cache.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var deletion = host.Store.RemoveAsync(key);
+        // 先确认删除已在排队等锁，"尚未完成"才说明它被续期挡住，而不是还没跑到写缓存
+        await locks.Waiting.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.False(deletion.IsCompleted);
         host.Cache.Release.SetResult();
         await Task.WhenAll(renewal, deletion);
@@ -793,6 +796,21 @@ public sealed class DistributedTicketStoreTests
         public Task RefreshAsync(string key, CancellationToken token = default) => _inner.RefreshAsync(key, token);
         public void Remove(string key) => _inner.Remove(key);
         public Task RemoveAsync(string key, CancellationToken token = default) => _inner.RemoveAsync(key, token);
+    }
+
+    // 委托给真实锁；有一次获取没能立即拿到时发信号
+    private sealed class ContendedLock(MemoryLocalLock inner) : IDistributedLock, IDisposable
+    {
+        public TaskCompletionSource Waiting { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<ILockHandle> LockAsync(string key, CancellationToken cancellationToken = default)
+        {
+            var acquisition = inner.LockAsync(key, cancellationToken);
+            if (!acquisition.IsCompleted) Waiting.TrySetResult();
+            return acquisition;
+        }
+        public Task<ILockHandle?> TryLockAsync(string key, TimeSpan timeout, CancellationToken cancellationToken = default) =>
+            inner.TryLockAsync(key, timeout, cancellationToken);
+        public void Dispose() => inner.Dispose();
     }
 
     private sealed class LosingLock : IDistributedLock, IDisposable

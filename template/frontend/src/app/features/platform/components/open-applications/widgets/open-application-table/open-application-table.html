@@ -99,9 +99,14 @@
                                   {{ row.original.displayName || row.original.clientId }}
                                 </span>
                                 @if (row.original.displayName) {
+                                  <!-- 截断时才提示全文并成为 Tab 停靠点 -->
                                   <span
-                                    class="max-w-full text-xs text-muted-foreground font-mono truncate"
+                                    #clientIdText
+                                    #clientIdTip="appTruncatedTooltip"
+                                    class="max-w-full text-xs text-muted-foreground font-mono truncate rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                                     [hlmTooltip]="row.original.clientId"
+                                    [appTruncatedTooltip]="clientIdText"
+                                    [attr.tabindex]="clientIdTip.truncated() ? 0 : null"
                                   >
                                     {{ row.original.clientId }}
                                   </span>

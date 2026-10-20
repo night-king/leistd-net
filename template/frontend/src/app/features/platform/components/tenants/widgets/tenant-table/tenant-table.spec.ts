@@ -99,6 +99,26 @@ describe('TenantTable', () => {
     expect(emitted).toEqual([{ pageIndex: 0, pageSize: 50 }]);
   });
 
+  // 列里只写到分钟；完整时刻（含秒）放进可聚焦的提示，键盘用户也拿得到
+  it('puts the full creation time into a focusable tooltip on the short time cell', async () => {
+    const [tableBlock] = await fixture.getDeferBlocks();
+    await tableBlock.render(DeferBlockState.Complete);
+    await fixture.whenStable();
+    onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
+
+    const cell = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      'tbody tr span[tabindex="0"].whitespace-nowrap',
+    );
+    expect(cell).not.toBeNull();
+    expect(cell!.textContent).not.toMatch(/\d:\d{2}:\d{2}/);
+
+    cell!.focus();
+
+    await expect
+      .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? '')
+      .toMatch(/\d:\d{2}:\d{2}/);
+  });
+
   // "详情"是只读项，菜单入口不随修改权限消失，否则只有查看权限的人没有详情入口。
   it('still shows the row action menu trigger with view-only permission', async () => {
     fixture.componentRef.setInput('canUpdate', false);

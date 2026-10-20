@@ -82,6 +82,8 @@ describe('ExternalLoginButtons', () => {
     expect(host.textContent).toContain('Third-party sign-in options could not be loaded.');
     //#endif
     expect(host.querySelector('[data-testid="external-divider"]')).toBeNull();
+    // 未归一化的异常不展示原文，可能带内部细节
+    expect(host.textContent).not.toContain('offline');
     const retry = host.querySelector<HTMLButtonElement>('[data-testid="external-login-retry"]');
     expect(retry).not.toBeNull();
 

@@ -32,7 +32,6 @@
     },
     "notifications": {
       "title": "最近通知",
-      "markAllRead": "全部标为已读",
       "empty": "暂无通知"
     },
     "security": {

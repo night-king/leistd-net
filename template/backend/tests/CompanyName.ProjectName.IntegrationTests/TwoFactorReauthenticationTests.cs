@@ -257,10 +257,14 @@ public sealed class TwoFactorReauthenticationTests(ProjectWebApplicationFactory 
     public async Task An_administrators_confirmation_holds_their_own_credential_lock()
     {
         var gate = new InterleavingGate();
+        var waits = new LockWaitProbe();
         var (host, clock) = CreateHost(services =>
-            InterleavingGate.Wrap<IAccessFailureCounter>(services, inner => new CountingGate(gate, inner)));
+        {
+            InterleavingGate.Wrap<IAccessFailureCounter>(services, inner => new CountingGate(gate, inner));
+            waits.Install(services);
+        });
         using var _ = host;
-        var (adminName, _) = await CreateUserAsync(host, "tfa_reauth_lock", isAdmin: true);
+        var (adminName, adminId) = await CreateUserAsync(host, "tfa_reauth_lock", isAdmin: true);
         var (_, targetId) = await CreateUserAsync(host, "tfa_reauth_lock_target");
         var (admin, secret) = await SignInWithTwoFactorAsync(host, adminName, clock);
         using var __ = admin;
@@ -273,9 +277,10 @@ public sealed class TwoFactorReauthenticationTests(ProjectWebApplicationFactory 
         var confirming = admin.Client.PostAsJsonAsync($"/api/v1/users/{targetId}/reset-password",
             new { Password = "TfaReauth!Lock1", TwoFactorCode = WrongCode(code) });
         await gate.Entered;
+        waits.Arm(UserCredentialLock.Key(adminId));
         using var secondStepClient = ProjectWebApplicationFactory.CreateProjectClient(host);
         var signingIn = secondStepClient.PostAsJsonAsync("/api/v1/auth/two-factor", new { Token = token, Code = code });
-        await AssertStillWaitingAsync(signingIn);
+        await waits.AssertWaitingAsync(signingIn);
         gate.Release();
 
         using (var rejected = await confirming)
@@ -400,13 +405,6 @@ public sealed class TwoFactorReauthenticationTests(ProjectWebApplicationFactory 
         using var response = await client.PostAsJsonAsync("/api/v1/auth/two-factor", input);
         Assert.False(response.IsSuccessStatusCode);
         return await ErrorCodeAsync(response);
-    }
-
-    /// <summary>另一个请求被同一把锁挡住：放行之前它不能完成。</summary>
-    private static async Task AssertStillWaitingAsync(Task request)
-    {
-        var finished = await Task.WhenAny(request, Task.Delay(TimeSpan.FromMilliseconds(500)));
-        Assert.NotSame(request, finished);
     }
 
     private static async Task<(string Username, Guid Id)> CreateUserAsync(

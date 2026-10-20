@@ -61,10 +61,18 @@ describe('SecretRevealDialog', () => {
       .componentInstance as SecretRevealDialog;
   }
 
+  const tooltip = () => document.querySelector<HTMLElement>('[role="tooltip"]');
+
   /**
-   * 弹窗渲染在 document 上的浮层里。焦点由 CDK 在下一次渲染后设置，聚焦引出的提示又经一个计时器才挂上浮层：
-   * 两者都落定后再返回，否则 Esc 抢在提示出现之前按下，测不出提示截走 Esc。
+   * 弹窗渲染在 document 上的浮层里。焦点由 CDK 在下一次渲染后设置，聚焦引出的提示再经 `timer(showDelay)`
+   * （默认 0）才挂上浮层：焦点落定后排一个同为 0 的计时器，它按先后顺序在提示的计时器之后到期，
+   * 此时若有提示就已经挂上，Esc 不会抢在提示之前按下。这道屏障能观察到提示由下面的对照用例证明。
    */
+  async function afterFocusTooltipTimer(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve));
+    await fixture.whenStable();
+  }
+
   async function openDialog(): Promise<HTMLElement> {
     host.visible.set(true);
     await fixture.whenStable();
@@ -73,8 +81,7 @@ describe('SecretRevealDialog', () => {
       expect(element).not.toBeNull();
       expect(element!.contains(document.activeElement)).toBe(true);
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    await fixture.whenStable();
+    await afterFocusTooltipTimer();
     return document.querySelector<HTMLElement>('[role="dialog"]')!;
   }
 
@@ -89,7 +96,22 @@ describe('SecretRevealDialog', () => {
     const title = element.querySelector('[data-slot="dialog-title"]');
     expect(document.activeElement).toBe(title);
     expect(copyButtons(element)).not.toContain(document.activeElement);
-    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(tooltip()).toBeNull();
+  });
+
+  // 对照：聚焦复制按钮会在 document 上挂出提示，且越过同一道计时器屏障时已经挂上；
+  // 上面"没有提示"的断言与 Esc 用例因此不会空过。
+  it('shows a copy button tooltip on the document by the time the focus barrier passes', async () => {
+    const element = await openDialog();
+    const [clientIdButton] = copyButtons(element);
+
+    clientIdButton.focus();
+    await afterFocusTooltipTimer();
+
+    expect(tooltip()).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(tooltip()?.textContent).toMatch(/Copy Client ID|openApp\.secret\.copyClientId/),
+    );
   });
 
   it('closes on the first Escape press', async () => {

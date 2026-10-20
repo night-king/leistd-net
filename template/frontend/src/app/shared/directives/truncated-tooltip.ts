@@ -1,4 +1,12 @@
-import { afterRenderEffect, Directive, DOCUMENT, inject, input, signal } from '@angular/core';
+import {
+  afterRenderEffect,
+  computed,
+  Directive,
+  DOCUMENT,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { BrnTooltip } from '@spartan-ng/brain/tooltip';
 
 /**
@@ -6,19 +14,25 @@ import { BrnTooltip } from '@spartan-ng/brain/tooltip';
  * 放得下时不提示，不重复可见文字。文字宽度随字体就绪、容器尺寸与文案（切换语言）而变，三者变化时重量，
  * 每次悬停或聚焦按最新结果决定是否提示；已经显示的提示照常在移开或失焦时收起。
  * 由本指令控制提示开关，同一元素上不再绑 `tooltipDisabled`。
+ * 宿主本身不可聚焦时（如表格里的文字），经 `truncated()` 只在截断时加 `tabindex`，放得下就不多一个空的 Tab 停靠点。
  *
  * ```html
  * <a hlmCard [hlmTooltip]="label" [appTruncatedTooltip]="text">
  *   <span #text class="truncate">{{ label }}</span>
  * </a>
+ * <span #id class="truncate" [hlmTooltip]="value" [appTruncatedTooltip]="id"
+ *   #idTip="appTruncatedTooltip" [attr.tabindex]="idTip.truncated() ? 0 : null">{{ value }}</span>
  * ```
  */
-@Directive({ selector: '[appTruncatedTooltip]' })
+@Directive({ selector: '[appTruncatedTooltip]', exportAs: 'appTruncatedTooltip' })
 export class TruncatedTooltip {
   readonly appTruncatedTooltip = input.required<HTMLElement>();
 
   private readonly tooltip = inject(BrnTooltip);
   private readonly fontsLoaded = signal(false);
+
+  /** 文字当前是否被截断（即提示是否启用）。 */
+  readonly truncated = computed(() => !this.tooltip.mutableTooltipDisabled());
 
   constructor() {
     void inject(DOCUMENT).fonts?.ready.then(() => this.fontsLoaded.set(true));

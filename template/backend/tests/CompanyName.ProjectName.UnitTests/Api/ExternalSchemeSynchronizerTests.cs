@@ -101,9 +101,8 @@ public sealed class ExternalSchemeSynchronizerTests
         using var synchronizer = Create(services, monitor, schemes);
         await synchronizer.StartAsync(CancellationToken.None);
 
-        var entered = new TaskCompletionSource();
-        var release = new TaskCompletionSource();
-        var laterStarted = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         schemes.OnAdd = name =>
         {
             if (name != GithubScheme) return;
@@ -113,24 +112,19 @@ public sealed class ExternalSchemeSynchronizerTests
             release.Task.Wait(Timeout);
         };
         var earlier = Task.Run(() => monitor.Publish(Options(github: true)));
-        Task? later = null;
+        var later = new PublishingThread(() => monitor.Publish(Options(github: false)));
         try
         {
             await entered.Task.WaitAsync(Timeout);
-            later = Task.Run(() =>
-            {
-                laterStarted.SetResult();
-                monitor.Publish(Options(github: false));
-            });
-            // 先确认较新的那次已经在执行（发布紧接着就进入同步器），再给它跑完的机会：
-            // 有串行保护时它停在锁外，这里等满时限；没有保护时它会在时限内跑完并移除方案
-            await laterStarted.Task.WaitAsync(Timeout);
-            await Task.WhenAny(later, Task.Delay(TimeSpan.FromMilliseconds(200)));
+            later.Start();
+            // 屏障：较新的那次要么已经跑完（没有串行保护），要么挡在串行入口上（线程进入阻塞等待）。
+            // 发布到进入同步器之间没有别的等待，所以线程一阻塞就是停在锁外；等待有上限，只防挂死
+            await later.FinishedOrBlockedAsync(Timeout);
         }
         finally
         {
             release.TrySetResult();
-            await Task.WhenAll(earlier, later ?? Task.CompletedTask).WaitAsync(Timeout);
+            await Task.WhenAll(earlier, later.Completion).WaitAsync(Timeout);
         }
 
         Assert.Null(await services.GetRequiredService<IAuthenticationSchemeProvider>().GetSchemeAsync(GithubScheme));
@@ -161,6 +155,46 @@ public sealed class ExternalSchemeSynchronizerTests
         options.Github.ClientId = "client";
         options.Github.ClientSecret = "secret";
         return options;
+    }
+
+    /// <summary>在专用线程上发布一次变更，便于观察它是否挡在同步器的串行入口上。</summary>
+    private sealed class PublishingThread
+    {
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Thread _thread;
+        private bool _started;
+
+        public PublishingThread(Action publish)
+        {
+            _thread = new Thread(() =>
+            {
+                try
+                {
+                    publish();
+                    _completion.SetResult();
+                }
+                catch (Exception exception)
+                {
+                    _completion.SetException(exception);
+                }
+            }) { IsBackground = true };
+        }
+
+        /// <summary>未启动时视为已完成：用例在启动前失败也不在清理里等满时限。</summary>
+        public Task Completion => _started ? _completion.Task : Task.CompletedTask;
+
+        public void Start()
+        {
+            _started = true;
+            _thread.Start();
+        }
+
+        public async Task FinishedOrBlockedAsync(TimeSpan timeout)
+        {
+            using var deadline = new CancellationTokenSource(timeout);
+            while (!_completion.Task.IsCompleted && (_thread.ThreadState & ThreadState.WaitSleepJoin) == 0)
+                await Task.Delay(TimeSpan.FromMilliseconds(1), deadline.Token);
+        }
     }
 
     /// <summary>转发给真实的方案提供器，在增删时插入观察或暂停。</summary>

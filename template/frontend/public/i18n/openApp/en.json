@@ -3,7 +3,7 @@
     "title": "Open applications"
   },
   "action": {
-    "create": "New Open Application",
+    "create": "New open application",
     "resetSecret": "Reset secret"
   },
   "filter": {
@@ -24,15 +24,15 @@
     "deleteHeader": "Confirm deletion",
     "deleteMessage": "Are you sure you want to delete this open application? Clients using this Client ID will no longer be able to sign in.",
     "resetSecretHeader": "Confirm secret reset",
-    "resetSecretMessage": "Are you sure you want to reset this open application's Client Secret? The old secret will be invalidated immediately."
+    "resetSecretMessage": "Are you sure you want to reset this open application's client secret? The old secret will be invalidated immediately."
   },
   "secret": {
-    "resetHeader": "Client Secret reset",
+    "resetHeader": "Client secret reset",
     "createdHeader": "Client credentials created",
     "applicationLabel": "Application:",
-    "clientSecret": "Client Secret",
+    "clientSecret": "Client secret",
     "copyClientId": "Copy Client ID",
-    "copySecret": "Copy Client Secret",
+    "copySecret": "Copy client secret",
     "warning": "Please copy and store it securely now; the secret will not be shown in plain text again.",
     "copyAndClose": "Copy and close"
   },
@@ -42,8 +42,8 @@
     "service": "Service"
   },
   "dialog": {
-    "editHeader": "Edit Open Application",
-    "createHeader": "New Open Application",
+    "editHeader": "Edit open application",
+    "createHeader": "New open application",
     "description": "Configure the client's identity, type, and OAuth capabilities.",
     "loading": "Loading open application..."
   },

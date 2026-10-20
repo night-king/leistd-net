@@ -1,12 +1,12 @@
 {
   "changePassword": {
-    "header": "Change Password",
+    "header": "Change password",
     "subtitle": "Enter your current password and set a new sign-in password. Other devices will be signed out.",
     "rules": "Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.",
-    "currentPassword": "Current Password",
-    "newPassword": "New Password",
-    "confirmPassword": "Confirm New Password",
-    "submit": "Update Password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "submit": "Update password",
     "updateSuccess": "Password updated. Other devices have been signed out."
   },
   "sessions": {
@@ -205,7 +205,7 @@
     "forgotPassword": "Forgot password?",
     "noAccount": "Don't have an account?",
     "registerNow": "Sign up",
-    "submit": "Sign In",
+    "submit": "Sign in",
     "or": "Or continue with",
     "testAccount": "Development test account",
     "loginSuccess": "Signed in successfully",
@@ -236,7 +236,7 @@
     "sendCode": "Get Code",
     "password": "Password",
     "passwordPlaceholder": "At least 12 characters",
-    "submit": "Sign Up",
+    "submit": "Sign up",
     "haveAccount": "Already have an account?",
     "loginNow": "Sign in",
     "closed": "Self sign-up is not open here. Ask an administrator for an account.",

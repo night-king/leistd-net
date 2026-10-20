@@ -132,6 +132,8 @@ public Task<FileResult> ExportOrders() => orderService.ExportAsync();
 
 `|` 表示任一权限满足。只有每一段都是已定义权限时，`PermissionPolicyProvider` 才动态构建策略；否则交回 ASP.NET Core 默认提供器。宿主显式注册的同名策略优先。
 
+命名策略不叠加宿主的默认策略：默认策略要求的主体断言（如认证方案）靠控制器上的类级 `[Authorize]` 叠加。
+
 ### 授予与撤销
 
 ```csharp

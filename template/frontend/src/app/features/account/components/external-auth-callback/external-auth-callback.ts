@@ -132,9 +132,9 @@ export class ExternalAuthCallback implements OnInit {
     } catch (err) {
       console.error('External login callback processing failed', err);
       // 业务拒绝（如"该邮箱已有账号，请先登录再绑定"）要让用户知道下一步怎么做，展示服务端下发的原因；
-      // 其余失败只给通用提示
-      if (err instanceof ApplicationHttpError && err.status >= 400 && err.status < 500) {
-        this.error.set({ text: err.message });
+      // 其余失败只给通用提示（完成端点是写请求，5xx 已归为 `uncertain`）
+      if (err instanceof ApplicationHttpError && err.category === 'problem') {
+        this.error.set({ text: applicationErrorMessage(err) });
         return;
       }
       this.error.set({ key: 'account.externalCallback.failed' });

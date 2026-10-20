@@ -155,7 +155,14 @@ describe('OperationRecords', () => {
     router = TestBed.inject(Router);
   });
 
-  afterEach(() => fixture?.destroy());
+  afterEach(() => {
+    try {
+      fixture?.destroy();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
 
   it('maps every filter in the URL to the list query with a zero-based offset', async () => {
     await open({
@@ -336,6 +343,18 @@ describe('OperationRecords', () => {
     expect(lastQuery().outcome).toBeUndefined();
   });
 
+  // 占位文字输入后就消失，不能当标签：日期区间输入框另有读屏可见的 label
+  it('labels the date range input for assistive technology', async () => {
+    await open();
+    fixture.detectChanges();
+
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      '#filter-date-range',
+    )!;
+    expect(input).not.toBeNull();
+    expect(input.labels?.[0]?.textContent?.trim()).toMatch(/Date range|dateRange/);
+  });
+
   it('writes paging from the table to the URL and requests that page', async () => {
     await open();
     fixture.detectChanges();
@@ -353,9 +372,16 @@ describe('OperationRecords', () => {
   it('writes the trimmed keyword to the URL after the debounce and resets to page one', async () => {
     await open({ page: '2' });
 
+    const queries = service.getOperationRecords.mock.calls.length;
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
     component.onSearchQueryChange('  bob  ');
     expect(component.searchQuery()).toBe('  bob  ');
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await vi.advanceTimersByTimeAsync(299);
+    expect(service.getOperationRecords.mock.calls.length).toBe(queries);
+    expect(queryParam('keyword')).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
     await fixture.whenStable();
 
     expect(queryParam('keyword')).toBe('bob');

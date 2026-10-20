@@ -42,8 +42,10 @@ services.AddCorrelationIdCore();
 
 ### HttpClient 出口转发
 
+宿主自己配置的第三方客户端按需挂上；调用本系统内部服务走 ServiceClient，注册了关联标识时自动转发。
+
 ```csharp
-builder.Services.AddHttpClient<MyApiClient>()
+builder.Services.AddHttpClient<ThirdPartyClient>()
     .AddCorrelationIdForwarding();
 ```
 

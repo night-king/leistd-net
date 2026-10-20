@@ -569,8 +569,8 @@ export class OpenApplicationEditDialog {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
-  'openApp.dialog.editHeader': 'Edit Open Application',
-  'openApp.dialog.createHeader': 'New Open Application',
+  'openApp.dialog.editHeader': 'Edit open application',
+  'openApp.dialog.createHeader': 'New open application',
   'openApp.dialog.description': "Configure the client's identity, type, and OAuth capabilities.",
   'openApp.dialog.loading': 'Loading open application...',
   'openApp.field.template': 'Application template',
