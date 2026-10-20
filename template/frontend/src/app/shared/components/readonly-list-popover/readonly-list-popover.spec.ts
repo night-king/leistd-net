@@ -241,7 +241,9 @@ describe('ReadonlyListPopover', () => {
       await vi.advanceTimersByTimeAsync(0);
       await fixture.whenStable();
       text = tooltip()?.textContent?.trim() ?? null;
-      element.blur();
+      // 焦点移回面板里的列表，而不是 blur 到面板外：浮层会把移出面板的焦点拉回第一个可聚焦元素，
+      // 那正是这一行，提示便收不起来
+      list().focus();
       await vi.advanceTimersByTimeAsync(0);
     } finally {
       vi.useRealTimers();
