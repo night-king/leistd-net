@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.Settings.Core\Leistd.Settings.Core.csproj" />
+    <!-- 其它实例跟上的周期刷新是 EveryInstance 周期任务；调度器由宿主选 -->
+    <ProjectReference Include="..\..\background-jobs\Leistd.BackgroundJobs.Core\Leistd.BackgroundJobs.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ConfigurationProvider 基类：宿主级设置作为配置源进入 IOptionsMonitor -->
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Leistd.Settings.Tests" />
+  </ItemGroup>
+
+</Project>

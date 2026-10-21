@@ -1,18 +1,32 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <RootNamespace>Leistd.Notifications</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\core\Leistd.Core\Leistd.Core.csproj" />
+    <!-- 分页契约；"当前身份不能操作通知"的错误码与默认译文随包分发 -->
+    <ProjectReference Include="..\..\data\Leistd.Data\Leistd.Data.csproj" />
+    <ProjectReference Include="..\..\localization\Leistd.Localization.Core\Leistd.Localization.Core.csproj" />
+    <!-- 错误码的状态语义默认值在本包登记（NotificationExceptionMappings） -->
+    <ProjectReference Include="..\..\exception-handling\Leistd.ExceptionHandling.Core\Leistd.ExceptionHandling.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 组件错误码的默认中英文案，经 AddJsonLocalizationResources 登记，宿主资源可覆盖 -->
+    <EmbeddedResource Include="Resources\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 默认 HTTP 状态映射是内部实现（由 AddXxx 自动登记），用例要直接调用它核对登记内容 -->
+    <InternalsVisibleTo Include="Leistd.Notifications.Tests" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,151 @@
+{
+  "page": {
+    "title": "User management"
+  },
+  "filter": {
+    "allStatus": "All statuses",
+    "allEmailStatus": "All email statuses",
+    "emailLabel": "Email status",
+    "allRoles": "All roles",
+    "searchPlaceholder": "Search username / email / display name..."
+  },
+  "actions": {
+    "newUser": "New user",
+    "manageRoles": "Assign roles"
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Disabled",
+    "emailVerified": "Email verified",
+    "emailUnverified": "Email not verified",
+    "locked": "Locked",
+    "lockedUntil": "Locked until {{time}}",
+    "lockedIndefinitely": "Locked until an administrator unlocks it"
+  },
+  "toast": {
+    "created": "User created successfully",
+    "updated": "User updated successfully",
+    "enabled": "User enabled",
+    "disabled": "User disabled",
+    "deleted": "User deleted",
+    "passwordReset": "Password has been reset",
+    "cannotDeleteSummary": "Cannot delete",
+    "cannotDeleteSuperAdmin": "The built-in super administrator cannot be deleted",
+    "unlocked": "User unlocked",
+    "twoFactorReset": "Two-factor authentication reset"
+  },
+  "confirm": {
+    "enableMessage": "Are you sure you want to enable user {{name}}?",
+    "disableMessage": "Are you sure you want to disable user {{name}}?",
+    "enableHeader": "Confirm enable",
+    "disableHeader": "Confirm disable",
+    "deleteMessage": "Are you sure you want to delete user {{name}}? Once deleted, the user will no longer be able to sign in.",
+    "deleteHeader": "Confirm delete",
+    "unlockMessage": "Unlock user {{name}}? The failed sign-in count will also be reset.",
+    "unlockHeader": "Confirm unlock",
+    "resetTwoFactorMessage": "Reset two-factor authentication for {{name}}? They will be signed out everywhere and can sign in with just their password.",
+    "resetTwoFactorHeader": "Confirm reset"
+  },
+  "table": {
+    "currentPageReport": "{{total}} in total",
+    "colUser": "User",
+    "colEmail": "Email",
+    "colRole": "Role",
+    "colStatus": "Status",
+    "colLastLogin": "Last sign-in",
+    "colCreatedAt": "Created at",
+    "colActions": "Actions",
+    "emptyTitle": "No users yet",
+    "emptyHint": "Create a new user",
+    "emptyFilteredTitle": "No matching users",
+    "emptyFilteredHint": "Adjust the search or filters"
+  },
+  "popover": {
+    "noRoles": "No roles",
+    "rolesTitle": "Roles",
+    "rolesTrigger": "View all roles of {{name}} ({{count}})",
+    "filterRoles": "Filter roles",
+    "noMatchingRoles": "No matching roles"
+  },
+  "tooltip": {
+    "disable": "Disable",
+    "enable": "Enable",
+    "selfNoDisable": "You can't disable your own account",
+    "selfNoDelete": "You can't delete your own account",
+    "superAdminNoManage": "Only the built-in super administrator can do this to their own account",
+    "resetPassword": "Reset password",
+    "unlock": "Unlock",
+    "resetTwoFactor": "Reset two-factor authentication",
+    "selfNoResetTwoFactor": "Manage your own in Personal settings"
+  },
+  "editDialog": {
+    "editHeader": "Edit user",
+    "createHeader": "New user",
+    "createDescription": "Fill in the account profile and set its initial roles and status.",
+    "editDescription": "Update the account profile. Roles and sign-in access are managed from the user list.",
+    "loading": "Loading user information...",
+    "unnamedUser": "Unnamed user",
+    "noEmail": "No email set",
+    "avatarHint": "PNG, JPG or WebP",
+    "avatarTooLargeSummary": "File too large",
+    "avatarTooLargeDetail": "The image cannot exceed 10 MB",
+    "avatarBadTypeSummary": "Unsupported format",
+    "avatarBadTypeDetail": "Please upload a PNG, JPG or WEBP image",
+    "usernameLabel": "Username",
+    "usernamePlaceholder": "Enter a username",
+    "emailLabel": "Email",
+    "emailPlaceholder": "Enter an email",
+    "displayNameLabel": "Display name",
+    "displayNamePlaceholder": "Enter a display name",
+    "passwordLabel": "Initial password",
+    "passwordPlaceholder": "At least 12 characters",
+    "passwordRequired": "Enter an initial password",
+    "rolesLabel": "Roles",
+    "rolesPlaceholder": "Select roles",
+    "activeTitle": "Enable user",
+    "activeHint": "When disabled, the user cannot sign in or call protected endpoints",
+    "emailVerifiedTitle": "Email verified",
+    "emailVerifiedHint": "Marks the address as confirmed to belong to this user",
+    "avatarDecodeFailed": "This image could not be read. Try another one."
+  },
+  "resetDialog": {
+    "header": "Reset user password",
+    "warning": "After the reset, the user must sign in with the new password.",
+    "ruleHint": "Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.",
+    "newPasswordLabel": "New password",
+    "newPasswordPlaceholder": "Enter a new password",
+    "confirmButton": "Confirm reset"
+  },
+  "rolesDialog": {
+    "title": "Roles · {{name}}",
+    "description": "The user inherits every permission granted to the selected roles.",
+    "saved": "Roles updated"
+  },
+  "batch": {
+    "toolbar": "Bulk actions",
+    "selected": "{{count}} selected",
+    "enable": "Enable",
+    "disable": "Disable",
+    "unlock": "Unlock",
+    "assignRoles": "Add roles",
+    "clear": "Clear selection",
+    "selectAll": "Select all users on this page",
+    "selectRow": "Select {{name}}",
+    "enableHeader": "Enable users",
+    "enableMessage": "Enable the {{count}} selected users?",
+    "disableHeader": "Disable users",
+    "disableMessage": "Disable the {{count}} selected users? They will be signed out and cannot sign in.",
+    "unlockHeader": "Unlock users",
+    "unlockMessage": "Unlock the {{count}} selected users? Their failed sign-in counts are reset too.",
+    "allSucceeded": "Done for {{count}} users.",
+    "partial": "{{succeeded}} succeeded, {{failed}} failed",
+    "rolesTitle": "Add roles to {{count}} users",
+    "rolesDescription": "The selected roles are added. Roles the users already have are kept.",
+    "assign": "Add roles"
+  },
+  "reauth": {
+    "update": "Changing someone's sign-in email or its verified status needs you to confirm it is you.",
+    "resetPassword": "Resetting someone's password needs you to confirm it is you.",
+    "resetTwoFactor": "Resetting someone's two-factor authentication needs you to confirm it is you."
+  }
+}

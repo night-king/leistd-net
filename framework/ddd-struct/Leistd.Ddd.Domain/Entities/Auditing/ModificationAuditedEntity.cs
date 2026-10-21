@@ -1,10 +1,8 @@
-using Leistd.Auditing;
+using Leistd.Auditing.Abstractions;
 
 namespace Leistd.Ddd.Domain.Entities.Auditing;
 
-/// <summary>
-/// 修改审计实体基类（无主键）
-/// </summary>
+/// <summary>修改审计实体基类（无主键）。</summary>
 public abstract class ModificationAuditedEntity : CreationAuditedEntity, IModificationAuditedObject
 {
     /// <inheritdoc />
@@ -14,10 +12,8 @@ public abstract class ModificationAuditedEntity : CreationAuditedEntity, IModifi
     public virtual DateTime? LastModificationTime { get; protected set; }
 }
 
-/// <summary>
-/// 修改审计实体基类（带主键）
-/// </summary>
-/// <typeparam name="TKey">主键类型</typeparam>
+/// <summary>修改审计实体基类（带主键）。</summary>
+/// <typeparam name="TKey">主键类型。</typeparam>
 public abstract class ModificationAuditedEntity<TKey> : CreationAuditedEntity<TKey>, IModificationAuditedObject
 {
     /// <inheritdoc />

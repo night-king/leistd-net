@@ -1,0 +1,32 @@
+{
+  "searchPlaceholder": "搜索角色",
+  "create": "新建角色",
+  "colName": "角色",
+  "colUsers": "用户数",
+  "colPermissions": "权限数",
+  "static": "内置",
+  "default": "默认",
+  "staticRoleHint": "内置角色不可删除",
+  "createTitle": "新建角色",
+  "editTitle": "编辑角色",
+  "editDescription": "角色名称是稳定的业务标识，创建后不可修改。",
+  "fieldName": "名称",
+  "fieldDisplayName": "显示名称",
+  "fieldDescription": "描述",
+  "fieldIsDefault": "新用户自动分配该角色",
+  "saved": "角色已保存",
+  "deleted": "角色已删除",
+  "deleteTitle": "删除角色",
+  "deleteDescription": "确定删除“{{name}}”？其权限授予也会一并清理。",
+  "configurePermissions": "配置权限",
+  "title": "角色管理",
+  "colSort": "排序号",
+  "colCreatedAt": "创建时间",
+  "table": {
+    "currentPageReport": "共 {{total}} 条",
+    "emptyTitle": "暂无角色",
+    "emptyHint": "新建一个角色",
+    "emptyFilteredTitle": "没有匹配的角色",
+    "emptyFilteredHint": "请调整搜索关键字"
+  }
+}

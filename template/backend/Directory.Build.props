@@ -1,12 +1,24 @@
 <Project>
 
   <!--
-    LeistdFrameworkVersion：项目引用的 Leistd.* 框架包版本。
-    唯一事实来源是仓库根 VERSION 文件；此处为字面值（生成项目需自包含），
-    由发布流水线（.github/workflows/release.yml）从唯一源同步，勿手工改。
+    LeistdFrameworkVersion：项目引用的 Leistd.* 框架包版本，Directory.Packages.props 统一取用。
+    升级框架只改这一处，随后按框架升级说明处理破坏性变更。
   -->
   <PropertyGroup>
     <LeistdFrameworkVersion>0.12.0</LeistdFrameworkVersion>
+  </PropertyGroup>
+
+  <!--
+    代码风格在构建期检查，规则见 .editorconfig。
+    IDE0005（未使用的 using）只有生成 XML 文档时才在构建期报出，因此开启 GenerateDocumentationFile；
+    XML 注释只写职责和非显然契约：不要求公开成员都有注释（CS1591），也不要求逐个参数写 param（CS1573）；
+    cref 无法解析、注释放错位置等其余文档警告照常报出。XML 文件不随发布输出。
+  -->
+  <PropertyGroup>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
   </PropertyGroup>
 
 </Project>

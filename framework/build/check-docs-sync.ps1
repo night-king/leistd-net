@@ -23,6 +23,33 @@ foreach ($dir in Get-ChildItem -Directory $componentsDir) {
     }
 }
 
+# 总览开头的计数：它是一句会随新增家族静默变错的事实陈述，而读者拿它当权威。
+# 家族目录与 csproj 就在手上，顺手钉住，不另建闸门。
+$familyCount = (Get-ChildItem -Directory $componentsDir).Count
+$componentPackageCount = (Get-ChildItem -Recurse -Filter '*.csproj' $componentsDir).Count
+$dddPackageCount = if (Test-Path 'framework/ddd-struct') {
+    (Get-ChildItem -Recurse -Filter '*.csproj' 'framework/ddd-struct').Count
+} else { 0 }
+
+$countMatch = [regex]::Match($indexText, '共有 \*\*(\d+) 个能力分组、(\d+) 个 NuGet 包\*\*')
+if (-not $countMatch.Success) {
+    $fail += "docs/components/README.md 找不到「共有 **N 个能力分组、M 个 NuGet 包**」这句计数"
+} else {
+    $statedFamilies = [int]$countMatch.Groups[1].Value
+    $statedPackages = [int]$countMatch.Groups[2].Value
+    if ($statedFamilies -ne $familyCount) {
+        $fail += "组件索引写「$statedFamilies 个能力分组」，实际 $familyCount 个"
+    }
+    if ($statedPackages -ne $componentPackageCount) {
+        $fail += "组件索引写「$statedPackages 个 NuGet 包」，实际 $componentPackageCount 个"
+    }
+}
+
+$dddMatch = [regex]::Match($indexText, 'DDD 四层基座的 (\d+) 个包')
+if ($dddMatch.Success -and [int]$dddMatch.Groups[1].Value -ne $dddPackageCount) {
+    $fail += "组件索引写「DDD 四层基座的 $($dddMatch.Groups[1].Value) 个包」，实际 $dddPackageCount 个"
+}
+
 # DDD 基座
 if (Test-Path 'framework/ddd-struct') {
     if (-not (Test-Path 'framework/docs/ddd-struct/ddd-struct.md')) {

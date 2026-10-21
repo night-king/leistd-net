@@ -1,21 +1,22 @@
 using System.ComponentModel.DataAnnotations;
+using CompanyName.ProjectName.Domain.Users.Policies;
 
 namespace CompanyName.ProjectName.Application.Auth.Dtos;
 
 public record ChangePasswordInputDto
 {
-    [Display(Name = "当前密码")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    public required string CurrentPassword { get; init; }
+    [Display(Name = "Current password")]
+    [Required(ErrorMessage = "{0} is required.")]
+    public string CurrentPassword { get; init; } = null!;
 
-    [Display(Name = "新密码")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [StringLength(100, MinimumLength = 6, ErrorMessage = "{0}长度必须在 {2}-{1} 个字符之间")]
-    [RegularExpression(@"^(?=.*[a-zA-Z])(?=.*\d).{6,}$",
-        ErrorMessage = "{0}需 6 位以上，包含字母和数字")]
-    public required string NewPassword { get; init; }
+    [Display(Name = "New password")]
+    [Required(ErrorMessage = "{0} is required.")]
+    // 仅快速反馈；权威在服务端 PasswordPolicy
+    [StringLength(PasswordPolicy.MaximumLength, MinimumLength = PasswordPolicy.MinimumLength,
+        ErrorMessage = "{0} must be between {2} and {1} characters.")]
+    public string NewPassword { get; init; } = null!;
 
-    [Display(Name = "确认密码")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    public required string ConfirmPassword { get; init; }
+    [Display(Name = "Confirm password")]
+    [Required(ErrorMessage = "{0} is required.")]
+    public string ConfirmPassword { get; init; } = null!;
 }

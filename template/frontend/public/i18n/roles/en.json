@@ -1,0 +1,32 @@
+{
+  "searchPlaceholder": "Search roles",
+  "create": "New role",
+  "colName": "Role",
+  "colUsers": "Users",
+  "colPermissions": "Permissions",
+  "static": "Built-in",
+  "default": "Default",
+  "staticRoleHint": "Built-in roles cannot be deleted",
+  "createTitle": "New role",
+  "editTitle": "Edit role",
+  "editDescription": "Name is the stable identifier and cannot be changed after creation.",
+  "fieldName": "Name",
+  "fieldDisplayName": "Display name",
+  "fieldDescription": "Description",
+  "fieldIsDefault": "Assign to new users by default",
+  "saved": "Role saved",
+  "deleted": "Role deleted",
+  "deleteTitle": "Delete role",
+  "deleteDescription": "Delete \"{{name}}\"? Its permission grants will be removed as well.",
+  "configurePermissions": "Configure permissions",
+  "title": "Role management",
+  "colSort": "Sort",
+  "colCreatedAt": "Created at",
+  "table": {
+    "currentPageReport": "{{total}} in total",
+    "emptyTitle": "No roles yet",
+    "emptyHint": "Create a new role",
+    "emptyFilteredTitle": "No matching roles",
+    "emptyFilteredHint": "Adjust the search keyword"
+  }
+}

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- 关系型 Provider：验证唯一索引真实生效、ACL 子查询真实被翻译为 SQL。 -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\authorization-resource\Leistd.Authorization.Resource.Core\Leistd.Authorization.Resource.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization-resource\Leistd.Authorization.Resource.AspNetCore\Leistd.Authorization.Resource.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization-resource\Leistd.Authorization.Resource.EntityFrameworkCore\Leistd.Authorization.Resource.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

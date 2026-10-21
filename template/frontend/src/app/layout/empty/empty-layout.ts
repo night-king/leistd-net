@@ -5,6 +5,6 @@ import { RouterOutlet } from '@angular/router';
   selector: 'app-empty-layout',
   standalone: true,
   imports: [RouterOutlet],
-  templateUrl: './empty-layout.html'
+  templateUrl: './empty-layout.html',
 })
 export class EmptyLayout {}

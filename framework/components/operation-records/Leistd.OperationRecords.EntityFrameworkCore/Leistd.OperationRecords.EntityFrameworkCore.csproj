@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.OperationRecords.Core\Leistd.OperationRecords.Core.csproj" />
+    <!-- 记录带租户归属：读取隔离交给全局查询过滤器，写入的 TenantId 由记录器显式盖章 -->
+    <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- 取 DbContext 经 IDbContextProvider，理由同 Leistd.Settings.EntityFrameworkCore -->
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.EntityFrameworkCore\Leistd.UnitOfWork.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\dependency-injection\Leistd.DependencyInjection\Leistd.DependencyInjection.csproj" />
+    <!-- 保留期归档是组件自带的集群周期任务 -->
+    <ProjectReference Include="..\..\background-jobs\Leistd.BackgroundJobs.Core\Leistd.BackgroundJobs.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 归档任务是 internal 实现，用例直接构造它来钉住开关与失败语义 -->
+    <InternalsVisibleTo Include="Leistd.OperationRecords.Tests" />
+  </ItemGroup>
+
+</Project>

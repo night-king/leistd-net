@@ -1,22 +1,11 @@
 namespace CompanyName.ProjectName.Domain.Shared.Security.PasswordHash;
 
-/// <summary>
-/// 密码哈希服务接口
-/// </summary>
+/// <summary>领域密码哈希端口。</summary>
 public interface IPasswordHasher
 {
-    /// <summary>
-    /// 哈希密码
-    /// </summary>
-    /// <param name="password">明文密码</param>
-    /// <returns>密码哈希</returns>
+    /// <summary>生成新的密码哈希。</summary>
     string HashPassword(string password);
 
-    /// <summary>
-    /// 验证密码
-    /// </summary>
-    /// <param name="hashedPassword">密码哈希</param>
-    /// <param name="providedPassword">提供的明文密码</param>
-    /// <returns>是否匹配</returns>
-    bool VerifyPassword(string hashedPassword, string providedPassword);
+    /// <summary>返回匹配结果及是否需要升级哈希参数。</summary>
+    PasswordVerificationStatus VerifyPassword(string hashedPassword, string providedPassword);
 }

@@ -1,14 +1,54 @@
 <Project>
 
   <!--
-    tests/ 下所有项目的共享配置（P8）。
+    tests/ 下所有项目的共享配置。
     先链父级（framework/Directory.Build.props → common.props），再注入测试通用项。
-    覆盖率收集器 coverlet.collector 注入到真正的测试项目；
-    共享基座 Leistd.TestBase 不是测试项目（无测试 SDK），跳过。
+
+    这里承担的是 common.props 对组件承担的同一件事：共享值只写一处。
+    此前这些属性和包引用在 19 份测试 csproj 里各写一遍，已经漂移过
+    （Leistd.Tracing.Tests 少了 4 项，三个项目的 ItemGroup/PropertyGroup 顺序相反）——
+    重复声明会让改共享值只对没重复的项目生效，差异静默存在。
   -->
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
-  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Leistd.TestBase'">
+  <PropertyGroup>
+    <!--
+      按项目名判定是不是测试项目。tests/ 下还有非测试项目（shared/Leistd.TestBase：
+      共享基座，无测试 SDK、无用例），它们只要共享属性，不要测试包。
+      用后缀判定而非逐个列名字，新增项目不必回来改这里。
+    -->
+    <_LeistdIsTestProject Condition="$(MSBuildProjectName.EndsWith('.Tests'))">true</_LeistdIsTestProject>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- 以下四项覆盖 common.props 的发布约定：tests/ 下的项目一律不打包、不发布、不产随包文档 -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageReadmeFile></PackageReadmeFile>
+  </PropertyGroup>
+
+  <!--
+    common.props 按"项目目录的父目录名"匹配 framework/docs/components/<家族>.md 决定随包文档。
+    测试项目镜像了组件的家族分组之后，父目录名同样是 lock、multi-tenancy……于是那个
+    Exists 条件会成立，把组件文档和 NuGet.md 挂进测试项目。IsPackable=false 时不会真的
+    打出包，但项目树里凭空多出两份文档，容易被当成测试夹具。这里显式摘掉。
+  -->
+  <ItemGroup>
+    <None Remove="$(_LeistdComponentDocPath)" />
+    <None Remove="$(_LeistdDddDocPath)" />
+    <None Remove="$(MSBuildThisFileDirectory)../NuGet.md" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(_LeistdIsTestProject)' == 'true'">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="coverlet.collector">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

@@ -1,0 +1,9 @@
+{
+  "culture": "zh-CN",
+  "texts": {
+    "Permission:ConcurrencyConflict": "权限已被他人修改，请刷新后重试。",
+    "Permission:SubjectNotFound": "该角色或用户已不存在。",
+    "Permission:UndefinedPermission": "以下权限不存在或已停用：{Names}。",
+    "Permission:SnapshotUnavailable": "授权数据暂时不可用，请稍后重试。"
+  }
+}

@@ -1,0 +1,255 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="flex flex-col gap-4">
+    <div class="@container rounded-xl border border-border overflow-hidden">
+      @defer {
+        <div hlmTableContainer class="w-full overflow-x-auto">
+          <table hlmTable class="w-full">
+            <thead hlmTHead class="bg-muted sticky top-0 z-10">
+              @for (headerGroup of table.getHeaderGroups(); track headerGroup.id) {
+                <tr hlmTr class="text-sm font-medium">
+                  @for (header of headerGroup.headers; track header.id) {
+                    <th hlmTh [class]="header.column.columnDef.meta?.headClass ?? 'first:ps-4'">
+                      <!-- 表头与展开详情取同一份列标签 -->
+                      <span class="whitespace-nowrap">{{
+                        t(columnLabelKeys[header.column.id])
+                      }}</span>
+                    </th>
+                  }
+                </tr>
+              }
+            </thead>
+
+            <tbody hlmTBody>
+              @if (loading()) {
+                <tr hlmTr>
+                  <td
+                    hlmTd
+                    [attr.colspan]="table.getVisibleLeafColumns().length"
+                    class="h-32 text-center"
+                  >
+                    <hlm-spinner class="mx-auto" />
+                    <span class="sr-only">Loading</span>
+                  </td>
+                </tr>
+              } @else {
+                @for (row of table.getRowModel().rows; track row.original.id) {
+                  <tr hlmTr class="group text-sm hover:bg-muted/50 transition-colors">
+                    @for (cell of row.getVisibleCells(); track cell.id) {
+                      <td hlmTd [class]="cell.column.columnDef.meta?.cellClass ?? 'first:ps-4'">
+                        @switch (cell.column.id) {
+                          @case ('action') {
+                            <!-- 手机宽度下句子折行（长邮箱等无空格的串也断开）：本表没有吸附列，三列必显，单行的长句会把整表撑出横向滚动。 -->
+                            <div
+                              class="flex min-w-0 items-center gap-2 whitespace-normal sm:whitespace-nowrap"
+                            >
+                              <!-- 展开箭头常驻，不像用户等列表那样只在窄屏出现：链路标识与主体标识从不占列，桌面端同样有内容要展开。 -->
+                              <button
+                                hlmBtn
+                                variant="ghost"
+                                size="icon-sm"
+                                class="-ml-2 shrink-0"
+                                [attr.aria-label]="t('common.details')"
+                                [attr.aria-expanded]="row.getIsExpanded()"
+                                (click)="row.toggleExpanded()"
+                              >
+                                <ng-icon
+                                  name="lucideChevronRight"
+                                  class="transition-transform duration-200"
+                                  [class.rotate-90]="row.getIsExpanded()"
+                                />
+                              </button>
+                              <!-- 句子整条来自语言包，不含操作人（独立成列）；未登记的动作码降级为裸码，见 actionSentence。 -->
+                              @if (recordTexts().get(row.original.id)?.sentence; as sentence) {
+                                <span class="text-sm text-foreground wrap-anywhere sm:truncate">{{
+                                  sentence.key ? t(sentence.key, sentence.params) : sentence.text
+                                }}</span>
+                              }
+                            </div>
+                          }
+                          @default {
+                            <ng-container
+                              [ngTemplateOutlet]="columnValue"
+                              [ngTemplateOutletContext]="{
+                                $implicit: row.original,
+                                id: cell.column.id,
+                                mode: 'cell',
+                              }"
+                            />
+                          }
+                        }
+                      </td>
+                    }
+                  </tr>
+                  <!-- 行展开：先按列定义顺序列出被折叠的数据列（meta.detail），后接不对应列的追查字段（目标、授权依据、链路标识等）。 -->
+                  @if (row.getIsExpanded()) {
+                    <tr hlmTr class="bg-muted/30 hover:bg-muted/30">
+                      <td
+                        hlmTd
+                        [attr.colspan]="table.getVisibleLeafColumns().length"
+                        class="px-4 pb-3 pt-2 whitespace-normal"
+                      >
+                        <app-operation-record-detail [record]="row.original">
+                          @for (column of detailColumns(); track column.id) {
+                            <dt class="text-muted-foreground">
+                              {{ t(columnLabelKeys[column.id]) }}
+                            </dt>
+                            <dd class="min-w-0" [attr.data-detail-column]="column.id">
+                              <ng-container
+                                [ngTemplateOutlet]="columnValue"
+                                [ngTemplateOutletContext]="{
+                                  $implicit: row.original,
+                                  id: column.id,
+                                  mode: 'detail',
+                                }"
+                              />
+                            </dd>
+                          }
+                        </app-operation-record-detail>
+                      </td>
+                    </tr>
+                  }
+                } @empty {
+                  <tr hlmTr class="hover:bg-transparent">
+                    <td
+                      hlmTd
+                      [attr.colspan]="table.getVisibleLeafColumns().length"
+                      class="!p-0 !border-0"
+                    >
+                      <div
+                        class="flex h-64 flex-col items-center justify-center gap-2 text-muted-foreground"
+                      >
+                        <!-- 加载失败与"暂无数据"分开表达：说出原因并给重试，不让人误以为确实没有数据。 -->
+                        @if (loadError(); as error) {
+                          <ng-icon name="lucideCircleAlert" class="text-5xl opacity-30" />
+                          <p class="text-base font-medium" role="alert">
+                            {{ t('common.loadFailed') }}
+                          </p>
+                          <p class="text-sm opacity-70">{{ error }}</p>
+                          <button
+                            hlmBtn
+                            variant="outline"
+                            data-testid="table-retry"
+                            (click)="retry.emit()"
+                          >
+                            {{ t('common.retry') }}
+                          </button>
+                        } @else {
+                          <ng-icon
+                            [name]="filtered() ? 'lucideSearchX' : 'lucideDatabase'"
+                            class="text-5xl opacity-30"
+                          />
+                          @if (filtered()) {
+                            <p class="text-base font-medium">
+                              {{ t('operationRecords.table.emptyFilteredTitle') }}
+                            </p>
+                            <p class="text-sm opacity-70">
+                              {{ t('operationRecords.table.emptyFilteredHint') }}
+                            </p>
+                          } @else {
+                            <p class="text-base font-medium">
+                              {{ t('operationRecords.table.emptyTitle') }}
+                            </p>
+                            <p class="text-sm opacity-70">
+                              {{ t('operationRecords.table.emptyHint') }}
+                            </p>
+                          }
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+        <!-- 各数据列的值：单元格（cell）与展开详情（detail）共用；本表的时间列按秒对时，两处都给完整时刻 -->
+        <ng-template
+          #columnValue
+          [appColumnValue]="records()"
+          let-record
+          let-id="id"
+          let-mode="mode"
+        >
+          @switch (id) {
+            @case ('outcome') {
+              <div class="flex items-center gap-1.5 whitespace-nowrap">
+                @if (isSucceeded(record)) {
+                  <span hlmBadge appStatusDot variant="success">{{
+                    t('operationRecords.outcome.succeeded')
+                  }}</span>
+                } @else {
+                  <!-- 被拒绝的操作用 destructive 变体突出；与其他列表的状态徽章一样只用文字与配色。 -->
+                  <span hlmBadge appStatusDot variant="destructive">{{
+                    t('operationRecords.outcome.failed')
+                  }}</span>
+                }
+              </div>
+            }
+            @case ('actor') {
+              <div class="flex min-w-0 flex-col">
+                <span
+                  class="text-sm text-foreground"
+                  [class]="mode === 'detail' ? 'wrap-anywhere' : 'truncate'"
+                  >{{ actorOf(record) ?? t('operationRecords.table.unknownActor') }}</span
+                >
+                <!-- 模拟登录时与操作人名同格显示真实操作人，否则责任会指向被模拟的用户。 -->
+                @if (record.impersonatorName; as name) {
+                  @if (mode === 'detail') {
+                    <span class="text-xs text-warning">{{
+                      t('operationRecords.table.impersonatedBy', { name })
+                    }}</span>
+                  } @else {
+                    <span
+                      class="flex items-center gap-1 text-xs text-warning truncate"
+                      [attr.title]="t('operationRecords.table.impersonatedBy', { name })"
+                    >
+                      <ng-icon name="lucideUserPen" class="text-xs shrink-0" />
+                      {{ t('operationRecords.table.impersonatedBy', { name }) }}
+                    </span>
+                  }
+                }
+              </div>
+            }
+            @case ('creationTime') {
+              <span class="text-xs text-muted-foreground whitespace-normal sm:whitespace-nowrap">{{
+                record.creationTime | appDate: 'full' : displayTimeZone() : displayLocale()
+              }}</span>
+            }
+          }
+        </ng-template>
+      }
+    </div>
+
+    <!-- 分页栏：独立于表格卡片，置于其下方（与用户 / 角色列表同一布局）。 -->
+    @if (totalCount() > 0) {
+      <app-table-paginator
+        [labels]="{
+          currentPageReport: t('operationRecords.table.currentPageReport', {
+            total: (totalCount() | appNumber: 'integer' : displayLocale()),
+          }),
+          rowsPerPage: t('common.rowsPerPage'),
+          page: t('common.pageOf', {
+            page: (currentPage() | appNumber: 'integer' : displayLocale()),
+            total: (totalPages() | appNumber: 'integer' : displayLocale()),
+          }),
+          first: t('common.pagination.first'),
+          previous: t('common.pagination.previous'),
+          next: t('common.pagination.next'),
+          last: t('common.pagination.last'),
+        }"
+        [rows]="pagination().pageSize"
+        [canPrev]="table.getCanPreviousPage()"
+        [canNext]="table.getCanNextPage()"
+        (firstPage)="table.firstPage()"
+        (prevPage)="table.previousPage()"
+        (nextPage)="table.nextPage()"
+        (lastPage)="table.lastPage()"
+        (rowsChange)="changePageSize($event)"
+      />
+    }
+  </div>
+</ng-container>

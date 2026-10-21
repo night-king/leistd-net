@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.BackgroundJobs.Core\Leistd.BackgroundJobs.Core.csproj" />
+    <!-- 集群任务靠分布式锁互斥；队列靠环境上下文把入队时的主体、租户与链路带进任务 -->
+    <ProjectReference Include="..\..\lock\Leistd.Lock.Core\Leistd.Lock.Core.csproj" />
+    <ProjectReference Include="..\..\core\Leistd.Core\Leistd.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Leistd.BackgroundJobs.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,21 +1,31 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>Leistd.Notifications.EntityFrameworkCore</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Leistd.Notifications.Core\Leistd.Notifications.Core.csproj" />
     <ProjectReference Include="..\..\auditing\Leistd.Auditing.Core\Leistd.Auditing.Core.csproj" />
     <ProjectReference Include="..\..\core\Leistd.Core\Leistd.Core.csproj" />
+    <!-- IMultiTenant：通知按用户独立查询，需自带租户维度 -->
+    <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- 取 DbContext 经 IDbContextProvider，理由同 Leistd.Authorization.EntityFrameworkCore -->
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.EntityFrameworkCore\Leistd.UnitOfWork.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\dependency-injection\Leistd.DependencyInjection\Leistd.DependencyInjection.csproj" />
+    <!-- 保留期清理是组件自带的集群周期任务 -->
+    <ProjectReference Include="..\..\background-jobs\Leistd.BackgroundJobs.Core\Leistd.BackgroundJobs.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Leistd.Notifications.Tests" />
   </ItemGroup>
 
 </Project>

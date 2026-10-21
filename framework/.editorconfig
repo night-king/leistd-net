@@ -1,0 +1,47 @@
+# Leistd 框架代码风格。只作用于 framework/ —— template/ 是独立交付面，
+# 生成项目不该继承框架的内部约定。
+
+root = false
+
+[*.cs]
+
+# ── 目录即命名空间 ────────────────────────────────────────────────────────────
+#
+# 规则：类型的命名空间 = 项目 RootNamespace + 从项目根到该文件的目录路径。
+#
+# 为什么用分析器而不是写进文档：这条约定此前只存在于"照着邻居抄"里，结果分成了两套——
+# ServiceClient / Tracing / Security / UnitOfWork 等按目录派生，而 MultiTenancy /
+# Notifications / Authorization.EntityFrameworkCore 把命名空间压平到包根。
+# 两套都自洽，但没有任何东西阻止第三套出现。IDE0130 是唯一能机械判定这件事的闸门，
+# 且新建文件时 IDE 会自动填对命名空间，约定因此不会再腐化。
+#
+# 设成 error 而非 warning：框架构建线是 0 警告，warning 在这里等于没有约束力。
+dotnet_style_namespace_match_folder = true:error
+dotnet_diagnostic.IDE0130.severity = error
+
+# ── 未使用的 using ────────────────────────────────────────────────────────────
+#
+# 搬包、改命名空间之后，旧 using 会原样留在几十个文件里，编译照样通过，读者却被引向
+# 已不存在或无关的命名空间。IDE0005 在构建期报出（需要 GenerateDocumentationFile，common.props 已开），
+# Release 下随 TreatWarningsAsErrors 升为错误。
+dotnet_diagnostic.IDE0005.severity = warning
+
+# ── 参数守卫、取消令牌与异常类型 ──────────────────────────────────────────────
+#
+# 开发指南 §6.2 要求参数守卫用 BCL 的 ThrowIf* 辅助方法，不手写 if-throw、不建 Check 类；
+# 这几条约定此前只靠评审维持，下列分析器把它们变成构建期错误：
+#   CA1510–CA1513  能用 ArgumentNullException / ArgumentException / ArgumentOutOfRangeException /
+#                  ObjectDisposedException 的 ThrowIf* 时不手写守卫；
+#   CA2016         方法有 CancellationToken 时传给接受它的下游调用；
+#   CA2208         ArgumentException 系列的 paramName 必须是真实参数名、构造参数顺序正确；
+#   CA2201         不抛 Exception、SystemException、NullReferenceException 等保留或过于宽泛的异常类型。
+# 边界：CA1510–CA1513 只认不带自定义消息的手写 throw（带消息时 ThrowIf* 无法等价替换，分析器不报），
+# 也不覆盖 IsNullOrWhiteSpace；这部分仍靠评审。
+# 例外：确需违反时用 [SuppressMessage] 并写明 Justification，不在此处整体降级。
+dotnet_diagnostic.CA1510.severity = error
+dotnet_diagnostic.CA1511.severity = error
+dotnet_diagnostic.CA1512.severity = error
+dotnet_diagnostic.CA1513.severity = error
+dotnet_diagnostic.CA2016.severity = error
+dotnet_diagnostic.CA2208.severity = error
+dotnet_diagnostic.CA2201.severity = error

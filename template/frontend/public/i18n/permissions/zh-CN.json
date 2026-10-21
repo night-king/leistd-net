@@ -1,0 +1,11 @@
+{
+  "dialogTitle": "权限配置 · {{name}}",
+  "searchPlaceholder": "搜索权限",
+  "grantedCount": "已授予 {{count}} 项",
+  "groupSummary": "{{granted}}/{{total}}",
+  "loadFailed": "权限加载失败",
+  "saved": "权限已保存",
+  "conflict": "权限已被他人修改，已为你重新加载最新值。",
+  "description": "勾选即授予。每一块的顶层那条就是它的查看权限；授予某个动作会一并授予该查看权限——新增用户需要先能查看用户列表。要收回某人的能力，请调整他的角色。",
+  "viewAccessHint": "查看列表"
+}

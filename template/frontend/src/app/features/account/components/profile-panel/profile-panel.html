@@ -1,0 +1,311 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <form novalidate class="flex flex-col gap-6" (submit)="$event.preventDefault(); onSubmit()">
+    <div class="flex flex-col gap-6">
+      <div class="flex items-center gap-4 border-b border-border pb-5">
+        <!-- 头像上传：无图时常驻居中图标；有图时 hover / 键盘 focus-visible 显示、触屏（pointer-coarse）常驻。 -->
+        <!-- 选完即上传：头像有自己的接口，不随下面的表单保存，也不被「撤销修改」撤回 -->
+        <label
+          class="group relative block h-20 w-20 shrink-0 cursor-pointer overflow-hidden rounded-full border border-border bg-muted transition-colors hover:border-primary focus-within:outline-none focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50"
+          [class.pointer-events-none]="avatarBusy()"
+          data-testid="profile-avatar"
+        >
+          @if (hasAvatarImage()) {
+            <img [src]="avatarPreview()" alt="avatar" class="h-full w-full object-cover" />
+          } @else {
+            <!-- 无图占位：常驻居中上传图标即完整语义。 -->
+            <span class="block h-full w-full bg-primary/10"></span>
+          }
+
+          <input
+            type="file"
+            class="sr-only"
+            accept="image/png,image/jpeg,image/webp"
+            [disabled]="avatarBusy()"
+            [attr.aria-label]="t('common.uploadAvatar')"
+            (change)="onAvatarSelect($event)"
+          />
+
+          <span
+            class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25 text-white transition-opacity duration-200 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 pointer-coarse:opacity-100"
+            [class.opacity-0]="hasAvatarImage()"
+            aria-hidden="true"
+          >
+            <ng-icon name="lucideImagePlus" class="text-xl drop-shadow-sm" />
+          </span>
+          @if (avatarBusy()) {
+            <span class="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+              <hlm-spinner class="text-base" />
+            </span>
+          }
+        </label>
+
+        <div class="flex min-w-0 flex-1 flex-col gap-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <h4 class="truncate text-base font-medium">
+              {{ displayName() || t('account.profile.guestUser') }}
+            </h4>
+            @if (user()?.isSuperAdmin) {
+              <span hlmBadge variant="outline">{{ t('account.profile.superAdminTag') }}</span>
+            } @else if (roleLabels().length > 0) {
+              @for (role of roleLabels(); track role) {
+                <span hlmBadge variant="secondary">{{ role }}</span>
+              }
+            }
+          </div>
+          <p class="truncate text-sm text-muted-foreground">
+            {{ formModel().email || user()?.email }}
+          </p>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p class="text-xs text-muted-foreground">
+              {{ t('account.profile.avatarHint') }}
+            </p>
+            @if (hasAvatarImage() && !avatarBusy()) {
+              <button
+                hlmBtn
+                type="button"
+                variant="link"
+                size="sm"
+                class="h-auto p-0 text-xs"
+                data-testid="profile-avatar-remove"
+                (click)="removeAvatar()"
+              >
+                {{ t('account.profile.removeAvatar') }}
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- 与设置行同一写法：标签在左、输入在右（宽时右对齐，宽度等于设置行输入框加恢复按钮的总宽：296px，触屏 308px；窄时落到标签下方），错误在输入下方 -->
+      <div hlmFieldGroup class="gap-5">
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <div
+              class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-username">{{
+                t('account.profile.username')
+              }}</label>
+            </div>
+          </div>
+          <div
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
+          >
+            <input
+              hlmInput
+              id="profile-username"
+              autocomplete="username"
+              class="w-full"
+              [formField]="profileForm.username"
+              [placeholder]="t('account.profile.usernamePlaceholder')"
+            />
+            @for (error of profileForm.username().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </div>
+        </div>
+
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <!-- 验证状态接在标签后面，与设置行的"已保存"同一位置；发送按钮在邮箱右侧，验证码一行在下方 -->
+            <div
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-email">{{ t('account.profile.email') }}</label>
+<!--#if (Email)-->
+              <!-- 验证状态针对的是**已保存**的邮箱：表单里改了还没保存时，先提示保存后再验证 -->
+              @if (emailEdited()) {
+                <span class="text-muted-foreground text-xs" data-testid="email-change-hint">
+                  {{ t('account.profile.emailChangeHint') }}
+                </span>
+              } @else if (user()?.isEmailVerified) {
+                <span
+                  class="text-success inline-flex items-center gap-1 text-xs"
+                  data-testid="email-verified"
+                >
+                  <ng-icon name="lucideCircleCheck" />
+                  {{ t('account.profile.emailVerified') }}
+                </span>
+              } @else {
+                <span
+                  class="text-warning inline-flex items-center gap-1 text-xs"
+                  data-testid="email-unverified"
+                >
+                  <ng-icon name="lucideCircleAlert" />
+                  {{ t('account.profile.emailUnverified') }}
+                </span>
+              }
+<!--#endif-->
+            </div>
+          </div>
+          <!-- 两列网格：输入一列、按钮一列，两行按钮同宽，输入框左右对齐。间距由按钮的左外边距给出，
+               没有按钮时按钮列宽为 0，输入占满整列 -->
+          <div
+            class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-y-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
+          >
+            <input
+              hlmInput
+              id="profile-email"
+              autocomplete="email"
+              class="w-full"
+              [formField]="profileForm.email"
+              [placeholder]="t('account.profile.emailPlaceholder')"
+            />
+<!--#if (Email)-->
+            @if (!emailEdited() && !user()?.isEmailVerified && emailVerificationAvailable()) {
+              <!-- 最小宽度容纳默认间隔（两位数秒）的倒计时文案，倒数时输入框不跟着伸缩；间隔调到三位数以上时按钮按内容加宽 -->
+              <button
+                hlmBtn
+                type="button"
+                variant="outline"
+                class="ml-2 min-w-28 tabular-nums"
+                data-testid="email-send-code"
+                [disabled]="sendingCode() || resendSeconds() > 0"
+                (click)="sendEmailCode()"
+              >
+                @if (resendSeconds() > 0) {
+                  {{ t('account.profile.resendIn', { seconds: resendSeconds() }) }}
+                } @else if (emailChallenge()) {
+                  {{ t('account.profile.resendCode') }}
+                } @else {
+                  {{ t('account.profile.sendCode') }}
+                }
+              </button>
+            }
+<!--#endif-->
+            @for (error of profileForm.email().errors(); track error.kind) {
+              <hlm-field-error class="col-span-2" [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+<!--#if (Email)-->
+            @if (!emailEdited() && !user()?.isEmailVerified) {
+              @if (!emailVerificationAvailable()) {
+                <p
+                  class="text-muted-foreground col-span-2 text-xs"
+                  data-testid="email-verification-unavailable"
+                >
+                  {{ t('account.profile.emailVerificationUnavailable') }}
+                </p>
+              } @else if (emailChallenge()) {
+                <input
+                  hlmInput
+                  id="profile-email-code"
+                  class="w-full"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  [attr.aria-label]="t('account.profile.codeLabel')"
+                  [placeholder]="t('account.profile.codePlaceholder')"
+                  [value]="emailCode()"
+                  (input)="onEmailCodeInput($event)"
+                  (keydown.enter)="$event.preventDefault(); confirmEmailCode()"
+                />
+                <button
+                  hlmBtn
+                  type="button"
+                  class="ml-2 min-w-28"
+                  data-testid="email-confirm-code"
+                  [disabled]="confirmingCode() || emailCode().trim().length === 0"
+                  (click)="confirmEmailCode()"
+                >
+                  {{ t('account.profile.confirmCode') }}
+                </button>
+              }
+            }
+<!--#endif-->
+          </div>
+        </div>
+
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <div
+              class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-display-name">{{
+                t('account.profile.displayName')
+              }}</label>
+            </div>
+          </div>
+          <div
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
+          >
+            <input
+              hlmInput
+              id="profile-display-name"
+              class="w-full"
+              [formField]="profileForm.displayName"
+              [placeholder]="t('account.profile.displayNamePlaceholder')"
+            />
+            @for (error of profileForm.displayName().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </div>
+        </div>
+
+        <div hlmField orientation="responsive">
+          <div hlmFieldContent class="min-w-0 wrap-anywhere">
+            <div
+              class="flex items-center @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+            >
+              <label hlmFieldLabel for="profile-phone-number">{{
+                t('account.profile.phoneNumber')
+              }}</label>
+            </div>
+          </div>
+          <div
+            class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-74 @md/field-group:pointer-coarse:basis-77"
+          >
+            <input
+              hlmInput
+              id="profile-phone-number"
+              autocomplete="tel"
+              class="w-full"
+              [formField]="profileForm.phoneNumber"
+              [placeholder]="t('account.profile.phoneNumberPlaceholder')"
+            />
+            @for (error of profileForm.phoneNumber().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 页面内的表单：保存在下，撤销回到当前已保存的资料 -->
+    <div class="flex justify-end gap-2">
+      <button hlmBtn type="button" variant="outline" [disabled]="saving()" (click)="reset()">
+        {{ t('account.profile.discardChanges') }}
+      </button>
+      <button hlmBtn type="submit" [disabled]="saving()">
+        @if (saving()) {
+          <hlm-spinner class="text-base" data-icon="inline-start" />
+        }
+        {{ t('common.save') }}
+      </button>
+    </div>
+  </form>
+
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="reauth.setVisible($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.profile.reauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
+  />
+</ng-container>

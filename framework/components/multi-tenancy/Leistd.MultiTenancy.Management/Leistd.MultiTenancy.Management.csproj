@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- 租户管理用例成功后发布 TenantChangedEvent；只依赖契约，未注册总线时不发布 -->
+    <ProjectReference Include="..\..\event-bus\Leistd.EventBus.Core\Leistd.EventBus.Core.csproj" />
+    <!-- 租户开通编排跨三个工作单元（控制面、开通、启用），失败按逆序补偿；只依赖工作单元契约，不依赖任何存储实现 -->
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.Core\Leistd.UnitOfWork.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Leistd.MultiTenancy.Tests" />
+  </ItemGroup>
+
+</Project>

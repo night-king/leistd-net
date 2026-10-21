@@ -1,60 +1,81 @@
-#if (IncludeIdentity)
-using System.Linq.Dynamic.Core;
+#if (LocalIdentity)
+#if (OpenIddictServer)
+using CompanyName.ProjectName.Application.OpenApplications.Errors;
+#endif
+using Leistd.ExceptionHandling;
 using System.Security.Cryptography;
 using System.Text.Json;
 using CompanyName.ProjectName.Application.OpenApplications.Dtos;
-using Leistd.Ddd.Application.AppService;
-using Leistd.Ddd.Application.Contracts.Dtos;
-using Leistd.Exception.Core;
+using CompanyName.ProjectName.Application.OperationRecords.Provider;
+using CompanyName.ProjectName.Application.Permissions.Provider;
+using CompanyName.ProjectName.Application.Shared.Paging;
+using CompanyName.ProjectName.Application.Auth.OAuth;
+using CompanyName.ProjectName.Application.Auth.Options;
+using Leistd.Ddd.Application.AppServices;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using CompanyName.ProjectName.Application.OpenApplications.Mappings;
+using Leistd.ObjectMapping.Abstractions;
+using Leistd.OperationRecords.Models;
+using Leistd.OperationRecords.Recording;
 using OpenIddict.Abstractions;
+using Leistd.Timing;
+using Leistd.Data.Paging;
 
 namespace CompanyName.ProjectName.Application.OpenApplications.AppServices;
 
 public class OpenApplicationAppService(
     IOpenIddictApplicationManager applicationManager,
+    IOptions<OAuthResourceOptions> oauthOptions,
+    IObjectMapper objectMapper,
+    IOperationRecorder operationRecorder,
+    IClock clock,
     ILogger<OpenApplicationAppService> logger) : BaseAppService, IOpenApplicationAppService
 {
-    private const string CreationTimePropertyName = "creationTime";
     private const string PkceRequirement = "ft:pkce";
 
-    private static readonly HashSet<string> ApplicationTypes = new(StringComparer.Ordinal)
-    {
-        OpenIddictConstants.ApplicationTypes.Web,
-        OpenIddictConstants.ApplicationTypes.Native,
-        "service"
-    };
+    /// <summary>本服务能签发的 scope 与其中仅限机器的那些，都取自 scope 目录（见 <see cref="OAuthScopes"/>）。</summary>
+    /// <remarks>
+    /// <para>写入时按目录校验 scope 与 audience，并校验交换客户端的权限组合，
+    /// 避免保存可登记但无法使用的客户端；不维护完整的官方权限词汇表。</para>
+    /// <para>仅限机器的 scope（租户连接回源与迁移控制面）只能发给服务间调用的机器客户端：
+    /// 授出去就没有回收窗口，创建时挡住比事后审计便宜；资源端策略另有一道。</para>
+    /// </remarks>
+    private IReadOnlyList<OAuthScope> ScopeCatalog => OAuthScopes.All(oauthOptions.Value);
 
-    private static readonly HashSet<string> ClientTypes = new(StringComparer.Ordinal)
-    {
-        OpenIddictConstants.ClientTypes.Public,
-        OpenIddictConstants.ClientTypes.Confidential
-    };
+    /// <summary>代表自然人的授权流：与内部控制面 scope 互斥。</summary>
+    /// <remarks>
+    /// 同一个客户端既能拿 client credentials 机器令牌、又能走用户授权流时，
+    /// 机器 scope 会随用户令牌一起签发——那个令牌的 <c>sub</c> 是用户 GUID，
+    /// 过不了资源端的机器主体判定，但客户端配置本身已经把两种信任级别混在一起了，
+    /// 这是配置错误而不是运行期问题，应该在写入时就拒绝。
+    /// </remarks>
+    private static readonly string[] HumanGrantPermissions =
+    [
+        OpenIddictConstants.Permissions.GrantTypes.AuthorizationCode,
+        OpenIddictConstants.Permissions.GrantTypes.Implicit,
+        OpenIddictConstants.Permissions.GrantTypes.Password,
+        OpenIddictConstants.Permissions.GrantTypes.RefreshToken,
+        OpenIddictConstants.Permissions.GrantTypes.DeviceCode
+    ];
 
-    private static readonly HashSet<string> ConsentTypes = new(StringComparer.Ordinal)
-    {
-        OpenIddictConstants.ConsentTypes.Explicit,
-        OpenIddictConstants.ConsentTypes.External,
-        OpenIddictConstants.ConsentTypes.Implicit,
-        OpenIddictConstants.ConsentTypes.Systematic
-    };
 
-    public async Task<PagedResultDto<OpenApplicationOutputDto>> GetPagedListAsync(
+    public async Task<PagedResult<OpenApplicationOutputDto>> GetPagedListAsync(
         GetOpenApplicationPagedInputDto input,
         CancellationToken cancellationToken = default)
     {
-        var intermediateItems = new List<IntermediateAppDto>();
+        var intermediateItems = new List<OpenApplicationQueryItem>();
         await foreach (var app in applicationManager.ListAsync(count: null, offset: null, cancellationToken))
         {
-            intermediateItems.Add(new IntermediateAppDto
+            intermediateItems.Add(new OpenApplicationQueryItem
             {
                 Application = app,
                 ClientId = await applicationManager.GetClientIdAsync(app, cancellationToken) ?? string.Empty,
                 DisplayName = await applicationManager.GetDisplayNameAsync(app, cancellationToken),
                 ApplicationType = await applicationManager.GetApplicationTypeAsync(app, cancellationToken),
                 ClientType = await applicationManager.GetClientTypeAsync(app, cancellationToken),
-                ConsentType = await applicationManager.GetConsentTypeAsync(app, cancellationToken),
-                CreationTime = GetCreationTime(await applicationManager.GetPropertiesAsync(app, cancellationToken))
+                CreationTime = OpenApplicationMappings.ReadCreationTime(
+                    await applicationManager.GetPropertiesAsync(app, cancellationToken))
             });
         }
 
@@ -77,12 +98,12 @@ public class OpenApplicationAppService(
             query = query.Where(item => item.ClientType == input.ClientType);
         }
 
-        var sorting = input.Sorting ?? "clientId asc";
-        var filteredItems = query.AsQueryable().OrderBy(sorting).ToList();
+        var filteredItems = query.AsQueryable().OrderBySorting(input.Sorting)
+            .ThenBy(item => item.ClientId, StringComparer.Ordinal).ToList();
         var totalCount = filteredItems.Count;
         var pagedItems = filteredItems
-            .Skip(Math.Max(input.Offset, 0))
-            .Take(Math.Max(input.Limit, 0))
+            .Skip(input.Offset)
+            .Take(input.Limit)
             .ToList();
 
         var outputItems = new List<OpenApplicationOutputDto>();
@@ -91,7 +112,7 @@ public class OpenApplicationAppService(
             outputItems.Add(await MapToOutputAsync(item.Application, cancellationToken));
         }
 
-        return new PagedResultDto<OpenApplicationOutputDto>(totalCount, outputItems);
+        return new PagedResult<OpenApplicationOutputDto>(totalCount, outputItems);
     }
 
     public async Task<OpenApplicationOutputDto> GetAsync(string id, CancellationToken cancellationToken = default)
@@ -105,17 +126,13 @@ public class OpenApplicationAppService(
         CancellationToken cancellationToken = default)
     {
         var clientId = input.ClientId.Trim();
-        if (string.IsNullOrWhiteSpace(clientId))
-        {
-            throw new BadRequestException("Client ID 不能为空");
-        }
-
         if (await applicationManager.FindByClientIdAsync(clientId, cancellationToken) != null)
         {
-            throw new BadRequestException($"Client ID 已存在: {clientId}");
+            throw new BusinessException(OpenAppErrorCodes.ClientIdTaken, $"Client ID already exists: {clientId}")
+                .WithData("ClientId", clientId);
         }
 
-        ValidateApplication(input.ApplicationType, input.ClientType, input.ConsentType, input.RedirectUris, input.PostLogoutRedirectUris, input.Requirements);
+        ValidateApplication(input.ApplicationType, input.ClientType, input.Requirements, input.Permissions);
 
         // Confidential 客户端：自动生成 Secret
         string? generatedSecret = null;
@@ -130,7 +147,7 @@ public class OpenApplicationAppService(
             DisplayName = string.IsNullOrWhiteSpace(input.DisplayName) ? null : input.DisplayName.Trim(),
             ApplicationType = input.ApplicationType,
             ClientType = input.ClientType,
-            ConsentType = input.ConsentType,
+            ConsentType = OpenIddictConstants.ConsentTypes.Implicit,
             ClientSecret = generatedSecret
         };
 
@@ -140,14 +157,20 @@ public class OpenApplicationAppService(
             input.PostLogoutRedirectUris,
             input.Permissions,
             input.Requirements);
-        descriptor.Properties[CreationTimePropertyName] = JsonSerializer.SerializeToElement(DateTimeOffset.UtcNow);
+        descriptor.Properties[OpenApplicationMappings.CreationTimePropertyName] = JsonSerializer.SerializeToElement(clock.Now);
+        descriptor.Settings[OpenApplicationSettings.SessionBound] = OpenApplicationSettings.Format(input.SessionBound!.Value);
 
         try
         {
             var application = await applicationManager.CreateAsync(descriptor, cancellationToken);
-            logger.LogInformation("创建开放应用成功 (ClientId: {ClientId})", clientId);
+            logger.LogInformation("Open application created (ClientId: {ClientId})", clientId);
 
             var output = await MapToOutputAsync(application, cancellationToken);
+            await operationRecorder.RecordSucceededAsync(
+                OperationRecordActions.OpenApplicationCreated,
+                OperationTarget.For(output.Id, output.DisplayName ?? output.ClientId),
+                PermissionConstant.OpenApplications.Create,
+                cancellationToken);
 
             // 创建时返回生成的 Secret（仅此一次）
             if (generatedSecret != null)
@@ -157,10 +180,10 @@ public class OpenApplicationAppService(
 
             return output;
         }
-        catch (OpenIddict.Abstractions.OpenIddictExceptions.ValidationException ex)
+        catch (OpenIddictExceptions.ValidationException ex)
         {
-            logger.LogWarning(ex, "OpenIddict 校验失败 (ClientId: {ClientId})", clientId);
-            throw new BadRequestException($"客户端创建失败：{ex.Message}");
+            logger.LogWarning(ex, "OpenIddict validation failed (ClientId: {ClientId})", clientId);
+            throw new BusinessException(OpenAppErrorCodes.CreateFailed, "The open application could not be created.", ex);
         }
     }
 
@@ -169,7 +192,7 @@ public class OpenApplicationAppService(
         UpdateOpenApplicationInputDto input,
         CancellationToken cancellationToken = default)
     {
-        ValidateApplication(input.ApplicationType, input.ClientType, input.ConsentType, input.RedirectUris, input.PostLogoutRedirectUris, input.Requirements);
+        ValidateApplication(input.ApplicationType, input.ClientType, input.Requirements, input.Permissions);
 
         var application = await FindRequiredAsync(id, cancellationToken);
         var descriptor = new OpenIddictApplicationDescriptor();
@@ -178,7 +201,7 @@ public class OpenApplicationAppService(
         descriptor.DisplayName = string.IsNullOrWhiteSpace(input.DisplayName) ? null : input.DisplayName.Trim();
         descriptor.ApplicationType = input.ApplicationType;
         descriptor.ClientType = input.ClientType;
-        descriptor.ConsentType = input.ConsentType;
+        descriptor.ConsentType = OpenIddictConstants.ConsentTypes.Implicit;
         if (input.ClientType == OpenIddictConstants.ClientTypes.Public)
         {
             descriptor.ClientSecret = null;
@@ -190,17 +213,37 @@ public class OpenApplicationAppService(
             input.PostLogoutRedirectUris,
             input.Permissions,
             input.Requirements);
+        // 只改模板自有的键，其余 Settings 原样保留
+        descriptor.Settings[OpenApplicationSettings.SessionBound] = OpenApplicationSettings.Format(input.SessionBound!.Value);
 
         await applicationManager.UpdateAsync(application, descriptor, cancellationToken);
-        logger.LogInformation("更新开放应用成功 (ID: {Id})", id);
-        return await GetAsync(id, cancellationToken);
+        logger.LogInformation("Open application updated (ID: {Id})", id);
+        // 管理器已把描述符写回手里的实例，用它构造输出，不再按 Id 回查
+        var output = await MapToOutputAsync(application, cancellationToken);
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.OpenApplicationUpdated,
+            OperationTarget.For(id, output.DisplayName ?? output.ClientId),
+            PermissionConstant.OpenApplications.Update,
+            cancellationToken);
+        return output;
     }
 
+    /// <remarks>删除幂等：不存在时直接成功，不写操作记录——什么也没删。</remarks>
     public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
     {
-        var application = await FindRequiredAsync(id, cancellationToken);
+        var application = await applicationManager.FindByIdAsync(id, cancellationToken);
+        if (application == null)
+            return;
+
+        // 名字在删除前取：删完再查什么都查不到，而审计要回答的正是"当时删掉的是哪一个"
+        var name = await GetTargetNameAsync(application, cancellationToken);
         await applicationManager.DeleteAsync(application, cancellationToken);
-        logger.LogInformation("删除开放应用成功 (ID: {Id})", id);
+        logger.LogInformation("Open application deleted (ID: {Id})", id);
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.OpenApplicationDeleted,
+            OperationTarget.For(id, name),
+            PermissionConstant.OpenApplications.Delete,
+            cancellationToken);
     }
 
     public async Task<ResetOpenApplicationSecretOutputDto> ResetSecretAsync(string id, CancellationToken cancellationToken = default)
@@ -209,12 +252,17 @@ public class OpenApplicationAppService(
         var clientType = await applicationManager.GetClientTypeAsync(application, cancellationToken);
         if (clientType != OpenIddictConstants.ClientTypes.Confidential)
         {
-            throw new BadRequestException("只有 Confidential 客户端可以重置密钥");
+            throw new BusinessException(OpenAppErrorCodes.SecretResetConfidentialOnly, "Only confidential clients can reset their secret.");
         }
 
         var clientSecret = GenerateClientSecret();
         await applicationManager.UpdateAsync(application, clientSecret, cancellationToken);
-        logger.LogInformation("重置开放应用密钥成功 (ID: {Id})", id);
+        logger.LogInformation("Open application secret reset (ID: {Id})", id);
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.OpenApplicationSecretReset,
+            OperationTarget.For(id, await GetTargetNameAsync(application, cancellationToken)),
+            PermissionConstant.OpenApplications.ResetSecret,
+            cancellationToken);
         return new ResetOpenApplicationSecretOutputDto { ClientSecret = clientSecret };
     }
 
@@ -223,90 +271,137 @@ public class OpenApplicationAppService(
         var application = await applicationManager.FindByIdAsync(id, cancellationToken);
         if (application == null)
         {
-            throw new NotFoundException($"开放应用不存在: {id}");
+            throw new BusinessException(OpenAppErrorCodes.NotFound, $"Open application not found: {id}")
+                .WithData("Id", id);
         }
 
         return application;
     }
 
+    /// <summary>操作记录的目标名：显示名，退到 Client ID；四个写操作同一套取值规则。</summary>
+    private async Task<string?> GetTargetNameAsync(object application, CancellationToken cancellationToken) =>
+        await applicationManager.GetDisplayNameAsync(application, cancellationToken)
+        ?? await applicationManager.GetClientIdAsync(application, cancellationToken);
+
+    /// <remarks><c>PopulateAsync</c> 一次填满除 <c>Id</c> 以外的全部字段，<c>Id</c> 经映射上下文传入。</remarks>
     private async Task<OpenApplicationOutputDto> MapToOutputAsync(object application, CancellationToken cancellationToken)
     {
-        var id = await applicationManager.GetIdAsync(application, cancellationToken);
-        var clientId = await applicationManager.GetClientIdAsync(application, cancellationToken);
-        var applicationType = await applicationManager.GetApplicationTypeAsync(application, cancellationToken);
-        var clientType = await applicationManager.GetClientTypeAsync(application, cancellationToken);
-        var consentType = await applicationManager.GetConsentTypeAsync(application, cancellationToken);
-        var redirectUris = await applicationManager.GetRedirectUrisAsync(application, cancellationToken);
-        var postLogoutRedirectUris = await applicationManager.GetPostLogoutRedirectUrisAsync(application, cancellationToken);
-        var permissions = await applicationManager.GetPermissionsAsync(application, cancellationToken);
-        var requirements = await applicationManager.GetRequirementsAsync(application, cancellationToken);
-        var settings = await applicationManager.GetSettingsAsync(application, cancellationToken);
-        var properties = await applicationManager.GetPropertiesAsync(application, cancellationToken);
         var descriptor = new OpenIddictApplicationDescriptor();
         await applicationManager.PopulateAsync(descriptor, application, cancellationToken);
+        var id = await applicationManager.GetIdAsync(application, cancellationToken);
 
-        return new OpenApplicationOutputDto
-        {
-            Id = id ?? string.Empty,
-            ClientId = clientId ?? string.Empty,
-            DisplayName = await applicationManager.GetDisplayNameAsync(application, cancellationToken),
-            ApplicationType = applicationType ?? OpenIddictConstants.ApplicationTypes.Web,
-            ClientType = clientType ?? OpenIddictConstants.ClientTypes.Public,
-            ConsentType = consentType ?? OpenIddictConstants.ConsentTypes.Explicit,
-            RedirectUris = redirectUris.Select(uri => uri.ToString()).ToList(),
-            PostLogoutRedirectUris = postLogoutRedirectUris.Select(uri => uri.ToString()).ToList(),
-            Permissions = permissions.ToList(),
-            Requirements = requirements.ToList(),
-            Settings = settings.ToDictionary(pair => pair.Key, pair => pair.Value),
-            Properties = properties.ToDictionary(pair => pair.Key, pair => pair.Value),
-            HasClientSecret = !string.IsNullOrEmpty(descriptor.ClientSecret),
-            CreationTime = GetCreationTime(properties)
-        };
+        return objectMapper.Map<OpenIddictApplicationDescriptor, OpenApplicationOutputDto>(
+            descriptor,
+            new Dictionary<string, object> { [OpenApplicationMappings.IdKey] = id ?? string.Empty });
     }
 
-    private static void ValidateApplication(
+    /// <inheritdoc />
+    public IReadOnlyList<OpenApplicationScopeOutputDto> GetScopes() =>
+        ScopeCatalog
+            .Select(scope => new OpenApplicationScopeOutputDto
+            {
+                Name = scope.Name,
+                DisplayName = scope.DisplayName,
+                Audience = !scope.MachineOnly && scope.Resources.Count == 1 ? scope.Resources[0] : null,
+                MachineOnly = scope.MachineOnly
+            })
+            .ToList();
+
+    /// <remarks>
+    /// 取值范围与回调地址格式由入参 DTO 校验；这里只判跨字段组合与依赖 scope 目录的规则。
+    /// Secret 由后端自动生成，不从前端传入，无需校验。
+    /// </remarks>
+    private void ValidateApplication(
         string applicationType,
         string clientType,
-        string consentType,
-        IReadOnlyCollection<string> redirectUris,
-        IReadOnlyCollection<string> postLogoutRedirectUris,
-        IReadOnlyCollection<string> requirements)
+        IReadOnlyCollection<string> requirements,
+        IReadOnlyCollection<string> permissions)
     {
-        if (!ApplicationTypes.Contains(applicationType))
-        {
-            throw new BadRequestException($"应用类型不支持: {applicationType}");
-        }
-
-        if (!ClientTypes.Contains(clientType))
-        {
-            throw new BadRequestException($"客户端类型不支持: {clientType}");
-        }
-
-        if (!ConsentTypes.Contains(consentType))
-        {
-            throw new BadRequestException($"同意类型不支持: {consentType}");
-        }
-
-        // Secret 由后端自动生成，不从前端传入，无需校验
-
         if ((applicationType == OpenIddictConstants.ApplicationTypes.Native || clientType == OpenIddictConstants.ClientTypes.Public) &&
             !requirements.Contains(PkceRequirement))
         {
-            throw new BadRequestException("Native/Public 客户端必须启用 PKCE");
+            throw new BusinessException(OpenAppErrorCodes.PkceRequired, "PKCE must be enabled for native/public clients.");
         }
 
-        foreach (var uri in redirectUris.Concat(postLogoutRedirectUris))
+        foreach (var permission in permissions.Where(x =>
+                     x.StartsWith(OpenIddictConstants.Permissions.Prefixes.Scope, StringComparison.Ordinal)))
         {
-            ValidateUri(uri);
+            var scopeName = permission[OpenIddictConstants.Permissions.Prefixes.Scope.Length..];
+            if (ScopeCatalog.Any(scope => scope.Name == scopeName))
+                continue;
+
+            throw new BusinessException(OpenAppErrorCodes.ScopeUnsupported, $"Unsupported scope permission: {permission}")
+                .WithData("Scope", permission);
+        }
+
+        ValidateMachineOnlyScopes(clientType, permissions);
+        if (permissions.Contains(OpenIddictConstants.Permissions.GrantTypes.TokenExchange) &&
+            (clientType != OpenIddictConstants.ClientTypes.Confidential ||
+             !permissions.Contains(OpenIddictConstants.Permissions.Endpoints.Token) ||
+             permissions.Any(HumanGrantPermissions.Contains)))
+            throw new BusinessException(OpenAppErrorCodes.ExchangeClientInvalid,
+                "Token Exchange requires a confidential service client with token permission and no user-facing grants.");
+        foreach (var permission in permissions.Where(permission => permission.StartsWith(OpenIddictConstants.Permissions.Prefixes.Audience, StringComparison.Ordinal)))
+        {
+            var audience = permission[OpenIddictConstants.Permissions.Prefixes.Audience.Length..];
+            if (!ScopeCatalog.SelectMany(scope => scope.Resources).Contains(audience))
+                throw new BusinessException(OpenAppErrorCodes.AudienceUnsupported, $"Unsupported audience: {audience}").WithData("Audience", audience);
         }
     }
 
-    private static void ValidateUri(string value)
+
+    /// <summary>内部控制面 scope 的四条组合约束。</summary>
+    /// <remarks>
+    /// 内部控制面 scope 只允许 confidential 客户端，并要求 <c>client_credentials</c>
+    /// 与 <c>ept:token</c> 权限；缺少任一项都无法从令牌端点取得该 scope。
+    /// 同一客户端不得启用用户授权流，避免混合机器与自然人的信任边界。
+    /// <c>applicationType=service</c> 仅为分类信息，不作为安全断言。
+    /// </remarks>
+    private void ValidateMachineOnlyScopes(
+        string clientType,
+        IReadOnlyCollection<string> permissions)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsWhiteSpace) ||
-            !Uri.TryCreate(value, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.Fragment))
+        var machineScopes = ScopeCatalog
+            .Where(scope => scope.MachineOnly)
+            .Select(scope => OpenIddictConstants.Permissions.Prefixes.Scope + scope.Name)
+            .Where(permissions.Contains)
+            .ToList();
+        if (machineScopes.Count == 0)
         {
-            throw new BadRequestException($"URI 不合法: {value}");
+            return;
+        }
+
+        var scopeList = string.Join(", ", machineScopes);
+
+        if (clientType != OpenIddictConstants.ClientTypes.Confidential)
+        {
+            throw new BusinessException(OpenAppErrorCodes.MachineScopeRequiresConfidential,
+                    $"Machine-only scopes ({scopeList}) require a confidential client.")
+                .WithData("Scopes", scopeList);
+        }
+
+        if (!permissions.Contains(OpenIddictConstants.Permissions.GrantTypes.ClientCredentials))
+        {
+            throw new BusinessException(OpenAppErrorCodes.MachineScopeRequiresClientCredentials,
+                    $"Machine-only scopes ({scopeList}) require the client_credentials grant type.")
+                .WithData("Scopes", scopeList);
+        }
+
+        if (!permissions.Contains(OpenIddictConstants.Permissions.Endpoints.Token))
+        {
+            throw new BusinessException(OpenAppErrorCodes.MachineScopeRequiresTokenEndpoint,
+                    $"Machine-only scopes ({scopeList}) require the token endpoint permission.")
+                .WithData("Scopes", scopeList);
+        }
+
+        var humanGrants = permissions.Where(HumanGrantPermissions.Contains).ToList();
+        if (humanGrants.Count > 0)
+        {
+            throw new BusinessException(OpenAppErrorCodes.MachineScopeRejectsUserGrants,
+                $"Machine-only scopes ({scopeList}) cannot be combined with user-facing grant " +
+                $"types ({string.Join(", ", humanGrants)}).")
+                .WithData("Scopes", scopeList)
+                .WithData("Grants", string.Join(", ", humanGrants));
         }
     }
 
@@ -342,40 +437,10 @@ public class OpenApplicationAppService(
         }
     }
 
-    private static DateTimeOffset GetCreationTime(IReadOnlyDictionary<string, JsonElement> properties)
-    {
-        if (!properties.TryGetValue(CreationTimePropertyName, out var value))
-        {
-            return DateTimeOffset.MinValue;
-        }
-
-        if (value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), out var dateTime))
-        {
-            return dateTime;
-        }
-
-        if (value.TryGetDateTimeOffset(out dateTime))
-        {
-            return dateTime;
-        }
-
-        return DateTimeOffset.MinValue;
-    }
-
     private static string GenerateClientSecret()
     {
         return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
     }
 
-    private class IntermediateAppDto
-    {
-        public required object Application { get; init; }
-        public required string ClientId { get; init; }
-        public string? DisplayName { get; init; }
-        public string? ApplicationType { get; init; }
-        public string? ClientType { get; init; }
-        public string? ConsentType { get; init; }
-        public DateTimeOffset CreationTime { get; init; }
-    }
 }
 #endif

@@ -1,10 +1,8 @@
-using Leistd.Auditing;
+using Leistd.Auditing.Abstractions;
 
 namespace Leistd.Ddd.Domain.Entities.Auditing;
 
-/// <summary>
-/// 删除审计实体基类（软删除，无主键）
-/// </summary>
+/// <summary>删除审计实体基类（软删除，无主键）。</summary>
 public abstract class DeletionAuditedEntity : ModificationAuditedEntity, IDeletionAuditedObject
 {
     /// <inheritdoc />
@@ -17,10 +15,8 @@ public abstract class DeletionAuditedEntity : ModificationAuditedEntity, IDeleti
     public virtual DateTime? DeletionTime { get; protected set; }
 }
 
-/// <summary>
-/// 删除审计实体基类（软删除，带主键）
-/// </summary>
-/// <typeparam name="TKey">主键类型</typeparam>
+/// <summary>删除审计实体基类（软删除，带主键）。</summary>
+/// <typeparam name="TKey">主键类型。</typeparam>
 public abstract class DeletionAuditedEntity<TKey> : ModificationAuditedEntity<TKey>, IDeletionAuditedObject
 {
     /// <inheritdoc />
@@ -33,17 +29,13 @@ public abstract class DeletionAuditedEntity<TKey> : ModificationAuditedEntity<TK
     public virtual DateTime? DeletionTime { get; protected set; }
 }
 
-/// <summary>
-/// 完整审计实体基类（创建+修改+删除，无主键）
-/// </summary>
+/// <summary>完整审计实体基类（创建、修改、删除，无主键）。</summary>
 public abstract class FullAuditedEntity : DeletionAuditedEntity, IFullAuditedObject
 {
 }
 
-/// <summary>
-/// 完整审计实体基类（创建+修改+删除，带主键）
-/// </summary>
-/// <typeparam name="TKey">主键类型</typeparam>
+/// <summary>完整审计实体基类（创建、修改、删除，带主键）。</summary>
+/// <typeparam name="TKey">主键类型。</typeparam>
 public abstract class FullAuditedEntity<TKey> : DeletionAuditedEntity<TKey>, IFullAuditedObject
 {
 }

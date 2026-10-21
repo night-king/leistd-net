@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- 契约套件对 Redis 的派生需要真实服务；没有服务时跳过而不是整体失败 -->
+    <PackageReference Include="Xunit.SkippableFact" />
+    <!-- 续期用例推进假时钟，不睡真实时间 -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\lock\Leistd.Lock.Memory\Leistd.Lock.Memory.csproj" />
+    <ProjectReference Include="..\..\..\..\components\lock\Leistd.Lock.Redis\Leistd.Lock.Redis.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,50 +1,102 @@
-import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Validators } from '@angular/forms';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
+import {
+  form,
+  required,
+  minLength,
+  maxLength,
+  email as emailValidator,
+  pattern,
+  FormField,
+} from '@angular/forms/signals';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
-import { MessageService } from 'primeng/api';
-import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
-import { InputTextModule } from 'primeng/inputtext';
-import { PasswordModule } from 'primeng/password';
-import { StyleClassModule } from 'primeng/styleclass';
-import { TooltipModule } from 'primeng/tooltip';
+//#if (IncludeLocalization)
+import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
+//#endif
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideEye, lucideEyeOff } from '@ng-icons/lucide';
+import { toast } from '@spartan-ng/brain/sonner';
+import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmFieldImports } from '@spartan-ng/helm/field';
+import { HlmInput } from '@spartan-ng/helm/input';
+import {
+  HlmInputGroup,
+  HlmInputGroupInput,
+  HlmInputGroupButton,
+} from '@spartan-ng/helm/input-group';
+import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
-import { ThemeService } from '../../../../core/services/theme-service';
-import { LogoComponent } from '../../../../shared/components/logo/logo';
-import { ThemeConfigurator } from '../../../../shared/components/theme-configurator/theme-configurator';
-import { CaptchaOutputDto, SecurityConfigOutputDto } from '../../models/account.dto';
+import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from '../../../../core/validation/password-rule';
+//#if (!IncludeLocalization)
+import { englishText } from '../../../../shared/utils/english-text';
+//#endif
 import { AccountService } from '../../services/account-service';
+//#if (Email)
+import { resendCountdown } from '../../utils/resend-countdown';
+//#endif
+import { CaptchaImage } from '../../widgets/captcha-image/captcha-image';
+//#if (ExternalLogin)
+import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
+//#endif
+import { PasswordLengthMeter } from '../../widgets/password-length-meter/password-length-meter';
+import { AuthShell } from '../auth-shell/auth-shell';
 
 @Component({
   selector: 'app-register',
   standalone: true,
   imports: [
-    CommonModule,
-    ReactiveFormsModule,
+    FormField,
     RouterModule,
-    CardModule,
-    InputTextModule,
-    PasswordModule,
-    ButtonModule,
-    StyleClassModule,
-    ThemeConfigurator,
-    LogoComponent,
-    TooltipModule
+    NgIcon,
+    HlmButton,
+    HlmInput,
+    HlmSpinner,
+    HlmInputGroup,
+    HlmInputGroupInput,
+    HlmInputGroupButton,
+    ...HlmFieldImports,
+    //#if (IncludeLocalization)
+    TranslocoDirective,
+    //#endif
+    AuthShell,
+    CaptchaImage,
+    PasswordLengthMeter,
+    //#if (ExternalLogin)
+    ExternalLoginButtons,
+    //#endif
+  ],
+  providers: [
+    provideIcons({
+      lucideEye,
+      lucideEyeOff,
+    }),
   ],
   templateUrl: './register.html',
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Register implements OnInit {
-  private fb = inject(FormBuilder);
   private accountService = inject(AccountService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  private messageService = inject(MessageService);
-  private destroyRef = inject(DestroyRef);
-  public themeService = inject(ThemeService);
+  //#if (IncludeLocalization)
+  private readonly transloco = inject(TranslocoService);
+  //#else
+  protected readonly t = englishText(ENGLISH);
+  //#endif
 
   // returnUrl：注册成功后跳转 login 时传递
   returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
@@ -52,221 +104,276 @@ export class Register implements OnInit {
   private _isLoading = signal(false);
   public readonly isLoading = this._isLoading.asReadonly();
 
-  public securityConfig = signal<SecurityConfigOutputDto | null>(null);
-  public captchaData = signal<CaptchaOutputDto | null>(null);
+  protected readonly showPassword = signal(false);
 
-  public countdown = signal(0);
-  private countdownIntervalId: ReturnType<typeof setInterval> | null = null;
+  /** 当前租户的注册摘要（登录入口选定的租户）；关闭自助注册时不给表单，只给说明。 */
+  private readonly securityConfigService = inject(SecurityConfigService);
+  protected readonly registrationOpen = this.securityConfigService.registrationOpen;
+//#if (Email)
+  protected readonly securityConfig = this.securityConfigService.config;
+//#endif
+  private readonly captcha = viewChild.required(CaptchaImage);
+
+//#if (Email)
+  readonly countdown = resendCountdown();
+  private readonly emailVerificationChallenge = signal<{
+    challengeId: string;
+    email: string;
+    expiresAt: number;
+  } | null>(null);
   private _isSendingEmailCode = signal(false);
   public readonly isSendingEmailCode = this._isSendingEmailCode.asReadonly();
 
-  registerForm = this.fb.group(
-    {
-      email: ['', [Validators.required, Validators.email, Validators.maxLength(256)]],
-      username: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(64), Validators.pattern(/^[a-zA-Z0-9_]+$/)]],
-      captchaCode: ['', [Validators.required, Validators.maxLength(10)]],
-      emailVerificationCode: [''],
-      password: ['', [Validators.required, Validators.pattern(/^(?=.*[a-zA-Z])(?=.*\d).{6,100}$/)]],
-      confirmPassword: ['', [Validators.required]]
-    },
-    { validators: this.passwordMatchValidator }
-  );
+//#endif
+  private readonly model = signal({
+    email: '',
+    username: '',
+    captchaCode: '',
+//#if (Email)
+    emailVerificationCode: '',
+//#endif
+    password: '',
+  });
 
+  readonly registerForm = form(this.model, (path) => {
+    required(path.email);
+    emailValidator(path.email);
+    maxLength(path.email, 256);
+    required(path.username);
+    // 长度与字符集共用一句提示，合成一条规则：分开校验会把同一句话报出几遍
+    pattern(path.username, /^[a-zA-Z0-9_]{3,64}$/, { error: { kind: 'usernamePattern' } });
+    required(path.captchaCode);
+    maxLength(path.captchaCode, 10);
+//#if (Email)
+    required(path.emailVerificationCode, {
+      when: () => this.securityConfig()?.enableEmailVerification === true,
+    });
+//#endif
+    required(path.password);
+    minLength(path.password, PASSWORD_MIN_LENGTH);
+    maxLength(path.password, PASSWORD_MAX_LENGTH);
+  });
+
+  // 用户名是否被用户手动编辑过（一旦手动改动，停止从邮箱自动推导）
   private usernameManuallyEdited = false;
+  // 最近一次自动推导写入的用户名，用于区分用户手动输入
+  private lastDerivedUsername = '';
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.clearCountdown());
+    // 从邮箱前缀自动推导 username，用户手动改过 username 后停止推导。
+    effect(() => {
+      const email = this.model().email;
+//#if (Email)
+      const challenge = this.emailVerificationChallenge();
+//#endif
+      untracked(() => {
+//#if (Email)
+        if (challenge && challenge.email !== this.normalizeEmail(email)) {
+          this.emailVerificationChallenge.set(null);
+          this.model.update((m) => ({ ...m, emailVerificationCode: '' }));
+          this.countdown.stop();
+        }
+
+//#endif
+        const currentUsername = this.model().username;
+
+        // 用户手动改动了 username（当前值既非空也不等于我们上次自动写入的值）
+        if (currentUsername && currentUsername !== this.lastDerivedUsername) {
+          this.usernameManuallyEdited = true;
+        }
+
+        if (this.usernameManuallyEdited || !email) {
+          return;
+        }
+
+        const usernamePart = email.split('@')[0];
+        if (usernamePart && usernamePart !== currentUsername) {
+          this.lastDerivedUsername = usernamePart;
+          this.model.update((m) => ({ ...m, username: usernamePart }));
+        }
+      });
+    });
   }
 
   ngOnInit() {
-    this.loadSecurityConfig();
-    this.refreshCaptcha();
-
-    // 监听 email 变化，自动推导 username
-    this.registerForm
-      .get('email')
-      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(email => {
-        if (!this.usernameManuallyEdited && email) {
-          const usernamePart = email.split('@')[0];
-          if (usernamePart) {
-            this.registerForm.get('username')?.setValue(usernamePart, { emitEvent: false });
-          }
-        }
-      });
-
-    // 监听 username 变化，标记是否手动修改
-    this.registerForm
-      .get('username')
-      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(val => {
-        if (val) {
-          this.usernameManuallyEdited = true;
-        }
-      });
+    // 进入注册页时取当前策略：开关与验证方式可能在别的页面读过之后被管理员改过
+    this.securityConfigService.refresh();
   }
-
-  passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
-    const password = control.get('password')?.value;
-    const confirmPassword = control.get('confirmPassword')?.value;
-
-    if (password && confirmPassword && password !== confirmPassword) {
-      control.get('confirmPassword')?.setErrors({ passwordMismatch: true });
-      return { passwordMismatch: true };
-    } else {
-      const errors = control.get('confirmPassword')?.errors;
-      if (errors) {
-        delete errors['passwordMismatch'];
-        if (Object.keys(errors).length === 0) {
-          control.get('confirmPassword')?.setErrors(null);
-        } else {
-          control.get('confirmPassword')?.setErrors(errors);
-        }
-      }
-      return null;
-    }
-  }
-
-  async loadSecurityConfig() {
-    try {
-      const config = await lastValueFrom(this.accountService.getSecurityConfig());
-      this.securityConfig.set(config);
-      if (config.enableEmailVerification) {
-        this.registerForm.get('emailVerificationCode')?.setValidators([Validators.required]);
-        this.registerForm.get('emailVerificationCode')?.updateValueAndValidity();
-      }
-    } catch (err) {
-      console.error('Failed to load security config', err);
-    }
-  }
-
-  async refreshCaptcha() {
-    try {
-      const captcha = await lastValueFrom(this.accountService.getCaptcha());
-      this.captchaData.set(captcha);
-      this.registerForm.get('captchaCode')?.setValue('');
-    } catch (err) {
-      console.error('Failed to refresh captcha', err);
-    }
-  }
+  //#if (Email)
 
   async sendEmailCode() {
-    const email = this.registerForm.get('email')?.value;
-    const captchaCode = this.registerForm.get('captchaCode')?.value;
-    const captchaToken = this.captchaData()?.captchaToken;
+    const { email, captchaCode } = this.model();
+    const captchaToken = this.captcha().token();
 
-    if (!email || this.registerForm.get('email')?.invalid) {
-      this.messageService.add({ severity: 'warn', summary: '提示', detail: '请先输入有效的邮箱' });
+    if (!email || this.registerForm.email().invalid()) {
+      //#if (IncludeLocalization)
+      toast.warning(this.transloco.translate('common.notice'), {
+        description: this.transloco.translate('account.register.emailRequired'),
+      });
+      //#else
+      toast.warning('Notice', { description: 'Please enter a valid email first' });
+      //#endif
       return;
     }
 
     if (!captchaCode || !captchaToken) {
-      this.messageService.add({ severity: 'warn', summary: '提示', detail: '请先输入图形验证码' });
+      //#if (IncludeLocalization)
+      toast.warning(this.transloco.translate('common.notice'), {
+        description: this.transloco.translate('account.register.captchaRequired'),
+      });
+      //#else
+      toast.warning('Notice', { description: 'Please enter the captcha first' });
+      //#endif
       return;
     }
 
     this._isSendingEmailCode.set(true);
     try {
-      await lastValueFrom(
+      const challenge = await lastValueFrom(
         this.accountService.sendEmailCode({
           email,
           captchaCode,
-          captchaToken
-        })
+          captchaToken,
+        }),
       );
-      this.messageService.add({ severity: 'success', summary: '成功', detail: '验证码已发送，请查收邮件' });
-      this.startCountdown();
-    } catch {
-      this.refreshCaptcha(); // 如果验证码错误，刷新图形验证码
+      this.emailVerificationChallenge.set({
+        challengeId: challenge.challengeId,
+        email: this.normalizeEmail(email),
+        expiresAt: Date.now() + challenge.expiresInSeconds * 1000,
+      });
+      //#if (IncludeLocalization)
+      toast.success(this.transloco.translate('common.success'), {
+        description: this.transloco.translate('account.register.emailCodeSent'),
+      });
+      //#else
+      toast.success('Success', { description: 'Verification code sent, please check your email' });
+      //#endif
+      this.countdown.start(challenge.retryAfterSeconds);
+    } catch (error) {
+      this.showRequestError(error);
+      void this.captcha().reload(); // 令牌只能用一次：失败后换一张
     } finally {
       this._isSendingEmailCode.set(false);
     }
   }
-
-  private startCountdown() {
-    this.clearCountdown();
-    this.countdown.set(60);
-    this.countdownIntervalId = setInterval(() => {
-      const current = this.countdown();
-      if (current <= 1) {
-        this.clearCountdown();
-      } else {
-        this.countdown.set(current - 1);
-      }
-    }, 1000);
-  }
-
-  private clearCountdown() {
-    if (this.countdownIntervalId) {
-      clearInterval(this.countdownIntervalId);
-      this.countdownIntervalId = null;
-    }
-    this.countdown.set(0);
-  }
+  //#endif
 
   async onSubmit() {
-    if (this.registerForm.invalid) {
-      this.registerForm.markAllAsTouched();
+    if (this.registerForm().invalid()) {
+      this.registerForm().markAsTouched();
       return;
     }
 
+    const formValue = this.model();
+    //#if (Email)
+
+    const emailVerificationEnabled = this.securityConfig()?.enableEmailVerification === true;
+    const challenge = this.emailVerificationChallenge();
+    if (
+      emailVerificationEnabled &&
+      (!challenge ||
+        challenge.email !== this.normalizeEmail(formValue.email) ||
+        challenge.expiresAt <= Date.now())
+    ) {
+      this.registerForm.emailVerificationCode().markAsTouched();
+      return;
+    }
+    //#endif
     this._isLoading.set(true);
     try {
-      const formValue = this.registerForm.value;
-      const captchaToken = this.captchaData()?.captchaToken;
+      const captchaToken = this.captcha().token();
 
       if (!captchaToken) {
-        this.messageService.add({ severity: 'error', summary: '错误', detail: '请刷新获取图形验证码' });
+        //#if (IncludeLocalization)
+        toast.error(this.transloco.translate('common.error'), {
+          description: this.transloco.translate('account.register.captchaTokenMissing'),
+        });
+        //#else
+        toast.error('Error', { description: 'Please refresh to get the captcha' });
+        //#endif
         return;
       }
 
       await lastValueFrom(
         this.accountService.register({
-          email: formValue.email!,
-          username: formValue.username!,
-          password: formValue.password!,
-          captchaCode: formValue.captchaCode!,
+          email: formValue.email,
+          username: formValue.username,
+          password: formValue.password,
+          captchaCode: formValue.captchaCode,
           captchaToken: captchaToken,
-          emailVerificationCode: formValue.emailVerificationCode || undefined
-        })
+//#if (Email)
+          emailVerification: emailVerificationEnabled
+            ? {
+                challengeId: challenge!.challengeId,
+                code: formValue.emailVerificationCode,
+              }
+            : undefined,
+//#endif
+        }),
       );
 
-      this.messageService.add({ severity: 'success', summary: '注册成功', detail: '账号创建成功，请登录' });
-      this.router.navigate(['/auth/login'], {
-        queryParams: this.returnUrl ? { returnUrl: this.returnUrl } : undefined
+      //#if (IncludeLocalization)
+      toast.success(this.transloco.translate('account.register.registerSuccess'), {
+        description: this.transloco.translate('account.register.registerSuccessDetail'),
       });
-    } catch {
-      this.refreshCaptcha();
+      //#else
+      toast.success('Account created', {
+        description: 'Account created successfully, please sign in',
+      });
+      //#endif
+      this.router.navigate(['/auth/login'], {
+        queryParams: this.returnUrl ? { returnUrl: this.returnUrl } : undefined,
+      });
+    } catch (error) {
+      this.showRequestError(error);
+      void this.captcha().reload();
     } finally {
       this._isLoading.set(false);
     }
   }
 
-  getFieldError(fieldName: string): string | null {
-    const field = this.registerForm.get(fieldName);
-    if (!field || !field.touched || !field.errors) {
-      return null;
-    }
-
-    if (field.errors['required']) {
-      return '此字段不能为空';
-    }
-    if (field.errors['email']) {
-      return '邮箱格式不正确';
-    }
-    if (field.errors['pattern'] && fieldName === 'username') {
-      return '只能包含字母、数字和下划线';
-    }
-    if (field.errors['pattern'] && fieldName === 'password') {
-      return '密码需 6 位以上，包含字母和数字';
-    }
-    if (field.errors['minlength']) {
-      const minLength = field.errors['minlength'].requiredLength;
-      return `至少需要 ${minLength} 个字符`;
-    }
-    if (field.errors['passwordMismatch']) {
-      return '两次输入的密码不一致';
-    }
-    return null;
+  private showRequestError(error: unknown): void {
+    //#if (IncludeLocalization)
+    toast.error(this.transloco.translate('common.requestError'), {
+      description: applicationErrorMessage(error),
+    });
+    //#else
+    toast.error('Request failed', { description: applicationErrorMessage(error) });
+    //#endif
   }
+  //#if (Email)
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+  //#endif
 }
+//#if (!IncludeLocalization)
+
+/** 不含本地化时的界面文案，与 `en.json` 同步。 */
+const ENGLISH: Record<string, string> = {
+  'account.register.title': 'Create your account',
+  'account.register.email': 'Email',
+  'account.register.emailPlaceholder': 'Enter your email address',
+  'account.register.username': 'Username',
+  'account.register.usernamePlaceholder':
+    'Extracted from email prefix, letters, digits and underscores allowed',
+  'account.captcha.label': 'Captcha',
+  'account.captcha.placeholder': 'Enter the captcha on the right',
+  'account.register.emailCode': 'Email Verification Code',
+  'account.register.emailCodePlaceholder': 'Enter the 6-digit code',
+  'account.register.resendCountdown': 'Resend in {{seconds}}s',
+  'account.register.sendCode': 'Get Code',
+  'account.register.password': 'Password',
+  'account.register.passwordPlaceholder': 'At least 12 characters',
+  'common.hidePassword': 'Hide password',
+  'common.showPassword': 'Show password',
+  'account.register.submit': 'Sign up',
+  'account.register.haveAccount': 'Already have an account?',
+  'account.register.loginNow': 'Sign in',
+  'account.register.closed': 'Self sign-up is not open here. Ask an administrator for an account.',
+  //#if (ExternalLogin)
+  'account.register.or': 'Or sign up with',
+  //#endif
+};
+//#endif

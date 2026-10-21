@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <!-- 桥接包：让通知按收件人的用户级设置决定投递，通知与设置两个组件都不必依赖对方 -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.Notifications.Core\Leistd.Notifications.Core.csproj" />
+    <ProjectReference Include="..\..\settings\Leistd.Settings.Core\Leistd.Settings.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Leistd.Notifications.Tests" />
+  </ItemGroup>
+
+</Project>

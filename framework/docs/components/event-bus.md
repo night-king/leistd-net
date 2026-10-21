@@ -1,8 +1,6 @@
 # 事件总线
 
-事件总线用于在应用内部以**发布/订阅**方式解耦业务逻辑：发布方只负责"发生了什么"（发布事件），不关心谁来响应；订阅方各自实现处理器，互不感知。典型场景包括：聚合根状态变更后触发副作用（发送通知、写审计日志、刷新缓存）、应用服务完成主流程后派发后续动作、把横切关注点从核心业务流程中剥离。
-
-Leistd 通过 `IEventBus` 抽象屏蔽底层实现，业务代码只依赖接口发布事件、只实现 `IEventHandler<TEvent>` 订阅事件。当前提供进程内（本地）实现 `Leistd.EventBus.Local`，可在不改调用代码的前提下平滑升级到未来的分布式实现。
+事件总线以发布/订阅解耦应用内部逻辑：发布方只声明「发生了什么」，订阅方实现 `IEventHandler<TEvent>` 各自响应、互不感知。`Leistd.EventBus.Local` 在发布方进程内同步消费。
 
 ## 何时使用
 
@@ -12,21 +10,17 @@ Leistd 通过 `IEventBus` 抽象屏蔽底层实现，业务代码只依赖接口
 | 仅编写业务代码（发布事件 / 实现处理器），不关心实现 | 只引用 `Leistd.EventBus.Core` 中的接口 |
 | 需要跨进程/跨服务投递（消息队列） | 当前分组未提供，需另选分布式总线 |
 
-> 本地事件总线在发布方的调用上下文中**同步等待**所有处理器执行完毕（详见[实现行为](#实现行为)），适合需要与发布方共享事务、即时反馈的场景，而非"发后即忘"的异步投递。
+默认情况下，发布方会等待所有处理器完成。活动工作单元中的本地事件则推迟到指定提交阶段。
 
 ## 安装
 
 ```bash
-# 抽象（业务代码引用；实现包已传递引用，通常无需单独添加）
 dotnet add package Leistd.EventBus.Core
 
-# 本地（进程内）实现
 dotnet add package Leistd.EventBus.Local
 ```
 
-> 本仓库的模板项目通过中央包管理（CPM）统一版本，添加时无需写版本号。
-
-## 配置 Provider
+## 注册
 
 在 `Program.cs` 注册本地事件总线：
 
@@ -34,45 +28,42 @@ dotnet add package Leistd.EventBus.Local
 builder.Services.AddLocalEventBus();
 ```
 
-`AddLocalEventBus` 以 **Singleton** 注册 `LocalEventBus`，并将同一实例同时绑定到 `IEventBus` 与 `ILocalEventBus`，注入任一接口都可发布事件。
+`AddLocalEventBus` 以 Singleton 注册 `LocalEventBus` 并绑定到 `ILocalEventBus`，发布方注入它。`IEventBus` 只是各类总线的共同基接口，不注册为服务。可重复调用，不会重复注册。
 
-事件处理器需**自行注册**（总线不做程序集扫描）。处理器在每次发布时通过独立 Scope 解析，因此 Scoped 注册可正常工作：
+事件处理器需自行注册（总线不做程序集扫描）。处理器在每次发布时通过独立 Scope 解析，因此 Scoped 注册可正常工作：
 
 ```csharp
-builder.Services.AddScoped<IEventHandler<OrderCreatedEvent>, OrderCreatedHandler>();
+builder.Services.AddScoped<IEventHandler<OrderPlacedEvent>, OrderPlacedHandler>();
 ```
 
 ## 使用
 
-发布方注入 `IEventBus`，发布一个事件对象：
+发布方注入 `ILocalEventBus`，发布一个事件对象：
 
 ```csharp
-public class OrderNotifier(IEventBus eventBus)
+public class OrderNotifier(ILocalEventBus eventBus)
 {
     public async Task NotifyPlacedAsync(string orderNo, CancellationToken ct = default)
     {
-        // —— 主业务流程完成后，发布事件解耦后续副作用 ——
         await eventBus.PublishAsync(new OrderPlacedEvent { OrderNo = orderNo }, ct);
     }
 }
 
-// 事件：继承 LocalEvent 自动获得 EventId / OccurredOn
 public class OrderPlacedEvent : LocalEvent
 {
     public string OrderNo { get; init; } = "";
 }
 ```
 
-> **应用层发布 vs 领域事件**：这里主动 `PublishAsync` 是**应用流程派发**的用法。若事件表达的是**聚合根状态变更**，采用 [DDD 四层基座](../ddd-struct/ddd-struct.md) 的项目推荐在实体内 `AddLocalEvent(...)`、随保存由拦截器自动发布，从而与工作单元/事务对齐——两者底层都走 `IEventBus`，按事件语义选择发布位置。
+DDD 项目中由聚合记录并随保存发布事件的组合方式见 [DDD 四层基座](../ddd-struct/ddd-struct.md)。
 
 订阅方实现 `IEventHandler<TEvent>` 并注册到 DI：
 
 ```csharp
-public class OrderCreatedHandler : IEventHandler<OrderCreatedEvent>
+public class OrderPlacedHandler : IEventHandler<OrderPlacedEvent>
 {
-    public Task HandleAsync(OrderCreatedEvent @event, CancellationToken cancellationToken = default)
+    public Task HandleAsync(OrderPlacedEvent @event, CancellationToken cancellationToken = default)
     {
-        // —— 响应事件：发通知 / 写日志 / 刷缓存 ——
         return Task.CompletedTask;
     }
 }
@@ -82,42 +73,46 @@ public class OrderCreatedHandler : IEventHandler<OrderCreatedEvent>
 
 ## 接口参考
 
-`Leistd.EventBus.Core` 命名空间：
+`Leistd.EventBus.Core` 包的 API 位于 `Leistd.EventBus.Abstractions`、`Leistd.EventBus.Events` 与 `Leistd.EventBus.EventHandlers`：
 
 | 成员 | 说明 |
 | --- | --- |
-| `IEventBus` | 事件总线统一接口，发布事件的定义方 |
-| `IEventBus.PublishAsync<TEvent>(@event, ct)` | 泛型发布，编译期确定事件类型，按 `TEvent` 解析处理器 |
+| `IEventBus` | 各类总线的共同基接口（发布方法的定义方）；不注册为服务，发布方注入具体的 `ILocalEventBus` |
+| `IEventBus.PublishAsync<TEvent>(@event, ct)` | 泛型发布；按运行时类型解析处理器 |
 | `IEventBus.PublishAsync(IEvent @event, ct)` | 非泛型发布，按事件运行时实际类型解析处理器 |
-| `ILocalEventBus : IEventBus` | 本地事件总线标记接口，表达"进程内事件"的依赖意图，无新增成员 |
+| `ILocalEventBus : IEventBus` | 进程内事件总线：提交后分发、不序列化；发布方注入它 |
 | `IEventHandler<in TEvent>` | 事件处理器接口（`TEvent : IEvent`），实现 `HandleAsync` 订阅事件 |
 | `IEvent` | 事件接口，含 `EventId`（Guid，用于幂等/追踪）与 `OccurredOn`（事件发生时间） |
 | `ILocalEvent : IEvent` | 本地事件标记接口 |
 | `BaseEvent : IEvent` | 事件抽象基类，构造时生成 `EventId`、设 `OccurredOn = DateTime.UtcNow`，标注 `[Serializable]` |
-| `LocalEvent : BaseEvent, ILocalEvent` | 本地事件抽象基类，业务事件通常继承它 |
+| `LocalEvent : BaseEvent, ILocalEvent` | 本地事件抽象基类，业务事件通常继承它；无参构造取系统当前时刻，`LocalEvent(occurredOn)` 用发布方给的时刻——发布方已从可替换的时间源（如 `IClock`）取了"现在"时用后者 |
 
 ## 实现行为
 
 ### Leistd.EventBus.Local（进程内本地总线）
 
-- `LocalEventBus` 以 **Singleton** 全局共享一个实例；每次发布时通过 `IServiceScopeFactory` 创建**独立 Scope** 再 `GetServices<IEventHandler<TEvent>>()` 解析处理器，因而处理器可安全注册为 Scoped。适用于 Web、Console、BackgroundService。
-- 处理器按解析顺序 `foreach` **串行 `await`**（非并行），且在发布方上下文中同步等待全部完成，不是后台异步投递。
-- **异常传播**：任一处理器抛异常时**直接向上抛出**并中断后续处理器（无内建 try/catch 包装、不吞异常），以保证调用方事务一致性。
-- 未解析到任何处理器时**静默返回**，不报错。
-- 泛型 `PublishAsync<TEvent>` 仅委托到非泛型 `PublishAsync(IEvent)`（两者同一实现路径，行为一致）；非泛型按事件运行时类型解析处理器，内部用 `ConcurrentDictionary` 缓存 `EventHandlerWrapperImpl<>` 以恢复泛型上下文。
+- 每次发布在独立 Scope 中解析 `IEventHandler<TEvent>`，处理器可注册为 Scoped。
+- 处理器按解析顺序串行 `await`（非并行），发布方等待全部完成，不是后台异步投递。
+- 所有处理器都会执行；单个失败原样抛出，多个失败包装为 `AggregateException`，取消异常不参与聚合。
+- 未解析到任何处理器时直接返回，不报错。
+- 泛型与非泛型重载都按事件运行时类型解析处理器。
 
-## 配置项 / Options
+## 与工作单元的关系
 
-当前无配置项：`AddLocalEventBus` 无参数，本地实现也未暴露 Options 类。
+`AddLocalEventBus` 除 `ILocalEventBus` 外还注册 `ILocalEventDispatcher`（同一个 `LocalEventBus` 实例）。两者分工：
+
+| 接口 | 谁用 | 行为 |
+| --- | --- | --- |
+| `ILocalEventBus` | 业务代码 | 发布前先问 `ILocalEventDeferrer`；有活动事务边界则**推迟入队**，否则立即分发 |
+| `ILocalEventDispatcher` | 实现事务边界的组件 | **绕过推迟**，立即分发。边界排空自己的待发队列时走这条 |
+| `ILocalEventDeferrer` | 由事务边界组件**实现** | 契约在本包，实现在工作单元组件；未注册实现时总线一律立即分发 |
+
+`ILocalEventDispatcher` 绕过推迟，避免工作单元排空事件时重新入队；处理器内新发布的事件仍会进入下一轮排空。
+
+> 替换默认本地总线时，在 `AddLocalEventBus()` 之前注册自定义 `ILocalEventBus`，并同时提供语义一致的 `ILocalEventDispatcher`，否则工作单元排空仍走默认实现。工作单元在有待发事件却取不到 `ILocalEventDispatcher` 时抛出。
 
 ## 注意事项
 
-- 处理器**不会自动注册**，必须显式 `AddScoped`/`AddTransient`/`AddSingleton` 注册 `IEventHandler<TEvent>`，否则发布时找不到处理器（静默返回，不报错）。
-- 本地总线为**同步语义**：处理器耗时直接计入发布方的调用时长；长耗时副作用应在处理器内部自行转为后台任务。
-- 处理器异常会抛回发布方并中断其余处理器；若需"尽力执行、互不影响"，请在处理器内部自行捕获异常。
-- 仅进程内有效，无跨进程/持久化能力；`ILocalEventBus` 与 `IEventBus` 当前指向同一 `LocalEventBus` 实例，进程重启不保留未处理事件。
-
-## 相关
-
-- [组件总览](./README.md)
-- [依赖注入](./dependency-injection.md)
+- 处理器不会自动注册，必须显式注册 `IEventHandler<TEvent>`，否则发布时找不到处理器且不报错。
+- 处理器耗时计入发布方的调用时长，长耗时副作用应转为后台任务。活动工作单元内的发布只入队并立即返回，处理器在工作单元完成时执行，见[与工作单元的关系](#与工作单元的关系)。
+- 仅进程内有效，无跨进程/持久化能力；进程重启不保留未处理事件。

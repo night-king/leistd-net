@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- 水位存储要在关系型 Provider 上验证：主键与只前进语义在 InMemory 下会静默通过 -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\background-jobs\Leistd.BackgroundJobs.InProcess\Leistd.BackgroundJobs.InProcess.csproj" />
+    <ProjectReference Include="..\..\..\..\components\background-jobs\Leistd.BackgroundJobs.EntityFrameworkCore\Leistd.BackgroundJobs.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\lock\Leistd.Lock.Memory\Leistd.Lock.Memory.csproj" />
+    <!-- 队列与关联标识、环境上下文的组合：失败日志要带上入队时的关联标识 -->
+    <ProjectReference Include="..\..\..\..\components\tracing\Leistd.Tracing.Core\Leistd.Tracing.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\security\Leistd.Security.Core\Leistd.Security.Core.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

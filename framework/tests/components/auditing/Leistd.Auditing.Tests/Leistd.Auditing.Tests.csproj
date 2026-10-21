@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- 审计只碰变更跟踪器，不依赖任何 Provider 特性；InMemory 足够且最快 -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\auditing\Leistd.Auditing.Core\Leistd.Auditing.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\auditing\Leistd.Auditing.EntityFrameworkCore\Leistd.Auditing.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

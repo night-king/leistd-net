@@ -2,8 +2,6 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,8 +9,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 续期、失锁通知与"失锁后不删别人的锁"是并发关键路径，必须有行为测试；
+         为 StackExchange.Redis 的 IDatabase 造 mock 需要实现两百余个成员，
+         这里改为让测试派生 RedisDistributedLock 覆写少量 internal 操作。 -->
+    <InternalsVisibleTo Include="Leistd.Lock.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="StackExchange.Redis" />
   </ItemGroup>
 

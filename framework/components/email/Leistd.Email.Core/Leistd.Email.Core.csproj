@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Leistd.Email</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 取 Leistd.Redaction.TextRedactor：未投递告警里的收件人先脱敏。
+         跨家族 Core → Core，被引用方同受"只依赖抽象"约束 -->
+    <ProjectReference Include="..\..\core\Leistd.Core\Leistd.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

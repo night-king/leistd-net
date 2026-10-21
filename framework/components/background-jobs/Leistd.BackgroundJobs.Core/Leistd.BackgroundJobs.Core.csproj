@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Leistd.BackgroundJobs</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    只放契约与注册描述：组件声明维护任务时只依赖这个包，调度器实现由宿主选
+    （进程内默认实现见 Leistd.BackgroundJobs.InProcess）。
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 进程内水位兜底的类型标记：进程内实现登记它，共享存储据此替换 -->
+    <InternalsVisibleTo Include="Leistd.BackgroundJobs.InProcess" />
+    <InternalsVisibleTo Include="Leistd.BackgroundJobs.EntityFrameworkCore" />
+  </ItemGroup>
+
+</Project>

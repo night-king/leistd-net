@@ -1,0 +1,9 @@
+{
+  "culture": "en",
+  "texts": {
+    "Permission:ConcurrencyConflict": "The permissions were changed by someone else. Reload and try again.",
+    "Permission:SubjectNotFound": "The role or user no longer exists.",
+    "Permission:UndefinedPermission": "These permissions do not exist or are disabled: {Names}.",
+    "Permission:SnapshotUnavailable": "Authorization data is temporarily unavailable. Please retry."
+  }
+}

@@ -1,0 +1,84 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="flex flex-col h-full overflow-hidden">
+    <div class="flex flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-6">
+      <!-- 左组用 flex-auto 而不是 flex-1：基准为 0 时左组总能挤进同一行、再在组内折行；
+         不写死基准宽度（中英文按钮宽度不同）。 -->
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div class="flex min-w-0 flex-auto flex-wrap items-center gap-3">
+          <hlm-input-group class="w-full sm:w-auto sm:max-w-xs sm:min-w-56 sm:flex-1">
+            <hlm-input-group-addon>
+              <ng-icon name="lucideSearch" />
+            </hlm-input-group-addon>
+            <input
+              hlmInputGroupInput
+              type="text"
+              [placeholder]="t('tenants.searchPlaceholder')"
+              [value]="searchQuery()"
+              (input)="onSearchQueryChange($any($event.target).value)"
+            />
+          </hlm-input-group>
+        </div>
+
+        <!-- 窄屏按钮用 flex-1 平分一行，两个 w-full 并排会把最左边的按钮推出屏幕。 -->
+        <div class="ml-auto flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+          <button
+            hlmBtn
+            variant="secondary"
+            class="flex-1 sm:flex-none"
+            (click)="reload()"
+            [hlmTooltip]="t('common.refresh')"
+          >
+            <ng-icon name="lucideRefreshCw" data-icon="inline-start" />
+            {{ t('common.refresh') }}
+          </button>
+          @if (canCreate()) {
+            <button hlmBtn variant="default" class="flex-1 sm:flex-none" (click)="openCreate()">
+              <ng-icon name="lucidePlus" data-icon="inline-start" />
+              {{ t('tenants.create') }}
+            </button>
+          }
+        </div>
+      </div>
+
+      <app-tenant-table
+        [tenants]="tenants()"
+        [totalCount]="totalCount()"
+        [pagination]="pagination()"
+        [loading]="loading()"
+        [filtered]="hasActiveFilters()"
+        [loadError]="loadError()"
+        (retry)="reload()"
+        [canUpdate]="canUpdate()"
+        [canDelete]="canDelete()"
+        <!--#if (Impersonation)-->
+        [canImpersonate]="canImpersonate()"
+        <!--#endif-->
+        (paginationChange)="onPaginationChange($event)"
+        (details)="openDetail($event)"
+        (edit)="openEdit($event)"
+        (toggleActive)="onToggleActive($event)"
+        <!--#if (Impersonation)-->
+        (impersonate)="onImpersonate($event)"
+        <!--#endif-->
+        (delete)="onDelete($event)"
+      />
+    </div>
+  </div>
+
+  <app-tenant-detail-dialog
+    [(open)]="detailDialogOpen"
+    [tenant]="detailTenant()"
+    [canManage]="canUpdate()"
+    (edit)="onDetailEdit($event)"
+  />
+
+  <app-tenant-edit-dialog
+    [(open)]="editDialogOpen"
+    [tenant]="editingTenant()"
+    (save)="onSave($event)"
+  />
+</ng-container>

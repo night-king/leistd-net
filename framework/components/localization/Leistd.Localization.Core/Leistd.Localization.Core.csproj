@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Leistd.Localization</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 仅依赖本地化抽象；具体 host（ASP.NET Core）由 .AspNetCore 层引入 -->
+    <PackageReference Include="Microsoft.Extensions.Localization.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 默认本地化资源随程序集嵌入（清单名如 Leistd.Localization.Core.Resources.en.json） -->
+    <EmbeddedResource Include="Resources\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 选项验证器随选项放在 Core，由 AspNetCore 的注册入口登记 -->
+    <InternalsVisibleTo Include="Leistd.Localization.AspNetCore" />
+  </ItemGroup>
+
+</Project>

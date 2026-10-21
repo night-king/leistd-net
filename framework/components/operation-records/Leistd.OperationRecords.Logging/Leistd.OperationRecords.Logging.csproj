@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.OperationRecords.Core\Leistd.OperationRecords.Core.csproj" />
+    <!-- 成功记录推迟到环境工作单元提交之后输出：复用工作单元的 AfterCommit 事件阶段 -->
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.Core\Leistd.UnitOfWork.Core.csproj" />
+    <ProjectReference Include="..\..\dependency-injection\Leistd.DependencyInjection\Leistd.DependencyInjection.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 提交后输出的处理器是 internal 实现；事件处理器由工作单元拦截器织入接口代理，代理程序集需要看到它 -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+    <InternalsVisibleTo Include="Leistd.OperationRecords.Tests" />
+  </ItemGroup>
+
+</Project>

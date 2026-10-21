@@ -1,29 +1,29 @@
-#if (IncludeIdentity)
+#if (LocalIdentity)
 using System.ComponentModel.DataAnnotations;
-using Leistd.Ddd.Application.Contracts.Dtos;
+using System.Diagnostics.CodeAnalysis;
+using Leistd.Data.Paging;
 
 namespace CompanyName.ProjectName.Application.OpenApplications.Dtos;
 
-/// <summary>
-/// 获取开放应用分页列表输入 DTO
-/// </summary>
-public record GetOpenApplicationPagedInputDto : PagedRequestDto
+/// <summary>获取开放应用分页列表输入 DTO。</summary>
+public record GetOpenApplicationPagedInputDto : PageRequest
 {
-    /// <summary>
-    /// 搜索关键字
-    /// </summary>
-    [Display(Name = "搜索关键字")]
-    [MaxLength(256, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
+    [AllowNull]
+    public override string Sorting
+    {
+        get => string.IsNullOrWhiteSpace(field) ? $"{nameof(OpenApplicationQueryItem.CreationTime)} desc" : field;
+        init;
+    }
+
+    /// <summary>搜索关键字。</summary>
+    [Display(Name = "Search keyword")]
+    [MaxLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
     public string? Keyword { get; init; }
 
-    /// <summary>
-    /// 应用类型
-    /// </summary>
+    /// <summary>应用类型。</summary>
     public string? ApplicationType { get; init; }
 
-    /// <summary>
-    /// 客户端类型
-    /// </summary>
+    /// <summary>客户端类型。</summary>
     public string? ClientType { get; init; }
 }
 #endif

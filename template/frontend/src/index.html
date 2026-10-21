@@ -1,47 +1,48 @@
 <!doctype html>
-<html lang="zh">
-
-<head>
-  <meta charset="utf-8">
-  <title>Template Project</title>
-  <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <!-- 在 Angular 启动前应用与 ThemeService 相同的主题偏好，避免首屏闪烁。 -->
-  <script>
-    (function () {
-      let mode = 'system';
-      try {
-        const stored = JSON.parse(localStorage.getItem('theme_config') || '{}');
-        if (stored.mode === 'light' || stored.mode === 'dark') {
-          mode = stored.mode;
+<!--#if (IncludeLocalization)-->
+<!-- 默认语言英语；运行时 LanguageService 会按 localStorage/切换更新 <html lang>。 -->
+<!--#else-->
+<!-- 界面语言英语。 -->
+<!--#endif-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Template Project</title>
+    <base href="/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <!-- 在 Angular 启动前应用与 ThemeService 相同的主题偏好，避免首屏闪烁。 -->
+    <script>
+      (function () {
+        let mode = 'system';
+        try {
+          const stored = JSON.parse(localStorage.getItem('theme_config') || '{}');
+          if (stored.mode === 'light' || stored.mode === 'dark') {
+            mode = stored.mode;
+          }
+        } catch {
+          localStorage.removeItem('theme_config');
         }
-      } catch {
-        localStorage.removeItem('theme_config');
-      }
 
-      const isDark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      document.documentElement.classList.toggle('dark', isDark);
-    })();
-  </script>
-</head>
-<body>
-  <app-root>
-    <!-- 初始加载状态 (HTML Shell)，在 Angular 启动前显示 -->
+        const isDark =
+          mode === 'dark' ||
+          (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', isDark);
+      })();
+    </script>
+  </head>
+  <body>
+    <app-root></app-root>
+    <!-- 放在 Angular host 外部，避免根组件创建时被提前清空。 -->
     <div
-      class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-surface-50 dark:bg-surface-950 transition-opacity duration-300 ease-in-out">
-      <!-- 
-          Spinner 样式:
-          - 边框底色: border-surface-200 (替代 border-gray-200/slate-800)
-          - 旋转条色: border-t-primary (替代 border-t-blue-600)
-        -->
+      id="preloader"
+      class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background transition-opacity duration-300 ease-in-out"
+    >
       <div
-        class="w-10 h-10 border-4 border-surface-200 dark:border-surface-700 border-t-primary rounded-full animate-spin">
-      </div>
-      <!-- 文字颜色: text-surface-500 (替代 text-gray-600/slate-400) -->
-      <span class="mt-4 text-sm font-medium text-surface-500">加载中...</span>
+        class="w-10 h-10 border-4 border-border border-t-primary rounded-full animate-spin"
+      ></div>
+      <!-- Splash 早于 Angular/i18n，固定使用英文。 -->
+      <span class="text-sm font-medium text-muted-foreground">Loading...</span>
     </div>
-  </app-root>
-</body>
-
+  </body>
 </html>

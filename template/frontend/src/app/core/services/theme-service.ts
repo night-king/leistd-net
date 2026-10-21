@@ -1,67 +1,46 @@
+import { BreakpointObserver } from '@angular/cdk/layout';
 import { isPlatformBrowser } from '@angular/common';
-import { afterNextRender, DestroyRef, PLATFORM_ID, computed, effect, inject, Injectable, signal } from '@angular/core';
-import { palette, updatePrimaryPalette, updateSurfacePalette, usePreset } from '@primeuix/themes';
-import Aura from '@primeuix/themes/aura';
-import Lara from '@primeuix/themes/lara';
-import Material from '@primeuix/themes/material';
-import Nora from '@primeuix/themes/nora';
-import type { PaletteDesignToken } from '@primeuix/themes/types';
+import { PLATFORM_ID, computed, effect, inject, Injectable, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 
 export const THEME_MODES = ['system', 'light', 'dark'] as const;
-export const THEME_PRESET_NAMES = ['Aura', 'Material', 'Lara', 'Nora'] as const;
-export const THEME_PRIMARY_NAMES = [
-  'emerald',
-  'green',
-  'lime',
-  'red',
-  'orange',
-  'amber',
-  'yellow',
-  'teal',
-  'cyan',
-  'sky',
-  'blue',
-  'indigo',
-  'violet',
-  'purple',
-  'fuchsia',
-  'pink',
-  'rose'
-] as const;
-export const THEME_SURFACE_NAMES = ['slate', 'gray', 'zinc', 'neutral', 'stone'] as const;
-
 export type ThemeMode = (typeof THEME_MODES)[number];
-export type ThemePresetName = (typeof THEME_PRESET_NAMES)[number];
-export type ThemePrimaryName = (typeof THEME_PRIMARY_NAMES)[number];
-export type ThemeSurfaceName = (typeof THEME_SURFACE_NAMES)[number];
-
-export const THEME_PRESETS = { Aura, Material, Lara, Nora } as const satisfies Record<ThemePresetName, unknown>;
 
 export interface ThemePreferences {
   mode: ThemeMode;
-  preset: ThemePresetName;
-  primary: ThemePrimaryName | null;
-  surface: ThemeSurfaceName | null;
 }
+
+const SYSTEM_DARK_QUERY = '(prefers-color-scheme: dark)';
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 const DEFAULT_THEME_PREFERENCES: ThemePreferences = {
   mode: 'system',
-  preset: 'Aura',
-  primary: null,
-  surface: null
 };
 
-function getPalette(name: ThemePrimaryName | ThemeSurfaceName): PaletteDesignToken {
-  return palette(`{${name}}`) as PaletteDesignToken;
-}
-
+/** 主题服务：管理亮/暗/跟随系统三态，切换 `<html>` 的 `.dark` class 并持久化；配色走 styles.css 的 CSS 变量。 */
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   static readonly STORAGE_KEY = 'theme_config';
 
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly systemDark = signal(false);
+  /**
+   * 系统暗色偏好。首个值同步给出（CDK 以当前匹配结果起头），之后的变化由 CDK 合并到下一轮任务里下发；
+   * 非浏览器环境下 CDK 的媒体查询恒不匹配。订阅随根注入器销毁。
+   */
+  private readonly systemDark = toSignal(
+    inject(BreakpointObserver)
+      .observe(SYSTEM_DARK_QUERY)
+      .pipe(map((state) => state.matches)),
+    { requireSync: true },
+  );
+  /** 系统"减少动效"偏好：开启时切换主题不播放过渡，直接换色。 */
+  private readonly reducedMotion = toSignal(
+    inject(BreakpointObserver)
+      .observe(REDUCED_MOTION_QUERY)
+      .pipe(map((state) => state.matches)),
+    { requireSync: true },
+  );
 
   private readonly preferencesState = signal<ThemePreferences>(this.loadPreferences());
 
@@ -70,11 +49,11 @@ export class ThemeService {
   readonly modeIcon = computed(() => {
     switch (this.mode()) {
       case 'light':
-        return 'pi pi-sun';
+        return 'lucideSun';
       case 'dark':
-        return 'pi pi-moon';
+        return 'lucideMoon';
       default:
-        return 'pi pi-desktop';
+        return 'lucideMonitor';
     }
   });
   readonly isDarkTheme = computed(() => {
@@ -83,9 +62,6 @@ export class ThemeService {
   });
 
   constructor() {
-    this.watchSystemTheme();
-    afterNextRender(() => this.applyThemePreferences(this.preferences()));
-
     effect(() => {
       const preferences = this.preferences();
       const isDark = this.isDarkTheme();
@@ -103,7 +79,11 @@ export class ThemeService {
     const modes: ThemeMode[] = ['light', 'system', 'dark'];
     const nextMode = modes[(modes.indexOf(this.mode()) + 1) % modes.length];
 
-    if (isPlatformBrowser(this.platformId) && document.startViewTransition) {
+    if (
+      isPlatformBrowser(this.platformId) &&
+      document.startViewTransition &&
+      !this.reducedMotion()
+    ) {
       document.startViewTransition(() => this.setMode(nextMode));
       return;
     }
@@ -112,27 +92,7 @@ export class ThemeService {
   }
 
   setMode(mode: ThemeMode): void {
-    this.preferencesState.update(preferences => ({ ...preferences, mode }));
-  }
-
-  updatePreferences(preferences: Partial<ThemePreferences>): void {
-    this.preferencesState.update(current => ({ ...current, ...preferences }));
-    this.applyThemePreferences(this.preferences());
-  }
-
-  private applyThemePreferences(preferences: ThemePreferences): void {
-    if (!isPlatformBrowser(this.platformId)) {
-      return;
-    }
-
-    usePreset(THEME_PRESETS[preferences.preset]);
-
-    if (preferences.primary) {
-      updatePrimaryPalette(getPalette(preferences.primary));
-    }
-    if (preferences.surface) {
-      updateSurfacePalette(getPalette(preferences.surface));
-    }
+    this.preferencesState.update((preferences) => ({ ...preferences, mode }));
   }
 
   private loadPreferences(): ThemePreferences {
@@ -148,35 +108,13 @@ export class ThemeService {
     try {
       const parsed = JSON.parse(storedPreferences) as Partial<ThemePreferences>;
       return {
-        mode: THEME_MODES.includes(parsed.mode as ThemeMode) ? (parsed.mode as ThemeMode) : DEFAULT_THEME_PREFERENCES.mode,
-        preset: THEME_PRESET_NAMES.includes(parsed.preset as ThemePresetName)
-          ? (parsed.preset as ThemePresetName)
-          : DEFAULT_THEME_PREFERENCES.preset,
-        primary:
-          parsed.primary === null || THEME_PRIMARY_NAMES.includes(parsed.primary as ThemePrimaryName)
-            ? (parsed.primary ?? null)
-            : DEFAULT_THEME_PREFERENCES.primary,
-        surface:
-          parsed.surface === null || THEME_SURFACE_NAMES.includes(parsed.surface as ThemeSurfaceName)
-            ? (parsed.surface ?? null)
-            : DEFAULT_THEME_PREFERENCES.surface
+        mode: THEME_MODES.includes(parsed.mode as ThemeMode)
+          ? (parsed.mode as ThemeMode)
+          : DEFAULT_THEME_PREFERENCES.mode,
       };
     } catch {
       localStorage.removeItem(ThemeService.STORAGE_KEY);
       return DEFAULT_THEME_PREFERENCES;
     }
-  }
-
-  private watchSystemTheme(): void {
-    if (!isPlatformBrowser(this.platformId)) {
-      return;
-    }
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const updateSystemTheme = (event: MediaQueryListEvent | MediaQueryList) => this.systemDark.set(event.matches);
-
-    updateSystemTheme(mediaQuery);
-    mediaQuery.addEventListener('change', updateSystemTheme);
-    this.destroyRef.onDestroy(() => mediaQuery.removeEventListener('change', updateSystemTheme));
   }
 }

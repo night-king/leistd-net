@@ -1,0 +1,151 @@
+{
+  "page": {
+    "title": "用户管理"
+  },
+  "filter": {
+    "allStatus": "全部状态",
+    "allEmailStatus": "全部邮箱状态",
+    "emailLabel": "邮箱状态",
+    "allRoles": "全部角色",
+    "searchPlaceholder": "搜索用户名 / 邮箱 / 显示名称..."
+  },
+  "actions": {
+    "newUser": "新建用户",
+    "manageRoles": "分配角色"
+  },
+  "status": {
+    "active": "启用",
+    "inactive": "禁用",
+    "emailVerified": "邮箱已验证",
+    "emailUnverified": "邮箱未验证",
+    "locked": "已锁定",
+    "lockedUntil": "锁定至 {{time}}",
+    "lockedIndefinitely": "已被锁定，需管理员解除"
+  },
+  "toast": {
+    "created": "用户创建成功",
+    "updated": "用户更新成功",
+    "enabled": "用户已启用",
+    "disabled": "用户已禁用",
+    "deleted": "用户已删除",
+    "passwordReset": "密码已重置",
+    "cannotDeleteSummary": "无法删除",
+    "cannotDeleteSuperAdmin": "系统内置超级管理员不允许删除",
+    "unlocked": "已解除锁定",
+    "twoFactorReset": "已重置两步验证"
+  },
+  "confirm": {
+    "enableMessage": "确定要启用用户 {{name}} 吗？",
+    "disableMessage": "确定要禁用用户 {{name}} 吗？",
+    "enableHeader": "确认启用",
+    "disableHeader": "确认禁用",
+    "deleteMessage": "确定要删除用户 {{name}} 吗？删除后该用户将无法继续登录。",
+    "deleteHeader": "确认删除",
+    "unlockMessage": "确定解除用户 {{name}} 的登录锁定吗？失败次数会一并清零。",
+    "unlockHeader": "确认解除锁定",
+    "resetTwoFactorMessage": "确定重置用户 {{name}} 的两步验证吗？该用户会在所有设备上退出登录，之后只凭密码即可登录。",
+    "resetTwoFactorHeader": "确认重置两步验证"
+  },
+  "table": {
+    "currentPageReport": "共 {{total}} 条",
+    "colUser": "用户",
+    "colEmail": "邮箱",
+    "colRole": "角色",
+    "colStatus": "状态",
+    "colLastLogin": "最近登录",
+    "colCreatedAt": "创建时间",
+    "colActions": "操作",
+    "emptyTitle": "暂无用户",
+    "emptyHint": "请创建新的用户",
+    "emptyFilteredTitle": "没有匹配的用户",
+    "emptyFilteredHint": "请调整搜索或筛选条件"
+  },
+  "popover": {
+    "noRoles": "暂无角色",
+    "rolesTitle": "角色",
+    "rolesTrigger": "查看 {{name}} 的全部角色（{{count}} 个）",
+    "filterRoles": "筛选角色",
+    "noMatchingRoles": "没有匹配的角色"
+  },
+  "tooltip": {
+    "disable": "禁用",
+    "enable": "启用",
+    "selfNoDisable": "不能禁用自己的账号",
+    "selfNoDelete": "不能删除自己的账号",
+    "superAdminNoManage": "系统内置超级管理员的这些操作只能由其本人进行",
+    "resetPassword": "重置密码",
+    "unlock": "解除锁定",
+    "resetTwoFactor": "重置两步验证",
+    "selfNoResetTwoFactor": "自己的两步验证请在“个人设置”里更换或停用"
+  },
+  "editDialog": {
+    "editHeader": "编辑用户",
+    "createHeader": "新建用户",
+    "createDescription": "填写账号资料，并设置初始角色与状态。",
+    "editDescription": "修改账号资料。角色与启用状态在用户列表中管理。",
+    "loading": "正在加载用户信息...",
+    "unnamedUser": "未命名用户",
+    "noEmail": "未设置邮箱",
+    "avatarHint": "PNG、JPG 或 WebP",
+    "avatarTooLargeSummary": "文件过大",
+    "avatarTooLargeDetail": "图片不能超过 10 MB",
+    "avatarBadTypeSummary": "格式不支持",
+    "avatarBadTypeDetail": "请上传 PNG、JPG 或 WEBP 图片",
+    "usernameLabel": "用户名",
+    "usernamePlaceholder": "请输入用户名",
+    "emailLabel": "邮箱",
+    "emailPlaceholder": "请输入邮箱",
+    "displayNameLabel": "显示名称",
+    "displayNamePlaceholder": "请输入显示名称",
+    "passwordLabel": "初始密码",
+    "passwordPlaceholder": "至少 12 位",
+    "passwordRequired": "请输入初始密码",
+    "rolesLabel": "角色",
+    "rolesPlaceholder": "请选择角色",
+    "activeTitle": "启用用户",
+    "activeHint": "禁用后用户无法登录和调用受保护接口",
+    "emailVerifiedTitle": "邮箱已验证",
+    "emailVerifiedHint": "标记该邮箱已确认归本人所有",
+    "avatarDecodeFailed": "无法读取这张图片，请换一张试试"
+  },
+  "resetDialog": {
+    "header": "重置用户密码",
+    "warning": "重置后用户需要使用新密码登录。",
+    "ruleHint": "密码至少 12 位，最长 256 位。更长的口令短语比短而复杂的密码更安全。",
+    "newPasswordLabel": "新密码",
+    "newPasswordPlaceholder": "请输入新密码",
+    "confirmButton": "确认重置"
+  },
+  "rolesDialog": {
+    "title": "角色 · {{name}}",
+    "description": "用户会继承所选角色的全部权限。",
+    "saved": "角色已更新"
+  },
+  "batch": {
+    "toolbar": "批量操作",
+    "selected": "已选 {{count}} 位",
+    "enable": "启用",
+    "disable": "停用",
+    "unlock": "解锁",
+    "assignRoles": "追加角色",
+    "clear": "取消选择",
+    "selectAll": "选择本页全部用户",
+    "selectRow": "选择 {{name}}",
+    "enableHeader": "启用用户",
+    "enableMessage": "确定启用选中的 {{count}} 位用户？",
+    "disableHeader": "停用用户",
+    "disableMessage": "确定停用选中的 {{count}} 位用户？停用后他们会被登出且无法登录。",
+    "unlockHeader": "解锁用户",
+    "unlockMessage": "确定解锁选中的 {{count}} 位用户？登录失败次数也会清零。",
+    "allSucceeded": "已处理 {{count}} 位用户。",
+    "partial": "成功 {{succeeded}} 位，失败 {{failed}} 位",
+    "rolesTitle": "为 {{count}} 位用户追加角色",
+    "rolesDescription": "选中的角色会追加给这些用户，已有的角色保持不变。",
+    "assign": "追加角色"
+  },
+  "reauth": {
+    "update": "修改他人的登录邮箱或验证状态，需要先确认是你本人。",
+    "resetPassword": "重置他人的密码，需要先确认是你本人。",
+    "resetTwoFactor": "重置他人的两步验证，需要先确认是你本人。"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "culture": "zh-CN",
+  "texts": {
+    "Setting:BooleanRequired": "「{Value}」不是布尔值，请用 true 或 false。",
+    "Setting:EmptyValueRejected": "「{Name}」不接受空值；要恢复默认请清除该项，而不是留空。",
+    "Setting:HostOnly": "「{Name}」作用于整个系统，只能在宿主下修改。",
+    "Setting:IdentityCannotOperate": "当前身份不能修改个人设置。",
+    "Setting:IntegerRequired": "「{Name}」必须是整数。",
+    "Setting:NotAvailable": "设置「{Name}」不可用。",
+    "Setting:ScopeNotAllowed": "「{Name}」不能在这一层修改。",
+    "Setting:Undefined": "设置「{Name}」不存在。",
+    "Setting:ValueNotAllowed": "「{Value}」不是可选值。可选：{Allowed}。",
+    "Setting:ValueOutOfRange": "「{Name}」必须是 {Minimum} 到 {Maximum} 之间的整数。"
+  }
+}

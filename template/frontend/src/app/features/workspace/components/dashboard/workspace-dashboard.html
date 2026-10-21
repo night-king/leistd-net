@@ -1,37 +1,364 @@
-<div class="p-4 md:p-6">
-  <p-card>
-    <ng-template pTemplate="header">
-      <div class="px-6 pt-6">
-        <h2 class="text-2xl font-bold m-0 text-color">工作台</h2>
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="relative isolate flex flex-col gap-8 p-4 sm:p-6">
+    <!-- 欢迎区背后的淡光晕：只在顶部这一块，数据区不用装饰（规范见 frontend-ui.md） -->
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-75 bg-[radial-gradient(600px_220px_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_70%)]"
+    ></div>
+    <div class="mx-auto flex w-full max-w-2xl flex-col items-center gap-4 pt-4 text-center">
+      <h2 class="text-2xl font-semibold tracking-tight">
+        @switch (greetingPart()) {
+          @case ('morning') {
+            {{ t('workspace.dashboard.greeting.morning', { name: userName() }) }}
+          }
+          @case ('afternoon') {
+            {{ t('workspace.dashboard.greeting.afternoon', { name: userName() }) }}
+          }
+          @default {
+            {{ t('workspace.dashboard.greeting.evening', { name: userName() }) }}
+          }
+        }
+      </h2>
+      <!-- 命令框（参照 E）：整张卡就是一个大搜索框，常用动作以胶囊放在框内；搜索行本身不带边框，
+           避免框中套框。搜索与胶囊是兄弟元素，不嵌套交互元素；这一页顶栏不再显示搜索入口 -->
+      <div
+        hlmCard
+        class="w-full gap-3 px-3 pt-2 pb-3 text-start shadow-md"
+        data-testid="workbench-composer"
+      >
+        <button
+          type="button"
+          class="text-muted-foreground focus-visible:ring-ring/50 flex h-11 w-full cursor-text items-center gap-3 rounded-md px-2 text-base outline-none focus-visible:ring-[3px]"
+          data-testid="workbench-search"
+          (click)="commandPalette.open()"
+        >
+          <ng-icon name="lucideSearch" class="text-lg" />
+          {{ t('workspace.dashboard.search') }}
+          <kbd hlmKbd class="ms-auto">⌘K</kbd>
+        </button>
+        @if (quickActions().length) {
+          <div class="flex flex-wrap gap-2 px-1">
+            @for (action of quickActions(); track action.label) {
+              <a hlmBtn variant="outline" size="sm" [routerLink]="action.route">
+                <ng-icon [name]="action.icon" data-icon="inline-start" />
+                {{ t(action.label) }}
+              </a>
+            }
+          </div>
+        }
       </div>
-    </ng-template>
-    <div class="px-6 pb-6">
-      @if (authService.currentUser(); as user) {
-        <div class="space-y-3">
-          <div class="flex items-center gap-3">
-            <span class="text-muted-color w-20">用户名</span>
-            <span class="font-medium text-color">{{ user.username }}</span>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <!--#if (LocalIdentity)-->
+      <div class="flex min-w-0 flex-col gap-6 lg:col-span-2">
+      <!--#else-->
+      <div class="flex min-w-0 flex-col gap-6 lg:col-span-3">
+      <!--#endif-->
+        <section class="flex flex-col gap-3" data-testid="workbench-continue">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold">{{ t('workspace.dashboard.continue.title') }}</h3>
+            <span class="text-muted-foreground text-xs">{{
+              t('workspace.dashboard.continue.note')
+            }}</span>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-muted-color w-20">昵称</span>
-            <span class="font-medium text-color">{{ user.nickname || '-' }}</span>
+          <!-- 示例卡（参照 E）：上半是带序列色渐变的封面、图标居中，下半标题与"示例"标签同行靠右；
+               手机上封面收成左侧方块，三张卡不占满一屏。不读数据，下游项目换成自己最近处理的业务对象 -->
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            @for (item of continueExamples; track item.title) {
+              <a
+                hlmCard
+                size="sm"
+                routerLink="/workspace/placeholder"
+                class="hover:ring-foreground/20 flex-row items-center gap-0 py-0 transition-shadow sm:flex-col sm:items-stretch"
+              >
+                <span
+                  class="bg-muted flex size-16 shrink-0 items-center justify-center bg-linear-135 to-transparent sm:h-24 sm:w-full"
+                  [class]="item.tone"
+                >
+                  <ng-icon [name]="item.icon" class="text-2xl sm:text-3xl" />
+                </span>
+                <span class="flex min-w-0 flex-1 flex-col gap-0.5 px-4 py-3">
+                  <span class="flex items-center gap-2">
+                    <span class="truncate font-medium">{{ t(item.title) }}</span>
+                    <span hlmBadge variant="secondary" class="ms-auto">{{
+                      t('workspace.dashboard.continue.example')
+                    }}</span>
+                  </span>
+                  <span class="text-muted-foreground truncate text-xs">{{ t(item.hint) }}</span>
+                </span>
+              </a>
+            }
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-muted-color w-20">邮箱</span>
-            <span class="font-medium text-color">{{ user.email || '-' }}</span>
-          </div>
-          <div class="flex items-center gap-3">
-            <span class="text-muted-color w-20">角色</span>
-            <div class="flex gap-1">
-              @for (role of user.roles; track role) {
-                <p-tag [value]="role | roleLabel" severity="info" />
+        </section>
+
+        <!-- 横排卡片、标签单行：列数按卡片最小宽度（13rem）自动排，下限按图标、间距与最长的英文标签
+             （Account & security）核算，宽屏 3 + 2、手机单列；更长的语言在窄卡上截断，截断时悬停或聚焦给出全文
+             （规则见 docs/standards/frontend-navigation.md §2） -->
+        <section class="flex flex-col gap-3" data-testid="workbench-shortcuts">
+          <h3 class="text-sm font-semibold">{{ t('workspace.dashboard.shortcuts.title') }}</h3>
+          <nav
+            class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3"
+            [attr.aria-label]="t('workspace.dashboard.shortcuts.title')"
+          >
+            @for (link of shortcuts(); track link.route + link.label) {
+              <a
+                hlmCard
+                size="sm"
+                class="hover:ring-foreground/20 transition-shadow"
+                [routerLink]="link.route"
+                [hlmTooltip]="t(link.label)"
+                [appTruncatedTooltip]="label"
+              >
+                <div hlmCardContent class="flex min-w-0 items-center gap-3">
+                  <span
+                    class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
+                  >
+                    <ng-icon [name]="link.icon" />
+                  </span>
+                  <span #label class="truncate text-sm font-medium">{{ t(link.label) }}</span>
+                </div>
+              </a>
+            }
+          </nav>
+        </section>
+        <!--#if (IncludeNotifications)-->
+
+        <section hlmCard data-testid="workbench-notifications">
+          <div hlmCardHeader>
+            <h3 hlmCardTitle class="flex items-center gap-2">
+              {{ t('workspace.dashboard.notifications.title') }}
+              @if (notificationService.unreadCount(); as unread) {
+                <span hlmBadge variant="secondary" data-testid="workbench-unread-count">{{
+                  unread | appNumber: 'integer' : displayLocale()
+                }}</span>
               }
+            </h3>
+          </div>
+          <div hlmCardContent>
+            @if (recentNotifications().length) {
+              <!-- 与铃铛面板共用一行的排版：工作台是最近几条的摘要，只看与展开（点开或展开即标已读）；
+                   全部标为已读、删除与清空属于整理收件箱，统一在顶栏的铃铛面板 -->
+              <ul class="-mx-3 flex flex-col gap-0.5">
+                @for (notification of recentNotifications(); track notification.id) {
+                  <li>
+                    <app-notification-item
+                      [notification]="notification"
+                      [icon]="notificationService.getIcon(notification.type)"
+                      [expanded]="expandedNotifications().has(notification.id)"
+                      (expandedChange)="toggleNotification(notification)"
+                      (opened)="openNotification(notification)"
+                    >
+                      <app-relative-time-label
+                        notificationTime
+                        [instant]="notification.creationTime"
+                        [now]="now()"
+                        [timeZone]="timeZone()"
+                        [locale]="displayLocale()"
+                      />
+                    </app-notification-item>
+                  </li>
+                }
+              </ul>
+            } @else if (notificationService.loadFailed()) {
+              <div class="flex flex-col items-center gap-2 py-6 text-sm" role="alert">
+                <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+                <button
+                  hlmBtn
+                  variant="outline"
+                  size="sm"
+                  (click)="notificationService.loadNotifications()"
+                >
+                  {{ t('common.retry') }}
+                </button>
+              </div>
+            } @else if (notificationService.loading()) {
+              <div class="flex flex-col gap-3" aria-busy="true">
+                @for (placeholder of [1, 2, 3]; track placeholder) {
+                  <hlm-skeleton class="h-5 w-full" />
+                }
+              </div>
+            } @else {
+              <p class="text-muted-foreground py-6 text-center text-sm">
+                {{ t('workspace.dashboard.notifications.empty') }}
+              </p>
+            }
+          </div>
+        </section>
+        <!--#endif-->
+      </div>
+      <!--#if (LocalIdentity)-->
+
+      <div class="flex min-w-0 flex-col gap-6">
+        <section hlmCard data-testid="workbench-security">
+          <div hlmCardHeader>
+            <h3 hlmCardTitle>{{ t('workspace.dashboard.security.title') }}</h3>
+            @if (twoFactor()) {
+              <div hlmCardAction>
+                @if (securityPassed()) {
+                  <span hlmBadge appStatusDot variant="success">{{
+                    t('workspace.dashboard.security.passed')
+                  }}</span>
+                } @else {
+                  <span hlmBadge appStatusDot variant="warning">{{
+                    t('workspace.dashboard.security.suggested')
+                  }}</span>
+                }
+              </div>
+            }
+          </div>
+          <div hlmCardContent class="flex flex-col gap-4">
+            @if (twoFactor()) {
+              <!-- 完成度圆环：通过项 / 总项；圆周长取 2πr，r = 15.9155 时周长为 100，便于按百分比画 -->
+              @let progress = securityProgress();
+              <div class="flex items-center gap-4" data-testid="workbench-security-progress">
+                <svg viewBox="0 0 36 36" class="size-16 shrink-0 -rotate-90" aria-hidden="true">
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9155"
+                    fill="none"
+                    class="stroke-muted"
+                    stroke-width="3.5"
+                  />
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9155"
+                    fill="none"
+                    stroke-width="3.5"
+                    stroke-linecap="round"
+                    [class]="securityPassed() ? 'stroke-success' : 'stroke-warning'"
+                    [attr.stroke-dasharray]="(progress.done / progress.total) * 100 + ' 100'"
+                  />
+                </svg>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-xl font-semibold tabular-nums"
+                    >{{ progress.done }} / {{ progress.total }}</span
+                  >
+                  <span class="text-muted-foreground text-xs">{{
+                    t('workspace.dashboard.security.progress', {
+                      done: progress.done,
+                      total: progress.total,
+                    })
+                  }}</span>
+                </div>
+              </div>
+              <ul class="flex flex-col gap-3 text-sm">
+<!--#if (Email)-->
+                <li class="flex items-center gap-2">
+                  @if (securityChecks().emailVerified) {
+                    <ng-icon name="lucideCheck" class="text-success" />
+                    {{ t('workspace.dashboard.security.emailVerified') }}
+                  } @else {
+                    <ng-icon name="lucideTriangleAlert" class="text-warning" />
+                    <span class="min-w-0 flex-1 truncate">{{
+                      t('workspace.dashboard.security.emailUnverified')
+                    }}</span>
+                    <a hlmBtn variant="outline" size="sm" routerLink="/workspace/settings/profile">
+                      {{ t('workspace.dashboard.security.fix') }}
+                    </a>
+                  }
+                </li>
+<!--#endif-->
+                <li class="flex items-center gap-2">
+                  @if (securityChecks().twoFactorEnabled) {
+                    <ng-icon name="lucideCheck" class="text-success" />
+                    {{ t('workspace.dashboard.security.twoFactorOn') }}
+                  } @else {
+                    <ng-icon name="lucideTriangleAlert" class="text-warning" />
+                    <span class="min-w-0 flex-1 truncate">{{
+                      t('workspace.dashboard.security.twoFactorOff')
+                    }}</span>
+                    <a hlmBtn size="sm" routerLink="/workspace/settings/security">
+                      {{ t('workspace.dashboard.security.fix') }}
+                    </a>
+                  }
+                </li>
+              </ul>
+            } @else if (twoFactorFailed()) {
+              <div class="flex flex-col items-center gap-2 py-4 text-sm" role="alert">
+                <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+                <button hlmBtn variant="outline" size="sm" (click)="loadTwoFactor()">
+                  {{ t('common.retry') }}
+                </button>
+              </div>
+            } @else {
+              <div class="flex flex-col gap-3" aria-busy="true">
+                <hlm-skeleton class="h-5 w-full" />
+                <hlm-skeleton class="h-5 w-full" />
+              </div>
+            }
+          </div>
+        </section>
+
+        <section hlmCard data-testid="workbench-devices">
+          <div hlmCardHeader>
+            <h3 hlmCardTitle>{{ t('workspace.dashboard.devices.title') }}</h3>
+            <div hlmCardAction>
+              <a
+                hlmBtn
+                variant="ghost"
+                size="sm"
+                class="text-muted-foreground -my-1 text-xs"
+                routerLink="/workspace/settings/security"
+              >
+                {{ t('workspace.dashboard.devices.manage') }}
+              </a>
             </div>
           </div>
-        </div>
-      } @else {
-        <p class="text-muted-color">未获取到用户信息</p>
-      }
+          <div hlmCardContent>
+            @if (sessions()) {
+              <ul class="flex flex-col divide-y">
+                @for (row of deviceRows(); track row.id) {
+                  <li class="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                    <span
+                      class="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md"
+                    >
+                      <ng-icon [name]="row.icon" />
+                    </span>
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span class="truncate text-sm font-medium">{{
+                        row.device || t('workspace.dashboard.devices.unknown')
+                      }}</span>
+                      <app-relative-time-label
+                        class="text-muted-foreground text-xs"
+                        [instant]="row.lastSeenTime"
+                        [now]="now()"
+                        [timeZone]="timeZone()"
+                        [locale]="displayLocale()"
+                      />
+                    </div>
+                    @if (row.isCurrent) {
+                      <span hlmBadge appStatusDot variant="success">{{
+                        t('workspace.dashboard.devices.current')
+                      }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            } @else if (sessionsFailed()) {
+              <div class="flex flex-col items-center gap-2 py-4 text-sm" role="alert">
+                <span class="text-muted-foreground">{{ t('common.loadFailed') }}</span>
+                <button hlmBtn variant="outline" size="sm" (click)="loadSessions()">
+                  {{ t('common.retry') }}
+                </button>
+              </div>
+            } @else {
+              <div class="flex flex-col gap-3" aria-busy="true">
+                @for (placeholder of [1, 2, 3]; track placeholder) {
+                  <hlm-skeleton class="h-8 w-full" />
+                }
+              </div>
+            }
+          </div>
+        </section>
+      </div>
+      <!--#endif-->
     </div>
-  </p-card>
-</div>
+  </div>
+</ng-container>

@@ -1,15 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  框架测试覆盖率配置（P8 骨架）。
-  - 收集器：coverlet.collector（cobertura 格式），配合 dotnet test 的 XPlat Code Coverage 收集器。
-  - 排除：接口/DTO/marker、生成代码、测试项目自身。
-  - 阈值策略（分层，见 docs/assessments 单测评估）：
-      Tier A（UnitOfWork.Core / Exception.* / Security.Core / Auditing.EfCore /
-              DI.DynamicProxy / Tracing.Core）目标 95% 行 / 90% 分支；
-      Tier B 其余有逻辑组件 80% / 70%；Tier C（接口/DTO）不设门槛。
-    骨架阶段：此处不启用全局 fail-under（否则当前稀疏覆盖会全红挡住 CI）。
-    待各家族 P0 测试补齐后，再在 CI 的覆盖率汇总步骤按分层启用 fail-under。
-    分层阈值的启用点是 CI（reportgenerator + 阈值校验脚本），不是本文件的全局 Threshold。
+  框架测试覆盖率配置：**按需体检工具，不是 CI 门禁**。
+
+  这里刻意不设 fail-under，CI 也不收集覆盖率。理由见
+  docs/framework/development-guide.md §7.4：覆盖率是体检指标，不是目标——
+  设了固定门槛就会诱导为数字补测试，而这个仓库里最该补的那类（失败路径、
+  注册面、可翻译性）恰恰不是靠百分比找出来的，靠的是公共 API 对账。
+
+  分工：scripts/check-test-layout.py 保证到"家族"这一级（家族有测试项目、项目名对得上、
+  已登记进解决方案）。"家族内每个发布包是否被引用或加载"它证明不了，那要么读覆盖率、
+  要么反射公共 API 做对账，都属于人工体检，不做机械门禁。
+
+  用法见 development-guide §7.4。命令行不写在这里：XML 注释不允许出现连续短横，
+  写进来会让整个 runsettings 解析失败，而 dotnet test 只会逐个程序集打一行警告后
+  继续跑完——退出码非 0，但看上去像是测试挂了。
+
+  排除：测试项目自身、EF 迁移、生成代码；SkipAutoProps 跳过自动属性。
 -->
 <RunSettings>
   <DataCollectionRunSettings>

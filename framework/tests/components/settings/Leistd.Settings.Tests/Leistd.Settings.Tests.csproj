@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- 机密设置默认实现的用例用 EphemeralDataProtectionProvider（Data Protection 实现在共享框架里） -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      使用关系型 Provider 而非 InMemory：SettingRecordConfiguration 的唯一索引与长度约束
+      只有真正建库时才生效，InMemory 全内存求值会让配置整块静默通过。
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\settings\Leistd.Settings.Core\Leistd.Settings.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\settings\Leistd.Settings.EntityFrameworkCore\Leistd.Settings.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\settings\Leistd.Settings.AspNetCore\Leistd.Settings.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\settings\Leistd.Settings.Hosting\Leistd.Settings.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\..\components\security\Leistd.Security.AspNetCore\Leistd.Security.AspNetCore.csproj" />
+    <!-- 默认写入入口按租户取锁：用例用真实的进程内锁 -->
+    <ProjectReference Include="..\..\..\..\components\lock\Leistd.Lock.Memory\Leistd.Lock.Memory.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

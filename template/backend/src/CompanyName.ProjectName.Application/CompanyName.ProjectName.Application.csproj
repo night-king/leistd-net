@@ -7,10 +7,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-<!--#if (IncludeOpenIddict)-->
-    <PackageReference Include="OpenIddict.Abstractions" />
-<!--#endif-->
     <PackageReference Include="System.Linq.Dynamic.Core" />
+<!--#if (OpenIddictServer)-->
+    <PackageReference Include="OpenIddict.Abstractions" />
+    <PackageReference Include="Leistd.ServiceClient.Core" />
+<!--#endif-->
+<!--#if (IncludeLocalization)-->
+    <!-- 权限定义的显示名按请求 culture 在响应阶段翻译，需要本地化抽象。 -->
+    <PackageReference Include="Microsoft.Extensions.Localization.Abstractions" />
+<!--#endif-->
   </ItemGroup>
 
   <!-- Leistd 框架引用 -->
@@ -18,8 +23,45 @@
     <PackageReference Include="Leistd.ObjectMapping.Mapster" />
     <PackageReference Include="Leistd.Security.Core" />
     <PackageReference Include="Leistd.Authorization.Core" />
+    <PackageReference Include="Leistd.Settings.Core" />
+    <PackageReference Include="Leistd.OperationRecords.Core" />
+    <PackageReference Include="Leistd.MultiTenancy.Core" />
+    <PackageReference Include="Leistd.Lock.Core" />
+<!--#if (LocalIdentity)-->
+    <PackageReference Include="Leistd.BackgroundJobs.Core" />
+<!--#if (IncludeMultiTenancy)-->
+    <PackageReference Include="Leistd.MultiTenancy.Management" />
+<!--#endif-->
+<!--#endif-->
+<!--#if (Email)-->
+    <PackageReference Include="Leistd.Email.Core" />
+<!--#endif-->
+<!--#if (IncludeRealTime)-->
+    <PackageReference Include="Leistd.RealTime.Core" />
+<!--#endif-->
+<!--#if (IncludeNotifications)-->
+    <!-- 通知类别与偏好设置名要用框架的默认类型与站内渠道名 -->
+    <PackageReference Include="Leistd.Notifications.Core" />
+    <!-- 偏好设置名的前缀与通知偏好组件同源 -->
+    <PackageReference Include="Leistd.Notifications.Settings" />
+<!--#if (Email)-->
+    <!-- 邮件渠道的收件人解析扩展点（只发已验证邮箱）由应用层实现 -->
+    <PackageReference Include="Leistd.Notifications.Email" />
+<!--#endif-->
+<!--#endif-->
+    <PackageReference Include="Leistd.Ddd.Domain" />
     <PackageReference Include="Leistd.Ddd.Application" />
     <PackageReference Include="Leistd.Ddd.Application.Contracts" />
+    <PackageReference Include="Leistd.UnitOfWork.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- IReauthenticationGuard 是应用层的内部件（宿主不该直接调它），但它的正确性有一条
+         从外部看不出来的性质：计数写在独立工作单元里，不随调用方的事务回滚。
+         要钉住这一条只能自己开一个工作单元再释放，端点做不到，所以按生产注册装配后直接测。 -->
+    <InternalsVisibleTo Include="CompanyName.ProjectName.IntegrationTests" />
+    <!-- 清理任务的逐库失败汇总是纯编排，不建宿主或数据库也应能验证。 -->
+    <InternalsVisibleTo Include="CompanyName.ProjectName.UnitTests" />
   </ItemGroup>
 
   <!-- 业务项目内部引用 -->

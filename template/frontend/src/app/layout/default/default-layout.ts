@@ -1,37 +1,16 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { DrawerModule } from 'primeng/drawer';
+import { HlmSidebarImports } from '@spartan-ng/helm/sidebar';
 
-import { DefaultFooter } from '../components/default-footer/default-footer';
+import { CommandPalette } from '../components/command-palette/command-palette';
 import { DefaultHeader } from '../components/default-header/default-header';
 import { DefaultSidebar } from '../components/default-sidebar/default-sidebar';
-import { LayoutService } from '../services/layout-service';
 
 @Component({
   selector: 'app-default-layout',
   standalone: true,
-  imports: [RouterOutlet, DrawerModule, DefaultHeader, DefaultFooter, DefaultSidebar],
+  imports: [RouterOutlet, CommandPalette, DefaultHeader, DefaultSidebar, ...HlmSidebarImports],
   templateUrl: './default-layout.html',
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class DefaultLayout {
-  layoutService = inject(LayoutService);
-
-  isMobileMenuOpen = signal(false);
-
-  constructor() {
-    effect(() => {
-      if (!this.layoutService.isMobileSidebarMode()) {
-        this.closeMobileMenu();
-      }
-    });
-  }
-
-  toggleMobileMenu() {
-    this.isMobileMenuOpen.update(v => !v);
-  }
-
-  closeMobileMenu() {
-    this.isMobileMenuOpen.set(false);
-  }
-}
+export class DefaultLayout {}

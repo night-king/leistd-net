@@ -2,14 +2,34 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <RootNamespace>Leistd.Authorization</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\exception-handling\Leistd.ExceptionHandling.Core\Leistd.ExceptionHandling.Core.csproj" />
+    <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- 显式主体判权：按引用识别当前主体（走作用域缓存），读主体的租户声明 -->
+    <ProjectReference Include="..\..\security\Leistd.Security.Core\Leistd.Security.Core.csproj" />
+    <!-- 授予整体替换后发布事件；只依赖契约，未注册总线时不发布 -->
+    <ProjectReference Include="..\..\event-bus\Leistd.EventBus.Core\Leistd.EventBus.Core.csproj" />
+    <!-- 错误码的默认译文随包分发；权限显示名按宿主资源翻译 -->
+    <ProjectReference Include="..\..\localization\Leistd.Localization.Core\Leistd.Localization.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 组件错误码的默认中英文案，经 AddJsonLocalizationResources 登记，宿主资源可覆盖 -->
+    <EmbeddedResource Include="Resources\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 默认 HTTP 状态映射是内部实现（由 AddXxx 自动登记），用例要直接调用它核对登记内容 -->
+    <InternalsVisibleTo Include="Leistd.Authorization.Tests" />
   </ItemGroup>
 
 </Project>

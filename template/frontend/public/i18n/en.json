@@ -1,0 +1,196 @@
+{
+  "common": {
+    "signIn": "Sign in",
+    "continueToSignIn": "Continue to sign in",
+    "workspace": "Workspace",
+    "unknownError": "Unknown error",
+    "appError": "Application error",
+    "unexpectedError": "An unexpected error occurred. Please refresh the page and try again.",
+    "networkError": "Unable to reach the server. Check your connection and try again.",
+    "requestError": "Request error",
+    "requestFailed": "The request could not be completed.",
+    "invalidResponse": "The server response could not be processed. Refresh the page and try again.",
+    "uncertainResult": "The operation may have completed. Check the result before trying again.",
+    "traceId": "Trace ID",
+    "authFailedReLogin": "Authentication failed. Please sign in again.",
+    "retry": "Retry",
+    "loadFailed": "Couldn't load the list",
+    "cancel": "Cancel",
+    "save": "Save",
+    "success": "Success",
+    "notice": "Notice",
+    "error": "Error",
+    "refresh": "Refresh",
+    "confirm": "Confirm",
+    "ok": "OK",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "details": "View details",
+    "showFullText": "Show full text",
+    "showLess": "Show less",
+    "close": "Close",
+    "copy": "Copy",
+    "add": "Add",
+    "remove": "Remove",
+    "uploadAvatar": "Upload avatar",
+    "actions": "Actions",
+    "rowsPerPage": "Items per page",
+    "pageOf": "Page {{page}} of {{total}}",
+    "pagination": {
+      "first": "First page",
+      "previous": "Previous page",
+      "next": "Next page",
+      "last": "Last page"
+    },
+    "toggleSidebar": "Toggle sidebar",
+    "clearFilter": "Clear filter",
+    "noResults": "No results",
+    "noData": "No data",
+    "paginator": {
+      "report": "{{from}}-{{to}} of {{total}}",
+      "rowsPerPage": "Rows per page",
+      "page": "Page",
+      "first": "First page",
+      "previous": "Previous page",
+      "next": "Next page",
+      "last": "Last page"
+    },
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "time": {
+      "justNow": "Just now",
+      "yesterdayAt": "Yesterday {{time}}"
+    },
+    "calendar": {
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month"
+    },
+    "twoFactorCodeReuseHint": "If you just used this code, wait for a new one.",
+    "reauthenticate": {
+      "header": "Confirm it is you",
+      "description": "This change affects how you or someone else signs in. Confirm it is you to continue.",
+      "passwordLabel": "Your current password",
+      "codeLabel": "Verification code",
+      "codeHint": "Enter the 6-digit code from your authenticator app.",
+      "useCode": "Use an authenticator code instead",
+      "usePassword": "Use your password instead",
+      "cannotUseAuthenticator": "Can't use your authenticator? Sign in again",
+      "signInAgainHint": "Your account has no password or authenticator to confirm with. Sign in again to continue.",
+      "signInAgain": "Sign in again",
+      "confirm": "Confirm"
+    }
+  },
+  "validation": {
+    "required": "This field is required.",
+    "email": "Please enter a valid email address.",
+    "minLength": "Must be at least {{minLength}} characters.",
+    "maxLength": "Must not exceed {{maxLength}} characters.",
+    "usernamePattern": "Must be 3–64 letters, digits, or underscores.",
+    "roleNamePattern": "Must be 2–64 letters, digits, or underscores.",
+    "phonePattern": "Only digits, spaces, and + - ( ) are allowed.",
+    "passwordMismatch": "The two passwords do not match.",
+    "passwordSameAsCurrent": "The new password must differ from the current one.",
+    "tenantNamePattern": "Use letters, digits and hyphens only, not starting or ending with a hyphen, up to 63 characters.",
+    "connectionNamePattern": "Use lowercase letters, digits and hyphens only, 1 to 64 characters.",
+    "connectionNameTaken": "This connection name is already registered; change its connection string instead.",
+    "pkceRequired": "Native/Public clients must enable PKCE.",
+    "credentialRejected": "Not accepted. Check it and try again."
+  },
+  "menu": {
+    "workspace": "Workspace",
+    "platform": "Admin platform",
+    "logout": "Sign out",
+    "personalSettings": "Personal settings"
+  },
+  "language": {
+    "label": "Language",
+    "saveFailed": "Switched for now, but your account preference was not saved"
+  },
+  "layout": {
+    "sidebar": {
+      "navigation": "Navigation",
+      "navigationDescription": "Browse the sections of this area.",
+      "appTitle": "Template Project",
+      "switchArea": "Switch area",
+      "groupWork": "Work",
+      "dashboard": "Dashboard",
+      "workbench": "Workbench",
+      "groupBusiness": "Business",
+      "exampleModule": "Example module",
+      "groupSystem": "System",
+      "users": "User management",
+      "roles": "Role management",
+      "tenants": "Tenant management",
+      "groupDeveloper": "Developer",
+      "openApplications": "Open applications",
+      "systemSettings": "System settings",
+      "operationRecords": "Operation records",
+      "groupIdentity": "Identity & access",
+      "groupAudit": "Audit",
+      "toggle": "Toggle sidebar"
+    },
+    "commandPalette": {
+      "search": "Search",
+      "title": "Command palette",
+      "description": "Search for a page to open.",
+      "placeholder": "Search pages…",
+      "empty": "No matching pages."
+    },
+    "realtime": {
+      "label": "Real-time",
+      "connected": "Live updates connected",
+      "reconnecting": "Connection lost, reconnecting…",
+      "disconnected": "Live updates offline. Refresh to retry.",
+      "connectedShort": "Connected",
+      "reconnectingShort": "Reconnecting…",
+      "disconnectedShort": "Offline"
+    },
+    "topbar": {
+      "openNavigation": "Open navigation",
+      "navigationDescription": "Choose a page to open",
+      "more": "More"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "markAllRead": "Mark all as read",
+      "clearAll": "Clear all",
+      "empty": "No notifications",
+      "loading": "Loading notifications…",
+      "loadFailed": "Couldn't load notifications.",
+      "historyStale": "Couldn't refresh earlier notifications.",
+      "clearAllConfirm": "Clear all notifications? This cannot be undone.",
+      "unreadAria": "Notifications ({{count}} unread)"
+    }
+  },
+  "theme": {
+    "toggle": "Switch theme",
+    "current": "Theme: {{mode}}",
+    "mode": {
+      "light": "Light",
+      "system": "System",
+      "dark": "Dark"
+    }
+  },
+  "app": {
+    "name": "Template Project",
+    "startup": {
+      "loading": "Loading...",
+      "failed": "Application failed to load",
+      "clientError": "Client error: {{message}}",
+      "requestFailed": "Request failed: {{message}} (code: {{code}})",
+      "serverError": "Unknown server error: {{status}} - {{statusText}}",
+      "unknownErrorDetail": "An unknown error occurred: {{message}}",
+      "unknownError": "An unknown error occurred. Please try again later."
+    }
+  },
+  "impersonation": {
+    "banner": "Acting as tenant {{tenant}} · started by {{impersonator}}",
+    "exit": "Exit impersonation",
+    "exited": "Returned to your own account.",
+    "exitFailed": "Could not end impersonation.",
+    "badge": "Impersonating · {{tenant}}",
+    "title": "Impersonating a tenant",
+    "note": "Everything you do now is recorded under this tenant's account."
+  }
+}

@@ -1,62 +1,178 @@
-version: '3.8'
-
 services:
+  db-migrator:
+    # 默认本地标签，`up --build` 即可；发布时经 MIGRATOR_IMAGE 传入仓库地址与版本
+    image: ${MIGRATOR_IMAGE:-companyname-projectname-migrator:latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: migrator
+    # **必须显式传 --apply。**DbMigrator 默认只做只读预演（迁移是不可逆的生产数据变更，
+    # "跑一下看看"和"改掉生产库"不该是同一个动作）。不传的话它 dry-run 后以 0 退出，
+    # backend 的 service_completed_successfully 被满足、随即因 schema 未迁移而启动失败。
+    # 预演命令见 docs/deploy/README.md 的"本地验证"：以 --entrypoint 重新指定入口，这里的 --apply 不再附加
+    command: ["--apply"]
+    environment:
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=MyProject;Username=postgres;Password=${MIGRATOR_DB_PASSWORD:?MIGRATOR_DB_PASSWORD is required};GSS Encryption Mode=Disable
+#if (RemoteTokenAuth && IncludeMultiTenancy)
+      # Resource 的迁移目标清单存在 Identity 的控制库里，必须回源查询。
+      # 这些值没有可用默认值：`:?` 让缺配在 compose 阶段就带着变量名失败，
+      # 而不是等 DbMigrator 回源时才失败
+      - Leistd__ServiceClients__Identity__BaseAddress=${IDENTITY_BASE_ADDRESS:?IDENTITY_BASE_ADDRESS is required for a Resource service}
+      - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:?IDENTITY_AUTHORITY is required for a Resource service}
+      - Leistd__ServiceAuth__ClientId=${MIGRATOR_CLIENT_ID:?MIGRATOR_CLIENT_ID is required for a Resource service}
+      - Leistd__ServiceAuth__ClientSecret=${MIGRATOR_CLIENT_SECRET:?MIGRATOR_CLIENT_SECRET is required for a Resource service}
+      # 迁移身份只授予迁移元数据 scope，不给运行时路由
+      - Leistd__ServiceClients__Identity__Scope=tenant-migration.read
+#endif
+#if (LocalIdentity && IncludeMultiTenancy)
+      # 独立库连接串在控制库里加密存储：迁移作业必须与 backend 共用同一个 Data Protection 密钥环（Redis），
+      # 否则解不开；开发环境以外没有可用的密钥位置时它会在启动期失败
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
+#endif
+    depends_on:
+      db:
+        condition: service_healthy
+#if (LocalIdentity && IncludeMultiTenancy)
+      redis:
+        condition: service_healthy
+#endif
+    restart: "no"
+    networks:
+      - companyname-projectname-network
+
   backend:
-    image: ghcr.io/zengqinglei/companyname-projectname:latest
+    # 默认本地标签，`up --build` 即可；发布时经 BACKEND_IMAGE 传入仓库地址与版本
+    image: ${BACKEND_IMAGE:-companyname-projectname:latest}
     container_name: companyname-projectname
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: api
     ports:
       - "80:8080"
     environment:
       # Environment
-      - TZ=Asia/Shanghai
+      # 进程本地时区，只影响未显式指定时区的本地时间换算与日志时间戳；业务时间按 UTC 存储
+      - TZ=${TZ:-UTC}
       - ASPNETCORE_ENVIRONMENT=Production
 
       # Database Configuration (PostgreSQL)
-      - ConnectionStrings__Default=Host=db;Port=5432;Database=MyProject;Username=postgres;Password=YourSecurePassword;GSS Encryption Mode=Disable!
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=MyProject;Username=${APP_DB_USER:?APP_DB_USER is required};Password=${APP_DB_PASSWORD:?APP_DB_PASSWORD is required};GSS Encryption Mode=Disable
+#if (RemoteTokenAuth)
+      # Resource 校验远端签发的令牌。
+      # 全部无默认值：漏配时 compose 立刻带变量名失败，不必等到容器启动才由 API 报缺键
+      - Authentication__Issuer=${IDENTITY_ISSUER:?IDENTITY_ISSUER is required for a Resource service}
+#if (ResourceBrowserSession)
+      - Authentication__ClientId=${BROWSER_CLIENT_ID:?BROWSER_CLIENT_ID is required for Resource browser sessions}
+      - Authentication__ClientSecret=${BROWSER_CLIENT_SECRET:?BROWSER_CLIENT_SECRET is required for Resource browser sessions}
+#endif
+#if (IncludeMultiTenancy)
+      - Leistd__ServiceClients__Identity__BaseAddress=${IDENTITY_BASE_ADDRESS:?IDENTITY_BASE_ADDRESS is required for a Resource service}
+      - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:?IDENTITY_AUTHORITY is required for a Resource service}
+      - Leistd__ServiceAuth__ClientId=${RESOURCE_CLIENT_ID:?RESOURCE_CLIENT_ID is required for a Resource service}
+      - Leistd__ServiceAuth__ClientSecret=${RESOURCE_CLIENT_SECRET:?RESOURCE_CLIENT_SECRET is required for a Resource service}
+      # 运行时身份只查路由，不给迁移元数据 scope
+      - Leistd__ServiceClients__Identity__Scope=tenant-routing.read
+      # 路由缓存 TTL：改租户数据落点前的排空等待取 max(令牌有效期, 本值)
+      - Leistd__MultiTenancy__Routing__CacheLifetime=${TENANT_ROUTE_CACHE_TTL:-00:10:00}
+#endif
+#endif
 
-      # Redis Configuration
-      - ConnectionStrings__Redis=redis:6379,password=YourRedisPassword（可选）,,ssl=true（可选）,abortConnect=false（可选）
+      # Redis Configuration — matches the bundled redis service below (no password, no TLS).
+      # Production password: set it on BOTH sides —
+      #   value: redis:6379,password=YourRedisPassword,abortConnect=false
+      #   redis service command: redis-server --appendonly yes --requirepass YourRedisPassword
+      # Production TLS: not just "ssl=true" — Redis must be configured for TLS (cert/key + --tls-port,
+      #   or a TLS-terminating proxy); only then add ssl=true to the value.
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
 
-      # Default Admin User (Change in production!)
-      - DefaultAdmin__Username=admin（可选）
-      - DefaultAdmin__Password=Admin@123456
-      - DefaultAdmin__Email=admin@companyname-projectname.com（可选）
-      - DefaultAdmin__Nickname=系统管理员（可选）
+#if (LocalIdentity)
+      # 首次启动创建本地身份管理员；Resource 用户来自远端身份投影。
+      - DefaultAdmin__Username=admin # optional
+      # 由部署环境提供（.env 或 CI secret），只在库里还没有超级管理员时用于创建：
+      # 首次部署缺失即启动失败并报出键名；已有管理员的部署可以不再提供
+      - DefaultAdmin__Password=${DEFAULT_ADMIN_PASSWORD:-}
+      - DefaultAdmin__Email=admin@companyname-projectname.com # optional
+      - DefaultAdmin__DisplayName=System Administrator # optional
+#endif
+#if (Email)
+      # 发信（SMTP）：主机、端口与发件地址没有可用默认值，漏配时 compose 带着变量名失败；
+      # 账号与口令成对填写或都留空（服务器不要求认证时），只填一项启动失败
+      - Leistd__Email__Smtp__Host=${SMTP_HOST:?SMTP_HOST is required}
+      - Leistd__Email__Smtp__Port=${SMTP_PORT:?SMTP_PORT is required}
+      - Leistd__Email__Smtp__EnableSsl=${SMTP_ENABLE_SSL:-true}
+      - Leistd__Email__Smtp__DefaultFromAddress=${SMTP_FROM_ADDRESS:?SMTP_FROM_ADDRESS is required}
+      - Leistd__Email__Smtp__Username=${SMTP_USERNAME:-}
+      - Leistd__Email__Smtp__Password=${SMTP_PASSWORD:-}
+      # 注册邮箱验证（默认关闭）。开启时必须提供验证码摘要密钥（Base64，至少 32 字节，跨实例跨重启不变），
+      # 缺失或无效即启动失败；关闭时可以不提供。生成方式见 docs/deploy/configuration.md
+      - UserRegistration__EnableEmailVerification=${ENABLE_EMAIL_VERIFICATION:-false}
+      - Leistd__Security__VerificationCodes__Key=${VERIFICATION_CODES_KEY:-}
+#endif
+#if (IncludeNotifications && Email)
+      # 可选：站点对外地址，通知邮件据此把站内链接拼成绝对地址；不配则邮件不附站内链接
+      - Leistd__Notifications__Email__PublicBaseUrl=${PUBLIC_BASE_URL:-}
+#endif
+#if (OpenIddictServer)
 
-      # JWT Configuration (Change SecretKey in production!)
-      - Jwt__SecretKey=MyProject-SuperSecretKey-ForProduction-MinimumLength32Characters!
-      - Jwt__Issuer=MyProject（可选）
-      - Jwt__Audience=MyProject（可选）
+      # 令牌签名与加密证书（PKCS#12）。文件以 Docker secrets 挂载到 /run/secrets，口令由部署注入；
+      # 开发证书只用于本机，这里没有、也不应打开 OAuth__UseDevelopmentCertificates
+      - OAuth__SigningCertificates__0__Path=/run/secrets/oauth-signing-certificate
+      - OAuth__SigningCertificates__0__Password=${OAUTH_SIGNING_CERTIFICATE_PASSWORD:?OAUTH_SIGNING_CERTIFICATE_PASSWORD is required}
+      - OAuth__EncryptionCertificates__0__Path=/run/secrets/oauth-encryption-certificate
+      - OAuth__EncryptionCertificates__0__Password=${OAUTH_ENCRYPTION_CERTIFICATE_PASSWORD:?OAUTH_ENCRYPTION_CERTIFICATE_PASSWORD is required}
+      # 轮换期间新旧证书同时登记（下标 1 起），步骤见 docs/operations/runbooks/token-certificate-rotation.md
+      # - OAuth__SigningCertificates__1__Path=/run/secrets/oauth-signing-certificate-next
+      # - OAuth__SigningCertificates__1__Password=${OAUTH_SIGNING_CERTIFICATE_NEXT_PASSWORD}
+      # 由本服务签发令牌的下游 API（每项登记为同名 scope；下游服务的 Authentication:Audience 取同一个值）
+      # - OAuth__ApiResources__0__Name=orders-api
+#endif
 
-      # CORS Configuration（可选）
-      - Cors__AllowAnyLocalhost=false
+      # CORS Configuration (optional)
       # - Cors__AllowedOrigins__0=https://your-domain.com
 
-      # External OAuth (Optional - uncomment and configure if needed)
-      # - ExternalAuth__GitHub__ClientId=your-github-client-id
-      # - ExternalAuth__GitHub__ClientSecret=your-github-client-secret
-      # - ExternalAuth__GitHub__RedirectUri=https://your-domain.com/api/external-auth/github/callback
-      # - ExternalAuth__Google__ClientId=your-google-client-id
-      # - ExternalAuth__Google__ClientSecret=your-google-client-secret
-      # - ExternalAuth__Google__RedirectUri=https://your-domain.com/api/external-auth/google/callback
+#if (ExternalLogin)
+      # 外部登录：开关缺省关闭；打开后 ClientId 与 ClientSecret 都填齐才生效，缺一项只记警告、不提供该入口。
+      # 宿主管理员也可在「系统设置 → 外部登录」里运行期覆盖。
+      # 在提供商后台登记的回调地址是 API 端点 https://<站点对外地址>/api/v1/external-auth/{github,google}/signin
+      - ExternalAuth__Github__Enabled=${GITHUB_LOGIN_ENABLED:-false}
+      - ExternalAuth__Github__ClientId=${GITHUB_CLIENT_ID:-}
+      - ExternalAuth__Github__ClientSecret=${GITHUB_CLIENT_SECRET:-}
+      - ExternalAuth__Google__Enabled=${GOOGLE_LOGIN_ENABLED:-false}
+      - ExternalAuth__Google__ClientId=${GOOGLE_CLIENT_ID:-}
+      - ExternalAuth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET:-}
+#endif
 
-      # Logging（可选）
+      # Logging (optional)
       - Serilog__MinimumLevel__Default=Information
-      - Serilog__MinimumLevel__Override__MyProject=Information
       - Serilog__MinimumLevel__Override__Microsoft.AspNetCore=Warning
       - Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore=Warning
 
-    volumes:
-      - feedback-uploads:/app/wwwroot/uploads
+#if (OpenIddictServer)
+    secrets:
+      - oauth-signing-certificate
+      - oauth-encryption-certificate
+#endif
 
     depends_on:
       db:
         condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
       redis:
-        condition: service_started
+        condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      # aspnet:10.0 不包含 wget/curl，使用 Bash /dev/tcp 请求就绪端点。
+      # 必须使用 CMD；CMD-SHELL 通过不支持 /dev/tcp 的 /bin/sh 执行。
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/localhost/8080
+          && printf 'GET /api/health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          && grep -q '200 OK' <&3
       interval: 30s
       timeout: 10s
       retries: 3
@@ -68,17 +184,22 @@ services:
       - companyname-projectname-network
 
   db:
-    image: postgres:15-alpine
+    image: postgres:18-alpine
     container_name: companyname-projectname-db
     environment:
-      TZ: Asia/Shanghai
+      TZ: ${TZ:-UTC}
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: YourSecurePassword!
+      POSTGRES_PASSWORD: ${MIGRATOR_DB_PASSWORD:?MIGRATOR_DB_PASSWORD is required}
       POSTGRES_DB: MyProject
       POSTGRES_INITDB_ARGS: "-E UTF8"
+      APP_DB_USER: ${APP_DB_USER:?APP_DB_USER is required}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
 
+    # PG18 起数据目录在 /var/lib/postgresql/18/docker，卷挂父目录；卷名带主版本号，
+    # 升级大版本时换新卷并导出导入（见 docs/operations/runbooks/postgres-redis-major-upgrade.md）
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata-18:/var/lib/postgresql
+      - ./postgres/01-create-app-role.sh:/docker-entrypoint-initdb.d/01-create-app-role.sh:ro
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -93,10 +214,10 @@ services:
       - companyname-projectname-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: companyname-projectname-redis
     environment:
-      TZ: Asia/Shanghai
+      TZ: ${TZ:-UTC}
     command: redis-server --appendonly yes
 
     volumes:
@@ -115,13 +236,19 @@ services:
       - companyname-projectname-network
 
 volumes:
-  pgdata:
+  pgdata-18:
     driver: local
   redis-data:
-    driver: local
-  feedback-uploads:
     driver: local
 
 networks:
   companyname-projectname-network:
     driver: bridge
+#if (OpenIddictServer)
+
+secrets:
+  oauth-signing-certificate:
+    file: ${OAUTH_SIGNING_CERTIFICATE_FILE:?OAUTH_SIGNING_CERTIFICATE_FILE is required (path to the signing .pfx)}
+  oauth-encryption-certificate:
+    file: ${OAUTH_ENCRYPTION_CERTIFICATE_FILE:?OAUTH_ENCRYPTION_CERTIFICATE_FILE is required (path to the encryption .pfx)}
+#endif

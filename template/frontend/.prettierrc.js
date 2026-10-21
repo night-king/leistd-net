@@ -1,16 +1,12 @@
 module.exports = {
   singleQuote: true,
-  printWidth: 140,
-  htmlWhitespaceSensitivity: 'strict',
-  arrowParens: 'avoid',
-  trailingComma: 'none',
-  endOfLine: 'auto',
+  printWidth: 100,
   overrides: [
     {
       files: '*.html',
       options: {
-        parser: 'angular'
-      }
-    }
-  ]
+        parser: 'angular',
+      },
+    },
+  ],
 };

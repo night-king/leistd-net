@@ -1,0 +1,115 @@
+{
+  "appearance": {
+    "label": "外观",
+    "hint": "只对本设备生效"
+  },
+  "reset": "恢复默认",
+  "empty": "此分组下没有可配置项",
+  "loadFailed": "设置加载失败",
+  "timeZoneSearch": "搜索城市或 UTC 偏移",
+  "timeZoneEmpty": "没有匹配的时区",
+  "timeZoneToggle": "展开时区列表",
+  "browserTimeZone": "浏览器",
+  "followSystem": "跟随系统",
+  "followOrganization": "跟随组织",
+  "deploymentDefault": "部署默认",
+  "hostScope": {
+    //#if (IncludeMultiTenancy)
+    "note": "。对所有租户生效",
+    "standalone": "对所有租户生效",
+    //#endif
+    "hint": "整个系统共用一份；修改后约 30 秒内在所有服务器生效"
+  },
+  "savedEverywhere": "已保存，约 30 秒内在所有服务器生效",
+  "saved": "已保存",
+  "saving": "保存中…",
+  "logLevelHints": {
+    "Verbose": "记录一切，含逐条 SQL 与请求细节。仅短时排障用，长期开会迅速吃满磁盘。",
+    "Debug": "记录调试细节。排查问题时开，日常不建议。",
+    "Information": "记录正常业务流程。默认级别。",
+    "Warning": "只记录警告与错误，正常流程不落盘。",
+    "Error": "只记录错误。会漏掉\"没报错但不对\"的线索。",
+    "Fatal": "只记录导致进程终止的故障。几乎等于关掉日志。"
+  },
+  "personal": {
+    "title": "个人设置",
+    "description": "管理你的个人资料、账户安全与偏好"
+  },
+  "system": {
+    "title": "系统设置",
+    "description": "本租户（或宿主）下所有人的默认值与策略，个人偏好可以覆盖默认值",
+    "empty": "没有可管理的设置",
+    "emptyHint": "每个设置分区需要单独的权限，请联系管理员授予你负责的分区"
+  },
+  "navigation": "设置导航",
+  "openNavigation": "打开设置导航",
+  "panels": {
+    "profile": {
+      "title": "个人资料",
+      "description": "你的头像、名称与联系方式"
+    },
+    "security": {
+      "title": "账户与安全",
+      "description": "你的密码与登录方式"
+    },
+    "notifications": {
+      "title": "通知",
+      "description": "选择每类通知从哪些渠道收到。安全提醒的站内通知始终开启；邮件只发往已验证的邮箱"
+    },
+    "preferences": {
+      "title": "偏好",
+      "description": "语言、时区与外观。语言与时区只对你生效，留空即跟随组织设置；组织和部署都未设置时跟随系统"
+    }
+  },
+  "groupDescriptions": {
+    "Display": "这里所有人默认使用的界面语言与时区；个人可在偏好中覆盖。留空使用部署默认；部署也未设置时跟随各自设备",
+    //#if (LocalIdentity)
+    //#if (ExternalLogin)
+    "Registration": "是否开放自助注册（不影响外部登录首次登录建号）、新用户的验证要求与验证码时效",
+    //#else
+    "Registration": "是否开放自助注册、新用户的验证要求与验证码时效",
+    //#endif
+    "Security": "登录失败锁定、两步验证要求与会话空闲时限",
+    //#if (ExternalLogin)
+    "ExternalLogin": "用 GitHub、Google 等第三方账号登录：各渠道的开关与客户端凭据",
+    //#endif
+    //#if (Email)
+    "Email": "系统发信使用的 SMTP 服务器与发件人",
+    //#endif
+    //#endif
+    //#if (IncludeOperationRecords || IncludeNotifications)
+    "Retention": "过期数据保留多久、何时清理",
+    //#endif
+    "Operations": "日志记录的详细程度"
+  },
+  "secretSet": "已设置（输入新值即替换）",
+  "secretUnset": "未设置",
+  //#if (ExternalLogin)
+  "externalLoginProviders": {
+    "description": "生效状态以响应本次请求的实例为准。",
+    "active": "已生效",
+    "inactive": "未生效",
+    "off": "未启用",
+    "clientId": "Client ID",
+    "clientSecret": "Client Secret",
+    "configured": "已配置",
+    "notConfigured": "未配置",
+    "missingClientId": "已启用但未生效：缺少 Client ID。",
+    "missingClientSecret": "已启用但未生效：缺少 Client Secret。",
+    "missingBoth": "已启用但未生效：缺少 Client ID 和 Client Secret。",
+    "pending": "已启用且凭据齐全，本实例还没跟上，约 30 秒后刷新再看。",
+    "stopping": "已关闭，本实例仍在提供，约 30 秒后刷新再看。",
+    "callbackUrl": "回调地址",
+    "copyCallbackUrl": "复制回调地址",
+    "copied": "已复制",
+    "loadFailed": "外部登录状态加载失败"
+  },
+  //#endif
+  "emailTest": {
+    "title": "发送测试邮件",
+    "description": "使用上面当前生效的设置发送；改动请先保存。",
+    "recipient": "收件地址",
+    "send": "发送测试邮件",
+    "sent": "测试邮件已发送到 {{to}}"
+  }
+}

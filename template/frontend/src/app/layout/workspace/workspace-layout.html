@@ -1,0 +1,12 @@
+<!-- 工作空间布局：顶栏导航 + 限宽内容区。面向业务用户，内容优先，不占一整列给导航。 -->
+<div class="flex h-svh flex-col" data-layout="workspace">
+  <app-default-header layout="topbar" />
+
+  <main class="flex-1 overflow-auto motion-safe:scroll-smooth">
+    <div class="mx-auto h-full w-full max-w-7xl">
+      <router-outlet />
+    </div>
+  </main>
+
+  <app-command-palette />
+</div>

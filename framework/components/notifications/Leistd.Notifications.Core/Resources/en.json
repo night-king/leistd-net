@@ -1,0 +1,6 @@
+{
+  "culture": "en",
+  "texts": {
+    "Notification:IdentityCannotOperate": "The current identity cannot operate on user notifications."
+  }
+}

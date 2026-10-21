@@ -1,29 +1,48 @@
 using System.ComponentModel.DataAnnotations;
+using CompanyName.ProjectName.Application.Auth.Policies;
 
 namespace CompanyName.ProjectName.Application.Users.Dtos;
 
-/// <summary>
-/// 更新用户输入 DTO
-/// </summary>
-public record UpdateUserInputDto
+/// <summary>更新用户输入 DTO。</summary>
+/// <remarks>
+/// 不包含角色字段：角色分配是独立的命令，走 <c>PUT /api/v1/users/{id}/roles</c>
+/// 并要求 <c>App.Users.ManageRoles</c>。否则任何持有用户编辑权限的主体都能提权。
+/// </remarks>
+/// <remarks>
+/// 不含启用状态：改变账号可用性只有启用/禁用两个命令一个入口。放在普通更新里就成了第二个入口，
+/// 而保护规则（超级管理员不得禁用自己）只写在专用命令上——两个入口迟早漂移，
+/// 事实上超管当时就能经由这里把自己禁掉。
+/// </remarks>
+public record UpdateUserInputDto : IValidatableObject
 {
-    [Display(Name = "邮箱")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [EmailAddress(ErrorMessage = "{0}格式不正确")]
-    [StringLength(256, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
-    public required string Email { get; init; }
+    [Display(Name = "Email")]
+    [Required(ErrorMessage = "{0} is required.")]
+    [EmailAddress(ErrorMessage = "{0} has an invalid format.")]
+    [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
+    public string Email { get; init; } = null!;
 
-    [Display(Name = "显示名称")]
-    [StringLength(128, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
+    [Display(Name = "Display name")]
+    [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
     public string? DisplayName { get; init; }
 
-    [Display(Name = "头像")]
-    [StringLength(1500000, ErrorMessage = "{0}内容过大，请压缩后重试")]
+    [Display(Name = "Avatar")]
+    [StringLength(1500000, ErrorMessage = "{0} is too large. Compress it and try again.")]
     public string? Avatar { get; init; }
-
-    public bool IsActive { get; init; }
 
     public bool IsEmailVerified { get; init; }
 
-    public List<string> Roles { get; init; } = [];
+    /// <summary>管理员本人的当前口令：改邮箱或把邮箱标为已验证而会话不够新时带上，其余修改不用。</summary>
+    [Display(Name = "Password")]
+    [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
+    public string? Password { get; init; }
+
+    /// <summary>管理员本人身份验证器上的 6 位验证码，与管理员本人的当前口令二选一；会话刚认证过时都不用带。</summary>
+    [Display(Name = "Verification code")]
+    [RegularExpression(@"^\s*\d{3}\s?\d{3}\s*$", ErrorMessage = "The verification code must contain exactly 6 digits.")]
+    public string? TwoFactorCode { get; init; }
+
+    /// <inheritdoc />
+    /// <remarks>一次只出示一种凭证：两种都给时不猜用哪个，按字段错误拒绝。</remarks>
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
+        ReauthenticationProof.ValidateOneAtATime(Password, TwoFactorCode, nameof(TwoFactorCode));
 }

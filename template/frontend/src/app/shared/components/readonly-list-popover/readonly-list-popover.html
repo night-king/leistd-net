@@ -1,0 +1,112 @@
+<!-- hlm-popover 是宿主与按钮之间的一层，要一起可收缩，按钮的 max-w-full 才以宿主宽度为准 -->
+<hlm-popover align="start" class="flex max-w-full min-w-0" (closed)="reset()">
+  <!-- 粗指针下按钮本体补到 44px：伪元素伸出的热区在行高不足的表格里会压到表头或邻行（如只读权限下没有行操作撑高） -->
+  <button
+    type="button"
+    hlmPopoverTrigger
+    data-readonly-list-trigger
+    class="focus-visible:ring-ring/50 flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-md text-start outline-none focus-visible:ring-[3px] pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+    [attr.aria-label]="triggerLabel()"
+  >
+    <ng-content />
+  </button>
+  <!-- 整个面板按视口限高，列表在剩余高度里自己滚动，标题与筛选框始终可见 -->
+  <hlm-popover-content
+    *hlmPopoverPortal
+    class="max-h-[min(28rem,calc(100dvh-2rem))] w-80 max-w-[calc(100vw-2rem)] gap-0 p-0"
+    data-testid="readonly-list-panel"
+    [appPopoverAria]="title()"
+  >
+    <!-- 标题区一行：标题 · 对象名在左（对象名过长截断，表格行里有全名），数量在右，与浮层内控件同高 -->
+    <div class="flex min-h-11 items-center gap-2 px-3 py-2">
+      <span class="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+        <span class="shrink-0 font-medium">{{ title() }}</span>
+        @if (subtitle()) {
+          <span class="text-muted-foreground shrink-0" aria-hidden="true">·</span>
+          <span class="text-muted-foreground truncate" data-testid="readonly-list-subtitle">{{
+            subtitle()
+          }}</span>
+        }
+      </span>
+      <span class="text-muted-foreground shrink-0 text-xs tabular-nums">{{ items().length }}</span>
+    </div>
+
+    @if (showFilter()) {
+      <div class="px-2 pb-2">
+        <label class="sr-only" [for]="filterId">{{ filterLabel() }}</label>
+        <hlm-input-group>
+          <hlm-input-group-addon>
+            <ng-icon name="lucideSearch" />
+          </hlm-input-group-addon>
+          <input
+            hlmInputGroupInput
+            type="search"
+            autocomplete="off"
+            data-testid="readonly-list-filter"
+            [id]="filterId"
+            [placeholder]="filterLabel()"
+            [value]="query()"
+            (input)="onFilterInput($event)"
+          />
+        </hlm-input-group>
+      </div>
+    }
+
+    <div hlmSeparator></div>
+
+    <ul
+      #list
+      hlmItemGroup
+      tabindex="0"
+      class="focus-visible:ring-ring/50 min-h-0 flex-1 gap-0 overflow-y-auto rounded-b-md p-1 outline-none focus-visible:ring-[3px] focus-visible:ring-inset has-data-[size=xs]:gap-0"
+      data-testid="readonly-list"
+      [style.mask-image]="fadeBottom() ? fadeMask : null"
+      [attr.aria-label]="title()"
+      (scroll)="updateFade(list)"
+    >
+      @for (item of visibleItems(); track item.id) {
+        <!-- 一行：圆点、名称在左，补充说明在右（两列至少隔 24px），统一 20px 行高后垂直居中；放不下时
+             单行省略，名称优先占宽，被截断的行悬停给出全文（截断与否由 measure 量出） -->
+        <li
+          hlmItem
+          size="xs"
+          class="min-h-8 flex-nowrap items-center gap-6 px-2 py-1"
+          [attr.data-item-id]="item.id"
+          [hlmTooltip]="fullText"
+          [tooltipDisabled]="!truncated().has(item.id)"
+        >
+          <!-- 提示宽度不超过视口（留出提示内边距与两侧边距），连续的长标识也能任意处折行，全文都看得到 -->
+          <ng-template #fullText>
+            <span
+              class="block max-w-[min(24rem,calc(100vw-3.5rem))] wrap-anywhere"
+              data-readonly-list-full-text
+              >{{ fullTextOf(item) }}</span
+            >
+          </ng-template>
+          <!-- 左组（圆点与名称）可收缩，名称在组内截断 -->
+          <span class="flex min-w-0 flex-1 items-center gap-2.5">
+            <span
+              class="bg-muted-foreground/50 size-1.5 shrink-0 rounded-full"
+              aria-hidden="true"
+            ></span>
+            <span
+              class="min-w-0 flex-1 truncate leading-5"
+              data-readonly-list-label
+              [class]="mono() ? 'font-mono text-xs' : 'text-sm'"
+              >{{ item.label }}</span
+            >
+          </span>
+          @if (hasDetail(item)) {
+            <span
+              class="text-muted-foreground max-w-[45%] shrink truncate text-end font-mono text-xs leading-5"
+              data-readonly-list-detail
+              >{{ item.detail }}</span
+            >
+          }
+        </li>
+      } @empty {
+        <li class="text-muted-foreground py-6 text-center text-sm">{{ emptyText() }}</li>
+      }
+    </ul>
+  </hlm-popover-content>
+</hlm-popover>

@@ -1,0 +1,95 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Leistd.Templates 模板包：把 template/ 打成 dotnet new 可安装的 NuGet 包（PackageType=Template）。
+
+    包版本即模板版本，由 release.yml 的 template 通道按 template-v* tag 推算后经 -p:TemplateVersion 传入；
+    TemplateSourceSha 是打包所用的源提交。两者在打包时写入包内 template.json 的两个 constant 符号
+    （TemplatePackageVersion / TemplateSourceSha），dotnet new 生成时再替换进来源标记 .leistd/template.json。
+    模板源码里这两个符号保留占位默认值（0.0.0-source 与全零 SHA）：直接从源码目录安装生成的项目据此可辨认。
+
+    内容取 template/ 下的全部文件，排除本地构建与依赖产物；包内文件集合与 git ls-files template 一致由
+    template-package/test-template-package.ps1 核对，多一个未跟踪文件或漏掉点开头的文件都会失败。
+  -->
+  <PropertyGroup>
+    <PackageId>Leistd.Templates</PackageId>
+    <PackageType>Template</PackageType>
+    <PackageVersion>$(TemplateVersion)</PackageVersion>
+    <Title>Leistd Templates</Title>
+    <Description>.NET 10 + Angular 22 全栈项目模板（dotnet new fullstack-app）：DDD 四层架构，Identity、Standalone 与 Resource 三种服务形态，按参数裁剪可选能力，消费 Leistd.* 框架包。</Description>
+    <Authors>zengql</Authors>
+    <PackageProjectUrl>https://github.com/zengqinglei/leistd-net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/zengqinglei/leistd-net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryCommit>$(TemplateSourceSha)</RepositoryCommit>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>leistd dotnet-new template ddd aspnetcore angular</PackageTags>
+
+    <!-- 模板包不含程序集：只打 content/，不产生依赖组 -->
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <!-- .gitignore、.agents/、.github/、.template.config/ 等点开头的路径是模板内容，NuGet 默认会排除 -->
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <!-- NU5128：无 lib/ 时的 TFM 依赖组提示；NU5110/NU5111：content 里的 .ps1 是生成项目的脚本，不是 NuGet 安装脚本 -->
+    <NoWarn>$(NoWarn);NU5110;NU5111;NU5128</NoWarn>
+
+    <TemplateSourceRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'template'))</TemplateSourceRoot>
+    <TemplatePackagePath>content/fullstack-app/</TemplatePackagePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="$(TemplateSourceRoot)**/*"
+             Exclude="$(TemplateSourceRoot).template.config/template.json;$(TemplateSourceRoot)**/bin/**;$(TemplateSourceRoot)**/obj/**;$(TemplateSourceRoot)**/node_modules/**;$(TemplateSourceRoot)**/node_modules*/**;$(TemplateSourceRoot)**/.angular/**;$(TemplateSourceRoot)**/.cache/**;$(TemplateSourceRoot)**/dist/**;$(TemplateSourceRoot)**/.tmp/**;$(TemplateSourceRoot)**/__pycache__/**;$(TemplateSourceRoot)**/.DS_Store"
+             Pack="true"
+             PackagePath="$(TemplatePackagePath)" />
+  </ItemGroup>
+
+  <UsingTask TaskName="StampTemplateConfig" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Source ParameterType="System.String" Required="true" />
+      <Destination ParameterType="System.String" Required="true" />
+      <Version ParameterType="System.String" Required="true" />
+      <SourceSha ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        // 两个占位默认值在 template.json 中各恰好出现一次；出现次数不对说明符号定义变了，宁可失败也不打出身份错误的包
+        var text = File.ReadAllText(Source);
+        foreach (var placeholder in new[] { "\"value\": \"0.0.0-source\"", "\"value\": \"0000000000000000000000000000000000000000\"" })
+        {
+            var count = (text.Length - text.Replace(placeholder, string.Empty).Length) / placeholder.Length;
+            if (count != 1)
+            {
+                Log.LogError("template.json 中占位 {0} 出现 {1} 次，应恰好 1 次", placeholder, count);
+                return false;
+            }
+        }
+        text = text.Replace("\"value\": \"0.0.0-source\"", "\"value\": \"" + Version + "\"")
+                   .Replace("\"value\": \"0000000000000000000000000000000000000000\"", "\"value\": \"" + SourceSha + "\"");
+        Directory.CreateDirectory(Path.GetDirectoryName(Destination));
+        File.WriteAllText(Destination, text);
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="StampTemplateIdentity" BeforeTargets="_GetPackageFiles">
+    <PropertyGroup>
+      <StampedTemplateConfig>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(IntermediateOutputPath)', 'template.json'))</StampedTemplateConfig>
+    </PropertyGroup>
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(TemplateVersion)', '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'))"
+           Text="需要 -p:TemplateVersion=&lt;模板版本&gt;（SemVer，例如 0.1.0），当前为 '$(TemplateVersion)'" />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(TemplateSourceSha)', '^[0-9a-f]{40}$'))"
+           Text="需要 -p:TemplateSourceSha=&lt;40 位源提交 SHA&gt;，当前为 '$(TemplateSourceSha)'" />
+    <StampTemplateConfig Source="$(TemplateSourceRoot).template.config/template.json" Destination="$(StampedTemplateConfig)"
+                         Version="$(TemplateVersion)" SourceSha="$(TemplateSourceSha)" />
+    <ItemGroup>
+      <Content Include="$(StampedTemplateConfig)" Pack="true" PackagePath="$(TemplatePackagePath).template.config/" />
+    </ItemGroup>
+  </Target>
+
+</Project>

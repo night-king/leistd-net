@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    单元测试：不建宿主、不连数据库、不发 HTTP。
+    与 IntegrationTests 的分工见 docs/standards/testing.md §1 的风险分级表——
+    纯函数、领域规则、权限判断在这里；数据库、DI 装配、序列化、外部适配在集成测试。
+
+    纯规则在这一层独立运行；只有实际使用宿主或数据库的用例承担相应准备成本。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+
+  <ItemGroup>
+<!--#if (LocalIdentity)-->
+    <PackageReference Include="System.Linq.Dynamic.Core" />
+<!--#endif-->
+    <!-- AddApplicationServices 里的映射器注册依赖 ILogger<>；单元测试不建宿主，自己带日志实现 -->
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CompanyName.ProjectName.Application\CompanyName.ProjectName.Application.csproj" />
+    <!-- 基础设施里的纯映射（数据库错误翻译）按单测验证：不建宿主、不连库 -->
+    <ProjectReference Include="..\..\src\CompanyName.ProjectName.Infrastructure\CompanyName.ProjectName.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\CompanyName.ProjectName.Domain\CompanyName.ProjectName.Domain.csproj" />
+    <!-- 迁移作业的服务组合按构建期校验验证（Registration/MigratorRegistrationTests） -->
+    <ProjectReference Include="..\..\src\CompanyName.ProjectName.DbMigrator\CompanyName.ProjectName.DbMigrator.csproj" />
+    <!-- 宿主层里的纯逻辑（协议交互凭据、限频装饰器）按单测验证：不建宿主 -->
+    <ProjectReference Include="..\..\src\CompanyName.ProjectName.Api\CompanyName.ProjectName.Api.csproj" />
+  </ItemGroup>
+<!--#if (RemoteTokenAuth || LocalIdentity)-->
+
+  <ItemGroup>
+    <!-- 签名刷新与本地认证任务的时间接缝用官方替身 -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+<!--#endif-->
+
+</Project>

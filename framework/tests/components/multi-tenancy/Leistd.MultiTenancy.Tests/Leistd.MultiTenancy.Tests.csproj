@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+    <!--
+      使用关系型 Provider 而非 InMemory：只有它会真正强制（带过滤的）唯一索引并翻译
+      全局查询过滤器表达式，InMemory 全内存求值会让隔离缺口静默通过。
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- MemoryDistributedCache 由 Microsoft.AspNetCore.App 共享框架提供，无需单独引用（NU1510） -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\multi-tenancy\Leistd.MultiTenancy.AspNetCore\Leistd.MultiTenancy.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\multi-tenancy\Leistd.MultiTenancy.EntityFrameworkCore\Leistd.MultiTenancy.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\multi-tenancy\Leistd.MultiTenancy.Management\Leistd.MultiTenancy.Management.csproj" />
+    <ProjectReference Include="..\..\..\..\components\multi-tenancy\Leistd.MultiTenancy.ServiceClient\Leistd.MultiTenancy.ServiceClient.csproj" />
+    <ProjectReference Include="..\..\..\..\components\unit-of-work\Leistd.UnitOfWork.Core\Leistd.UnitOfWork.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\unit-of-work\Leistd.UnitOfWork.EntityFrameworkCore\Leistd.UnitOfWork.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

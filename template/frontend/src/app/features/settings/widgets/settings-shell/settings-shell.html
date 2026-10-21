@@ -1,0 +1,114 @@
+<div class="flex h-full flex-col overflow-hidden">
+  <div class="flex-1 overflow-y-auto p-4 sm:p-6">
+    <div class="flex w-full min-w-0 flex-col gap-6">
+      <header class="flex min-w-0 flex-col gap-2">
+        <h2 class="text-2xl leading-none font-semibold tracking-tight" data-testid="settings-title">
+          {{ heading() }}
+        </h2>
+        @if (description()) {
+          <p class="text-muted-foreground text-sm">{{ description() }}</p>
+        }
+      </header>
+
+      <hlm-separator />
+
+      <!-- 窄屏：面板导航收进抽屉。触发器整宽、显示当前面板名，与顶栏菜单按钮区分开，也说明了"我在哪、可以切换"；
+           可访问名就是可见文字加一段隐藏的导航名，不另挂 aria-label（可见名必须包含在可访问名里）。 -->
+      <div class="md:hidden">
+        <hlm-sheet side="left">
+          <button
+            type="button"
+            hlmSheetTrigger
+            hlmBtn
+            variant="outline"
+            class="w-full justify-between"
+            data-testid="settings-nav-trigger"
+          >
+            <span class="flex min-w-0 items-center gap-2">
+              @if (activePanel(); as panel) {
+                <ng-icon [name]="panel.icon" />
+                <span class="truncate">{{ panel.label }}</span>
+                <!-- 分隔写在文字里：元素之间的纯空白会被模板编译去掉，名称会粘成一个词 -->
+                <span class="sr-only">, {{ navLabel() }}</span>
+              } @else {
+                <span class="truncate">{{ openNavLabel() }}</span>
+              }
+            </span>
+            <ng-icon name="lucideChevronDown" class="text-muted-foreground" />
+          </button>
+          <hlm-sheet-content *hlmSheetPortal="let ctx">
+            <!-- 页头右侧为关闭按钮让位；底边距由下面导航的 p-4 承担 -->
+            <div hlmSheetHeader class="pb-0">
+              <h2 hlmSheetTitle>{{ heading() }}</h2>
+              <!-- 抽屉必须有描述：组件会无条件指一个 aria-describedby，缺了它就是悬空引用。
+                   复用页面说明：它本来就是"这里面有什么"的一句话，本组件也不引入 Transloco。 -->
+              <p hlmSheetDescription class="sr-only">{{ description() }}</p>
+            </div>
+            <nav class="flex flex-col gap-1 p-4" [attr.aria-label]="navLabel()">
+              @for (panel of panels(); track panel.path) {
+                <!-- hlmSheetClose 只能挂在 button 上；链接在点选后由抽屉上下文关闭 -->
+                <a
+                  hlmBtn
+                  variant="ghost"
+                  class="justify-start aria-[current=page]:bg-muted"
+                  [routerLink]="[panel.path]"
+                  [attr.aria-current]="activePanel()?.path === panel.path ? 'page' : null"
+                  (click)="ctx.close()"
+                >
+                  <ng-icon [name]="panel.icon" />
+                  {{ panel.label }}
+                </a>
+              }
+            </nav>
+          </hlm-sheet-content>
+        </hlm-sheet>
+      </div>
+
+      <div class="flex flex-col gap-6 md:flex-row md:items-start">
+        <nav
+          class="hidden md:flex md:w-52 md:shrink-0 md:flex-col md:gap-1"
+          data-testid="settings-panels"
+          [attr.aria-label]="navLabel()"
+        >
+          @for (panel of panels(); track panel.path) {
+            <a
+              hlmBtn
+              variant="ghost"
+              class="justify-start aria-[current=page]:bg-muted"
+              [routerLink]="[panel.path]"
+              [attr.aria-current]="activePanel()?.path === panel.path ? 'page' : null"
+              [attr.data-testid]="'settings-panel-link-' + panel.path"
+            >
+              <ng-icon [name]="panel.icon" />
+              {{ panel.label }}
+            </a>
+          }
+        </nav>
+
+        <!-- 面板列：宽度上限与命名容器只在这里定一处。面板级的排版切换按这个命名容器判断（如 @md/panel），
+             不按视口：同一视口下面板宽度还受侧栏与左侧导航影响；字段的左右排跟随 Spartan FieldGroup 自己的容器。 -->
+        <!-- 面板与其中的分区不套卡片：标题下一条实线划界，分区内的行只靠留白分隔。 -->
+        <div class="@container/panel flex w-full max-w-3xl min-w-0 flex-auto flex-col gap-6">
+          @if (activePanel(); as panel) {
+            <header class="flex flex-col gap-1 border-b pb-4">
+              <div class="flex items-center gap-1">
+                <h3 class="text-base leading-none font-medium">{{ panel.label }}</h3>
+                @if (panel.hint) {
+                  <app-info-hint data-testid="settings-panel-hint" [text]="panel.hint" />
+                }
+              </div>
+              @if (panel.description) {
+                <p class="text-muted-foreground text-sm">{{ panel.description }}</p>
+              }
+            </header>
+          }
+          <!-- router-outlet 元素本身留在 DOM 里，直接放在 gap 容器里会多占一个间距 -->
+          <div class="flex min-w-0 flex-col">
+            <ng-content />
+            <router-outlet />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    共享测试基座：收编被多个测试项目重复发明的替身，以及测试专用的断言词汇。
+    本项目自己没有用例（项目名不以 .Tests 结尾，tests/Directory.Build.props 因此
+    不给它注入测试 SDK 与 runner），只提供被 *.Tests 引用的类型。
+
+    收编标准：同一份东西已经在两个以上项目里各写了一遍，且语义相同。
+    语义只是相近的（例如各家族对 IAmbientContextContributor 的记录方式）留在各自项目里，
+    强行合并会让替身长出一堆只服务某一个调用方的开关。
+  -->
+
+  <!-- TestHubCallerContext 需要 SignalR 的 HubCallerContext；随共享框架提供，不引包 -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      只引断言库，不引 xunit 元包。元包会带上 xunit.core，其 props 设 IsTestProject=true，
+      于是 dotnet test 把这个没有用例的共享项目当测试程序集启动，解决方案级命令整体失败。
+    -->
+    <PackageReference Include="xunit.assert" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\components\core\Leistd.Core\Leistd.Core.csproj" />
+    <ProjectReference Include="..\..\..\components\security\Leistd.Security.Core\Leistd.Security.Core.csproj" />
+    <!-- RecordingEventBus、FakeCurrentTenant：只依赖两个家族的 Core 抽象 -->
+    <ProjectReference Include="..\..\..\components\event-bus\Leistd.EventBus.Core\Leistd.EventBus.Core.csproj" />
+    <ProjectReference Include="..\..\..\components\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- FixedDbContextProvider：组件的 EF 存储统一经 IDbContextProvider 取上下文 -->
+    <ProjectReference Include="..\..\..\components\unit-of-work\Leistd.UnitOfWork.EntityFrameworkCore\Leistd.UnitOfWork.EntityFrameworkCore.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,18 +1,37 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import { ProgressSpinnerModule } from 'primeng/progressspinner';
+//#if (IncludeLocalization)
+import { TranslocoDirective } from '@jsverse/transloco';
+//#endif
+import { HlmSpinner } from '@spartan-ng/helm/spinner';
+//#if (!IncludeLocalization)
+
+import { englishText } from '../../utils/english-text';
+//#endif
 
 @Component({
   selector: 'app-dialog-loading',
   standalone: true,
-  imports: [ProgressSpinnerModule],
-  template: `
-    <div class="flex min-h-64 flex-col items-center justify-center gap-4 py-10 text-center">
-      <p-progressSpinner ariaLabel="loading" strokeWidth="4" styleClass="h-10 w-10" />
-      <div class="text-sm text-muted-color">{{ text() }}</div>
-    </div>
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush
+  // prettier-ignore
+  imports: [
+    HlmSpinner,
+    //#if (IncludeLocalization)
+    TranslocoDirective,
+    //#endif
+  ],
+  templateUrl: './dialog-loading.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class DialogLoadingComponent {
-  readonly text = input('正在加载...');
+export class DialogLoading {
+  // 调用方可显式传入文本；未传入时回退到默认加载文案。
+  readonly text = input<string>();
+  //#if (!IncludeLocalization)
+  protected readonly t = englishText(ENGLISH);
+  //#endif
 }
+//#if (!IncludeLocalization)
+
+/** 不含本地化时的界面文案，与 `en.json` 同步。 */
+const ENGLISH: Record<string, string> = {
+  'app.startup.loading': 'Loading...',
+};
+//#endif

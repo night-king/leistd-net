@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <ProjectReference Include="../../../../components/data/Leistd.Data.EntityFrameworkCore/Leistd.Data.EntityFrameworkCore.csproj" />
+  </ItemGroup>
+</Project>

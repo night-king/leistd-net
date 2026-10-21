@@ -4,14 +4,46 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 开发环境的机密（管理员密码、本机数据库口令）存 user-secrets；与 DbMigrator 共用同一份，设置一次两边都能读 -->
+    <UserSecretsId>7f3c2a1e-4b5d-4e6f-9a8b-0c1d2e3f4a5b</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
-<!--#if (IncludeOpenIddict)-->
-    <PackageReference Include="OpenIddict.AspNetCore" />
+    <!-- 测试程序集可见内部类型。启动门禁的确认逻辑（解析发现文档、比对 issuer、取 JWKS）
+         必须被真实执行过：只测布尔门禁的前后状态，等于没测"什么情况下才算确认通过"，
+         而那正是这道门禁的全部内容。它是纯逻辑，在单元测试里执行。 -->
+    <InternalsVisibleTo Include="CompanyName.ProjectName.IntegrationTests" />
+    <InternalsVisibleTo Include="CompanyName.ProjectName.UnitTests" />
+  </ItemGroup>
+
+<!--#if (RemoteTokenAuth)-->
+  <ItemGroup>
+    <!-- 进程级运行时开关：签名公钥轮换后，配置刷新在本次请求内完成（而不是只在后台更新）。
+         OpenIddict 验证与 OIDC 处理器的两条配置链路都依赖它，参数由 AddSigningKeyRefresh 配置。
+         只在资源服务宿主设置；测试项目另设一份，因为 testhost 不读本项目的 runtimeconfig。 -->
+    <RuntimeHostConfigurationOption Include="Switch.Microsoft.IdentityModel.UpdateConfigAsBlocking" Value="true" />
+  </ItemGroup>
+
 <!--#endif-->
-    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" />
-    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+<!--#if (IncludeLocalization)-->
+  <ItemGroup>
+    <!-- 本地化资源随程序集嵌入（业务文案键，按 culture 查表） -->
+    <EmbeddedResource Include="Resources\*.json" />
+  </ItemGroup>
+<!--#endif-->
+
+
+  <ItemGroup>
+<!--#if (OpenIddictServer || RemoteTokenAuth)-->
+    <PackageReference Include="OpenIddict.AspNetCore" />
+<!--#if (OpenIddictServer)-->
+    <PackageReference Include="Leistd.Security.OpenIddict.Server" />
+<!--#endif-->
+<!--#endif-->
+<!--#if (RemoteTokenAuth)-->
+    <PackageReference Include="Leistd.Security.OpenIddict.Validation" />
+<!--#endif-->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -25,18 +57,61 @@
     <ProjectReference Include="..\CompanyName.ProjectName.Infrastructure\CompanyName.ProjectName.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+<!--#if (ExternalLogin)-->
+    <PackageReference Include="AspNet.Security.OAuth.GitHub" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" />
+<!--#endif-->
+<!--#if (RemoteTokenAuth)-->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+<!--#endif-->
+  </ItemGroup>
+
   <!-- Leistd 框架引用 -->
   <ItemGroup>
-    <PackageReference Include="Leistd.Exception.AspNetCore" />
+    <PackageReference Include="Leistd.Data" />
+    <PackageReference Include="Leistd.ExceptionHandling.AspNetCore" />
+    <PackageReference Include="Leistd.ServiceClient.Core" />
+<!--#if (IncludeLocalization)-->
+    <PackageReference Include="Leistd.Localization.AspNetCore" />
+<!--#endif-->
     <PackageReference Include="Leistd.DependencyInjection.DynamicProxy" />
     <PackageReference Include="Leistd.Authorization.AspNetCore" />
+    <!-- 授权阶段被拒的补记：注解 + HttpContext 扩展，在所有服务形态下都需要 -->
+    <PackageReference Include="Leistd.OperationRecords.AspNetCore" />
+<!--#if (!IncludeOperationRecords)-->
+    <PackageReference Include="Leistd.OperationRecords.Logging" />
+<!--#endif-->
+    <PackageReference Include="Leistd.MultiTenancy.AspNetCore" />
     <PackageReference Include="Leistd.Security.AspNetCore" />
     <PackageReference Include="Leistd.Tracing.AspNetCore" />
     <PackageReference Include="Leistd.Tracing.HttpClient" />
+    <!-- 周期任务调度与进程内队列；组件自带的维护任务（归档、通知保留期、宿主级设置刷新）靠它跑 -->
+    <PackageReference Include="Leistd.BackgroundJobs.InProcess" />
+    <PackageReference Include="Leistd.Settings.AspNetCore" />
+    <!-- 宿主级设置经配置源覆盖部署配置（日志级别、发信参数、审计保留期） -->
+    <PackageReference Include="Leistd.Settings.Hosting" />
+<!--#if (RemoteTokenAuth)-->
+    <!-- 用户令牌读取只适用于已验证 Bearer 的资源服务。 -->
+    <PackageReference Include="Leistd.ServiceClient.AspNetCore" />
+<!--#endif-->
 <!--#if (IncludeNotifications)-->
     <PackageReference Include="Leistd.Notifications.Core" />
+    <PackageReference Include="Leistd.Notifications.AspNetCore" />
     <PackageReference Include="Leistd.Notifications.AspNetCore.SignalR" />
+    <!-- 通知偏好：按收件人的用户级设置投递 -->
+    <PackageReference Include="Leistd.Notifications.Settings" />
+<!--#if (Email)-->
+    <!-- 邮件渠道：只发到收件人已验证的邮箱 -->
+    <PackageReference Include="Leistd.Notifications.Email" />
+<!--#endif-->
+<!--#endif-->
+<!--#if (IncludeRealTime)-->
     <PackageReference Include="Leistd.RealTime.AspNetCore.SignalR" />
+<!--#endif-->
+<!--#if (IncludeNotifications || IncludeRealTime)-->
+    <!-- 官方 Redis 背板：配了 Redis 时多副本与 Worker 的推送经它路由 -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
 <!--#endif-->
   </ItemGroup>
 

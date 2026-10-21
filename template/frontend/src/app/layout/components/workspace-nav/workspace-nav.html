@@ -1,0 +1,160 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  @if (placement() === 'start') {
+    <!-- 窄屏：导航收进抽屉，点选后自动关闭。宽屏连同宿主一起隐藏，否则空宿主仍占一份 gap，品牌与正文对不齐 -->
+    <hlm-sheet side="left" class="md:hidden">
+      <button
+        type="button"
+        hlmSheetTrigger
+        hlmBtn
+        variant="ghost"
+        size="icon"
+        class="md:hidden"
+        data-testid="workspace-nav-trigger"
+        [attr.aria-label]="t('layout.topbar.openNavigation')"
+      >
+        <ng-icon name="lucideMenu" />
+      </button>
+      <hlm-sheet-content *hlmSheetPortal="let ctx">
+        <!-- 页头右侧为关闭按钮让位；底边距由下面导航的 p-4 承担 -->
+        <div hlmSheetHeader class="pb-0">
+          <h2 hlmSheetTitle>
+            {{ t('layout.sidebar.appTitle') }}
+          </h2>
+          <!-- 抽屉必须有描述：组件会无条件指一个 aria-describedby，缺了它就是悬空引用 -->
+          <p hlmSheetDescription class="sr-only">
+            {{ t('layout.topbar.navigationDescription') }}
+          </p>
+        </div>
+        <nav class="flex flex-col gap-4 p-4" [attr.aria-label]="t('layout.sidebar.navigation')">
+          @for (group of groups(); track group.label) {
+            <div class="flex flex-col gap-1">
+              <span class="text-muted-foreground px-2.5 text-xs font-medium">{{
+                group.label
+              }}</span>
+              @for (item of group.items; track item.route) {
+                <!-- hlmSheetClose 只能挂在 button 上；链接在点选后由抽屉上下文关闭 -->
+                <a
+                  hlmBtn
+                  variant="ghost"
+                  class="justify-start aria-[current=page]:bg-muted"
+                  [routerLink]="item.route"
+                  [attr.aria-current]="isItemActive(item) ? 'page' : null"
+                  (click)="ctx.close()"
+                >
+                  <ng-icon [name]="item.icon" />
+                  {{ item.label }}
+                </a>
+              }
+            </div>
+          }
+        </nav>
+      </hlm-sheet-content>
+    </hlm-sheet>
+
+    <a
+      class="flex shrink-0 items-center gap-2 text-sm font-semibold"
+      [routerLink]="layoutService.homeRoute()"
+    >
+      <app-logo />
+      <span class="sr-only sm:not-sr-only">{{ t('layout.sidebar.appTitle') }}</span>
+    </a>
+  }
+
+  @if (placement() === 'start') {
+    <!-- 链接不换行：放不下的从末尾收进「更多」菜单（规则见 docs/standards/frontend-navigation.md §2）。
+         导航区占满品牌右侧的剩余宽度，可用宽度因此不随平铺项数变化。 -->
+    <nav
+      #nav
+      hlmNavigationMenu
+      class="hidden min-w-0 max-w-none flex-1 justify-start md:flex"
+      [attr.aria-label]="t('layout.sidebar.navigation')"
+    >
+      <ul hlmNavigationMenuList class="flex-none gap-1">
+        @for (item of inlineItems(); track item.route) {
+          <li hlmNavigationMenuItem>
+            <a
+              hlmNavigationMenuLink
+              class="whitespace-nowrap"
+              [routerLink]="item.route"
+              [active]="isItemActive(item)"
+              [attr.aria-current]="isItemActive(item) ? 'page' : null"
+              [attr.data-testid]="'workspace-nav-' + item.route"
+            >
+              {{ item.label }}
+            </a>
+          </li>
+        }
+        @if (overflowItems().length) {
+          <!-- 菜单项指令要求子元素是导航链接或导航触发器，「更多」是下拉菜单按钮，用普通列表项。
+               按键不冒泡给导航：导航的方向键管理只认平铺链接，会把焦点从刚打开的下拉里抢回去 -->
+          <li>
+            <button
+              type="button"
+              class="hover:bg-muted focus-visible:ring-ring/50 data-[active=true]:bg-muted/50 data-[state=open]:bg-muted flex items-center gap-1.5 rounded-sm p-2 text-sm whitespace-nowrap transition-all pointer-coarse:min-h-11 outline-none focus-visible:ring-3 focus-visible:outline-1"
+              data-testid="workspace-nav-more"
+              align="start"
+              [attr.data-active]="overflowActive()"
+              [hlmDropdownMenuTrigger]="moreMenu"
+              (keydown)="$event.stopPropagation()"
+            >
+              {{ t('layout.topbar.more') }}
+              <ng-icon name="lucideChevronDown" class="text-muted-foreground size-3" />
+            </button>
+            <ng-template #moreMenu>
+              <hlm-dropdown-menu class="min-w-44">
+                @for (item of overflowItems(); track item.route) {
+                  <a
+                    hlmDropdownMenuItem
+                    class="aria-[current=page]:bg-muted"
+                    [routerLink]="item.route"
+                    [attr.aria-current]="isItemActive(item) ? 'page' : null"
+                    [attr.data-testid]="'workspace-nav-' + item.route"
+                  >
+                    <ng-icon [name]="item.icon" />
+                    {{ item.label }}
+                  </a>
+                }
+              </hlm-dropdown-menu>
+            </ng-template>
+          </li>
+        }
+      </ul>
+      <!-- 量尺：与上面同样式的全部标签加「更多」按钮，不可见、不占位、不可聚焦，只用来量宽度 -->
+      <div class="invisible absolute inset-0 overflow-hidden" aria-hidden="true">
+        <div #ruler class="flex w-max gap-1">
+          @for (item of items(); track item.route) {
+            <span class="p-2 text-sm whitespace-nowrap">{{ item.label }}</span>
+          }
+          <span class="flex items-center gap-1.5 p-2 text-sm whitespace-nowrap">
+            {{ t('layout.topbar.more') }}
+            <ng-icon name="lucideChevronDown" class="size-3" />
+          </span>
+        </div>
+      </div>
+    </nav>
+  } @else if (items().length) {
+    <!-- 与主题、通知、语言同一排，用同尺寸的 ghost 图标按钮，名称放进提示与可访问名。没有
+         placement:'end' 的分组时整个 nav 不渲染，空的导航地标对读屏用户是噪音。 -->
+    <nav class="hidden items-center gap-2 md:flex" [attr.aria-label]="endNavLabel()">
+      @for (item of items(); track item.route) {
+        <a
+          hlmBtn
+          variant="ghost"
+          size="icon"
+          class="aria-[current=page]:bg-muted"
+          [routerLink]="item.route"
+          [attr.aria-current]="isItemActive(item) ? 'page' : null"
+          [attr.aria-label]="item.label"
+          [hlmTooltip]="item.label"
+          [attr.data-testid]="'workspace-nav-' + item.route"
+        >
+          <ng-icon [name]="item.icon" />
+        </a>
+      }
+    </nav>
+  }
+</ng-container>

@@ -1,0 +1,149 @@
+{
+  "page": {
+    "title": "开放应用管理"
+  },
+  "action": {
+    "create": "新建开放应用",
+    "resetSecret": "重置密钥"
+  },
+  "filter": {
+    "allAppTypes": "全部应用类型",
+    "allClientTypes": "全部客户端类型",
+    "appTypeLabel": "应用类型",
+    "clientTypeLabel": "客户端类型",
+    "searchPlaceholder": "搜索应用名称 / Client ID..."
+  },
+  "toast": {
+    "created": "开放应用创建成功",
+    "updated": "开放应用更新成功",
+    "deleted": "开放应用已删除",
+    "secretCopied": "已复制密钥",
+    "clientIdCopied": "已复制 Client ID"
+  },
+  "confirm": {
+    "deleteHeader": "确认删除",
+    "deleteMessage": "确定要删除此开放应用吗？使用该 Client ID 的客户端将无法继续登录。",
+    "resetSecretHeader": "确认重置密钥",
+    "resetSecretMessage": "确定要重置该开放应用的 Client Secret 吗？旧密钥将立即失效。"
+  },
+  "secret": {
+    "resetHeader": "Client Secret 已重置",
+    "createdHeader": "客户端凭据已生成",
+    "applicationLabel": "应用：",
+    "clientSecret": "Client Secret",
+    "copyClientId": "复制 Client ID",
+    "copySecret": "复制 Client Secret",
+    "warning": "请立即复制并安全保存，该密钥后续不会再次明文展示。",
+    "copyAndClose": "复制并关闭"
+  },
+  "appType": {
+    "web": "Web",
+    "native": "桌面/原生",
+    "service": "服务端"
+  },
+  "dialog": {
+    "editHeader": "编辑开放应用",
+    "createHeader": "新建开放应用",
+    "description": "配置该客户端的标识、类型与 OAuth 能力。",
+    "loading": "正在加载开放应用信息..."
+  },
+  "field": {
+    "template": "应用模板",
+    "templatePlaceholder": "选择模板快速填充",
+    "displayName": "应用名称",
+    "displayNamePlaceholder": "例如 我的桌面应用",
+    "clientIdPlaceholder": "例如 my-desktop-app",
+    "applicationType": "应用类型",
+    "clientType": "客户端类型",
+    "clientId": "Client ID",
+    "redirectUris": "重定向 URI",
+    "postLogoutRedirectUris": "注销后重定向 URI",
+    "permissions": "权限",
+    "requirements": "安全要求"
+  },
+  "template": {
+    "web": "Web PKCE 客户端",
+    "desktop": "桌面端 PKCE 客户端",
+    "service": "服务端机密客户端",
+    "desktopDisplayName": "我的桌面应用"
+  },
+  "clientType": {
+    "publicLabel": "Public（公开）",
+    "confidentialLabel": "Confidential（机密）"
+  },
+  "permission": {
+    "authorizationEndpoint": "授权端点",
+    "tokenEndpoint": "Token 端点",
+    "endSessionEndpoint": "登出端点",
+    "authorizationCode": "授权码",
+    "authorizationCodeFlow": "授权码流程",
+    "refreshToken": "刷新令牌",
+    "clientCredentials": "客户端凭据",
+    "codeResponse": "Code 响应",
+    "scopeOpenid": "身份标识",
+    "scopeProfile": "个人资料",
+    "scopeEmail": "邮箱",
+    "scopeRoles": "角色",
+    "scopeOfflineAccess": "离线访问",
+    "notConfigured": "未配置",
+    "tokenExchange": "代表用户调用（Token Exchange）"
+  },
+  "requirement": {
+    "forcePkce": "强制 PKCE"
+  },
+  "section": {
+    "callback": "回调地址",
+    "authorization": "授权能力"
+  },
+  "redirectUri": {
+    "hint": "登录完成后的回调地址",
+    "placeholder": "https://example.com/callback 或 my-desktop-app://oauth/callback",
+    "invalid": "请输入合法的绝对 URI，且不能包含 fragment。",
+    "empty": "暂未配置 Redirect URI"
+  },
+  "postLogoutUri": {
+    "hint": "登出后的跳转地址",
+    "empty": "暂未配置 Post Logout Redirect URI"
+  },
+  "service": {
+    "autoConfigured": "已根据模板自动配置",
+    "description": "服务端客户端凭据流程，无需回调地址和 PKCE。"
+  },
+  "permissions": {
+    "placeholder": "选择授权能力"
+  },
+  "requirements": {
+    "placeholder": "选择安全要求",
+    "offlineAccessHint": "已允许 refresh_token，建议同时开放 offline_access scope。"
+  },
+  "sessionBound": {
+    "title": "绑定登录会话",
+    "hint": "用户退出登录、设备被撤销或会话空闲到期后，授权码与刷新令牌随之失效。浏览器（BFF）客户端应开启；需要持续离线续期的客户端关闭。",
+    "unset": "该应用登记早于会话绑定设置，保存前须明确选择。"
+  },
+  "table": {
+    "currentPageReport": "共 {{total}} 条",
+    "colApp": "应用",
+    "colType": "类型",
+    "colPermissions": "授权能力",
+    "colSecurity": "安全",
+    "colRedirectUris": "回调地址",
+    "colPostLogoutRedirectUris": "登出回调地址",
+    "colCreatedAt": "创建时间",
+    "noPkce": "无 PKCE",
+    "secretSet": "Secret 已设置",
+    "noSecret": "无 Secret",
+    "emptyTitle": "暂无开放应用",
+    "emptyHint": "请创建新的开放应用",
+    "emptyFilteredTitle": "没有匹配的开放应用",
+    "emptyFilteredHint": "请调整搜索或筛选条件"
+  },
+  "popover": {
+    "empty": "暂无配置",
+    "permissionsTrigger": "查看 {{name}} 的全部授权能力（{{count}} 项）",
+    "redirectUrisTrigger": "查看 {{name}} 的全部回调地址（{{count}} 个）",
+    "filterPermissions": "筛选授权能力",
+    "filterRedirectUris": "筛选回调地址",
+    "noMatches": "没有匹配的条目"
+  }
+}

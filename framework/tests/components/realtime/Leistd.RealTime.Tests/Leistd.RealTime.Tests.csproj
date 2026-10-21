@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Xunit.SkippableFact" />
+    <!-- 断线取消要在 SignalR dispatcher 的日志出口观察 -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\realtime\Leistd.RealTime.Core\Leistd.RealTime.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\realtime\Leistd.RealTime.AspNetCore.SignalR\Leistd.RealTime.AspNetCore.SignalR.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    本服务的强类型调用客户端：随服务发布为 NuGet 包，供其他后端服务引用。
+    接口 + Refit 特性声明 API，HTTP 实现由 Refit 源生成；
+    只依赖 Leistd.ServiceClient.*，不引用服务内部程序集（DTO 自带，独立演进）。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>CompanyName.ProjectName 服务调用客户端</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Leistd.ServiceClient.Refit" />
+    <PackageReference Include="Leistd.ServiceClient.OAuth" />
+    <!-- 声明 Refit 接口的程序集需直接引用 Refit 以激活源生成器 -->
+    <PackageReference Include="Refit" />
+  </ItemGroup>
+
+</Project>

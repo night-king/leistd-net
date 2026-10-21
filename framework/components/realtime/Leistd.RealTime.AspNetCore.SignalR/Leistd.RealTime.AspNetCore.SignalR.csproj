@@ -1,10 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>Leistd.RealTime.AspNetCore.SignalR</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,6 +12,11 @@
     <ProjectReference Include="..\Leistd.RealTime.Core\Leistd.RealTime.Core.csproj" />
     <!-- Hub 在 Web 边界用 ICurrentUser 解析当前用户；身份依赖只存在于本实现层，Core 保持中立 -->
     <ProjectReference Include="..\..\security\Leistd.Security.Core\Leistd.Security.Core.csproj" />
+    <ProjectReference Include="..\..\aspnetcore-signalr\Leistd.AspNetCore.SignalR\Leistd.AspNetCore.SignalR.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Leistd.RealTime.Tests" />
   </ItemGroup>
 
 </Project>

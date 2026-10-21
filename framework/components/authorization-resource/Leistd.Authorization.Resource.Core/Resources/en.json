@@ -1,0 +1,7 @@
+{
+  "culture": "en",
+  "texts": {
+    "ResourceAuthorization:InvalidGrant": "The resource grant is invalid.",
+    "ResourceAuthorization:ConcurrencyConflict": "The resource grant was changed. Reload and try again."
+  }
+}

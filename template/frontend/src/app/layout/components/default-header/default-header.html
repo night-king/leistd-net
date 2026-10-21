@@ -1,164 +1,153 @@
-<!-- Header -->
-<header
-  class="h-14 md:h-16 flex items-center justify-between px-4 md:px-6 bg-surface-0/80 dark:bg-surface-900/80 backdrop-blur-md border-b border-surface-200 dark:border-surface-800 z-10 sticky top-0"
->
-  <!-- Breadcrumb / Title & Toggle -->
-  <div class="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
-    <!-- Sidebar Toggle -->
-    <p-button icon="pi pi-bars" [text]="true" [rounded]="true" severity="secondary" (onClick)="handleMenuToggle()"> </p-button>
-
-    <!-- Breadcrumb: 响应式 -->
-    <div class="flex items-center gap-2 text-sm overflow-hidden">
-      <span class="text-muted-color hidden sm:inline">工作区</span>
-      <span class="text-muted-color hidden sm:inline">/</span>
-      <h2 class="font-semibold text-color truncate">{{ layoutService.title() }}</h2>
-    </div>
-  </div>
-
-  <!-- Right Actions -->
-  <div class="flex items-center gap-2 md:gap-4">
-    <!-- Theme Toggle -->
-    <p-button [icon]="themeService.modeIcon()" [text]="true" [rounded]="true" severity="secondary" (onClick)="themeService.toggleTheme()">
-    </p-button>
-
-    <!-- Configurator: 桌面端显示 -->
-    <div class="relative hidden md:block">
-      <p-button
-        icon="pi pi-palette"
-        [text]="true"
-        [rounded]="true"
-        severity="secondary"
-        pStyleClass="@next"
-        enterFromClass="hidden"
-        enterActiveClass="animate-scalein"
-        leaveToClass="hidden"
-        leaveActiveClass="animate-fadeout"
-        [hideOnOutsideClick]="true"
-      >
-      </p-button>
-      <app-theme-configurator />
-    </div>
-
-    <!-- Notifications -->
-    <!--#if (IncludeNotifications)-->
-    <p-button
-      [text]="true"
-      [rounded]="true"
-      severity="secondary"
-      styleClass="min-w-[36px] min-h-[36px] !overflow-visible"
-      (onClick)="toggleNotifications($event)"
-      pTooltip="通知"
-      tooltipPosition="bottom"
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <header
+    class="h-14 shrink-0 bg-background/95 backdrop-blur border-b border-border z-30 sticky top-0"
+  >
+    <!-- 页面的 h1 由两种布局共用的页头按页面标题输出，页面内标题从 h2 起；未设标题的页不输出 -->
+    @if (layoutService.title(); as pageTitle) {
+      <h1 class="sr-only" data-testid="page-heading">{{ pageTitle }}</h1>
+    }
+    <!-- 顶栏布局的内容与正文同宽（max-w-7xl、同样的左右内边距），左右边缘与页面内容对齐 -->
+    <div
+      class="mx-auto flex h-full w-full items-center justify-between gap-2"
+      [class]="layout() === 'topbar' ? 'max-w-7xl px-4 sm:px-6' : 'px-4 md:px-6'"
     >
-      <p-overlay-badge
-        [value]="notificationCount() > 99 ? '99+' : notificationCount()"
-        [badgeDisabled]="notificationCount() === 0"
-        severity="danger"
-        badgeSize="small"
-      >
-        <i class="pi pi-bell text-base md:text-lg"></i>
-      </p-overlay-badge>
-    </p-button>
-
-    <p-popover #notificationPopover [pt]="{ content: { class: '!p-0' } }">
-      <div class="w-[360px] max-w-[90vw]">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-surface-200 dark:border-surface-700">
-          <span class="font-semibold text-color">通知</span>
-          @if (notificationCount() > 0) {
-            <button type="button" class="text-xs text-primary hover:underline" (click)="markAllNotificationsRead()">全部已读</button>
-          }
-        </div>
-        @if (notifications().length === 0) {
-          <div class="py-10 text-center text-muted-color text-sm">
-            <i class="pi pi-inbox text-2xl block mb-2 opacity-60"></i>
-            暂无通知
-          </div>
+      <div class="flex items-center gap-2 flex-1 min-w-0">
+        @if (layout() === 'topbar') {
+          <app-workspace-nav />
         } @else {
-          <div class="max-h-[360px] overflow-y-auto flex flex-col">
-            @for (n of notifications(); track n.id) {
-              <button
-                type="button"
-                class="flex items-stretch gap-3 w-full text-left px-4 py-3 transition-colors hover:bg-surface-100 dark:hover:bg-surface-800"
-                [class.bg-primary-50]="!n.isRead"
-                [class.dark:bg-primary-950/40]="!n.isRead"
-                (click)="onNotificationClick(n)"
-              >
-                <!-- 图标：统一中性灰，仅形状按类型区分；大小撑满标题+内容高度，垂直居中 -->
-                <span class="flex items-center justify-center shrink-0 self-stretch aspect-square">
-                  <i class="pi {{ notificationIcon(n.type) }} text-muted-color text-2xl"></i>
-                </span>
-                <span class="flex-1 min-w-0 flex flex-col gap-1">
-                  <!-- 标题行：标题在左，未读小圆点 + 时间成组在右，垂直居中 -->
-                  <span class="flex items-center gap-3">
-                    <span
-                      class="text-sm truncate flex-1 min-w-0"
-                      [class.font-semibold]="!n.isRead"
-                      [class.text-color]="!n.isRead"
-                      [class.text-muted-color]="n.isRead"
-                      [pTooltip]="n.title"
-                      tooltipPosition="bottom"
-                      [tooltipDisabled]="!n.title"
-                      >{{ n.title }}</span
-                    >
-                    <span class="flex items-center gap-1.5 shrink-0">
-                      @if (!n.isRead) {
-                        <span class="w-2 h-2 bg-primary rounded-full"></span>
-                      }
-                      <span class="text-[11px] text-muted-color whitespace-nowrap">{{ n.creationTime | date: 'MM-dd HH:mm' }}</span>
-                    </span>
-                  </span>
-                  <!-- 内容：次要，截断时 hover 在下方显示完整 -->
-                  @if (n.content) {
-                    <span class="block text-xs text-muted-color leading-relaxed truncate" [pTooltip]="n.content" tooltipPosition="bottom">{{
-                      n.content
-                    }}</span>
-                  }
-                </span>
-              </button>
-            }
-          </div>
+          <button
+            hlmSidebarTrigger
+            size="icon"
+            position="bottom"
+            [attr.aria-label]="t('common.toggleSidebar')"
+            [hlmTooltip]="sidebarTip"
+          ></button>
+          <ng-template #sidebarTip>
+            <span class="flex items-center gap-2">
+              {{ t('common.toggleSidebar') }}
+              <kbd hlmKbdGroup><kbd hlmKbd>⌘ B</kbd></kbd>
+            </span>
+          </ng-template>
+
+          <hlm-separator orientation="vertical" class="me-2 !h-6 !self-center" />
+
+          <nav hlmBreadcrumb class="overflow-hidden">
+            <ol hlmBreadcrumbList>
+              <li hlmBreadcrumbItem class="hidden sm:inline-flex">
+                <a hlmBreadcrumbLink [link]="layoutService.homeRoute()">{{
+                  layoutService.isPlatform() ? t('menu.platform') : t('menu.workspace')
+                }}</a>
+              </li>
+              <!-- 标题未设置时整个末级不渲染：只留分隔符会是一条断裂的面包屑 -->
+              @if (layoutService.title(); as pageTitle) {
+                <li hlmBreadcrumbSeparator class="hidden sm:inline-flex"></li>
+                <li hlmBreadcrumbItem class="min-w-0">
+                  <span hlmBreadcrumbPage class="truncate">{{ pageTitle }}</span>
+                </li>
+              }
+            </ol>
+          </nav>
         }
       </div>
-    </p-popover>
-    <!--#else-->
-    <p-button [text]="true" [rounded]="true" severity="secondary" styleClass="relative min-w-[36px] min-h-[36px]">
-      <i class="pi pi-bell text-base md:text-lg"></i>
-    </p-button>
-    <!--#endif-->
 
-    <div class="h-6 w-px bg-surface-200 dark:bg-surface-700 mx-1"></div>
-
-    <!--#if (IncludeIdentity)-->
-    <!-- User Dropdown: 始终显示用户名 -->
-    @if (authService.currentUser(); as user) {
-      <div class="relative">
-        <p-menu #userMenu [model]="userMenuItems()" [popup]="true" appendTo="body"></p-menu>
-
-        <p-button
-          [text]="true"
-          severity="secondary"
-          styleClass="flex items-center gap-2 md:gap-3 p-1.5 border-transparent transition-colors min-h-[44px]"
-          (onClick)="userMenu.toggle($event)"
-        >
-          <p-avatar [image]="user.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + user.username" shape="circle"></p-avatar>
-          <div class="flex items-center gap-2">
-            <p class="text-sm font-medium text-color leading-none truncate max-w-[80px] md:max-w-none">
-              {{ user.nickname || user.username }}
-            </p>
-            @if (user.isAdmin()) {
-              <i class="pi pi-verified text-primary text-xs hidden md:inline" pTooltip="管理员" tooltipPosition="bottom"></i>
-            }
-          </div>
-          <i class="pi pi-angle-down text-muted-color text-xs ml-1"></i>
-        </p-button>
+      <div class="flex items-center gap-2 md:gap-4">
+        @if (layout() === 'topbar') {
+          <!-- 搜索入口：打开命令面板（⌘K / Ctrl+K）。窄屏收成图标按钮；页面自带搜索入口时不重复显示。 -->
+          @if (!layoutService.pageHasSearch()) {
+            <button
+              type="button"
+              hlmBtn
+              variant="outline"
+              class="text-muted-foreground hidden w-56 justify-start font-normal md:inline-flex"
+              data-testid="topbar-search"
+              (click)="commandPalette.open()"
+            >
+              <ng-icon name="lucideSearch" />
+              {{ t('layout.commandPalette.search') }}
+              <kbd hlmKbd class="ms-auto">⌘K</kbd>
+            </button>
+            <button
+              type="button"
+              hlmBtn
+              variant="ghost"
+              size="icon"
+              class="md:hidden"
+              [attr.aria-label]="t('layout.commandPalette.search')"
+              (click)="commandPalette.open()"
+            >
+              <ng-icon name="lucideSearch" />
+            </button>
+          }
+          <app-workspace-nav placement="end" />
+        }
+        <!--#if (Impersonation)-->
+        <!-- 模拟登录状态常驻在顶栏：此刻的每次操作都记在租户账号上，必须一直可见，不用 toast 或 tooltip
+             （tooltip 里不能放可点击的退出按钮）。配色用语义色 warning；用 secondary 变体，警示色前缀即可
+             覆盖亮暗两套底色。窄屏只留图标，完整说明与退出按钮在浮层里。 -->
+        @if (impersonation.status(); as impersonationStatus) {
+          @if (impersonationStatus.isImpersonating) {
+            <hlm-popover align="end" sideOffset="10">
+              <button
+                type="button"
+                hlmBtn
+                hlmPopoverTrigger
+                size="sm"
+                variant="secondary"
+                class="border-warning/60 bg-warning/15 hover:bg-warning/25 aria-expanded:bg-warning/25 max-w-48 gap-1.5 rounded-full"
+                data-testid="impersonation-indicator"
+                [attr.aria-label]="
+                  t('impersonation.banner', {
+                    tenant: impersonationStatus.tenantName,
+                    impersonator: impersonationStatus.impersonatorName,
+                  })
+                "
+              >
+                <ng-icon name="lucideVenetianMask" />
+                <span class="hidden truncate sm:inline">{{
+                  t('impersonation.badge', { tenant: impersonationStatus.tenantName })
+                }}</span>
+              </button>
+              <hlm-popover-content
+                *hlmPopoverPortal
+                class="w-72 max-w-[90vw]"
+                [appPopoverAria]="t('impersonation.title')"
+              >
+                <div class="flex flex-col gap-2 text-sm">
+                  <p class="font-medium">{{ t('impersonation.title') }}</p>
+                  <p class="text-muted-foreground">
+                    {{
+                      t('impersonation.banner', {
+                        tenant: impersonationStatus.tenantName,
+                        impersonator: impersonationStatus.impersonatorName,
+                      })
+                    }}
+                  </p>
+                  <p class="text-muted-foreground text-xs">{{ t('impersonation.note') }}</p>
+                  <button hlmBtn size="sm" class="self-end" (click)="endImpersonation()">
+                    {{ t('impersonation.exit') }}
+                  </button>
+                </div>
+              </hlm-popover-content>
+            </hlm-popover>
+          }
+        }
+        <!--#endif-->
+        <app-theme-mode-toggle />
+        <!--#if (IncludeNotifications)-->
+        <app-notifications />
+        <!--#endif-->
+        <!--#if (IncludeLocalization)-->
+        <app-language-switcher />
+        <!--#endif-->
+        @if (layout() === 'topbar') {
+          <!-- 侧栏布局里头像在侧栏底部；顶栏布局没有侧栏，放在最右 -->
+          <app-user-menu variant="topbar" />
+        }
       </div>
-    }
-    <!--#endif-->
-  </div>
-</header>
-
-<!--#if (IncludeIdentity)-->
-<app-profile-settings-dialog [visible]="profileDialogVisible()" (visibleChange)="profileDialogVisible.set($event)" />
-
-<app-change-password-dialog [visible]="changePasswordDialogVisible()" (visibleChange)="changePasswordDialogVisible.set($event)" />
-<!--#endif-->
+    </div>
+  </header>
+</ng-container>

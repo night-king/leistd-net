@@ -1,0 +1,15 @@
+{
+  "culture": "en",
+  "texts": {
+    "Setting:BooleanRequired": "'{Value}' is not a boolean; use 'true' or 'false'.",
+    "Setting:EmptyValueRejected": "An empty value is not accepted for '{Name}'. Clear the override instead.",
+    "Setting:HostOnly": "'{Name}' applies to the whole system and can only be changed on the host.",
+    "Setting:IdentityCannotOperate": "The current identity cannot change personal settings.",
+    "Setting:IntegerRequired": "'{Name}' must be a whole number.",
+    "Setting:NotAvailable": "Setting '{Name}' is not available.",
+    "Setting:ScopeNotAllowed": "'{Name}' cannot be changed at this level.",
+    "Setting:Undefined": "Setting '{Name}' does not exist.",
+    "Setting:ValueNotAllowed": "'{Value}' is not an allowed value. Allowed: {Allowed}.",
+    "Setting:ValueOutOfRange": "'{Name}' must be an integer between {Minimum} and {Maximum}."
+  }
+}

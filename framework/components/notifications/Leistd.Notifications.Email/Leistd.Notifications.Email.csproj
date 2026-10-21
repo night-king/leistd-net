@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <!-- 桥接包：通知的邮件渠道。发送经后台队列异步完成，通知与邮件两个组件都不必依赖对方 -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.Notifications.Core\Leistd.Notifications.Core.csproj" />
+    <ProjectReference Include="..\..\email\Leistd.Email.Core\Leistd.Email.Core.csproj" />
+    <ProjectReference Include="..\..\background-jobs\Leistd.BackgroundJobs.Core\Leistd.BackgroundJobs.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+</Project>

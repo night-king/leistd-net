@@ -1,274 +1,325 @@
-<p-dialog
-  [visible]="visible()"
-  (visibleChange)="visible.set($event)"
-  [header]="isEditMode() ? '编辑开放应用' : '新建开放应用'"
-  [modal]="true"
-  [breakpoints]="dialogConfig.breakpoints"
-  [style]="dialogConfig.style"
-  [contentStyle]="dialogConfig.contentStyle"
-  [draggable]="dialogConfig.draggable"
-  [resizable]="dialogConfig.resizable"
-  [closable]="true"
-  [dismissableMask]="!saving()"
-  [closeOnEscape]="!saving()"
-  (onHide)="onHide()"
->
-  @if (loading()) {
-    <app-dialog-loading text="正在加载开放应用信息..." />
-  } @else {
-    <div class="flex flex-col gap-6">
-      @if (!isEditMode()) {
-        <div class="flex flex-col gap-2">
-          <label class="font-bold">应用模板</label>
-          <p-select
-            [options]="templateOptions"
-            [ngModel]="selectedTemplate()"
-            (ngModelChange)="applyTemplate($event)"
-            optionLabel="label"
-            optionValue="value"
-            placeholder="选择模板快速填充"
-            appendTo="body"
-            styleClass="w-full"
-          />
-        </div>
-      }
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-dialog
+    [state]="visible() ? 'open' : 'closed'"
+    (stateChanged)="onDialogStateChange($event)"
+    [closeOnOutsidePointerEvents]="!saving()"
+  >
+    <hlm-dialog-content
+      *hlmDialogPortal
+      class="flex max-h-[calc(100dvh-2rem)] min-w-[min(64rem,calc(100vw_-_2rem))] flex-col overflow-hidden"
+      [showCloseButton]="!saving()"
+    >
+      <hlm-dialog-header>
+        <h2 hlmDialogTitle>
+          {{ isEditMode() ? t('openApp.dialog.editHeader') : t('openApp.dialog.createHeader') }}
+        </h2>
+        <p hlmDialogDescription>{{ t('openApp.dialog.description') }}</p>
+      </hlm-dialog-header>
 
-      <div class="flex flex-col gap-4">
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div class="flex flex-col gap-2">
-            <label class="font-bold">应用名称</label>
-            <input
-              pInputText
-              [ngModel]="formModel().displayName"
-              (ngModelChange)="formModel.update(model => ({ ...model, displayName: $event }))"
-              placeholder="例如 我的桌面应用"
-            />
-          </div>
-          <div class="flex flex-col gap-2">
-            <label class="font-bold">Client ID</label>
-            <input
-              pInputText
-              [ngModel]="formModel().clientId"
-              (ngModelChange)="formModel.update(model => ({ ...model, clientId: $event }))"
-              placeholder="例如 my-desktop-app"
-              [disabled]="isEditMode()"
-              class="font-mono"
-            />
-          </div>
-        </div>
+      @if (loading()) {
+        <app-dialog-loading [text]="t('openApp.dialog.loading')" />
+      } @else {
+        <form
+          novalidate
+          (submit)="$event.preventDefault(); save()"
+          class="flex min-h-0 flex-1 flex-col gap-4"
+        >
+          <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto -mx-4 -my-1 px-4 py-1">
+            @if (!isEditMode()) {
+              <div hlmField>
+                <label hlmFieldLabel for="application-template">{{
+                  t('openApp.field.template')
+                }}</label>
+                <hlm-select
+                  class="w-full"
+                  [value]="selectedTemplate()"
+                  [itemToString]="templateToLabel"
+                  (valueChange)="applyTemplate($event)"
+                >
+                  <hlm-select-trigger buttonId="application-template" class="w-full">
+                    <hlm-select-value [placeholder]="t('openApp.field.templatePlaceholder')" />
+                  </hlm-select-trigger>
+                  <hlm-select-content *hlmSelectPortal>
+                    @for (opt of templateOptions(); track opt.value) {
+                      <hlm-select-item [value]="opt.value">{{ opt.label }}</hlm-select-item>
+                    }
+                  </hlm-select-content>
+                </hlm-select>
+              </div>
+            }
 
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div class="flex flex-col gap-2">
-            <label class="font-bold">应用类型</label>
-            @if (isTemplateLocked()) {
-              <p-tag [value]="applicationTypeLabels[formModel().applicationType]" severity="info" />
-            } @else {
-              <p-select
-                [options]="applicationTypeOptions"
-                [ngModel]="formModel().applicationType"
-                (ngModelChange)="formModel.update(model => ({ ...model, applicationType: $event }))"
-                optionLabel="label"
-                optionValue="value"
-                appendTo="body"
-                styleClass="w-full"
-              />
-            }
-          </div>
-          <div class="flex flex-col gap-2">
-            <label class="font-bold">客户端类型</label>
-            @if (isTemplateLocked()) {
-              <p-tag [value]="clientTypeLabels[formModel().clientType]" [severity]="isConfidentialClient() ? 'warn' : 'info'" />
-            } @else {
-              <p-select
-                [options]="clientTypeOptions"
-                [ngModel]="formModel().clientType"
-                (ngModelChange)="onClientTypeSelect($event)"
-                optionLabel="label"
-                optionValue="value"
-                appendTo="body"
-                styleClass="w-full"
-              />
-            }
-          </div>
-          <div class="flex flex-col gap-2">
-            <label class="font-bold">授权确认</label>
-            @if (isTemplateLocked()) {
-              <p-tag [value]="consentTypeLabels[formModel().consentType]" severity="secondary" />
-            } @else {
-              <p-select
-                [options]="consentTypeOptions"
-                [ngModel]="formModel().consentType"
-                (ngModelChange)="formModel.update(model => ({ ...model, consentType: $event }))"
-                optionLabel="label"
-                optionValue="value"
-                appendTo="body"
-                styleClass="w-full"
-              />
-            }
-          </div>
-        </div>
-      </div>
+            <section class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div hlmField>
+                <label hlmFieldLabel for="application-display-name">{{
+                  t('openApp.field.displayName')
+                }}</label>
+                <input
+                  hlmInput
+                  id="application-display-name"
+                  class="w-full"
+                  [formField]="applicationForm.displayName"
+                  [placeholder]="t('openApp.field.displayNamePlaceholder')"
+                />
+              </div>
+              <div hlmField>
+                <label hlmFieldLabel for="application-client-id">{{
+                  t('openApp.field.clientId')
+                }}</label>
+                <input
+                  hlmInput
+                  id="application-client-id"
+                  class="w-full font-mono"
+                  [formField]="applicationForm.clientId"
+                  [placeholder]="t('openApp.field.clientIdPlaceholder')"
+                />
+                @for (error of applicationForm.clientId().errors(); track error.kind) {
+                  <hlm-field-error [validator]="error.kind">{{
+                    t('validation.' + error.kind, error)
+                  }}</hlm-field-error>
+                }
+              </div>
+            </section>
 
-      @if (formModel().applicationType !== 'service') {
-        <p-divider align="center">
-          <span class="text-sm font-bold text-muted-color">回调地址</span>
-        </p-divider>
-
-        <div class="grid grid-cols-1 gap-4">
-          <div class="rounded-lg border border-surface-200 bg-surface-50/70 p-4 dark:border-surface-700 dark:bg-surface-800/40">
-            <div class="mb-3 flex items-center justify-between gap-3">
-              <label class="font-bold">Redirect URIs</label>
-              <span class="text-xs text-muted-color">登录完成后的回调地址</span>
-            </div>
-            <div class="flex flex-col gap-2 sm:flex-row">
-              <input
-                pInputText
-                [ngModel]="formModel().redirectUriInput"
-                (ngModelChange)="formModel.update(model => ({ ...model, redirectUriInput: $event }))"
-                placeholder="https://example.com/callback 或 my-desktop-app://oauth/callback"
-                class="w-full font-mono"
-              />
-              <p-button
-                label="添加"
-                icon="pi pi-plus"
-                (onClick)="addRedirectUri()"
-                [disabled]="!formModel().redirectUriInput || isRedirectUriInputInvalid()"
-                styleClass="h-10 min-w-24 whitespace-nowrap"
-              />
-            </div>
-            @if (isRedirectUriInputInvalid()) {
-              <small class="mt-2 block text-red-500">请输入合法的绝对 URI，且不能包含 fragment。</small>
-            }
-            <div class="mt-3 flex flex-wrap gap-2">
-              @for (uri of formModel().redirectUris; track uri) {
-                <p-tag severity="info" styleClass="max-w-full">
-                  <span class="max-w-96 truncate font-mono text-xs">{{ uri }}</span>
-                  <button class="ml-2 border-none bg-transparent p-0 text-inherit cursor-pointer" (click)="removeRedirectUri(uri)">
-                    <i class="pi pi-times text-xs"></i>
-                  </button>
-                </p-tag>
-              } @empty {
-                <span class="text-xs text-muted-color">暂未配置 Redirect URI</span>
-              }
-            </div>
-          </div>
-
-          <div class="rounded-xl border border-surface-200 bg-surface-50/70 p-4 dark:border-surface-700 dark:bg-surface-800/40">
-            <div class="mb-3 flex items-center justify-between gap-3">
-              <label class="font-bold">Post Logout Redirect URIs</label>
-              <span class="text-xs text-muted-color">登出后的跳转地址</span>
-            </div>
-            <div class="flex flex-col gap-2 sm:flex-row">
-              <input
-                pInputText
-                [ngModel]="formModel().postLogoutRedirectUriInput"
-                (ngModelChange)="formModel.update(model => ({ ...model, postLogoutRedirectUriInput: $event }))"
-                placeholder="https://example.com/logout-callback"
-                class="w-full font-mono"
-              />
-              <p-button
-                label="添加"
-                icon="pi pi-plus"
-                (onClick)="addPostLogoutRedirectUri()"
-                [disabled]="!formModel().postLogoutRedirectUriInput || isPostLogoutRedirectUriInputInvalid()"
-                styleClass="h-10 min-w-24 whitespace-nowrap"
-              />
-            </div>
-            @if (isPostLogoutRedirectUriInputInvalid()) {
-              <small class="mt-2 block text-red-500">请输入合法的绝对 URI，且不能包含 fragment。</small>
-            }
-            <div class="mt-3 flex flex-wrap gap-2">
-              @for (uri of formModel().postLogoutRedirectUris; track uri) {
-                <p-tag severity="secondary" styleClass="max-w-full">
-                  <span class="max-w-96 truncate font-mono text-xs">{{ uri }}</span>
-                  <button
-                    class="ml-2 border-none bg-transparent p-0 text-inherit cursor-pointer"
-                    (click)="removePostLogoutRedirectUri(uri)"
+            <section class="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div hlmField>
+                <label hlmFieldLabel for="application-type">{{
+                  t('openApp.field.applicationType')
+                }}</label>
+                @if (isTemplateLocked()) {
+                  <span hlmBadge variant="secondary">{{
+                    applicationTypeLabels()[formModel().applicationType]
+                  }}</span>
+                } @else {
+                  <hlm-select
+                    class="w-full"
+                    [value]="formModel().applicationType"
+                    [itemToString]="applicationTypeToLabel"
+                    (valueChange)="onApplicationTypeChange($event)"
                   >
-                    <i class="pi pi-times text-xs"></i>
-                  </button>
-                </p-tag>
-              } @empty {
-                <span class="text-xs text-muted-color">暂未配置 Post Logout Redirect URI</span>
-              }
-            </div>
-          </div>
-        </div>
-      }
+                    <hlm-select-trigger buttonId="application-type" class="w-full">
+                      <hlm-select-value />
+                    </hlm-select-trigger>
+                    <hlm-select-content *hlmSelectPortal>
+                      @for (opt of applicationTypeOptions(); track opt.value) {
+                        <hlm-select-item [value]="opt.value">{{ opt.label }}</hlm-select-item>
+                      }
+                    </hlm-select-content>
+                  </hlm-select>
+                }
+              </div>
+              <div hlmField>
+                <label hlmFieldLabel for="application-client-type">{{
+                  t('openApp.field.clientType')
+                }}</label>
+                @if (isTemplateLocked()) {
+                  <span hlmBadge [variant]="isConfidentialClient() ? 'outline' : 'secondary'">{{
+                    clientTypeLabels()[formModel().clientType]
+                  }}</span>
+                } @else {
+                  <hlm-select
+                    class="w-full"
+                    [value]="formModel().clientType"
+                    [itemToString]="clientTypeToLabel"
+                    (valueChange)="onClientTypeSelect($event)"
+                  >
+                    <hlm-select-trigger buttonId="application-client-type" class="w-full">
+                      <hlm-select-value />
+                    </hlm-select-trigger>
+                    <hlm-select-content *hlmSelectPortal>
+                      @for (opt of clientTypeOptions(); track opt.value) {
+                        <hlm-select-item [value]="opt.value">{{ opt.label }}</hlm-select-item>
+                      }
+                    </hlm-select-content>
+                  </hlm-select>
+                }
+              </div>
+            </section>
 
-      <p-divider align="center">
-        <span class="text-sm font-bold text-muted-color">授权能力</span>
-      </p-divider>
+            @if (formModel().applicationType !== 'service') {
+              <div class="flex items-center gap-3">
+                <hlm-separator class="flex-1" />
+                <span class="text-sm font-semibold text-muted-foreground whitespace-nowrap">{{
+                  t('openApp.section.callback')
+                }}</span>
+                <hlm-separator class="flex-1" />
+              </div>
 
-      <div class="flex flex-col gap-4">
-        @if (isServiceType()) {
-          <!-- service 类型：简化显示 -->
-          <div class="rounded-lg border border-surface-200 bg-surface-50/70 p-4 dark:border-surface-700 dark:bg-surface-800/40">
-            <div class="mb-2 flex items-center gap-2">
-              <i class="pi pi-check-circle text-green-500"></i>
-              <span class="text-sm font-medium">已根据模板自动配置</span>
+              <div class="grid grid-cols-1 gap-4">
+                <app-uri-list-editor
+                  inputId="application-redirect-uri"
+                  [label]="t('openApp.field.redirectUris')"
+                  [hint]="t('openApp.redirectUri.hint')"
+                  [placeholder]="t('openApp.redirectUri.placeholder')"
+                  [addLabel]="t('common.add')"
+                  [invalidText]="t('openApp.redirectUri.invalid')"
+                  [emptyText]="t('openApp.redirectUri.empty')"
+                  [removeLabel]="t('common.remove')"
+                  [uris]="formModel().redirectUris"
+                  badgeVariant="secondary"
+                  (add)="addRedirectUri($event)"
+                  (remove)="removeRedirectUri($event)"
+                />
+
+                <app-uri-list-editor
+                  inputId="application-post-logout-uri"
+                  [label]="t('openApp.field.postLogoutRedirectUris')"
+                  [hint]="t('openApp.postLogoutUri.hint')"
+                  placeholder="https://example.com/logout-callback"
+                  [addLabel]="t('common.add')"
+                  [invalidText]="t('openApp.redirectUri.invalid')"
+                  [emptyText]="t('openApp.postLogoutUri.empty')"
+                  [removeLabel]="t('common.remove')"
+                  [uris]="formModel().postLogoutRedirectUris"
+                  badgeVariant="outline"
+                  (add)="addPostLogoutRedirectUri($event)"
+                  (remove)="removePostLogoutRedirectUri($event)"
+                />
+              </div>
+            }
+
+            <div class="flex items-center gap-3">
+              <hlm-separator class="flex-1" />
+              <span class="text-sm font-semibold text-muted-foreground whitespace-nowrap">{{
+                t('openApp.section.authorization')
+              }}</span>
+              <hlm-separator class="flex-1" />
             </div>
-            <div class="flex flex-wrap gap-2">
-              @for (p of formModel().permissions; track p) {
-                <p-tag [value]="getPermissionLabel(p)" severity="success" />
-              }
-            </div>
-            <p class="mt-2 text-xs text-muted-color">服务端客户端凭据流程，无需回调地址和 PKCE。</p>
-          </div>
-        } @else {
-          <!-- web/desktop 类型：完整编辑 -->
-          <div class="flex flex-col gap-2">
-            <label class="font-bold">Permissions</label>
-            <p-multiselect
-              [options]="permissionOptions"
-              [ngModel]="formModel().permissions"
-              (ngModelChange)="formModel.update(model => ({ ...model, permissions: $event }))"
-              optionLabel="label"
-              optionValue="value"
-              display="chip"
-              appendTo="body"
-              styleClass="w-full"
-              placeholder="选择授权能力"
-            >
-              <ng-template let-option pTemplate="item">
-                <div class="flex w-full items-center justify-between gap-3">
-                  <span>{{ option.label }}</span>
-                  <span class="text-xs text-muted-color">{{ option.value }}</span>
+
+            @if (isServiceType()) {
+              <div class="flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-4">
+                <div class="flex items-center gap-2">
+                  <ng-icon name="lucideCircleCheck" class="text-success" />
+                  <span class="text-sm font-medium">{{ t('openApp.service.autoConfigured') }}</span>
                 </div>
-              </ng-template>
-            </p-multiselect>
+                <div class="flex flex-wrap gap-2">
+                  @for (p of formModel().permissions; track p) {
+                    <span hlmBadge variant="secondary">{{ permissionLabels()[p] ?? p }}</span>
+                  }
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  {{ t('openApp.service.description') }}
+                </p>
+              </div>
+            } @else {
+              <div hlmField>
+                <label hlmFieldLabel for="application-permissions">{{
+                  t('openApp.field.permissions')
+                }}</label>
+                <hlm-select-multiple class="w-full" [formField]="applicationForm.permissions">
+                  <hlm-select-trigger buttonId="application-permissions" class="w-full">
+                    <hlm-select-placeholder>{{
+                      t('openApp.permissions.placeholder')
+                    }}</hlm-select-placeholder>
+                    <ng-template hlmSelectValues let-values>
+                      <hlm-select-values-content>
+                        {{ permissionLabels()[values[0]] ?? values[0] }}
+                        @if (values.length > 1) {
+                          (+{{ values.length - 1 }})
+                        }
+                      </hlm-select-values-content>
+                    </ng-template>
+                  </hlm-select-trigger>
+                  <hlm-select-content *hlmSelectPortal>
+                    <hlm-select-group>
+                      @for (option of permissionOptions(); track option.value) {
+                        <hlm-select-item [value]="option.value">
+                          <div class="flex w-full items-center justify-between gap-3">
+                            <span>{{ option.label }}</span>
+                            <span class="text-xs text-muted-foreground">{{ option.value }}</span>
+                          </div>
+                        </hlm-select-item>
+                      }
+                    </hlm-select-group>
+                  </hlm-select-content>
+                </hlm-select-multiple>
+              </div>
+
+              <div hlmField>
+                <label hlmFieldLabel for="application-requirements">{{
+                  t('openApp.field.requirements')
+                }}</label>
+                <hlm-select-multiple class="w-full" [formField]="applicationForm.requirements">
+                  <hlm-select-trigger buttonId="application-requirements" class="w-full">
+                    <hlm-select-placeholder>{{
+                      t('openApp.requirements.placeholder')
+                    }}</hlm-select-placeholder>
+                    <ng-template hlmSelectValues let-values>
+                      <hlm-select-values-content>
+                        {{
+                          values[0] === 'ft:pkce' ? t('openApp.requirement.forcePkce') : values[0]
+                        }}
+                        @if (values.length > 1) {
+                          (+{{ values.length - 1 }})
+                        }
+                      </hlm-select-values-content>
+                    </ng-template>
+                  </hlm-select-trigger>
+                  <hlm-select-content *hlmSelectPortal>
+                    <hlm-select-group>
+                      @for (option of requirementOptions(); track option.value) {
+                        <hlm-select-item [value]="option.value">{{ option.label }}</hlm-select-item>
+                      }
+                    </hlm-select-group>
+                  </hlm-select-content>
+                </hlm-select-multiple>
+                @for (error of applicationForm.requirements().errors(); track error.kind) {
+                  <hlm-field-error [validator]="error.kind">{{
+                    t('validation.' + error.kind, error)
+                  }}</hlm-field-error>
+                }
+                @if (
+                  formModel().permissions.includes('gt:refresh_token') &&
+                  !formModel().permissions.includes('scp:offline_access')
+                ) {
+                  <p class="text-sm text-warning">
+                    {{ t('openApp.requirements.offlineAccessHint') }}
+                  </p>
+                }
+              </div>
+
+              <div class="flex flex-col gap-2">
+                <div hlmField orientation="horizontal">
+                  <div hlmFieldContent>
+                    <label hlmFieldLabel for="application-session-bound">{{
+                      t('openApp.sessionBound.title')
+                    }}</label>
+                    <p hlmFieldDescription id="application-session-bound-hint">
+                      {{ t('openApp.sessionBound.hint') }}
+                    </p>
+                  </div>
+                  <hlm-switch
+                    inputId="application-session-bound"
+                    aria-describedby="application-session-bound-hint"
+                    [checked]="formModel().sessionBound === true"
+                    (checkedChange)="setSessionBound($event)"
+                  />
+                </div>
+                @if (formModel().sessionBound === null) {
+                  <p class="text-sm text-warning" data-testid="session-bound-unset">
+                    {{ t('openApp.sessionBound.unset') }}
+                  </p>
+                }
+              </div>
+            }
           </div>
 
-          <div class="flex flex-col gap-2">
-            <label class="font-bold">Requirements</label>
-            <p-multiselect
-              [options]="requirementOptions"
-              [ngModel]="formModel().requirements"
-              (ngModelChange)="formModel.update(model => ({ ...model, requirements: $event }))"
-              optionLabel="label"
-              optionValue="value"
-              display="chip"
-              appendTo="body"
-              styleClass="w-full"
-              placeholder="选择安全要求"
-            />
-            @if (
-              (formModel().applicationType === 'native' || formModel().clientType === 'public') &&
-              !formModel().requirements.includes('ft:pkce')
-            ) {
-              <small class="text-red-500">Native/Public 客户端必须启用 PKCE。</small>
-            }
-            @if (formModel().permissions.includes('gt:refresh_token') && !formModel().permissions.includes('scp:offline_access')) {
-              <small class="text-orange-500">已允许 refresh_token，建议同时开放 offline_access scope。</small>
-            }
-          </div>
-        }
-      </div>
-    </div>
-  }
-
-  <ng-template pTemplate="footer">
-    <p-button label="取消" [text]="true" severity="secondary" (onClick)="visible.set(false)" [disabled]="saving()" />
-    <p-button label="保存" icon="pi pi-check" (onClick)="save()" [disabled]="!isValid() || saving()" [loading]="saving()" />
-  </ng-template>
-</p-dialog>
+          <hlm-dialog-footer>
+            <button hlmBtn type="button" variant="outline" [disabled]="saving()" (click)="onHide()">
+              {{ t('common.cancel') }}
+            </button>
+            <button hlmBtn type="submit" [disabled]="saving()">
+              @if (saving()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              }
+              {{ t('common.save') }}
+            </button>
+          </hlm-dialog-footer>
+        </form>
+      }
+    </hlm-dialog-content>
+  </hlm-dialog>
+</ng-container>

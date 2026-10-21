@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.Email.Core\Leistd.Email.Core.csproj" />
+    <!-- 取 Leistd.Redaction.TextRedactor：收件人写进日志前先脱敏 -->
+    <ProjectReference Include="..\..\core\Leistd.Core\Leistd.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 发件身份回落与 HTML/纯文本判定都属于"错了不报错、只让收件人拿到错东西"，
+         必须有行为测试；而为 MailKit 的 SmtpClient 造 mock 要实现大量成员且证明不了
+         构造结果，这里改为让测试直接断言 BuildMessage 产出的 MimeMessage。 -->
+    <InternalsVisibleTo Include="Leistd.Email.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MailKit" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+</Project>

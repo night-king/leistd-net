@@ -1,0 +1,15 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <button
+    hlmBtn
+    variant="outline"
+    size="icon"
+    [attr.aria-label]="t('theme.current', { mode: t('theme.mode.' + themeService.mode()) })"
+    (click)="themeService.toggleTheme()"
+  >
+    <ng-icon [name]="themeService.modeIcon()" />
+  </button>
+</ng-container>

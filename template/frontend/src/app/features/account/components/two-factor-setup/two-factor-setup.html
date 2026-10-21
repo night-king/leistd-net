@@ -1,0 +1,148 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  @switch (stage()) {
+    @case ('failed') {
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-muted-foreground">{{ t('account.twoFactor.setupLoadFailed') }}</span>
+        <button hlmBtn variant="link" size="sm" class="px-0" (click)="start()">
+          {{ t('common.retry') }}
+        </button>
+      </div>
+    }
+    @case ('loading') {
+      <div class="flex justify-center py-6">
+        <hlm-spinner class="text-muted-foreground text-xl" />
+      </div>
+    }
+    @case ('reauth') {
+      <!-- 确认身份在对话框里完成；强制设置页关掉对话框后留在这里，可以重新打开 -->
+      <div class="flex flex-col gap-3 text-sm" data-testid="two-factor-setup-reauth">
+        <p class="text-muted-foreground">{{ t('account.twoFactor.reauthPending') }}</p>
+        @if (!cancellable() && !reauth.visible()) {
+          <button
+            hlmBtn
+            size="sm"
+            class="self-start"
+            data-testid="two-factor-setup-reauth-open"
+            (click)="retryReauthentication()"
+          >
+            {{ t('account.twoFactor.reauthOpen') }}
+          </button>
+        }
+      </div>
+    }
+    @case ('expired') {
+      <div class="flex flex-col gap-3 text-sm" data-testid="two-factor-setup-expired">
+        <p class="text-muted-foreground">{{ t('account.twoFactor.setupExpired') }}</p>
+        <div class="flex gap-2">
+          <button hlmBtn size="sm" data-testid="two-factor-setup-restart" (click)="start()">
+            {{ t('account.twoFactor.restart') }}
+          </button>
+          @if (cancellable()) {
+            <button hlmBtn variant="ghost" size="sm" (click)="cancelled.emit()">
+              {{ t('common.cancel') }}
+            </button>
+          }
+        </div>
+      </div>
+    }
+    @default {
+      <div class="flex flex-col gap-6" data-testid="two-factor-setup">
+        <div class="flex flex-col gap-3">
+          <p class="text-sm font-medium">{{ t('account.twoFactor.scanTitle') }}</p>
+          <p class="text-muted-foreground text-sm">{{ t('account.twoFactor.scanHint') }}</p>
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+            @if (qrDataUrl(); as qr) {
+              <!-- 白底：深色主题下二维码也要保持足够对比度，否则部分应用扫不出来 -->
+              <img
+                [src]="qr"
+                [alt]="t('account.twoFactor.qrAlt')"
+                width="160"
+                height="160"
+                class="size-40 shrink-0 self-center rounded-md border border-border bg-white p-1 sm:self-auto"
+                data-testid="two-factor-qr"
+              />
+            }
+            <div class="flex min-w-0 flex-col gap-2">
+              <span class="text-muted-foreground text-xs">{{
+                t('account.twoFactor.manualHint')
+              }}</span>
+              <code
+                class="bg-muted rounded-md px-3 py-2 font-mono text-sm break-all select-all"
+                data-testid="two-factor-secret"
+                >{{ groupedSecret() }}</code
+              >
+              <button
+                hlmBtn
+                variant="outline"
+                size="sm"
+                class="self-start"
+                type="button"
+                (click)="copySecret()"
+              >
+                <ng-icon
+                  [name]="copied() ? 'lucideCheck' : 'lucideCopy'"
+                  data-icon="inline-start"
+                />
+                {{ copied() ? t('account.twoFactor.copied') : t('account.twoFactor.copyKey') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <form novalidate (submit)="$event.preventDefault(); submit()">
+          <div hlmField>
+            <label hlmFieldLabel for="two-factor-setup-code">{{
+              t('account.twoFactor.verifyTitle')
+            }}</label>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <app-otp-code-input
+                inputId="two-factor-setup-code"
+                data-testid="two-factor-setup-code"
+                [(value)]="code"
+              />
+              <div class="flex gap-2">
+                <button
+                  hlmBtn
+                  type="submit"
+                  [disabled]="!canSubmit()"
+                  data-testid="two-factor-enable"
+                >
+                  @if (submitting()) {
+                    <hlm-spinner class="text-base" data-icon="inline-start" />
+                  }
+                  {{
+                    replacing()
+                      ? t('account.twoFactor.replaceConfirm')
+                      : t('account.twoFactor.enable')
+                  }}
+                </button>
+                @if (cancellable()) {
+                  <button hlmBtn variant="ghost" type="button" (click)="cancelled.emit()">
+                    {{ t('common.cancel') }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    }
+  }
+
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="onReauthVisibleChange($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.twoFactor.reauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
+  />
+</ng-container>

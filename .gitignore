@@ -79,8 +79,6 @@ _ReSharper*/
 *.ldf
 
 # ---------- App secrets / runtime ----------
-appsettings.Development.json
-appsettings.*.local.json
 DataProtection-Keys/
 certs/*.crt
 certs/*.pem
@@ -131,6 +129,9 @@ Desktop.ini
 .DS_Store
 
 # ---------- AI CLI local adapters ----------
-.claude/skills/
 .claude/settings.local.json
 skills-lock.json
+.superpowers/
+
+# Python 字节码缓存
+__pycache__/

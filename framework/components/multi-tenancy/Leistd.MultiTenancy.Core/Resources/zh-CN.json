@@ -1,0 +1,21 @@
+{
+  "culture": "zh-CN",
+  "texts": {
+    "Tenant:ActivationRejected": "该租户暂时不能启用。",
+    "Tenant:InvalidClaim": "登录凭据中的租户信息无效，请重新登录。",
+    "Tenant:ConcurrencyConflict": "租户已被他人修改，请刷新后重试。",
+    "Tenant:DedicatedDatabaseMissing": "连接串指向的数据库不存在。请先建库并迁移，再创建租户。",
+    "Tenant:DedicatedDatabaseNotMigrated": "数据库存在但尚未迁移，缺少业务表。请先完成迁移。",
+    "Tenant:DedicatedDatabaseRejected": "数据库拒绝了连接串中的凭据。",
+    "Tenant:DedicatedDatabaseUnreachable": "无法连接租户专属库。请确认主机与端口可达、数据库服务正在运行。",
+    "Tenant:DuplicateName": "名为「{Name}」的租户已存在。",
+    "Tenant:NameInvalid": "租户名「{Name}」不合法：只能使用字母、数字与连字符，不能以连字符开头或结尾，最多 63 个字符（规则 {Pattern}）。",
+    "Tenant:NotActive": "该租户已停用。",
+    "Tenant:NotFound": "租户不存在。",
+    "TenantConnection:ChangeRequiresInactiveTenant": "改变租户数据落点之前，请先停用该租户。",
+    "TenantConnection:ConnectionStringInvalid": "连接串为空、过长或格式不正确，应为分号分隔的 键=值 形式；连接串含数据库凭据，不回显输入值。",
+    "TenantConnection:NameDuplicated": "连接名 {Name} 给了多条。同一个租户下每个名字只能登记一条。",
+    "TenantConnection:NameInvalid": "连接名「{Name}」不合法，转为小写后须匹配 {Pattern}。",
+    "TenantConnection:VersionConflict": "连接已被他人修改，请刷新后重试。"
+  }
+}

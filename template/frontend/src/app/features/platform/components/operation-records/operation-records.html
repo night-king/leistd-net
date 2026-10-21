@@ -1,0 +1,126 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="flex flex-col h-full overflow-hidden">
+    <div class="flex flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-6">
+      <!-- 左组 flex-auto（基准取内容宽度）：放不下时右组整体换行；flex-1 会让左组在组内折行。
+         不写死基准宽度（中英文按钮宽度不同）；搜索框 min-w-56 让筛选先换行。 -->
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div class="flex min-w-0 flex-auto flex-wrap items-center gap-3">
+          <hlm-input-group class="w-full sm:w-auto sm:max-w-xs sm:min-w-56 sm:flex-1">
+            <hlm-input-group-addon>
+              <ng-icon name="lucideSearch" />
+            </hlm-input-group-addon>
+            <input
+              hlmInputGroupInput
+              type="text"
+              [placeholder]="t('operationRecords.filter.searchPlaceholder')"
+              [value]="searchQuery()"
+              (input)="onSearchQueryChange($any($event.target).value)"
+            />
+          </hlm-input-group>
+
+          <!-- 选项由服务端下发并按读者可见性裁剪，不在前端硬编码动作码；app-faceted-filter 自带搜索。 -->
+          <app-faceted-filter
+            [label]="t('operationRecords.filter.category')"
+            [options]="categoryFilterOptions()"
+            [value]="selectedCategory()"
+            [searchPlaceholder]="t('operationRecords.filter.category')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valueChange)="onCategoryChange($event)"
+          />
+
+          <!-- 动作候选随类别联动，免得选出相交为空的矛盾条件。 -->
+          <app-faceted-filter
+            [label]="t('operationRecords.filter.action')"
+            [options]="actionFilterOptions()"
+            [value]="selectedAction()"
+            [searchPlaceholder]="t('operationRecords.filter.action')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valueChange)="onActionChange($event)"
+          />
+
+          <app-faceted-filter
+            [label]="t('operationRecords.filter.outcome')"
+            [options]="outcomeFilterOptions()"
+            [value]="selectedOutcome()"
+            [searchPlaceholder]="t('operationRecords.filter.outcome')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valueChange)="onOutcomeChange($event)"
+          />
+        </div>
+
+        <!-- 只读页：只有时间范围、导出（按 operationRecords.export 裁剪）与刷新。ml-auto 让这组始终靠右；
+           窄屏按钮 flex-1 平分一行，两个 w-full 并排会溢出。 -->
+        <div class="ml-auto flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+          <!-- 时间范围按展示时区选日期，写回 URL 前换算成 UTC（见 onRangeChange）。用输入框形态
+             （hlm-date-range-input，官方 Input Picker）：自带清空与日历按钮且可收缩；触发器形态选中后
+             会顶掉投影的图标。parseDate / formatInputDates 必须自己传：默认实现按浏览器时区，
+             与本页的展示时区不一致（见 zoned-time.ts）。占位文字不是标签，另给读屏用的 label。 -->
+          <label class="sr-only" for="filter-date-range">{{
+            t('operationRecords.filter.dateRange')
+          }}</label>
+          <hlm-date-range-picker
+            class="w-full sm:w-auto"
+            [date]="selectedRange()"
+            [formatDates]="formatRange()"
+            (dateChange)="onRangeChange($event)"
+          >
+            <!-- 宽度按最长写法实测：英文区间约 190px，可用宽度约为总宽减 77px，md 起 18rem 留约 21px；
+               md 以下字号为 16px，同一串宽出约 15%，故用 20rem。新增语种时按其最长写法在两种字号下重新量。 -->
+            <hlm-date-range-input
+              class="w-full sm:w-[20rem] md:w-[18rem]"
+              inputId="filter-date-range"
+              showClear
+              [placeholder]="t('operationRecords.filter.dateRange')"
+              [clearAriaLabel]="t('common.clearFilter')"
+              [calendarAriaLabel]="t('operationRecords.filter.dateRange')"
+              [parseDate]="parseRangeInput()"
+              [formatInputDates]="formatRange()"
+            />
+          </hlm-date-range-picker>
+
+          @if (canExport()) {
+            <button
+              hlmBtn
+              variant="secondary"
+              class="flex-1 sm:flex-none"
+              [disabled]="exporting()"
+              (click)="onExport()"
+              [hlmTooltip]="t('operationRecords.filter.export')"
+            >
+              <ng-icon name="lucideDownload" data-icon="inline-start" />
+              {{ t('operationRecords.filter.export') }}
+            </button>
+          }
+          <button
+            hlmBtn
+            variant="secondary"
+            class="flex-1 sm:flex-none"
+            (click)="reloadList()"
+            [hlmTooltip]="t('common.refresh')"
+          >
+            <ng-icon name="lucideRefreshCw" data-icon="inline-start" />
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+      </div>
+
+      <app-operation-record-table
+        [records]="records()"
+        [totalCount]="totalRecords()"
+        [pagination]="pagination()"
+        [loading]="loading()"
+        [filtered]="hasActiveFilters()"
+        [loadError]="loadError()"
+        (retry)="reloadList()"
+        (paginationChange)="onPaginationChange($event)"
+      />
+    </div>
+  </div>
+</ng-container>

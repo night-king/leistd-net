@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- EndToEnd/ 用 TestHost 起真实管线验证三层授权串联，需要 ASP.NET Core 共享框架。 -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <!--
+      使用关系型 Provider 而非 InMemory：只有它会真正强制唯一索引并翻译查询表达式，
+      InMemory 全内存求值会让被违反的约束和不可翻译的查询静默通过。
+      EndToEnd/ 尤其依赖这一点——数据范围谓词与 ACL 子查询必须真正被翻译成 SQL 才算验证过。
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+  </ItemGroup>
+
+  <!--
+    引用面覆盖三个授权家族：Core/ 与 EntityFrameworkCore/ 只测本家族，
+    EndToEnd/ 验证的正是功能权限 → 数据范围 → 资源实例授权串起来之后的行为，
+    三个家族必须同时在场。
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\authorization\Leistd.Authorization.Core\Leistd.Authorization.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization\Leistd.Authorization.AspNetCore\Leistd.Authorization.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization\Leistd.Authorization.EntityFrameworkCore\Leistd.Authorization.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization-resource\Leistd.Authorization.Resource.Core\Leistd.Authorization.Resource.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization-resource\Leistd.Authorization.Resource.EntityFrameworkCore\Leistd.Authorization.Resource.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization-resource\Leistd.Authorization.Resource.AspNetCore\Leistd.Authorization.Resource.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\security\Leistd.Security.AspNetCore\Leistd.Security.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\authorization-data-scope\Leistd.Authorization.DataScope.Core\Leistd.Authorization.DataScope.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\unit-of-work\Leistd.UnitOfWork.Core\Leistd.UnitOfWork.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\unit-of-work\Leistd.UnitOfWork.EntityFrameworkCore\Leistd.UnitOfWork.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

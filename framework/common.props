@@ -11,9 +11,16 @@
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
     <VersionPrefix>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\VERSION').Trim())</VersionPrefix>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Release 将告警视为错误；Debug 允许本地增量迭代。 -->
+    <TreatWarningsAsErrors Condition="'$(Configuration)' == 'Release'">true</TreatWarningsAsErrors>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!--
+      让 framework/.editorconfig 里的 IDE 规则在构建期生效（默认只在 IDE 内提示）。
+      目前唯一被提到 error 的是 IDE0130「命名空间与目录一致」——它是"目录即命名空间"
+      这条约定的机械闸门，见 framework/.editorconfig 的说明。
+    -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
   <!-- NuGet 包元数据 -->
@@ -26,9 +33,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>leistd ddd aspnetcore framework dotnet</PackageTags>
     <PackageReadmeFile>NuGet.md</PackageReadmeFile>
+    <!-- 不抑制 CS1591：公共 API 缺 XML 注释即构建失败，保证随包 XML 完整。 -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- CS1591: 缺少 XML 注释；CS0436: 类型冲突（生成文档时容忍） -->
-    <NoWarn>$(NoWarn);CS1591;CS0436</NoWarn>
     <!-- 默认所有框架项目可打包，纯内部项目可在自身 csproj 覆盖为 false -->
     <IsPackable>true</IsPackable>
   </PropertyGroup>
@@ -62,14 +68,9 @@
   </ItemGroup>
 
   <!--
-    组件用法文档随包分发（P5 / 引用链路 L4）。
-    项目目录布局：
-    - 通用组件：components/<家族>/<项目>/  → 项目目录的父目录名即家族名（如 lock），文档 docs/components/<家族>.md。
-    - DDD 基座：ddd-struct/<项目>/         → 父目录名为 ddd-struct，统一文档 docs/ddd-struct/ddd-struct.md。
-    统一：_LeistdParentDir = 项目目录的父目录名。
-      component 分支打包 docs/components/<父目录名>.md（仅真实家族存在，Exists 保护）；
-      ddd-struct 分支在父目录名为 ddd-struct 时打包统一文档。
-    同家族多个包都内置该家族文档（用户装任一包即可就地拿到用法），打进包内 docs/ 目录。
+    按项目父目录选择家族文档，放入包内 docs/。
+    components/<家族>/<项目> 使用 docs/components/<家族>.md；
+    ddd-struct/<项目> 使用统一的 docs/ddd-struct/ddd-struct.md。
   -->
   <PropertyGroup>
     <_LeistdParentDir>$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName($(MSBuildProjectDirectory)))))</_LeistdParentDir>

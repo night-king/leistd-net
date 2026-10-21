@@ -1,0 +1,7 @@
+{
+  "culture": "zh-CN",
+  "texts": {
+    "ResourceAuthorization:InvalidGrant": "资源授权信息无效。",
+    "ResourceAuthorization:ConcurrencyConflict": "资源授权已被其他人修改，请刷新后重试。"
+  }
+}

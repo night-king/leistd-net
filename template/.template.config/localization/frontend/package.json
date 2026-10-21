@@ -1,0 +1,100 @@
+{
+  "name": "companyname-projectname-web",
+  "version": "1.0.2",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve",
+    "build": "ng build",
+    "postbuild": "transloco-optimize dist/companyname-projectname-web/browser/i18n",
+    "test": "ng test",
+    //#if (LocalIdentity)
+    "e2e": "playwright test",
+    //#endif
+    "lint": "npm run lint:ts && npm run lint:style && npm run format",
+    "lint:ts": "eslint --cache --cache-strategy content --cache-location .cache/lint/eslint --max-warnings=0 \"src/**/*.{ts,html}\" \"_mock/**/*.ts\"",
+    "lint:style": "stylelint --cache --cache-strategy content --cache-location .cache/lint/stylelint \"src/**/*.css\"",
+    "lint:fix": "npm run lint:ts:fix && npm run lint:style:fix && npm run format:fix",
+    "lint:ts:fix": "eslint --fix --max-warnings=0 \"src/**/*.{ts,html}\" \"_mock/**/*.ts\"",
+    "lint:style:fix": "stylelint --fix \"src/**/*.css\"",
+    "format": "prettier --check . --cache --cache-strategy content --cache-location .cache/lint/prettier",
+    "format:fix": "prettier --write .",
+    "postinstall": "node -e \"require('node:fs').rmSync('.cache/lint', { recursive: true, force: true })\"",
+    "prepare": "husky"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/cdk": "22.2.3",
+    "@angular/common": "22.2.3",
+    "@angular/compiler": "22.2.3",
+    "@angular/core": "22.2.3",
+    "@angular/forms": "22.2.3",
+    "@angular/platform-browser": "22.2.3",
+    "@angular/router": "22.2.3",
+    "@fontsource/geist": "^5.3.0",
+    "@jsverse/transloco": "~8.4.0",
+    //#if (IncludeNotifications || IncludeRealTime)
+    "@microsoft/signalr": "^10.0.11",
+    //#endif
+    "@ng-icons/core": "36.1.0",
+    "@ng-icons/lucide": "36.1.0",
+    "@spartan-ng/brain": "1.8.0",
+    "@tanstack/angular-charts": "0.16.0",
+    "@tanstack/angular-table": "9.3.1",
+    "@tanstack/charts": "0.16.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    //#if (LocalIdentity)
+    "qrcode": "^1.5.4",
+    //#endif
+    "rxjs": "~7.8.2",
+    "tailwind-merge": "^3.7.0",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.2.3",
+    "@angular/cli": "22.2.3",
+    "@angular/compiler-cli": "22.2.3",
+    "@eslint/js": "^10.0.1",
+    "@jsverse/transloco-optimize": "^8.4.0",
+    "@playwright/test": "^1.64.1",
+    "@spartan-ng/cli": "1.8.0",
+    "@testcontainers/postgresql": "^12.2.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    //#if (LocalIdentity)
+    "@types/qrcode": "^1.5.6",
+    //#endif
+    "@vitest/browser-playwright": "^5.0.5",
+    "@vitest/coverage-v8": "^5.0.5",
+    "angular-eslint": "^22.6.0",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "playwright": "^1.64.1",
+    "postcss": "^8.5.31",
+    "prettier": "^3.9.10",
+    "stylelint": "^17.16.0",
+    "stylelint-config-clean-order": "^10.0.0",
+    "stylelint-config-standard": "^40.0.0",
+    "stylelint-declaration-block-no-ignored-properties": "^3.0.0",
+    "stylelint-order": "^8.1.1",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.5"
+  },
+  "lint-staged": {
+    "{src,_mock}/**/*.{ts,html}": [
+      "eslint --fix --max-warnings=0",
+      "prettier --write"
+    ],
+    "src/**/*.css": [
+      "stylelint --fix",
+      "prettier --write"
+    ],
+    "**/*.{js,json,md,mjs,yaml,yml}": "prettier --write"
+  }
+}

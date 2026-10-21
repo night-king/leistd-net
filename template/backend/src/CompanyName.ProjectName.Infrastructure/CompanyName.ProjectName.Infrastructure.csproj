@@ -7,16 +7,40 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MailKit" />
-    <!-- PasswordHasher 使用 PBKDF2（Microsoft.AspNetCore.Cryptography.KeyDerivation）。
-         显式声明，避免依赖其它包传递的 ASP.NET Core 共享框架。 -->
-    <PackageReference Include="Microsoft.AspNetCore.Cryptography.KeyDerivation" />
-<!--#if (IncludeOpenIddict)-->
+    <!-- 测试程序集可见内部类型。Identity 连接配置的适配器与 Refit 客户端契约刻意是 internal——
+         它们是基础设施的实现细节，不该出现在应用层的可选面上。集成测试按生产注册方式
+         单独装配它们，钉住"缓存按租户分区"和"一个调用方取消不牵连搭车者"这两条。 -->
+    <InternalsVisibleTo Include="CompanyName.ProjectName.IntegrationTests" />
+    <!-- 数据库错误翻译是纯映射，不需要宿主：按 SQLSTATE 逐条钉住，尤其是"认不出来就不翻译" -->
+    <InternalsVisibleTo Include="CompanyName.ProjectName.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+<!--#if (LocalIdentity)-->
+    <PackageReference Include="Microsoft.Extensions.Identity.Core" />
+<!--#endif-->
+<!--#if (OpenIddictServer)-->
     <PackageReference Include="OpenIddict.EntityFrameworkCore" />
 <!--#endif-->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+<!--#if (SpaFrontend)-->
+    <!-- Data Protection 密钥环：保护认证 Cookie 与机密设置，多副本必须共享。 -->
+<!--#if (LocalIdentity && IncludeMultiTenancy)-->
+    <!-- 控制库租户连接串加密：API 与 DbMigrator 必须共享密钥环与应用名。 -->
+<!--#endif-->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" />
+<!--#endif-->
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <!-- 设计时工厂自建 ConfigurationBuilder：SetBasePath 来自 FileExtensions、AddJsonFile 来自 Json、
+         AddEnvironmentVariables 来自 EnvironmentVariables。三个都显式声明，不依赖彼此的传递引用——
+         少一个的症状是 CS1061「扩展方法找不到」，而那只在编译期才暴露。 -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.Http" />
+<!--#if (RemoteTokenAuth && IncludeMultiTenancy)-->
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Refit" />
+<!--#endif-->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools">
@@ -32,15 +56,38 @@
 
   <!-- Leistd 框架引用 -->
   <ItemGroup>
+    <PackageReference Include="Leistd.Data" />
     <PackageReference Include="Leistd.Ddd.Infrastructure" />
     <PackageReference Include="Leistd.Auditing.EntityFrameworkCore" />
     <PackageReference Include="Leistd.Authorization.EntityFrameworkCore" />
+    <PackageReference Include="Leistd.Settings.EntityFrameworkCore" />
+<!--#if (IncludeOperationRecords)-->
+    <PackageReference Include="Leistd.OperationRecords.EntityFrameworkCore" />
+<!--#endif-->
+    <!-- 集群周期任务的完成水位（多副本同一时段只跑一次） -->
+    <PackageReference Include="Leistd.BackgroundJobs.EntityFrameworkCore" />
+<!--#if (LocalIdentity && IncludeMultiTenancy)-->
+    <PackageReference Include="Leistd.MultiTenancy.EntityFrameworkCore" />
+    <!-- 开通失败的数据库错误翻译契约（ITenantDatabaseErrorDescriber）在租户管理用例包 -->
+<!--#if (IncludeMultiTenancy)-->
+    <PackageReference Include="Leistd.MultiTenancy.Management" />
+<!--#endif-->
+<!--#endif-->
+<!--#if (Email)-->
+    <PackageReference Include="Leistd.Email.Smtp" />
+<!--#endif-->
 <!--#if (IncludeNotifications)-->
     <PackageReference Include="Leistd.Notifications.EntityFrameworkCore" />
 <!--#endif-->
-    <PackageReference Include="Leistd.EventBus.Local" />
     <PackageReference Include="Leistd.Lock.Redis" />
     <PackageReference Include="Leistd.Lock.Memory" />
+<!--#if (RemoteTokenAuth && IncludeMultiTenancy)-->
+    <!-- 向 Identity 回源租户连接：远端存储由框架提供，鉴权用 client credentials -->
+<!--#if (IncludeMultiTenancy)-->
+    <PackageReference Include="Leistd.MultiTenancy.ServiceClient" />
+<!--#endif-->
+    <PackageReference Include="Leistd.ServiceClient.OAuth" />
+<!--#endif-->
   </ItemGroup>
 
 </Project>

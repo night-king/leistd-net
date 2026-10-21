@@ -2,15 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\components\exception\Leistd.Exception.Core\Leistd.Exception.Core.csproj" />
     <ProjectReference Include="..\..\components\object-mapping\Leistd.ObjectMapping.Core\Leistd.ObjectMapping.Core.csproj" />
     <ProjectReference Include="..\Leistd.Ddd.Application.Contracts\Leistd.Ddd.Application.Contracts.csproj" />
-    <ProjectReference Include="..\Leistd.Ddd.Domain\Leistd.Ddd.Domain.csproj" />
   </ItemGroup>
 
 </Project>

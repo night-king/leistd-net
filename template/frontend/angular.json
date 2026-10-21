@@ -22,7 +22,12 @@
                 "input": "public"
               }
             ],
+            //#if (LocalIdentity)
+            "styles": ["src/styles.css"],
+            "allowedCommonJsDependencies": ["qrcode"]
+            //#else
             "styles": ["src/styles.css"]
+            //#endif
           },
           "configurations": {
             "production": {
@@ -46,80 +51,55 @@
                 }
               ]
             },
-            "debug": {
+            "development": {
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true,
               "fileReplacements": [
                 {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.debug.ts"
+                  "replace": "_mock/core/providers.ts",
+                  "with": "_mock/core/providers.mock.ts"
                 }
               ]
             },
-            "dev": {
-              "fileReplacements": [
-                {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.dev.ts"
-                }
-              ]
-            },
-            "test": {
-              "fileReplacements": [
-                {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.test.ts"
-                }
-              ]
-            },
-            "uat": {
-              "fileReplacements": [
-                {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.uat.ts"
-                }
-              ]
+            "unit-test": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
             }
           },
           "defaultConfiguration": "production"
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "proxy.conf.mjs"
+          },
           "configurations": {
             "production": {
               "buildTarget": "companyname-projectname-web:build:production"
             },
-            "debug": {
-              "buildTarget": "companyname-projectname-web:build:debug"
-            },
-            "dev": {
-              "buildTarget": "companyname-projectname-web:build:dev"
-            },
-            "test": {
-              "buildTarget": "companyname-projectname-web:build:test"
-            },
-            "uat": {
-              "buildTarget": "companyname-projectname-web:build:uat"
+            "development": {
+              "buildTarget": "companyname-projectname-web:build:development"
             }
           },
-          "defaultConfiguration": "debug"
+          "defaultConfiguration": "development"
         },
         "extract-i18n": {
           "builder": "@angular/build:extract-i18n"
         },
         "test": {
-          "builder": "@angular/build:karma",
+          "builder": "@angular/build:unit-test",
           "options": {
-            "polyfills": ["zone.js/testing"],
+            "buildTarget": "::unit-test",
             "tsConfig": "tsconfig.spec.json",
-            "assets": [
-              {
-                "glob": "**/*",
-                "input": "public"
-              }
-            ],
-            "styles": ["src/styles.css"]
+            "runner": "vitest",
+            "runnerConfig": "vitest-base.config.ts",
+            "setupFiles": ["src/storage-isolation.testing.ts"],
+            "browsers": ["chromiumHeadless"],
+            "browserViewport": "1280x800",
+            "isolate": true,
+            "include": ["src/**/*.spec.ts", "../_mock/**/*.spec.ts"]
           }
         }
       }

@@ -1,38 +1,15 @@
-<!-- 应用主布局容器 -->
-<div data-layout="default" class="flex h-screen overflow-hidden bg-surface-50 dark:bg-surface-950">
-  <!-- 桌面端侧边栏 -->
-  <app-default-sidebar [isMobileMenuOpen]="false" class="hidden md:block h-full shrink-0"> </app-default-sidebar>
+<div hlmSidebarWrapper data-layout="default" class="h-svh">
+  <!-- 侧边栏（inset 变体）：桌面端侧栏与四周同为画布色，主内容区浮成圆角面板；桌面折叠为图标轨，移动端渲染为 sheet。 -->
+  <app-default-sidebar />
 
-  <!-- 移动端抽屉 -->
-  <p-drawer
-    class="md:hidden"
-    position="left"
-    [visible]="isMobileMenuOpen()"
-    [modal]="true"
-    [dismissible]="true"
-    [showCloseIcon]="false"
-    [closable]="false"
-    [blockScroll]="true"
-    styleClass="!w-64 max-w-full overflow-hidden"
-    (visibleChange)="isMobileMenuOpen.set($event)"
-  >
-    <ng-template #headless>
-      <app-default-sidebar [isMobileMenuOpen]="true" (mobileMenuClosed)="closeMobileMenu()" class="h-full w-full"> </app-default-sidebar>
-    </ng-template>
-  </p-drawer>
+  <!-- 主内容区：Header + 内容。inset 所需的 peer 与状态属性由 app-default-sidebar 的宿主转出。 -->
+  <main hlmSidebarInset class="overflow-hidden">
+    <app-default-header />
 
-  <!-- 右侧：Header + 内容区域 + Footer -->
-  <div class="flex-1 flex flex-col min-w-0">
-    <!-- Header -->
-    <app-default-header (toggleMobileMenu)="toggleMobileMenu()"></app-default-header>
-
-    <!-- 主内容区域 -->
-    <!-- 使用 bg-surface-50 dark:bg-surface-950 作为背景色，自动适配 Light/Dark -->
-    <main class="flex-1 overflow-auto bg-surface-50 dark:bg-surface-950 custom-scrollbar scroll-smooth">
+    <div class="flex-1 overflow-auto motion-safe:scroll-smooth">
       <router-outlet></router-outlet>
-    </main>
+    </div>
+  </main>
 
-    <!-- Footer -->
-    <app-default-footer></app-default-footer>
-  </div>
+  <app-command-palette />
 </div>

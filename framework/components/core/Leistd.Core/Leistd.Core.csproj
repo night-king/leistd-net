@@ -1,9 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+    <!-- .Core 是打包边界，不是类型归属：命名空间剥掉它，类型位于 Leistd -->
+    <RootNamespace>Leistd</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,140 +1,105 @@
-<div class="flex flex-col h-full overflow-hidden">
-  <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
-    <div class="mb-6 flex flex-col items-stretch justify-between gap-4 md:flex-row md:items-center">
-      <div class="flex flex-1 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-        <p-select
-          [options]="applicationTypeOptions"
-          [ngModel]="selectedApplicationType()"
-          (ngModelChange)="onApplicationTypeChange($event)"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="全部应用类型"
-          [showClear]="true"
-          appendTo="body"
-          styleClass="w-full sm:w-48"
-        />
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="flex flex-col h-full overflow-hidden">
+    <div class="flex flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-6">
+      <!-- 左组用 flex-auto 而不是 flex-1：基准为 0 时左组总能挤进同一行、再在组内折行；
+         不写死基准宽度（中英文按钮宽度不同）。 -->
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div class="flex min-w-0 flex-auto flex-wrap items-center gap-3">
+          <hlm-input-group class="w-full sm:w-auto sm:max-w-xs sm:min-w-56 sm:flex-1">
+            <hlm-input-group-addon>
+              <ng-icon name="lucideSearch" />
+            </hlm-input-group-addon>
+            <input
+              hlmInputGroupInput
+              type="text"
+              [placeholder]="t('openApp.filter.searchPlaceholder')"
+              [value]="searchQuery()"
+              (input)="onSearchQueryChange($any($event.target).value)"
+            />
+          </hlm-input-group>
 
-        <p-select
-          [options]="clientTypeOptions"
-          [ngModel]="selectedClientType()"
-          (ngModelChange)="onClientTypeChange($event)"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="全部客户端类型"
-          [showClear]="true"
-          appendTo="body"
-          styleClass="w-full sm:w-48"
-        />
-
-        <p-iconfield class="w-full sm:max-w-xs sm:flex-1">
-          <p-inputicon class="pi pi-search" />
-          <input
-            pInputText
-            type="text"
-            placeholder="搜索应用名称 / Client ID..."
-            [ngModel]="searchQuery()"
-            (ngModelChange)="onSearchQueryChange($event)"
-            class="w-full"
+          <app-faceted-filter
+            [label]="t('openApp.filter.appTypeLabel')"
+            [options]="applicationTypeOptions()"
+            [value]="selectedApplicationType()"
+            [searchPlaceholder]="t('openApp.filter.appTypeLabel')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valueChange)="onApplicationTypeChange($any($event))"
           />
-        </p-iconfield>
+
+          <app-faceted-filter
+            [label]="t('openApp.filter.clientTypeLabel')"
+            [options]="clientTypeOptions()"
+            [value]="selectedClientType()"
+            [searchPlaceholder]="t('openApp.filter.clientTypeLabel')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valueChange)="onClientTypeChange($any($event))"
+          />
+        </div>
+
+        <!-- 窄屏按钮用 flex-1 平分一行，两个 w-full 并排会把最左边的按钮推出屏幕。 -->
+        <div class="ml-auto flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+          <button
+            hlmBtn
+            variant="secondary"
+            class="flex-1 sm:flex-none"
+            (click)="reloadList()"
+            [hlmTooltip]="t('common.refresh')"
+          >
+            <ng-icon name="lucideRefreshCw" data-icon="inline-start" />
+            {{ t('common.refresh') }}
+          </button>
+          @if (canCreate()) {
+            <button hlmBtn variant="default" class="flex-1 sm:flex-none" (click)="openAddDialog()">
+              <ng-icon name="lucidePlus" data-icon="inline-start" />
+              {{ t('openApp.action.create') }}
+            </button>
+          }
+        </div>
       </div>
 
-      <div class="flex items-center justify-end gap-3 shrink-0">
-        <p-button
-          icon="pi pi-refresh"
-          label="刷新"
-          (onClick)="onFilter()"
-          styleClass="w-full sm:w-auto"
-          pTooltip="刷新"
-          tooltipPosition="top"
-        />
-        <p-button
-          label="新建开放应用"
-          icon="pi pi-plus"
-          (onClick)="openAddDialog()"
-          [outlined]="true"
-          severity="primary"
-          styleClass="w-full sm:w-auto"
-        />
-      </div>
-    </div>
-
-    <app-open-application-table
-      [applications]="applications()"
-      [totalRecords]="totalRecords()"
-      [loading]="loading()"
-      (filterChange)="onPageChange($event)"
-      (edit)="openEditDialog($event)"
-      (delete)="handleDelete($event)"
-      (resetSecret)="handleResetSecret($event)"
-    />
-  </div>
-</div>
-
-<app-open-application-edit-dialog
-  [(visible)]="editDialogVisible"
-  [loading]="editDialogLoading()"
-  [saving]="editDialogSaving()"
-  [application]="selectedApplication()"
-  (saved)="handleSave($event)"
-/>
-
-<p-dialog
-  [visible]="resetSecretDialogVisible()"
-  (visibleChange)="resetSecretDialogVisible.set($event)"
-  header="Client Secret 已重置"
-  [modal]="true"
-  [style]="{ width: '420px' }"
-  [draggable]="false"
-  [resizable]="false"
->
-  <div class="flex flex-col gap-3">
-    <div
-      class="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300"
-    >
-      请立即复制并安全保存，该密钥后续不会再次明文展示。
-    </div>
-    <div class="flex items-center gap-2 rounded border border-surface-200 bg-surface-50 p-2 dark:border-surface-700 dark:bg-surface-800">
-      <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ resetSecretValue() }}</span>
-      <p-button icon="pi pi-copy" [text]="true" [rounded]="true" (onClick)="copyResetSecret()" pTooltip="复制" tooltipPosition="top" />
+      <app-open-application-table
+        [applications]="applications()"
+        [totalCount]="totalRecords()"
+        [pagination]="pagination()"
+        [sorting]="sorting()"
+        [loading]="loading()"
+        [filtered]="hasActiveFilters()"
+        [loadError]="loadError()"
+        (retry)="reloadList()"
+        [canUpdate]="canUpdate()"
+        [canDelete]="canDelete()"
+        [canResetSecret]="canResetSecret()"
+        (paginationChange)="onPaginationChange($event)"
+        (sortingChange)="onSortingChange($event)"
+        (edit)="openEditDialog($event)"
+        (delete)="handleDelete($event)"
+        (resetSecret)="handleResetSecret($event)"
+      />
     </div>
   </div>
-  <ng-template pTemplate="footer">
-    <p-button label="关闭" (onClick)="resetSecretDialogVisible.set(false)" />
-  </ng-template>
-</p-dialog>
 
-<p-dialog
-  [visible]="createdSecretDialogVisible()"
-  (visibleChange)="createdSecretDialogVisible.set($event)"
-  header="客户端密钥"
-  [modal]="true"
-  [style]="{ width: '450px' }"
-  [draggable]="false"
-  [resizable]="false"
->
-  <div class="flex flex-col gap-3">
-    <div
-      class="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300"
-    >
-      请立即复制并安全保存，该密钥后续不会再次明文展示。
-    </div>
-    <div class="flex items-center gap-2 rounded border border-surface-200 bg-surface-50 p-2 dark:border-surface-700 dark:bg-surface-800">
-      <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ createdSecretValue() }}</span>
-      <p-button icon="pi pi-copy" [text]="true" [rounded]="true" (onClick)="copyCreatedSecret()" pTooltip="复制" tooltipPosition="top" />
-    </div>
-  </div>
-  <ng-template pTemplate="footer">
-    <p-button label="复制并关闭" icon="pi pi-copy" (onClick)="copyCreatedSecret(); createdSecretDialogVisible.set(false)" />
-  </ng-template>
-</p-dialog>
+  <app-open-application-edit-dialog
+    [(visible)]="editDialogVisible"
+    [loading]="editDialogLoading()"
+    [saving]="editDialogSaving()"
+    [application]="selectedApplication()"
+    [scopes]="scopes()"
+    (saved)="handleSave($event)"
+  />
 
-<p-confirmDialog
-  header="确认"
-  icon="pi pi-exclamation-triangle"
-  acceptLabel="确定"
-  rejectLabel="取消"
-  acceptButtonStyleClass="p-button-danger p-button-text"
-  rejectButtonStyleClass="p-button-text p-button-secondary"
->
-</p-confirmDialog>
+  <!-- 揭示 Client Secret 弹窗（重置 / 新建后复用） -->
+  <app-secret-reveal-dialog
+    [visible]="secretDialogVisible()"
+    (visibleChange)="onSecretDialogVisibleChange($event)"
+    [secret]="secretValue()"
+    [kind]="secretKind()"
+    [application]="secretApplication()"
+  />
+</ng-container>

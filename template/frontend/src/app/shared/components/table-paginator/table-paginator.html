@@ -1,0 +1,71 @@
+<span class="text-muted-foreground">{{ labels().currentPageReport }}</span>
+<div class="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-5">
+  <div class="flex items-center gap-2">
+    <span class="text-muted-foreground hidden whitespace-nowrap font-medium sm:inline">{{
+      labels().rowsPerPage
+    }}</span>
+    <hlm-select [value]="rows()" (valueChange)="onRowsChange($event)">
+      <hlm-select-trigger
+        size="sm"
+        class="inline-flex h-8 w-fit"
+        [aria-label]="labels().rowsPerPage"
+      >
+        <hlm-select-value />
+      </hlm-select-trigger>
+      <hlm-select-content *hlmSelectPortal>
+        @for (size of rowsPerPageOptions(); track size) {
+          <hlm-select-item [value]="size">{{ size }}</hlm-select-item>
+        }
+      </hlm-select-content>
+    </hlm-select>
+  </div>
+
+  <span class="text-muted-foreground whitespace-nowrap font-medium">{{ labels().page }}</span>
+
+  <div class="flex items-center gap-1">
+    <button
+      hlmBtn
+      variant="outline"
+      size="icon-sm"
+      [disabled]="!canPrev()"
+      [attr.aria-label]="labels().first"
+      [hlmTooltip]="labels().first"
+      (click)="firstPage.emit()"
+    >
+      <ng-icon name="lucideChevronFirst" />
+    </button>
+    <button
+      hlmBtn
+      variant="outline"
+      size="icon-sm"
+      [disabled]="!canPrev()"
+      [attr.aria-label]="labels().previous"
+      [hlmTooltip]="labels().previous"
+      (click)="prevPage.emit()"
+    >
+      <ng-icon name="lucideChevronLeft" />
+    </button>
+    <button
+      hlmBtn
+      variant="outline"
+      size="icon-sm"
+      [disabled]="!canNext()"
+      [attr.aria-label]="labels().next"
+      [hlmTooltip]="labels().next"
+      (click)="nextPage.emit()"
+    >
+      <ng-icon name="lucideChevronRight" />
+    </button>
+    <button
+      hlmBtn
+      variant="outline"
+      size="icon-sm"
+      [disabled]="!canNext()"
+      [attr.aria-label]="labels().last"
+      [hlmTooltip]="labels().last"
+      (click)="lastPage.emit()"
+    >
+      <ng-icon name="lucideChevronLast" />
+    </button>
+  </div>
+</div>

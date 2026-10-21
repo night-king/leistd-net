@@ -1,48 +1,103 @@
-import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, model, output } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ButtonModule } from 'primeng/button';
-import { DialogModule } from 'primeng/dialog';
-import { PasswordModule } from 'primeng/password';
+import { ChangeDetectionStrategy, Component, model, output, signal } from '@angular/core';
+import { form, maxLength, minLength, required, FormField } from '@angular/forms/signals';
+//#if (IncludeLocalization)
+import { TranslocoDirective } from '@jsverse/transloco';
+//#endif
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideEye, lucideEyeOff } from '@ng-icons/lucide';
+import { BrnDialogState } from '@spartan-ng/brain/dialog';
+import { HlmButton } from '@spartan-ng/helm/button';
+import { HlmDialogImports } from '@spartan-ng/helm/dialog';
+import { HlmFieldImports } from '@spartan-ng/helm/field';
+import {
+  HlmInputGroup,
+  HlmInputGroupInput,
+  HlmInputGroupButton,
+} from '@spartan-ng/helm/input-group';
+import { HlmSpinner } from '@spartan-ng/helm/spinner';
 
-import { DIALOG_CONFIGS } from '../../../../../../shared/constants/dialog-config.constants';
-import { ResetUserPasswordInputDto } from '../../../../models/user-management.dto';
-
-const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,20}$/;
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from '../../../../../../core/validation/password-rule';
+//#if (!IncludeLocalization)
+import { englishText } from '../../../../../../shared/utils/english-text';
+//#endif
+import { ResetUserPasswordInputDto } from '../../../../dtos/user-management.dto';
 
 @Component({
   selector: 'app-reset-user-password-dialog',
-  imports: [CommonModule, ReactiveFormsModule, DialogModule, ButtonModule, PasswordModule],
+  imports: [
+    FormField,
+    NgIcon,
+    HlmButton,
+    HlmInputGroup,
+    HlmInputGroupInput,
+    HlmInputGroupButton,
+    HlmSpinner,
+    ...HlmDialogImports,
+    ...HlmFieldImports,
+    //#if (IncludeLocalization)
+    TranslocoDirective,
+    //#endif
+  ],
+  providers: [provideIcons({ lucideEye, lucideEyeOff })],
   templateUrl: './reset-user-password-dialog.html',
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ResetUserPasswordDialogComponent {
-  visible = model(false);
-  saving = model(false);
+export class ResetUserPasswordDialog {
+  readonly visible = model(false);
+  readonly saving = model(false);
   readonly saved = output<ResetUserPasswordInputDto>();
+  //#if (!IncludeLocalization)
+  protected readonly t = englishText(ENGLISH);
+  //#endif
 
-  private readonly fb = inject(FormBuilder);
+  protected readonly showPassword = signal(false);
 
-  dialogConfig = DIALOG_CONFIGS.SMALL;
-  readonly form = this.fb.nonNullable.group({
-    password: ['', [Validators.required, Validators.pattern(PASSWORD_RULE)]]
+  private readonly formModel = signal({ password: '' });
+
+  readonly resetForm = form(this.formModel, (path) => {
+    required(path.password);
+    minLength(path.password, PASSWORD_MIN_LENGTH);
+    maxLength(path.password, PASSWORD_MAX_LENGTH);
   });
 
-  hasPasswordRuleError() {
-    const control = this.form.controls.password;
-    return control.touched && control.hasError('pattern');
+  /** 桥接 hlm-dialog 声明式 state 到对外 visible 契约；关闭时重置表单。 */
+  onDialogStateChange(state: BrnDialogState): void {
+    const open = state === 'open';
+    this.visible.set(open);
+    if (!open) {
+      this.formModel.set({ password: '' });
+      this.showPassword.set(false);
+    }
   }
 
-  onHide() {
+  onHide(): void {
     this.visible.set(false);
-    this.form.reset({ password: '' });
   }
 
-  save() {
-    if (this.form.invalid) {
-      this.form.markAllAsTouched();
+  save(): void {
+    if (this.resetForm().invalid()) {
+      this.resetForm().markAsTouched();
       return;
     }
-    this.saved.emit({ password: this.form.controls.password.value });
+    this.saved.emit({ password: this.formModel().password });
   }
 }
+//#if (!IncludeLocalization)
+
+/** 不含本地化时的界面文案，与 `en.json` 同步。 */
+const ENGLISH: Record<string, string> = {
+  'users.resetDialog.header': 'Reset user password',
+  'users.resetDialog.warning': 'After the reset, the user must sign in with the new password.',
+  'users.resetDialog.newPasswordLabel': 'New password',
+  'users.resetDialog.newPasswordPlaceholder': 'Enter a new password',
+  'common.hidePassword': 'Hide password',
+  'common.showPassword': 'Show password',
+  'users.resetDialog.ruleHint':
+    'Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.',
+  'common.cancel': 'Cancel',
+  'users.resetDialog.confirmButton': 'Confirm reset',
+};
+//#endif

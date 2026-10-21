@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Leistd.Authorization.Resource</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\exception-handling\Leistd.ExceptionHandling.Core\Leistd.ExceptionHandling.Core.csproj" />
+    <ProjectReference Include="..\..\authorization\Leistd.Authorization.Core\Leistd.Authorization.Core.csproj" />
+    <ProjectReference Include="..\..\localization\Leistd.Localization.Core\Leistd.Localization.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 默认 HTTP 状态映射是内部实现（由 AddXxx 自动登记），用例要直接调用它核对登记内容 -->
+    <InternalsVisibleTo Include="Leistd.Authorization.Resource.Tests" />
+  </ItemGroup>
+
+</Project>

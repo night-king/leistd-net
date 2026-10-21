@@ -1,86 +1,55 @@
-#if (IncludeIdentity)
+#if (LocalIdentity)
 using System.Text.Json;
 
 namespace CompanyName.ProjectName.Application.OpenApplications.Dtos;
 
-/// <summary>
-/// 开放应用输出 DTO
-/// </summary>
+/// <summary>开放应用输出 DTO。</summary>
 public record OpenApplicationOutputDto
 {
-    /// <summary>
-    /// ID
-    /// </summary>
+    /// <summary>ID</summary>
     public required string Id { get; init; }
 
-    /// <summary>
-    /// Client ID
-    /// </summary>
+    /// <summary>Client ID</summary>
     public required string ClientId { get; init; }
 
-    /// <summary>
-    /// 显示名称
-    /// </summary>
+    /// <summary>显示名称。</summary>
     public string? DisplayName { get; init; }
 
-    /// <summary>
-    /// 应用类型
-    /// </summary>
+    /// <summary>应用类型。</summary>
     public required string ApplicationType { get; init; }
 
-    /// <summary>
-    /// 客户端类型
-    /// </summary>
+    /// <summary>客户端类型。</summary>
     public required string ClientType { get; init; }
 
-    /// <summary>
-    /// 同意类型
-    /// </summary>
-    public required string ConsentType { get; init; }
 
-    /// <summary>
-    /// Redirect URIs
-    /// </summary>
+    /// <summary>Redirect URIs</summary>
     public List<string> RedirectUris { get; init; } = [];
 
-    /// <summary>
-    /// Post Logout Redirect URIs
-    /// </summary>
+    /// <summary>Post Logout Redirect URIs</summary>
     public List<string> PostLogoutRedirectUris { get; init; } = [];
 
-    /// <summary>
-    /// 授权能力
-    /// </summary>
+    /// <summary>授权能力。</summary>
     public List<string> Permissions { get; init; } = [];
 
-    /// <summary>
-    /// 要求
-    /// </summary>
+    /// <summary>要求。</summary>
     public List<string> Requirements { get; init; } = [];
 
-    /// <summary>
-    /// 设置
-    /// </summary>
+    /// <summary>设置。</summary>
     public Dictionary<string, string> Settings { get; init; } = [];
 
-    /// <summary>
-    /// 扩展属性
-    /// </summary>
+    /// <summary>扩展属性。</summary>
     public Dictionary<string, JsonElement> Properties { get; init; } = [];
 
-    /// <summary>
-    /// Client Secret（仅创建/重置时返回一次，之后不再展示）
-    /// </summary>
+    /// <summary>Client Secret（仅创建/重置时返回一次，之后不再展示）。</summary>
     public string? ClientSecret { get; init; }
 
-    /// <summary>
-    /// 是否已配置 Client Secret
-    /// </summary>
+    /// <summary>是否已配置 Client Secret。</summary>
     public required bool HasClientSecret { get; init; }
 
-    /// <summary>
-    /// 创建时间
-    /// </summary>
+    /// <summary>创建时间。</summary>
     public required DateTimeOffset CreationTime { get; init; }
+
+    /// <summary>会话绑定；<c>null</c> 表示登记早于该设置、尚未选择。</summary>
+    public bool? SessionBound { get; init; }
 }
 #endif

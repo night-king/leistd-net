@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Leistd.Settings</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\exception-handling\Leistd.ExceptionHandling.Core\Leistd.ExceptionHandling.Core.csproj" />
+    <ProjectReference Include="..\..\security\Leistd.Security.Core\Leistd.Security.Core.csproj" />
+    <!-- 写入后发布 SettingChangedEvent；只依赖契约，未注册总线时不发布 -->
+    <ProjectReference Include="..\..\event-bus\Leistd.EventBus.Core\Leistd.EventBus.Core.csproj" />
+    <!-- 错误码的默认译文随包分发；设置页的显示名按宿主资源翻译 -->
+    <ProjectReference Include="..\..\localization\Leistd.Localization.Core\Leistd.Localization.Core.csproj" />
+    <!-- 读取器的缓存按当前租户分键；只用上下文契约，未注册多租户时按宿主一份 -->
+    <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- 默认写入入口按租户取锁、在独立事务里完成校验到提交；锁与工作单元的实现由宿主注册 -->
+    <ProjectReference Include="..\..\lock\Leistd.Lock.Core\Leistd.Lock.Core.csproj" />
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.Core\Leistd.UnitOfWork.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 机密设置的默认加解密：只引用抽象，密钥环由宿主的 AddDataProtection 提供 -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <!-- 启动期检查默认写入入口的依赖 -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 组件错误码的默认中英文案，经 AddJsonLocalizationResources 登记，宿主资源可覆盖 -->
+    <EmbeddedResource Include="Resources\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 默认 HTTP 状态映射是内部实现（由 AddXxx 自动登记），用例要直接调用它核对登记内容 -->
+    <InternalsVisibleTo Include="Leistd.Settings.Tests" />
+  </ItemGroup>
+
+</Project>

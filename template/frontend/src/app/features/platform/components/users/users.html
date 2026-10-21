@@ -1,109 +1,233 @@
-<div class="flex flex-col h-full overflow-hidden">
-  <div class="flex-1 overflow-y-auto p-6">
-    <div class="mb-6 flex flex-col items-stretch justify-between gap-4 md:flex-row md:items-center">
-      <div class="flex flex-1 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-        <p-select
-          [options]="activeOptions"
-          [ngModel]="selectedIsActive()"
-          (ngModelChange)="onActiveChange($event)"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="全部状态"
-          [showClear]="true"
-          appendTo="body"
-          styleClass="w-full sm:w-48"
-        />
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="flex flex-col h-full overflow-hidden">
+    <div class="flex flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-6">
+      <!-- 左组用 flex-auto 而不是 flex-1：基准为 0 时左组总能挤进同一行、再在组内折行；
+         不写死基准宽度（中英文按钮宽度不同）。 -->
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div class="flex min-w-0 flex-auto flex-wrap items-center gap-3">
+          <hlm-input-group class="w-full sm:w-auto sm:max-w-xs sm:min-w-56 sm:flex-1">
+            <hlm-input-group-addon>
+              <ng-icon name="lucideSearch" />
+            </hlm-input-group-addon>
+            <input
+              hlmInputGroupInput
+              type="text"
+              [placeholder]="t('users.filter.searchPlaceholder')"
+              [value]="searchQuery()"
+              (input)="onSearchQueryChange($any($event.target).value)"
+            />
+          </hlm-input-group>
 
-        <p-select
-          [options]="emailVerifiedOptions"
-          [ngModel]="selectedIsEmailVerified()"
-          (ngModelChange)="onEmailVerifiedChange($event)"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="全部邮箱状态"
-          [showClear]="true"
-          appendTo="body"
-          styleClass="w-full sm:w-48"
-        />
-
-        <p-select
-          [options]="roleOptions"
-          [ngModel]="selectedRole()"
-          (ngModelChange)="onRoleChange($event)"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="全部角色"
-          [showClear]="true"
-          appendTo="body"
-          styleClass="w-full sm:w-48"
-        />
-
-        <p-iconfield class="w-full sm:max-w-xs sm:flex-1">
-          <p-inputicon class="pi pi-search" />
-          <input
-            pInputText
-            type="text"
-            placeholder="搜索用户名 / 邮箱 / 显示名称..."
-            [ngModel]="searchQuery()"
-            (ngModelChange)="onSearchQueryChange($event)"
-            class="w-full"
+          <!--#if (LocalIdentity)-->
+          <app-faceted-filter
+            [label]="t('users.table.colStatus')"
+            [options]="activeOptions()"
+            [value]="selectedIsActive()"
+            [searchPlaceholder]="t('users.table.colStatus')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valueChange)="onActiveChange($any($event))"
           />
-        </p-iconfield>
+
+          <app-faceted-filter
+            [label]="t('users.filter.emailLabel')"
+            [options]="emailVerifiedOptions()"
+            [value]="selectedIsEmailVerified()"
+            [searchPlaceholder]="t('users.filter.emailLabel')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valueChange)="onEmailVerifiedChange($any($event))"
+          />
+          <!--#endif-->
+          <app-faceted-filter
+            multiple
+            [label]="t('users.table.colRole')"
+            [options]="roleOptions()"
+            [values]="selectedRoles()"
+            [searchPlaceholder]="t('users.table.colRole')"
+            [clearLabel]="t('common.clearFilter')"
+            [emptyLabel]="t('common.noResults')"
+            (valuesChange)="onRolesChange($event)"
+          />
+        </div>
+
+        <!-- 窄屏按钮用 flex-1 平分一行，两个 w-full 并排会把最左边的按钮推出屏幕。 -->
+        <div class="ml-auto flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+          <button
+            hlmBtn
+            variant="secondary"
+            class="flex-1 sm:flex-none"
+            (click)="reloadList()"
+            [hlmTooltip]="t('common.refresh')"
+          >
+            <ng-icon name="lucideRefreshCw" data-icon="inline-start" />
+            {{ t('common.refresh') }}
+          </button>
+          <!--#if (LocalIdentity)-->
+          @if (canCreateUser()) {
+            <button hlmBtn variant="default" class="flex-1 sm:flex-none" (click)="openAddDialog()">
+              <ng-icon name="lucidePlus" data-icon="inline-start" />
+              {{ t('users.actions.newUser') }}
+            </button>
+          }
+          <!--#endif-->
+        </div>
       </div>
 
-      <div class="flex items-center justify-end gap-3 shrink-0">
-        <p-button
-          icon="pi pi-refresh"
-          label="刷新"
-          (onClick)="onFilter()"
-          styleClass="w-full sm:w-auto"
-          pTooltip="刷新"
-          tooltipPosition="top"
-        />
-        <p-button
-          label="新建用户"
-          icon="pi pi-plus"
-          (onClick)="openAddDialog()"
-          [outlined]="true"
-          severity="primary"
-          styleClass="w-full sm:w-auto"
-        />
-      </div>
+      @if (selectedIds().length) {
+        <div
+          class="bg-muted -mb-3 flex flex-wrap items-center gap-2 rounded-md px-3 py-2"
+          role="toolbar"
+          [attr.aria-label]="t('users.batch.toolbar')"
+          data-testid="user-batch-bar"
+        >
+          <span class="text-sm font-medium" aria-live="polite">{{
+            t('users.batch.selected', { count: selectedIds().length })
+          }}</span>
+          @if (canUpdateUser()) {
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchSetActive(true)"
+            >
+              <ng-icon name="lucideCircleCheck" data-icon="inline-start" />
+              {{ t('users.batch.enable') }}
+            </button>
+            <!--#if (LocalIdentity)-->
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchUnlock()"
+            >
+              <ng-icon name="lucideLockOpen" data-icon="inline-start" />
+              {{ t('users.batch.unlock') }}
+            </button>
+            <!--#endif-->
+          }
+          @if (canManageUserRoles()) {
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchRolesVisible.set(true)"
+            >
+              <ng-icon name="lucideShieldCheck" data-icon="inline-start" />
+              {{ t('users.batch.assignRoles') }}
+            </button>
+          }
+          @if (canUpdateUser()) {
+            <button
+              hlmBtn
+              variant="ghost"
+              size="sm"
+              class="text-destructive"
+              [disabled]="batchBusy() || loading()"
+              (click)="batchSetActive(false)"
+            >
+              <ng-icon name="lucideBan" data-icon="inline-start" />
+              {{ t('users.batch.disable') }}
+            </button>
+          }
+          <button hlmBtn variant="ghost" size="sm" class="ms-auto" (click)="clearSelection()">
+            {{ t('users.batch.clear') }}
+            <kbd hlmKbd class="hidden sm:inline-flex">Esc</kbd>
+          </button>
+        </div>
+      }
+
+      <app-user-table
+        [users]="users()"
+        [totalCount]="totalRecords()"
+        [pagination]="pagination()"
+        [sorting]="sorting()"
+        [loading]="loading()"
+        [filtered]="hasActiveFilters()"
+        [loadError]="loadError()"
+        (retry)="reloadList()"
+        [canUpdate]="canUpdateUser()"
+        <!--#if (LocalIdentity)-->
+        [canDelete]="canDeleteUser()"
+        <!--#else-->
+        [canDelete]="false"
+        <!--#endif-->
+        (paginationChange)="onPaginationChange($event)"
+        (sortingChange)="onSortingChange($event)"
+        <!--#if (LocalIdentity)-->
+        (edit)="openEditDialog($event)"
+        <!--#endif-->
+        (toggleActive)="handleToggleActive($event)"
+        <!--#if (LocalIdentity)-->
+        (resetPassword)="openResetPasswordDialog($event)"
+        (unlock)="handleUnlock($event)"
+        (resetTwoFactor)="handleResetTwoFactor($event)"
+        <!--#endif-->
+        <!--#if (LocalIdentity)-->
+        (delete)="handleDelete($event)"
+        <!--#endif-->
+        [canManageRoles]="canManageUserRoles()"
+        (manageRoles)="openRolesDialog($event)"
+        [selectable]="canBatch()"
+        [rowSelection]="rowSelection()"
+        (rowSelectionChange)="rowSelection.set($event)"
+      />
     </div>
-
-    <app-user-table
-      [users]="users()"
-      [totalRecords]="totalRecords()"
-      [loading]="loading()"
-      (filterChange)="onPageChange($event)"
-      (edit)="openEditDialog($event)"
-      (toggleActive)="handleToggleActive($event)"
-      (resetPassword)="openResetPasswordDialog($event)"
-      (delete)="handleDelete($event)"
-    />
   </div>
-</div>
-
-<app-user-edit-dialog
-  [(visible)]="editDialogVisible"
-  [loading]="editDialogLoading()"
-  [saving]="editDialogSaving()"
-  [user]="selectedUser()"
-  (saved)="handleSave($event)"
-/>
-
-<app-reset-user-password-dialog
-  [(visible)]="resetPasswordDialogVisible"
-  [(saving)]="resetPasswordSaving"
-  (saved)="handleResetPassword($event)"
-/>
-
-<p-confirmDialog
-  header="确认"
-  icon="pi pi-exclamation-triangle"
-  acceptLabel="确定"
-  rejectLabel="取消"
-  acceptButtonStyleClass="p-button-danger p-button-text"
-  rejectButtonStyleClass="p-button-text p-button-secondary"
->
-</p-confirmDialog>
+  <!--#if (LocalIdentity)-->
+  <app-user-edit-dialog
+    [(visible)]="editDialogVisible"
+    [loading]="editDialogLoading()"
+    [saving]="editDialogSaving()"
+    [user]="selectedUser()"
+    [availableRoles]="availableRoles()"
+    [canAssignRoles]="canManageUserRoles()"
+    (saved)="handleSave($event)"
+  />
+  <!--#endif-->
+  <app-batch-roles-dialog
+    [(open)]="batchRolesVisible"
+    [userCount]="selectedIds().length"
+    [availableRoles]="availableRoles()"
+    [saving]="batchBusy()"
+    (assign)="batchAssignRoles($event)"
+  />
+  <app-user-roles-dialog
+    [(open)]="rolesDialogVisible"
+    [user]="rolesDialogUser()"
+    [availableRoles]="availableRoles()"
+    (saved)="onRolesSaved()"
+  />
+  <!--#if (LocalIdentity)-->
+  <app-reset-user-password-dialog
+    [(visible)]="resetPasswordDialogVisible"
+    [(saving)]="resetPasswordSaving"
+    (saved)="handleResetPassword($event)"
+  />
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="reauth.setVisible($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="
+      reauthAction() === 'resetPassword'
+        ? t('users.reauth.resetPassword')
+        : reauthAction() === 'resetTwoFactor'
+          ? t('users.reauth.resetTwoFactor')
+          : t('users.reauth.update')
+    "
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
+  />
+  <!--#endif-->
+</ng-container>

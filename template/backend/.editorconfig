@@ -1,0 +1,38 @@
+# 后端代码风格闸门。Directory.Build.props 开启了 EnforceCodeStyleInBuild，下列规则在构建期报出；
+# 构建线以 0 警告为准，warning 在这里就是约束。
+# 确需违反时用 [SuppressMessage] 并写明 Justification，不在此处整体降级。
+
+root = true
+
+[*.cs]
+
+# ── 日志（coding-backend.md §7）──────────────────────────────────────────────
+# CA2254：消息模板必须是常量，插值字符串会让结构化字段丢失、每条日志各成一个模板。
+# CA2017：模板占位符个数与参数个数一致。
+dotnet_diagnostic.CA2254.severity = warning
+dotnet_diagnostic.CA2017.severity = warning
+
+# ── 命名空间与 using ─────────────────────────────────────────────────────────
+# IDE0161：文件范围 namespace。
+csharp_style_namespace_declarations = file_scoped:warning
+dotnet_diagnostic.IDE0161.severity = warning
+
+# IDE0130：命名空间 = 项目 RootNamespace + 目录路径。
+dotnet_style_namespace_match_folder = true
+dotnet_diagnostic.IDE0130.severity = warning
+
+# IDE0001/IDE0002：正文不内联可简化的全名；同名歧义用 using 别名消除。
+# 这两条在 IDE 中报出，构建期不执行（官方为性能排除），由 verify 的 backend-format 步骤（dotnet format style）核对。
+dotnet_diagnostic.IDE0001.severity = warning
+dotnet_diagnostic.IDE0002.severity = warning
+
+# IDE0005：未使用的 using。构建期报出依赖 GenerateDocumentationFile（Directory.Build.props 已开）。
+dotnet_diagnostic.IDE0005.severity = warning
+
+# ── 接口与实现 ───────────────────────────────────────────────────────────────
+# CA1725：实现或重写成员的参数名与基声明一致，命名参数调用才不会随实现类型变化。
+dotnet_diagnostic.CA1725.severity = warning
+
+# EF Core 生成的迁移与模型快照由工具产出，按生成代码处理，不套手写代码的风格规则。
+[**/Persistence/Migrations/**.cs]
+generated_code = true

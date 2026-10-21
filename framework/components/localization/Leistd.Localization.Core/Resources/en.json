@@ -1,0 +1,19 @@
+{
+  "culture": "en",
+  "texts": {
+    "Title:400": "Bad Request",
+    "Title:401": "Unauthorized",
+    "Title:403": "Forbidden",
+    "Title:404": "Not Found",
+    "Title:405": "Method Not Allowed",
+    "Title:409": "Conflict",
+    "Title:413": "Payload Too Large",
+    "Title:415": "Unsupported Media Type",
+    "Title:422": "Unprocessable Entity",
+    "Title:429": "Too Many Requests",
+    "Title:500": "Internal Server Error",
+    "Title:502": "Bad Gateway",
+    "Title:503": "Service Unavailable",
+    "Title:504": "Gateway Timeout"
+  }
+}

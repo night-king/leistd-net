@@ -1,21 +1,15 @@
-using Leistd.UnitOfWork.Core.Uow;
 
-namespace Leistd.UnitOfWork.Core.Events;
+namespace Leistd.UnitOfWork.Events;
 
-/// <summary>
-/// Used as event arguments when a unit of work fails.
-/// </summary>
-public class UnitOfWorkFailedEventArgs(IUnitOfWork unitOfWork, System.Exception? exception, bool isRolledback)
-    : UnitOfWorkEventArgs(unitOfWork)
+/// <summary>工作单元未完成即结束时的事件参数。</summary>
+public class UnitOfWorkFailedEventArgs(
+    IUnitOfWork unitOfWork,
+    Exception? exception,
+    bool isRolledBack) : UnitOfWorkEventArgs(unitOfWork)
 {
-    /// <summary>
-    /// Exception that caused failure.
-    /// </summary>
-    public System.Exception? Exception { get; private set; } = exception;
+    /// <summary>导致未能完成的异常；无从得知时为 <see langword="null"/>。</summary>
+    public Exception? Exception { get; } = exception;
 
-    /// <summary>
-    /// True, if the unit of work is manually rolled back.
-    /// </summary>
-    public bool IsRolledback { get; } = isRolledback;
+    /// <summary>是否已显式回滚。</summary>
+    public bool IsRolledBack { get; } = isRolledBack;
 }
-

@@ -1,0 +1,132 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="relative">
+    <hlm-popover
+      align="end"
+      sideOffset="10"
+      [state]="notificationOpen()"
+      (stateChanged)="notificationOpen.set($event)"
+    >
+      <button
+        hlmBtn
+        variant="outline"
+        size="icon"
+        hlmPopoverTrigger
+        [attr.aria-label]="
+          notificationCount() > 0
+            ? t('layout.notifications.unreadAria', { count: notificationCount() })
+            : t('layout.notifications.title')
+        "
+        class="relative !overflow-visible"
+      >
+        <ng-icon name="lucideBell" />
+        @if (notificationCount() > 0) {
+          <span
+            hlmBadge
+            class="absolute -top-2 left-full flex min-w-5 -translate-x-1/2 items-center justify-center px-1 py-px"
+          >
+            {{ notificationCount() > 99 ? '99+' : notificationCount() }}
+          </span>
+        }
+      </button>
+
+      <hlm-popover-content
+        *hlmPopoverPortal
+        class="w-[400px] max-w-[90vw] !gap-0 !p-0"
+        [appPopoverAria]="t('layout.notifications.title')"
+      >
+        <div class="flex items-center justify-between border-b border-border px-4 py-3">
+          <span class="font-semibold">{{ t('layout.notifications.title') }}</span>
+          @if (notificationCount() > 0) {
+            <button
+              type="button"
+              class="text-xs text-primary hover:underline disabled:opacity-50"
+              [disabled]="markingAllRead()"
+              (click)="markAllNotificationsRead()"
+            >
+              {{ t('layout.notifications.markAllRead') }}
+            </button>
+          }
+        </div>
+        <!-- 历史加载失败与"没有通知"分开表达：失败时说出来并给重试，已推送到的通知照常列出。 -->
+        @if (notificationService.loadFailed() && notifications().length > 0) {
+          <div
+            class="text-muted-foreground flex items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs"
+            role="status"
+          >
+            <span>{{ t('layout.notifications.historyStale') }}</span>
+            <button
+              type="button"
+              hlmBtn
+              variant="link"
+              size="sm"
+              class="shrink-0"
+              data-testid="notifications-retry"
+              (click)="retryLoad()"
+            >
+              {{ t('common.retry') }}
+            </button>
+          </div>
+        }
+        @if (notifications().length === 0) {
+          <!-- 图标与文案各自成行、整体居中：用 flex 列布局，不依赖 ng-icon 的 display。 -->
+          <div
+            class="text-muted-foreground flex flex-col items-center justify-center gap-2 py-10 text-sm"
+            [attr.aria-busy]="notificationService.loading() || null"
+          >
+            @if (notificationService.loading()) {
+              <hlm-spinner />
+              <span>{{ t('layout.notifications.loading') }}</span>
+            } @else if (notificationService.loadFailed()) {
+              <ng-icon name="lucideCircleAlert" class="text-2xl opacity-60" />
+              <span>{{ t('layout.notifications.loadFailed') }}</span>
+              <button
+                hlmBtn
+                variant="outline"
+                size="sm"
+                data-testid="notifications-retry"
+                (click)="retryLoad()"
+              >
+                {{ t('common.retry') }}
+              </button>
+            } @else {
+              <ng-icon name="lucideInbox" class="text-2xl opacity-60" />
+              <span>{{ t('layout.notifications.empty') }}</span>
+            }
+          </div>
+        } @else {
+          <!-- 条目之间只留间距：本项目的虚线表示添加 -->
+          <div class="flex max-h-[420px] flex-col gap-0.5 overflow-y-auto p-1">
+            @for (n of notifications(); track n.id) {
+              <app-notification-item
+                [notification]="n"
+                [icon]="notificationIcon(n.type)"
+                [expanded]="expanded().has(n.id)"
+                (expandedChange)="toggleExpanded(n)"
+                [removable]="true"
+                (opened)="onNotificationClick(n)"
+                (removed)="clearOneNotification(n.id)"
+              >
+                <app-relative-time-label
+                  notificationTime
+                  [instant]="n.creationTime"
+                  [now]="now()"
+                  [timeZone]="displayTimeZone()"
+                  [locale]="displayLocale()"
+                />
+              </app-notification-item>
+            }
+          </div>
+          <div class="border-t border-border p-1">
+            <button hlmBtn variant="ghost" class="w-full" (click)="clearAllNotifications()">
+              {{ t('layout.notifications.clearAll') }}
+            </button>
+          </div>
+        }
+      </hlm-popover-content>
+    </hlm-popover>
+  </div>
+</ng-container>

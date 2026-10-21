@@ -9,11 +9,32 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- WebApplicationFactory<> 需要 ASP.NET Core 共享框架的编译引用；Mvc.Testing 包本身只带 tasks，不含 compile lib -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+<!--#if (RemoteTokenAuth)-->
+  <ItemGroup>
+    <!-- 与资源服务宿主相同的进程级开关：测试运行在 testhost 进程里，宿主项目的 runtimeconfig 不作用于它 -->
+    <RuntimeHostConfigurationOption Include="Switch.Microsoft.IdentityModel.UpdateConfigAsBlocking" Value="true" />
+  </ItemGroup>
+
+<!--#endif-->
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
-<!--#if (IncludeNotifications)-->
+    <PackageReference Include="System.Linq.Dynamic.Core" />
+    <PackageReference Include="Leistd.Data" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+<!--#if (LocalIdentity || IncludeNotifications || IncludeRealTime)-->
+    <!-- 两步验证、清理任务与实时订阅的截止边界用官方时间替身 -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+<!--#endif-->
+<!--#if (IncludeNotifications || IncludeRealTime)-->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
 <!--#endif-->
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- 集成测试跑在真实 PostgreSQL 上：每次测试运行一个容器，需要本机 Docker -->
+    <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -23,6 +44,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CompanyName.ProjectName.Api\CompanyName.ProjectName.Api.csproj" />
+<!--#if (RemoteTokenAuth || LocalIdentity)-->
+    <!-- 管理员引导、恢复与两步验证重置命令经真实 CLI 测试：别名避开迁移作业与 Api 同名的顶级 Program -->
+    <ProjectReference Include="..\..\src\CompanyName.ProjectName.DbMigrator\CompanyName.ProjectName.DbMigrator.csproj" Aliases="Migrator" />
+<!--#endif-->
+    <!-- 服务间调用闭环测试经真实 Client 包发起调用（签发与资源两种形态） -->
+    <ProjectReference Include="..\..\src\CompanyName.ProjectName.Client\CompanyName.ProjectName.Client.csproj" />
     <ProjectReference Include="..\..\src\CompanyName.ProjectName.Application\CompanyName.ProjectName.Application.csproj" />
     <ProjectReference Include="..\..\src\CompanyName.ProjectName.Domain\CompanyName.ProjectName.Domain.csproj" />
     <ProjectReference Include="..\..\src\CompanyName.ProjectName.Infrastructure\CompanyName.ProjectName.Infrastructure.csproj" />

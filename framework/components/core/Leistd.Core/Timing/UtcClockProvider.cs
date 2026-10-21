@@ -1,44 +1,33 @@
 namespace Leistd.Timing;
 
-/// <summary>
-/// UTC 时钟提供器（默认实现）
-/// </summary>
-/// <remarks>
-/// 始终返回 UTC 时间，这是推荐的做法：
-/// 1. 数据库存储使用 UTC 避免时区混乱
-/// 2. 前端展示时再根据用户时区转换
-/// 3. 避免夏令时问题
-/// </remarks>
-public class UtcClockProvider : IClock
+/// <summary>使用 <see cref="TimeProvider"/> 提供 UTC 时间。</summary>
+/// <remarks>归一化时未指定类型的值按 UTC 处理，本地时间转换为 UTC。</remarks>
+/// <param name="timeProvider">时间源；省略时使用 <see cref="TimeProvider.System"/>。</param>
+public class UtcClockProvider(TimeProvider timeProvider) : IClock
 {
-    /// <summary>
-    /// 获取当前 UTC 时间
-    /// </summary>
-    public DateTime Now => DateTime.UtcNow;
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
-    /// <summary>
-    /// 时间类型：UTC
-    /// </summary>
-    public DateTimeKind Kind => DateTimeKind.Utc;
+    /// <summary>使用系统时间源创建提供器，供未注册 <see cref="TimeProvider"/> 的宿主经依赖注入解析。</summary>
+    public UtcClockProvider() : this(TimeProvider.System)
+    {
+    }
 
-    /// <summary>
-    /// 标准化为 UTC 时间
-    /// </summary>
+    /// <inheritdoc />
+    public DateTime Now => _timeProvider.GetUtcNow().UtcDateTime;
+
+    /// <inheritdoc />
     public DateTime Normalize(DateTime dateTime)
     {
         if (dateTime.Kind == DateTimeKind.Unspecified)
         {
-            // 假定未指定类型的时间为 UTC
             return DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
         }
 
         if (dateTime.Kind == DateTimeKind.Local)
         {
-            // 本地时间转换为 UTC
             return dateTime.ToUniversalTime();
         }
 
-        // 已经是 UTC，直接返回
         return dateTime;
     }
 }

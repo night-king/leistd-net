@@ -1,72 +1,57 @@
 # 工作单元与事务
 
-一个业务操作往往跨多个仓储、多次数据库写入，必须**要么全部成功、要么全部回滚**。如果让每个方法各自管理 `DbContext`、显式开启/提交事务、再手动 `SaveChanges`，业务代码会被基础设施细节淹没，且很难保证嵌套调用时复用同一个事务边界。
-
-Leistd 的工作单元（Unit of Work）把「一个请求 / 一个业务方法」内的所有数据库操作收敛到统一事务边界：通过 `[UnitOfWork]` 特性声明边界，由拦截器自动 `Begin → SaveChanges → Commit`，异常时自动回滚；嵌套调用自动复用外层工作单元（不重复开事务）。同时它还提供与领域事件的集成，可让事件处理器精确地在「提交前 / 提交后 / 回滚后 / 完成后」等阶段运行。
+工作单元将一个业务方法中的多次数据库写入收敛到同一提交边界，并在提交前后分阶段发布本地事件。
 
 ## 何时使用
 
 | 场景 | 做法 |
 | --- | --- |
-| 一个业务方法内跨多次写入需原子提交（如下单：扣库存 + 建订单 + 记流水） | 在方法或类上标注 `[UnitOfWork]`，拦截器自动管理事务 |
-| 需要手动控制事务边界（非拦截场景） | 注入 `IUnitOfWorkManager`，`BeginAsync` 后 `CompleteAsync` |
-| EF Core 持久化、且希望多个仓储共享同一 `DbContext` 与事务 | 注入 `IDbContextProvider<TDbContext>` 获取受工作单元管理的 `DbContext` |
-| 让领域事件在事务提交成功后再执行（发通知、刷缓存） | 事件处理器标注 `[UnitOfWorkEventHandler(UnitOfWorkPhase.AfterCommit)]` |
-| 只想编写依赖工作单元抽象的领域/应用服务 | 仅引用 `Leistd.UnitOfWork.Core` |
+| 多次写入必须原子提交 | 在类或方法上标注 `[UnitOfWork]` |
+| 非拦截场景需手动边界 | 使用 `IUnitOfWorkManager.Begin()` |
+| 多个 EF Core 操作需共享上下文与事务 | 使用 `IDbContextProvider<TDbContext>` |
+| 本地事件需在提交前或提交后执行 | 使用 `UnitOfWorkPhase` |
 
-> 持久化实现当前仅提供 EF Core（`Leistd.UnitOfWork.EfCore`）。若不接入任何持久化实现，核心包仍可提供事务边界、嵌套复用与事件阶段调度能力。
+以下情况不需要工作单元：
+
+- 只读方法。
+- 只有一次 `SaveChanges`；EF Core 已使用隐式事务。
+- 管理器已在一次 `SaveChanges` 中完成批量写入。
+- 写入由本组件无法管理的外部 Store 提交。
+
+工作单元默认按需引入，不是所有写方法的必选装饰。
 
 ## 安装
 
 ```bash
-# 抽象与核心（工作单元管理、拦截器、事件阶段）
 dotnet add package Leistd.UnitOfWork.Core
-
-# EF Core 持久化集成（DbContext 与事务接入工作单元）
-dotnet add package Leistd.UnitOfWork.EfCore
+dotnet add package Leistd.UnitOfWork.EntityFrameworkCore
 ```
 
-> 本仓库模板项目通过中央包管理（CPM）统一版本，添加时无需写版本号。
-
-## 配置 Provider
-
-在 `Program.cs` 注册核心服务，需要 EF Core 集成时再追加 `AddUnitOfWorkEfCore`：
+## 注册
 
 ```csharp
-// 核心：注册工作单元管理器、拦截器，并可配置默认 Options
+using System.Data;
+
 builder.Services.AddUnitOfWork(options =>
 {
     options.IsTransactional = true;
-    options.IsolationLevel = System.Data.IsolationLevel.ReadCommitted;
+    options.IsolationLevel = IsolationLevel.ReadCommitted;
 });
 
-// EF Core 集成：注册 IDbContextProvider<TDbContext>
 builder.Services.AddUnitOfWorkEfCore();
 ```
 
-`AddUnitOfWork` 的注册绑定如下：
+`AddUnitOfWork` 注册环境工作单元、管理器、默认实现、两个动态代理拦截器与本地事件延迟器。`AddUnitOfWorkEfCore` 将 `IDbContextProvider<>` 注册为 Scoped。
 
-| 注册 | 绑定接口 / 类型 | 生命周期 |
-| --- | --- | --- |
-| `AmbientUnitOfWork` | `IAmbientUnitOfWork`（基于 `AsyncLocal`） | Singleton |
-| `UnitOfWorkManager` | `IUnitOfWorkManager` | Singleton |
-| `UnitOfWork` | `IUnitOfWork` | Transient |
-| `UnitOfWorkInterceptor` | 拦截带 `[UnitOfWork]` 的服务方法/类 | Transient |
-| `UnitOfWorkEventHandlerInterceptor` | 拦截带 `[UnitOfWorkEventHandler]` 的事件处理器 | Transient |
-| `UnitOfWorkOptions` | 默认配置单例 | Singleton |
-
-> `AddUnitOfWork` 通过依赖注入组件的 `OnServiceRegistered` 回调，为带 `[UnitOfWork]` / `[UnitOfWorkEventHandler]` 特性的类型自动挂接拦截器，因此特性能否生效依赖 AOP（动态代理）组件已就绪。
-
-`AddUnitOfWorkEfCore` 注册 `IDbContextProvider<>` → `DbContextProvider<>`（Scoped）。
+`[UnitOfWork]` 和 `[UnitOfWorkEventHandler]` 依赖 Leistd DI/AOP 管道，宿主必须通过 `DynamicProxyServiceRegistrationCallbackFactory` 启用动态代理。漏接时 `AddUnitOfWork` 注册的托管服务在宿主启动时抛出异常；不经 Host、直接 `BuildServiceProvider` 的场景不做此检查。
 
 ## 使用
 
-### 声明式事务（推荐）
-
-在应用服务上标注 `[UnitOfWork]`，方法执行期间的所有写入会被收敛到一个事务，正常返回后自动提交，抛异常自动回滚：
+### 声明式边界
 
 ```csharp
-using Leistd.UnitOfWork.Core.Attributes;
+using Leistd.UnitOfWork.Attributes;
+using Leistd.UnitOfWork.EntityFrameworkCore.Database;
 
 [UnitOfWork]
 public class OrderPlacementService(
@@ -74,144 +59,198 @@ public class OrderPlacementService(
 {
     public async Task PlaceOrderAsync(PlaceOrderInput input)
     {
-        // 同一工作单元内多次获取，拿到的是同一个受管理的 DbContext
         var db = await dbContextProvider.GetDbContextAsync();
-
         db.Stocks.Deduct(input.ProductId, input.Quantity);
         db.Orders.Add(new Order(input));
-        // 无需手动 SaveChanges / Commit：方法正常返回时工作单元统一提交，
-        // 抛异常则整体回滚。扣库存与建订单的原子性由 [UnitOfWork] 保证。
     }
 }
 ```
 
-> `IDbContextProvider<TDbContext>` 是本组件的核心 API：它返回受当前工作单元管理的 `DbContext`，让多个数据操作共享同一上下文与事务。在采用 [DDD 四层基座](../ddd-struct/ddd-struct.md) 的项目里，应用服务通常经仓储读写、由仓储实现在内部使用 `IDbContextProvider`；本组件本身不依赖 ddd-struct，上面直用 `IDbContextProvider` + `DbContext` 是其最小自包含用法。
+方法正常返回时拦截器统一保存并提交；异常时回滚。声明式用法不手动调用 `SaveChanges` 或 `CommitAsync`。
+提交使用方法声明的第一个 `CancellationToken` 参数（没有时不可取消），BeforeCommit 处理器收到的也是它；取消边界见下文。
 
-`[UnitOfWork]` 可标注在类（对所有方法生效）或单个方法上；通过特性属性覆盖默认配置：
-
+<!-- no-compile: 省略号代表与本例无关的参数和实现 -->
 ```csharp
 [UnitOfWork(IsolationLevel = IsolationLevel.Serializable)]
-public async Task TransferAsync(...) { /* ... */ }
+public Task TransferAsync(...) => ...;
 
-[UnitOfWork(IsDisabled = true)] // 不开启事务（只读查询）
-public async Task<OrderDto> GetAsync(Guid id) { /* ... */ }
+[UnitOfWork(IsDisabled = true)]
+public Task<OrderDto> GetAsync(Guid id) => ...;
 ```
 
-### 手动控制边界
+`IsDisabled = true` 表示不创建工作单元；`[UnitOfWork(false)]` 创建非事务工作单元。
 
-非拦截场景下，注入 `IUnitOfWorkManager` 手动管理：
+### 手动边界
 
 ```csharp
-public class BatchImporter(IUnitOfWorkManager uowManager)
+var uow = unitOfWorkManager.Begin();
+try
 {
-    public async Task ImportAsync()
-    {
-        var uow = await uowManager.BeginAsync();
-        try
-        {
-            // —— 业务写入 ——
-            await uow.CompleteAsync(); // 提交
-        }
-        catch
-        {
-            await uow.RollbackAsync(); // 回滚
-            throw;
-        }
-        finally
-        {
-            uow.Dispose();
-        }
-    }
+    await ImportAsync();
+    await uow.CompleteAsync();
+}
+catch
+{
+    await uow.RollbackAsync();
+    throw;
+}
+finally
+{
+    uow.Dispose();
 }
 ```
 
-### 事件阶段集成
+`requiresNew` 默认为 `false`：存在当前工作单元时返回复用父边界的子工作单元，只有最外层真正提交。传 `true` 创建独立作用域与提交边界，但不改变事务选项。
 
-让事件处理器在事务成功提交后才执行（避免「事务回滚了但通知已发出」）：
+工作单元由使用它的方法自己开启：当前工作单元存放在 `AsyncLocal` 里，在 `async` 辅助方法内开启后不会带回调用方，调用方随后的写入会各自提交且不报错。`Begin()` 因此是同步的。
+
+### 在事务内提前冲刷
+
+工作单元内的写入在 `CompleteAsync` 前不保证已发送到数据库。创建后返回时，优先用已跟踪实体构造输出，不再回查。
+
+仅在需要数据库生成值、计算列、触发器结果或新并发标记时手动冲刷：
 
 ```csharp
-using Leistd.UnitOfWork.Core.Events;
+var order = new Order(input);
+dbContext.Orders.Add(order);
+await unitOfWorkManager.Current!.SaveChangesAsync();
+dbContext.OrderLines.AddRange(CreateLines(order.Id));
+```
 
-[UnitOfWorkEventHandler(UnitOfWorkPhase.AfterCommit)]
-public class SendWelcomeEmailHandler : IEventHandler<UserCreatedEvent>
+`SaveChangesAsync()` 只冲刷挂起变更，不提交事务；后续回滚仍会撤销这些写入。
+
+要就地捕获数据库约束冲突，也必须先冲刷：工作单元内的写入在冲刷前不会发到数据库，`catch` 须包住冲刷本身，
+否则异常在 `CompleteAsync` 才抛出：
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+
+var dbContext = await dbContextProvider.GetDbContextAsync(ct);
+
+// 错：Add 只登记到变更跟踪，catch 永不触发，写法却"看起来在处理并发首次写入"
+try { dbContext.Orders.Add(order); }
+catch (DbUpdateException) { /* 死代码 */ }
+
+// 对：先冲刷，冲刷才是抛出点
+dbContext.Orders.Add(order);
+try { await unitOfWorkManager.Current!.SaveChangesAsync(ct); }
+catch (DbUpdateException) { /* 这里才捕获得到 */ }
+```
+
+经 DDD 基座仓储写入时同理，写法见 [DDD 四层基座](../ddd-struct/ddd-struct.md#通过仓储读写)。
+
+不确定要不要捕获时，让异常传播到工作单元边界。
+
+### 事件阶段
+
+`CompleteAsync` 循环执行 `SaveChangesAsync` 和 `BeforeCommit` 事件，直到无新事件；然后提交事务并发布 `AfterCommit` 事件。
+
+| 阶段 | 用途 | 失败语义 |
+| --- | --- | --- |
+| `BeforeCommit` | 必须影响事务结果的处理 | 事务型工作单元中异常触发回滚 |
+| `AfterCommit` | 通知、缓存刷新等提交后副作用 | 事务已提交，后续写入使用独立上下文 |
+
+未标注 `[UnitOfWorkEventHandler]` 的处理器默认属于 `AfterCommit`。`BeforeCommit` 处理器在工作单元外发布时不执行并记录 Warning。
+
+```csharp
+[UnitOfWorkEventHandler(UnitOfWorkPhase.BeforeCommit)]
+public class ValidateOrderHandler(OrderValidator validator) : IEventHandler<OrderCreatedEvent>
 {
-    public async Task HandleAsync(UserCreatedEvent @event)
-        => await _emailService.SendWelcomeEmailAsync(@event.User.Email);
+    public Task HandleAsync(OrderCreatedEvent @event, CancellationToken cancellationToken = default)
+        => validator.ValidateAsync(@event, cancellationToken);
 }
 ```
+
+`AfterCommit` 阶段的 `IUnitOfWorkManager.Current` 为 `null`。该阶段若写库，会使用独立上下文并自行提交。需要可靠发送的跨系统副作用应使用 Outbox。
+
+一个 `AfterCommit` 事件失败不会跳过后续事件。全部事件分发完后，单个失败保留原异常类型与堆栈，多个分发失败以 `AggregateException` 上抛给 `CompleteAsync()`；事务已提交，异常不触发回滚。该阶段使用不可取消的令牌，处理器自身的取消异常也按分发失败收集。
+
+### EF Core 连接绑定
+
+`IDbContextProvider<TDbContext>` 在工作单元内按 DbContext 类型复用实例。事务型工作单元中，同一物理关系数据库上的多个 DbContext 共用连接和事务。
+
+宿主注册 `IConnectionStringResolver` 时，Provider 根据 `[ConnectionStringName]` 异步解析连接，并通过 `DbContextCreationContext.Current` 传入同步 `AddDbContext` 回调。该回调不得再执行远程调用或 sync-over-async。
+
+首次获取 DbContext 时，工作单元绑定连接归属与物理目标，生命周期内任一值改变都立即失败。
+不在工作单元内时不建立绑定，DbContext 由当前 DI 作用域持有并复用；本次解析出的连接与该实例的实际连接不一致时（如 `ICurrentTenant.Change` 切到分库租户）
+抛 `InvalidOperationException`。访问另一个租户的库时，在该租户上下文内以 `Begin(requiresNew: true)` 开工作单元。
+
+本组件不提供跨物理事务原子性。多个事务按顺序提交时，后续失败可能已造成部分提交；此时抛出带已提交与失败 key 的 `InvalidOperationException`，详细信息只进日志。
+
+### 取消边界
+
+事务型 `CompleteAsync(cancellationToken)` 分为两段：
+
+```text
+可取消：SaveChanges + BeforeCommit
+不可取消：Commit + AfterCommit
+```
+
+进入 Commit 前会最后检查一次取消。Commit 已开始后不再响应取消，避免向调用方返回“无法确定是否已提交”的结果。
+
+日志级别：提交开始之前的调用方取消，事务型记 Debug（什么都没提交），非事务型记 Warning（已保存的部分不会回滚）；
+提交开始之后的失败，以及令牌未取消的取消异常（如数据库超时），记 Error，已提交时注明“已提交，但提交后处理失败”。回滚记 Debug。
+
+非事务工作单元没有该边界：每次保存可能已独立持久化，`BeforeCommit` 异常不承诺回滚已完成的写入。
 
 ## 接口参考
 
-`Leistd.UnitOfWork.Core` 命名空间：
-
-| 成员 | 说明 |
+| 类型或成员 | 用途 |
 | --- | --- |
-| `IUnitOfWorkManager.Current` | 当前生效的工作单元；无则返回 `null`（自动跳过已释放/已完成的） |
-| `IUnitOfWorkManager.BeginAsync(options?, requiresNew=true)` | 开启工作单元；`requiresNew=false` 且已有当前工作单元时返回复用父级的子工作单元 |
-| `IUnitOfWork.Id` | 工作单元唯一标识（`Guid`） |
-| `IUnitOfWork.Options` | 当前工作单元的 `IUnitOfWorkOptions` 配置 |
-| `IUnitOfWork.Outer` | 外层工作单元（嵌套场景），无则 `null` |
-| `IUnitOfWork.IsDisposed` / `IsCompleted` | 是否已释放 / 已完成 |
-| `IUnitOfWork.CompleteAsync(ct)` | 完成并提交；重复调用抛 `InvalidOperationException` |
-| `IUnitOfWork.RollbackAsync(ct)` | 回滚；幂等（已回滚再调无副作用） |
-| `IUnitOfWork.AddPendingEvents(events)` | 由基础设施层登记待发布的领域事件 |
-| `IAmbientUnitOfWork.Get() / Set(uow)` | 读取/设置当前线程上下文中的工作单元（`AsyncLocal`） |
-| `IDatabaseApiContainer.GetOrAddDatabaseApi(factory)` | 获取或惰性创建该工作单元的 `IDatabaseApi` |
-| `ITransactionApiContainer.FindTransactionApi()` | 查找事务 API，无则 `null` |
-| `ITransactionApiContainer.AddTransactionApi(key, api)` | 向容器登记一个事务 API（供基础设施层实现接入） |
-| `ITransactionApi.CommitAsync()` | 提交事务 |
-| `ISupportsSavingChanges.SaveChangesAsync(ct)` / `ISupportsRollback.RollbackAsync(ct)` | 数据库/事务 API 的可选实现，供工作单元在提交/回滚时调用 |
-| `[UnitOfWork]` | 声明事务边界；属性 `Timeout` / `IsolationLevel` / `IsDisabled` |
-| `[UnitOfWorkEventHandler(phase)]` | 声明事件处理器执行阶段（默认 `AfterCommit`） |
-| `UnitOfWorkPhase` | 阶段枚举：`BeforeCommit` / `AfterCommit` / `AfterRollback` / `AfterCompletion` |
-| `UnitOfWorkContext.CurrentPhase` | 当前所处的工作单元阶段（`AsyncLocal`，供处理器过滤） |
+| `IUnitOfWorkManager.Current` | 当前工作单元；无则为 `null` |
+| `IUnitOfWorkManager.Begin(options?, requiresNew)` | 创建或复用工作单元 |
+| `IUnitOfWork.SaveChangesAsync` | 冲刷挂起变更，不提交事务 |
+| `IUnitOfWork.CompleteAsync` | 完成并提交；不可重复调用 |
+| `IUnitOfWork.RollbackAsync` | 回滚；幂等 |
+| `IUnitOfWork.Failed` | 未完成即释放时同步触发 |
+| `IUnitOfWork.Disposed` | 释放时同步触发，无论是否已完成；管理器靠它回收边界作用域并恢复外层环境。自定义实现必须发出它且只发一次，`Dispose()` 必须幂等 |
+| `[UnitOfWork]` | 声明工作单元边界并可覆盖选项 |
+| `[UnitOfWorkEventHandler]` | 声明事件处理阶段 |
+| `IDbContextProvider<TDbContext>` | 获取受当前工作单元管理的 DbContext |
+| `IDatabaseApi` / `ITransactionApi` | 持久化提供方的数据库与事务扩展点 |
+| `UnitOfWorkContext.CurrentPhase` | 当前事件阶段；提交流程外为 `null` |
 
-`Leistd.UnitOfWork.EfCore` 命名空间：
+## 注册形式约束
 
-| 成员 | 说明 |
+动态代理只能织入可见的实现类型。能从服务描述符中确定的无效形态会在容器构建时被拒绝：
+
+| 注册形式 | 结果 |
 | --- | --- |
-| `IDbContextProvider<TDbContext>.GetDbContextAsync(ct)` | 获取受工作单元管理的 `DbContext`；不在工作单元内时直接返回 Scoped 实例 |
+| `AddScoped<IFoo, Foo>()` | 支持 |
+| `AddScoped(typeof(IFoo<>), typeof(Foo<>))` | 拒绝；开放泛型无法织入 |
+| `AddScoped<IFoo>(sp => new Foo(...))` | 不支持且无法自动检测 |
+| 封闭的 `IEventHandler<T>` 实现、实例或同实例别名 | 支持 |
+| 开放泛型 `IEventHandler<>` | 拒绝；改为逐事件封闭注册 |
 
-## 实现行为
+`[UnitOfWork]` 只能标在类或实现方法上，不能标在接口上。需要事务边界的服务应使用实现类型注册，不使用隐藏实现类型的工厂委托。
 
-### Leistd.UnitOfWork.Core
+## 配置项
 
-- **当前工作单元**基于 `AsyncLocal`（`AmbientUnitOfWork`）随异步流传递；`IUnitOfWorkManager.Current` 在读取时会顺着 `Outer` 链跳过已 `Disposed` 或已 `Completed` 的工作单元。
-- **嵌套复用**：拦截器以 `requiresNew: false` 调 `BeginAsync`，若已有当前工作单元则创建 `ChildUnitOfWork`——子单元的 `CompleteAsync` 为**空操作**，提交/回滚由最外层真正的工作单元统一负责，从而保证嵌套调用共用同一事务边界。
-- **提交流程**（`CompleteAsync`）：循环执行「`SaveChangesAsync` → 发布 `BeforeCommit` 阶段事件」直到无新增待发布事件，再 `CommitAsync` 提交事务，成功后发布 `AfterCommit` 阶段事件。重复调用 `CompleteAsync` 抛 `InvalidOperationException`。
-- **事件阶段调度**：`BeforeCommit` 处理器抛异常会导致事务回滚；`AfterCommit` 在提交成功后发布；失败时发布 `AfterRollback`（其内部异常被吞掉）；`Dispose` 时发布 `AfterCompletion`（无论成功失败）。`UnitOfWorkEventHandlerInterceptor` 仅拦截 `HandleAsync`，依据 `UnitOfWorkContext.CurrentPhase` 与处理器特性的 `Phase` 匹配决定是否执行，不匹配则跳过；无 `CurrentPhase` 时按 `AfterCommit` 处理。
-- 拦截器在被拦截方法**抛异常时调用 `uow.Dispose()`**（而非显式 `RollbackAsync`），由 Dispose 路径触发失败处理与事务释放。
+`AddUnitOfWork` 绑定 `Leistd:UnitOfWork` 配置节（可用 `configSectionPath` 改路径），传入的委托在绑定之后应用；选项从容器里的 `IConfiguration` 读取，无主机的 `ServiceCollection` 需自行注册一个。
 
-### Leistd.UnitOfWork.EfCore
+| 属性 | 默认值 | 说明 |
+| --- | --- | --- |
+| `IsTransactional` | `true` | 是否开启数据库事务 |
+| `IsolationLevel` | `null` | 事务隔离级别，须为已定义的枚举值；默认使用数据库设置 |
+| `Timeout` | `null` | EF Core 关系数据库命令超时，取 1 秒至 `int.MaxValue` 秒，按整秒向上取整；默认使用数据库设置 |
 
-- `IDbContextProvider<TDbContext>` 注册为 **Scoped**。`GetDbContextAsync` 有两种模式：不在工作单元内时直接从 Scoped 容器返回 `DbContext`（适合简单 CRUD）；在工作单元内则从工作单元自身的 Scope 获取，并通过 `GetOrAddDatabaseApi` 保证整个工作单元内复用同一 `DbContext`。
-- 当工作单元 `IsTransactional` 时，首个 `DbContext` 会 `BeginTransactionAsync` 开启数据库事务（按 `Options.IsolationLevel` 指定隔离级别）；后续 `DbContext` 若是关系型且共享连接，则通过 `UseTransaction` 复用同一事务，否则各自开事务并登记到 `AttendedDbContexts`，提交/回滚时统一处理。
-- `Options.Timeout` 仅对关系型数据库生效，且仅在 `CommandTimeout` 未设置时按秒应用。
-- `EfCoreDatabaseApi.Dispose` **不显式释放 `DbContext`**——`DbContext` 由工作单元创建的 Scope 在释放时统一回收，避免重复 Dispose。
-
-## 配置项 / Options
-
-`AddUnitOfWork` 接受 `Action<UnitOfWorkOptions>` 配置默认值；`[UnitOfWork]` 特性可在方法/类级别覆盖。
-
-| 属性 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `IsTransactional` | `bool` | `false`（`UnitOfWorkManager.BeginAsync` 在未传 options 时置为 `true`） | 是否开启数据库事务 |
-| `IsolationLevel` | `IsolationLevel?` | `null`（用数据库默认） | 事务隔离级别 |
-| `Timeout` | `TimeSpan?` | `null` | 命令超时（仅关系型数据库） |
-
-`[UnitOfWork]` 特性额外属性 `IsDisabled`（默认 `false`）：置 `true` 时生成的工作单元 `IsTransactional = false`，即不开启事务。
+默认选项在宿主启动时校验，越界时启动失败（`OptionsValidationException`），消息以实际配置节的键开头。不足 1 秒的超时被拒绝（命令超时 0 表示不限时）。
+传给 `Begin(options)` 的单次选项按同一判据校验，不合法时抛 `ArgumentOutOfRangeException`。重复调用 `AddUnitOfWork` 换用另一配置节时抛 `InvalidOperationException`。
 
 ## 注意事项
 
-- `[UnitOfWork]` 与 `[UnitOfWorkEventHandler]` 的生效依赖拦截器，而拦截器只在通过 DI 解析的服务上挂接（基于本框架 AOP 组件）。直接 `new` 出来的对象不会被拦截。
-- 声明式用法**无需手动** `SaveChanges` / `CommitAsync`：拦截器在方法正常返回时统一提交。手动用法务必在异常路径 `RollbackAsync` 并 `Dispose`。
-- 嵌套调用中只有最外层工作单元真正提交/回滚，内层 `ChildUnitOfWork.CompleteAsync` 不做任何事——不要依赖内层「提交」来落库。
-- `BeforeCommit` 阶段的事件处理器异常会触发整体回滚；只有确实希望影响事务结果的逻辑才放在该阶段，发通知、刷缓存等副作用应放 `AfterCommit`。
-- `RollbackAsync` 是幂等的；`CompleteAsync` 不可重复调用，否则抛 `InvalidOperationException`。
+- 直接 `new` 的对象不会被拦截；工厂委托隐藏实现类型时也无法织入特性。
+- 工作单元内不回查刚写入的行。优先使用现有实体；只有需要数据库回填值时手动冲刷。
+- 约束冲突在冲刷时抛出，不在 `InsertAsync` 抛出。
+- 嵌套调用只由最外层提交；不要依赖子工作单元的 `CompleteAsync()` 立即落库。
+- `BeforeCommit` 仅承载必须影响事务的逻辑。发通知、刷缓存与远程调用放在 `AfterCommit` 或 Outbox。
+- 非事务工作单元不承诺整体回滚，也不提供跨多个物理事务的原子性。
+- `RollbackAsync` 是幂等的；`CompleteAsync` 不可重复调用。
+- 只切 `ICurrentTenant.Change` 不会让工作单元之外的 DbContext 换库；访问另一个租户的库要在其上下文内 `Begin(requiresNew: true)`。
 
 ## 相关
 
-- [组件总览](./README.md)
 - [依赖注入](./dependency-injection.md)
-- [面向切面编程（AOP）](./aop.md)
+- [面向切面编程](./aop.md)
 - [事件总线](./event-bus.md)
+- [连接解析](./data.md)

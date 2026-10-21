@@ -1,0 +1,38 @@
+# 本机开发用的外部依赖；应用按本项目 README 的命令在本机启动。
+#   docker compose -f deploy/docker-compose.dev.yml up -d
+# 端口只绑定 127.0.0.1，口令是仅供本机的开发值；不要把这份文件用于任何共享环境。
+# Api 与 DbMigrator 的 appsettings.Development.json 已指向这里；连其他库时用 user-secrets 覆盖（见 README「本地运行」）。
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: companyname-projectname
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # PG18 的数据目录在 /var/lib/postgresql/18/docker，卷挂父目录
+      - dev-pgdata-18:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+#if (Email)
+
+  # 收件箱在 http://localhost:8025；appsettings.json 的 Leistd:Email:Smtp 默认就指向 localhost:1025
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+#endif
+
+volumes:
+  dev-pgdata-18:

@@ -1,0 +1,11 @@
+{
+  "dialogTitle": "Permissions · {{name}}",
+  "searchPlaceholder": "Search permissions",
+  "grantedCount": "{{count}} granted",
+  "groupSummary": "{{granted}}/{{total}}",
+  "loadFailed": "Couldn't load permissions",
+  "saved": "Permissions saved",
+  "conflict": "Someone else changed these permissions. The latest values have been reloaded.",
+  "description": "Check a permission to grant it. The top-level entry of each block is its read access; granting an action grants that read access too — creating users requires viewing the user list. To take an ability away from someone, change their roles.",
+  "viewAccessHint": "view list"
+}

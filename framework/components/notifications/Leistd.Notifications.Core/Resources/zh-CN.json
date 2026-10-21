@@ -1,0 +1,6 @@
+{
+  "culture": "zh-CN",
+  "texts": {
+    "Notification:IdentityCannotOperate": "当前身份不能操作用户通知。"
+  }
+}

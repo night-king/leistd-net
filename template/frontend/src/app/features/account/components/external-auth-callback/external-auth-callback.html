@@ -1,0 +1,46 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <main class="flex min-h-screen items-center justify-center bg-background px-4">
+    <section class="text-center">
+      @if (error(); as error) {
+        <div class="flex flex-col items-center gap-6">
+          <div class="flex flex-col gap-3">
+            <h1 class="text-destructive text-2xl font-semibold tracking-tight">
+              {{ t('account.login.loginFailed') }}
+            </h1>
+            <p class="text-muted-foreground">{{ 'key' in error ? t(error.key) : error.text }}</p>
+          </div>
+          <a hlmBtn routerLink="/auth/login">
+            {{ t('account.externalCallback.backToLogin') }}
+          </a>
+        </div>
+      } @else {
+        <div class="flex flex-col items-center gap-4">
+          <hlm-spinner
+            class="text-4xl"
+            [attr.aria-label]="t('account.externalCallback.processingAria')"
+          />
+          <h1 class="text-foreground text-2xl font-semibold tracking-tight">
+            {{ t('account.externalCallback.processing') }}
+          </h1>
+        </div>
+      }
+    </section>
+  </main>
+
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="onReauthVisibleChange($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.externalLogins.linkReauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="onSignInAgain()"
+  />
+</ng-container>

@@ -1,42 +1,44 @@
 using System.ComponentModel.DataAnnotations;
+using CompanyName.ProjectName.Domain.Users.Constants;
+using CompanyName.ProjectName.Domain.Users.Policies;
 
 namespace CompanyName.ProjectName.Application.Auth.Dtos;
 
-/// <summary>
-/// 注册请求 DTO
-/// </summary>
+/// <summary>注册请求 DTO。</summary>
 public record RegisterInputDto
 {
-    [Display(Name = "用户名")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [StringLength(64, MinimumLength = 3, ErrorMessage = "{0}长度必须在 {2}-{1} 个字符之间")]
-    [RegularExpression(@"^[a-zA-Z0-9_]+$", ErrorMessage = "{0}只能包含字母、数字和下划线")]
-    public required string Username { get; init; }
+    [Display(Name = "Username")]
+    [Required(ErrorMessage = "{0} is required.")]
+    [StringLength(UsernameRules.MaxLength, MinimumLength = UsernameRules.MinLength, ErrorMessage = "{0} must be between {2} and {1} characters.")]
+    [RegularExpression(UsernameRules.Pattern, ErrorMessage = "{0} can contain only letters, numbers, and underscores.")]
+    public string Username { get; init; } = null!;
 
-    [Display(Name = "邮箱")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [EmailAddress(ErrorMessage = "{0}格式不正确")]
-    [StringLength(256, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
-    public required string Email { get; init; }
+    [Display(Name = "Email")]
+    [Required(ErrorMessage = "{0} is required.")]
+    [EmailAddress(ErrorMessage = "{0} has an invalid format.")]
+    [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
+    public string Email { get; init; } = null!;
 
-    [Display(Name = "密码")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [StringLength(100, MinimumLength = 6, ErrorMessage = "{0}长度必须在 {2}-{1} 个字符之间")]
-    [RegularExpression(@"^(?=.*[a-zA-Z])(?=.*\d).{6,}$",
-        ErrorMessage = "{0}需 6 位以上，包含字母和数字")]
-    public required string Password { get; init; }
+    [Display(Name = "Password")]
+    [Required(ErrorMessage = "{0} is required.")]
+    // 只做快速反馈，安全不变量在服务端 PasswordPolicy（下限必须与它一致，否则前置校验形同虚设）
+    [StringLength(PasswordPolicy.MaximumLength, MinimumLength = PasswordPolicy.MinimumLength,
+        ErrorMessage = "{0} must be between {2} and {1} characters.")]
+    public string Password { get; init; } = null!;
 
-    [Display(Name = "昵称")]
-    [StringLength(128, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
-    public string? Nickname { get; init; }
+    [Display(Name = "Display name")]
+    [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
+    public string? DisplayName { get; init; }
 
-    [Display(Name = "验证码凭据")]
+    [Display(Name = "Captcha token")]
     public string? CaptchaToken { get; init; }
 
-    [Display(Name = "图形验证码")]
-    [StringLength(10, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
+    [Display(Name = "Captcha")]
+    [StringLength(10, ErrorMessage = "{0} cannot exceed {1} characters.")]
     public string? CaptchaCode { get; init; }
+#if (Email)
 
-    [Display(Name = "邮箱验证码")]
-    public string? EmailVerificationCode { get; init; }
+    [Display(Name = "Email verification")]
+    public EmailVerificationInputDto? EmailVerification { get; init; }
+#endif
 }

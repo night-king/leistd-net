@@ -1,66 +1,73 @@
 # 权限授权
 
-权限授权用于在**声明式定义权限**的基础上，于运行时判断"当前用户是否有权执行某操作"。与基于角色的粗粒度控制不同，权限授权把每个可授权的操作抽象为一个具名权限（如 `Orders.Read`），支持按用户、按角色分别授予，并可与 ASP.NET Core 的策略（Policy）管道无缝集成，让 `[Authorize(Policy = "权限名")]` 直接生效。典型场景包括：后台管理系统的按钮级/接口级权限控制、多租户场景下超级管理员绕过检查、权限授予需要持久化并支持动态增删。
-
-Leistd 通过 `IPermissionChecker` 提供统一的权限检查入口，业务代码只需注入接口做判断；权限的"有哪些"由 `IPermissionDefinitionProvider` 声明式定义，权限的"谁被授予了"由 `IPermissionGrantStore`/`IPermissionGrantManager` 负责存取。`Leistd.Authorization.AspNetCore` 把权限检查接入 ASP.NET Core 授权策略管道，`Leistd.Authorization.EntityFrameworkCore` 提供基于 EF Core 的授予持久化实现。
+权限授权将可执行操作定义为稳定名称，按用户和角色授予，并通过 `IPermissionChecker` 或 ASP.NET Core 策略进行判定。
 
 ## 何时使用
 
-| 场景 | 推荐 |
+| 场景 | 组合 |
 | --- | --- |
-| 需要细粒度、按操作划分的权限控制（而非仅角色判断） | 完整引入 Core + AspNetCore（+ EntityFrameworkCore） |
-| 需要 `[Authorize(Policy = "权限名")]` 这类声明式接口/控制器权限校验 | `Leistd.Authorization.AspNetCore` |
-| 权限授予需要持久化到数据库，支持运行时增删 | `Leistd.Authorization.EntityFrameworkCore` |
-| 仅编写业务代码（定义权限 / 检查权限），不关心存储实现 | 只引用 `Leistd.Authorization.Core` 中的接口 |
+| 业务代码定义或检查功能权限 | `Leistd.Authorization.Core` |
+| 控制器通过 `[Authorize(Policy = "...")]` 检查权限 | 追加 `Leistd.Authorization.AspNetCore` |
+| 授予需运行时持久化 | 追加 `Leistd.Authorization.EntityFrameworkCore` |
+| 权限管理界面：当前有效权限、定义树、按主体读写授予 | `MapPermissionManagement()`，宿主实现 `IPermissionSubjectDirectory` |
+| 初始化时给管理员角色授予全部权限（只在从未写过时） | `IPermissionGrantSeeder` |
+
+本家族只回答“能否执行这类操作”。单个资源的判定见[资源实例授权](./authorization-resource.md)，集合可见范围见[数据范围](./authorization-data-scope.md)。
 
 ## 安装
 
 ```bash
-# 抽象 + 默认检查器（权限定义、IPermissionChecker）
 dotnet add package Leistd.Authorization.Core
-
-# ASP.NET Core 策略集成（[Authorize(Policy = "权限名")] 动态生效）
 dotnet add package Leistd.Authorization.AspNetCore
-
-# EF Core 授予存储（权限授予持久化到数据库）
 dotnet add package Leistd.Authorization.EntityFrameworkCore
 ```
 
-> 本仓库的模板项目通过中央包管理（CPM）统一版本，添加时无需写版本号。
-
-## 配置 Provider
-
-三层各自的 DI 扩展方法：
+## 注册
 
 ```csharp
-// Core：注册 IPermissionDefinitionManager 与 IPermissionChecker（默认实现）
-builder.Services.AddPermissionAuthorizationCore();
-
-// AspNetCore：接入策略管道（内部已调用 AddPermissionAuthorizationCore）
+builder.Services.AddAuthorization();
 builder.Services.AddPermissionAuthorization();
+builder.Services.AddPermissionAuthorizationEfCore<AppDbContext>();
 
-// EntityFrameworkCore：基于指定 DbContext 的授予存储（内部已调用 AddPermissionAuthorizationCore）
-builder.Services.AddAuthorizationEfCore<AppDbContext>();
+builder.Services.AddSingleton<
+    IPermissionDefinitionProvider,
+    OrdersPermissionDefinitionProvider>();
+builder.Services.AddScoped<IPermissionSubjectProvider, CurrentPermissionSubjectProvider>();
 ```
 
-- `AddPermissionAuthorizationCore`：以 **Singleton** 注册 `IPermissionDefinitionManager`（`PermissionDefinitionManager`），以 **Transient** 注册 `IPermissionChecker`（`DefaultPermissionChecker`）。
-- `AddPermissionAuthorization`：在调用 `AddPermissionAuthorizationCore` 的基础上，以 **Singleton** 注册 `IAuthorizationPolicyProvider`（`PermissionPolicyProvider`），以 **Transient** 注册 `IAuthorizationHandler`（`PermissionAuthorizationHandler`）。依赖调用方已注册 `IPermissionChecker` 与 `IPermissionDefinitionManager`，并已调用 ASP.NET Core 自带的 `AddAuthorization()`。
-- `AddAuthorizationEfCore<TDbContext>`：在调用 `AddPermissionAuthorizationCore` 的基础上，以 **Transient** 注册 `IPermissionGrantStore`（`EfCorePermissionGrantStore<TDbContext>`）与 `IPermissionGrantManager`（`EfCorePermissionGrantManager<TDbContext>`）。
+`AddPermissionAuthorizationCore()` 注册定义管理器、检查器、管理用例与首次授予（`configure` 给显示名翻译资源）。`AddPermissionAuthorization()` 在此基础上接入 ASP.NET Core 策略管道。`AddPermissionAuthorizationEfCore<TDbContext>()` 注册授予 Store 与 Manager。
 
-EF Core 实体映射需在 `DbContext.OnModelCreating` 中显式应用：
+`AddPermissionAuthorizationCore()` 已登记本组件错误码与异常类型的非默认 HTTP 状态（具体映射见[接口参考](#接口参考)），宿主不需要另行组合。
+
+EF Core 宿主还需映射表：
 
 ```csharp
 protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
-    modelBuilder.ConfigureAuthorization();
+    modelBuilder.ConfigurePermissionAuthorization();
 }
 ```
 
-业务代码还需自行实现并注册 `IPermissionSubjectProvider`（提供"当前用户是谁、属于哪些角色、是否超管"），`IPermissionChecker` 依赖它获取检查主体；本组件不提供默认实现。
+EF Core 实现通过 `IDbContextProvider<TDbContext>` 取上下文，因此宿主须先注册 `AddUnitOfWork()` 与 `AddUnitOfWorkEfCore()`。本家族不代为注册这些基础设施。
+
+权限管理端点（主体是否存在、显示名由宿主回答）：
+
+```csharp
+builder.Services.AddScoped<IPermissionSubjectDirectory, RoleSubjectDirectory>();
+
+app.MapGroup("/api/v1/permissions").MapPermissionManagement(options =>
+{
+    // 读自己已获授权
+    options.CurrentPolicy = "App.CurrentUser";
+    // 权限树只为授予而读：能配置角色权限的人才需要它，不另设「查看权限目录」权限
+    options.DefinitionsPolicy = "Orders.Roles.ManagePermissions";
+    options.GrantPolicies[PermissionGrantProviderNames.Role] = "Orders.Roles.ManagePermissions";
+});
+```
 
 ## 使用
 
-**第一步：定义权限**——实现 `IPermissionDefinitionProvider` 并注册到 DI（供 `PermissionDefinitionManager` 加载）：
+### 定义权限
 
 ```csharp
 public class OrdersPermissionDefinitionProvider : IPermissionDefinitionProvider
@@ -68,112 +75,185 @@ public class OrdersPermissionDefinitionProvider : IPermissionDefinitionProvider
     public void Define(IPermissionDefinitionContext context)
     {
         var group = context.GetOrAddGroup("Orders", "订单管理");
-        group.AddPermission("Orders.Read", "查看订单");
-        group.AddPermission("Orders.Write", "编辑订单");
-    }
-}
+        var orders = group.AddPermission("Orders", MultiTenancySides.Both, "订单管理");
+        orders.AddChild("Orders.Read", "查看订单");
+        orders.AddChild("Orders.Write", "编辑订单");
 
-builder.Services.AddSingleton<IPermissionDefinitionProvider, OrdersPermissionDefinitionProvider>();
-```
-
-**第二步：检查权限**——注入 `IPermissionChecker` 在业务代码中判断：
-
-```csharp
-public class OrderService(IPermissionChecker permissionChecker)
-{
-    public async Task<bool> CanReadAsync()
-    {
-        return await permissionChecker.IsGrantedAsync("Orders.Read");
+        var system = context.GetOrAddGroup("System", "系统管理");
+        system.AddPermission("System.Tenants", MultiTenancySides.Host, "租户管理");
     }
 }
 ```
 
-**第三步：控制器/接口声明式校验**——引入 `Leistd.Authorization.AspNetCore` 后，`[Authorize(Policy = "权限名")]` 直接生效：
+每个权限必须属于权限组，名称全局唯一。多租户侧别必填：按这条权限背后的数据是否带租户维度选择，宿主全局资源误设为 `Both` 即跨租户越权。
+子权限不声明时继承父权限；宿主侧权限在租户上下文中始终拒绝。
+
+定义在 `PermissionDefinitionManager` 首次构造时加载并预计算祖先、子孙与有效状态。修改定义需重启进程；授予可运行时更改。
+
+### 检查权限
 
 ```csharp
-// 权限名作为策略名：命中权限才放行，否则返回 403
+var granted = await permissionChecker.IsGrantedAsync(
+    "Orders.Read",
+    cancellationToken);
+```
+
+默认判定顺序为：
+
+1. 权限必须已定义，且自身与所有祖先均启用。
+2. 权限的 `MultiTenancySides` 必须与当前上下文匹配。
+3. `IPermissionSubjectProvider` 必须返回主体。
+4. 超级管理员直接允许；其余主体以用户授予与角色授予的并集判定。
+
+未定义、未启用、侧别不匹配或无主体时都默认拒绝。同一 Scoped 作用域内，当前主体与当前租户不变期间授予快照只加载一次。
+主体的租户 claim 非法（规则见安全组件的 `ClaimTypeOptions.ReadTenant`）时一律拒绝。批量检查的空集合 `AllGranted` 为 `false`。
+
+为指定主体判权用带 `ClaimsPrincipal` 的重载，ASP.NET Core 策略管道即按它评估被授权的主体（`AuthorizationHandlerContext.User`）：
+
+```csharp
+var granted = await permissionChecker.IsGrantedAsync(principal, "Orders.Read", cancellationToken);
+```
+
+- 传入的就是当前主体（同一引用）时与无主体重载共用作用域快照；其他主体经 `IPermissionSubjectProvider.GetSubjectAsync` 单独解析，不进快照。
+- 其他主体的租户须与当前租户一致：宿主主体在租户上下文、别的租户一律拒绝；未接多租户时不比对。当前主体不作此要求（宿主主体可显式切入租户）。
+- 当前主体或当前租户在作用域内被切换（`ICurrentPrincipalAccessor.Change`、`IAmbientContext.Begin`、策略按认证方案重设 `HttpContext.User`、`ICurrentTenant.Change`）时，快照重新加载。
+
+### 使用 ASP.NET Core 策略
+
+```csharp
 [Authorize(Policy = "Orders.Read")]
 [HttpGet("orders")]
-public Task<IReadOnlyList<OrderDto>> GetOrders([FromQuery] OrderQuery query)
-    => orderService.GetListAsync(query);
+public Task<IReadOnlyList<OrderDto>> GetOrders() => orderService.GetListAsync();
+
+[Authorize(Policy = "Orders.Read|Orders.Export")]
+[HttpGet("orders/export")]
+public Task<FileResult> ExportOrders() => orderService.ExportAsync();
 ```
+
+`|` 表示任一权限满足。只有每一段都是已定义权限时，`PermissionPolicyProvider` 才动态构建策略；否则交回 ASP.NET Core 默认提供器。宿主显式注册的同名策略优先。
+
+命名策略不叠加宿主的默认策略：默认策略要求的主体断言（如认证方案）靠控制器上的类级 `[Authorize]` 叠加。
+
+### 授予与撤销
+
+```csharp
+await grantManager.GrantAsync(
+    "Orders.Write",
+    PermissionGrantProviderNames.Role,
+    roleId);
+
+await grantManager.RevokeAsync(
+    "Orders",
+    PermissionGrantProviderNames.Role,
+    roleId);
+```
+
+授予子权限会补齐全部祖先；撤销父权限会清理全部子孙。授予是纯加法，行的存在即表示授予，不存在“拒绝”状态。
+
+权限编辑页使用带版本的全量替换：
+
+```csharp
+var current = await grantStore.GetGrantsAsync(
+    PermissionGrantProviderNames.Role,
+    roleId);
+
+await grantManager.ReplaceGrantsAsync(
+    PermissionGrantProviderNames.Role,
+    roleId,
+    ["Orders", "Orders.Read"],
+    expectedVersion: current.Version);
+```
+
+版本不匹配时抛 `PermissionGrantConcurrencyException` （409）且不写入。稳定读取在授予前后比对版本；持续不一致时抛 `UnstableGrantSnapshotException` （503）。
+
+初始化时的首次授予（主体从未写过授予才写入，之后按普通主体管理）：
+
+```csharp
+await grantSeeder.SeedAllAsync(PermissionGrantProviderNames.Role, adminRoleId, MultiTenancySides.Tenant, ct);
+```
+
+要审计管理界面上的授予变更，处理 `PermissionGrantsReplacedEvent`（带主体显示名快照与新版本）。
 
 ## 接口参考
 
-`Leistd.Authorization.Core` 命名空间：
-
-| 成员 | 说明 |
+| 类型 | 用途 |
 | --- | --- |
-| `IPermissionChecker` | 权限检查统一入口 |
-| `IPermissionChecker.IsGrantedAsync(name, ct)` | 检查当前用户是否拥有指定权限，返回 `bool` |
-| `IPermissionChecker.IsGrantedAsync(names, ct)` | 批量检查多个权限，返回 `MultiplePermissionGrantResult` |
-| `MultiplePermissionGrantResult` | 批量检查结果，含 `Results` 字典、`AllGranted`（全部授予）、`AnyGranted`（至少一个授予） |
-| `IPermissionDefinitionProvider` | 权限定义提供者，业务项目实现 `Define` 声明权限 |
-| `IPermissionDefinitionContext` | 定义期上下文：`GetOrAddGroup`、`AddPermission`、`GetPermissionOrNull` |
-| `IPermissionGroupDefinition` | 权限组：`AddPermission`、`GetPermissionOrNull` |
-| `IPermissionDefinition` | 单个权限定义：`Name`、`DisplayName`、`Parent`、`Children`、`IsEnabled`、`AddChild` |
-| `IPermissionDefinitionManager` | 权限定义查询：`GetOrNull(name)`、`GetAll()` |
-| `IPermissionSubjectProvider` | 当前权限检查主体提供器，业务项目需自行实现 |
-| `IPermissionSubjectProvider.GetCurrentSubjectAsync(ct)` | 获取当前主体，未登录/无法识别时返回 `null` |
-| `PermissionSubject` | 检查主体记录：`UserId`、`RoleIds`、`IsSuperAdmin` |
-| `IPermissionGrantStore` | 权限授予存储，负责查询"谁被授予了什么权限" |
-| `IPermissionGrantManager` | 权限授予管理器，负责授予/撤销并读取已授予权限 |
-| `PermissionGrantProviderNames` | 授予对象类型常量：`User`、`Role` |
+| `IPermissionDefinitionProvider` | 定义权限组与权限树 |
+| `IPermissionDefinitionManager` | 查询定义、祖先、子孙与有效状态；`IsAvailableOn(name, side)` 为检查器与管理界面共用的侧别判据 |
+| `IPermissionSubjectProvider` | 把当前主体（`GetCurrentSubjectAsync`）或指定主体（`GetSubjectAsync(principal)`）映射为用户、角色与超级管理员状态；两者须同一口径 |
+| `IPermissionChecker` | 为当前主体或指定 `ClaimsPrincipal` 单个或批量检查权限 |
+| `IPermissionGrantStore` | 读取主体授予、有效权限与版本 |
+| `IPermissionGrantManager` | 授予、撤销、全量替换和永久删除主体的授予清理 |
+| `PermissionSubject` | 当前用户 Id、角色 Id 和超级管理员标记 |
+| `PermissionGrantSet` | 单个主体的授予集合与版本 |
+| `SubjectPermissionGrants` | 用户与所有角色授予的快照及 `VersionToken` |
+| `IPermissionManagementService` | 管理用例：`GetCurrentAsync`、`GetDefinitionsAsync`、`GetGrantsAsync`、`ReplaceGrantsAsync` |
+| `IPermissionSubjectDirectory` | 宿主实现：按授予对象确认主体存在并给出显示名 |
+| `IPermissionGrantSeeder.SeedAllAsync(providerName, providerKey, side, ct)` | 从未写过授予时授予某侧别上的全部可用权限 |
+| `PermissionGrantsReplacedEvent` | 管理用例整体替换授予后发布 |
+| `PermissionErrorCodes` | 组件错误码，默认中英译文随包分发 |
+| 默认 HTTP 状态 | 组件默认状态：主体不存在 → 404，授予冲突 → 409，快照不可用 → 503。由 `AddPermissionAuthorizationCore()` 自动登记；宿主 `MapCode` / `MapException` 可覆盖 |
+| `MapPermissionManagement(configure)` | AspNetCore 包：`GET /current`、`GET /definitions`、按主体类型的 `GET/PUT /grants/{roles\|users}/{providerKey}`；`CurrentPolicy`、`DefinitionsPolicy` 必填（组件不套宿主默认策略），`GrantPolicies` 决定开放哪些主体类型 |
 
-`Leistd.Authorization.AspNetCore` 命名空间：
+下表状态码由 `AddPermissionAuthorizationCore()` 自动登记，宿主可用 `MapCode` / `MapException` 覆盖；Core 异常本身不决定 HTTP，未映射的业务异常默认 400。读取快照失败的稳定码为 `PermissionErrorCodes.SnapshotUnavailable`。
 
-| 成员 | 说明 |
-| --- | --- |
-| `PermissionPolicyProvider : IAuthorizationPolicyProvider` | 把权限名当作策略名，动态构建携带 `PermissionRequirement` 的策略 |
-| `PermissionAuthorizationHandler` | 将 `PermissionRequirement` 委托给 `IPermissionChecker` 校验 |
-| `PermissionRequirement` | 授权需求，含单个 `PermissionName` |
-
-`Leistd.Authorization.EntityFrameworkCore` 命名空间：
-
-| 成员 | 说明 |
-| --- | --- |
-| `PermissionGrantRecord` | 权限授予持久化实体：`Id`（Guid v7）、`PermissionName`、`ProviderName`、`ProviderKey`；实现 `ICreationAuditedObject`（`CreationTime`、`CreatorId` 由审计拦截器填充） |
-| `PermissionGrantRecord.ForUser(string permissionName, Guid userId)` | 构建用户授予记录的静态工厂方法（`userId` 为 `Guid`，内部转为字符串 `ProviderKey`） |
-| `PermissionGrantRecord.ForRole(string permissionName, Guid roleId)` | 构建角色授予记录的静态工厂方法（`roleId` 为 `Guid`，内部转为字符串 `ProviderKey`） |
-| `PermissionGrantRecordConfiguration` | `PermissionGrantRecord` 的 EF Core 实体配置（`IEntityTypeConfiguration<PermissionGrantRecord>`） |
-| `EfCorePermissionGrantStore<TDbContext>` | `IPermissionGrantStore` 的 EF Core 实现 |
-| `EfCorePermissionGrantManager<TDbContext>` | `IPermissionGrantManager` 的 EF Core 实现 |
+| 异常 | 默认适配 HTTP | 含义 |
+| --- | --- | --- |
+| `UndefinedPermissionException` | 400 | 尝试授予未定义或未启用的权限（`Permission:UndefinedPermission`） |
+| `PermissionGrantConcurrencyException` | 409 | 保存基于过期版本（`Permission:ConcurrencyConflict`） |
+| `UnstableGrantSnapshotException` | 503 | 连续重读仍无法取得一致快照 |
 
 ## 实现行为
 
-### PermissionPolicyProvider（动态策略生成）
-
-- `GetPolicyAsync(policyName)` 先查 `IPermissionDefinitionManager.GetOrNull(policyName)`：命中已定义权限时，用 `AuthorizationPolicyBuilder` 附加一个 `PermissionRequirement(policyName)` 并构建策略；未命中时回退到 `DefaultAuthorizationPolicyProvider`，因此普通 `[Authorize]`、`[Authorize(Roles=...)]` 及显式注册的命名策略（如 "SuperAdmin"）不受影响。
-- `GetDefaultPolicyAsync` / `GetFallbackPolicyAsync` 均直接委托给内部的 `DefaultAuthorizationPolicyProvider`。
-
-### DefaultPermissionChecker（默认检查流程）
-
-- `IsGrantedAsync(name, ct)`：权限名为空白直接返回 `false`；通过 `IPermissionSubjectProvider` 取不到当前主体（未登录）返回 `false`；`PermissionSubject.IsSuperAdmin` 为 `true` 时**直接返回 `true`，不查存储**；否则调用 `IPermissionGrantStore.IsGrantedToUserOrRolesAsync` 按用户 ID 与角色 ID 集合批量查询。
-- `IsGrantedAsync(names, ct)`：对传入名称先按 `StringComparer.Ordinal` 去重，过滤空白后统一初始化为 `false`；主体为 `null` 时全部为 `false`；`IsSuperAdmin` 时全部为 `true`；否则一次性调用存储层批量查询回填结果。
-- 两个重载都以**一次存储调用**完成多权限判断（非逐个查询），减少往返。
-
-### EfCorePermissionGrantStore / EfCorePermissionGrantManager（EF Core 存储行为）
-
-- `PermissionGrantRecord` 唯一性由数据库唯一索引 `(PermissionName, ProviderName, ProviderKey)` 保证；`EfCorePermissionGrantManager.GrantAsync` 授予前先 `AnyAsync` 判重，已存在则直接返回，不会插入重复记录。
-- 撤销 (`RevokeAsync`) 按三元组精确匹配删除，不影响同权限名下其他用户/角色的授予记录。
-- `IsGrantedToUserOrRolesAsync` 与 `GetGrantedPermissionsFor*Async` 查询均使用 `AsNoTracking()`，为只读查询优化；返回集合按 `StringComparer.Ordinal` 去重。
-- `IsGrantedToAnyRoleAsync` 在角色 ID 集合为空时直接返回 `false`，不发起查询。
-- `PermissionGrantRecord.PermissionName` 最大长度 256，`ProviderName` 最大长度 32，`ProviderKey` 最大长度 128，`CreatorId` 最大长度 64（均为 EF Core 实体配置中的硬编码约束）。
-
-## 配置项 / Options
-
-当前无配置项：三个 DI 扩展方法（`AddPermissionAuthorizationCore`、`AddPermissionAuthorization`、`AddAuthorizationEfCore<TDbContext>`）均无参数，也未暴露 Options 类。
+- `PermissionGrantRecord` 与 `AuthorizationVersionRecord` 按当前租户过滤；宿主行与租户行使用分离的部分唯一索引。
+- `ReplaceGrantsAsync` 在一次 `SaveChangesAsync` 中原子替换，只在内容变化时递增版本。版本同时是 EF Core 并发令牌。
+- 用户与角色授予的读取为常数数量的数据库往返，不按角色或权限逐条查询。
+- `SubjectPermissionGrants.VersionToken` 组合用户版本与按 key 排序的角色版本，可用于判断客户端权限缓存是否过期。
+- 管理用例与检查器同一判据：定义树、授予状态与当前有效权限都只含当前侧别上可用的权限，整组都不可用时不下发空分组。
+  超级管理员的当前权限是全部可用权限，版本标记固定为 `super-admin`。
+- 管理用例不查权限（交给端点策略）；主体不存在返回 404（`Permission:SubjectNotFound`），单次替换超过 500 项返回 400。
+  读自己的权限（`GET current`）时，当前身份不是权限主体（如双 realm 部署中的另一套身份）返回空集合而不是 401。
+- 显示名按约定键查 `LocalizationResource`：权限为 `Permission:{权限名}`，分组为 `PermissionGroup:{组名}`；查不到用定义里的 `DisplayName`，再没有才用名称。
+  定义里写可读的英文默认文案，不写词条键。
+- 首次授予带期望版本 0 写入，并发的第二次视为已播种。
 
 ## 注意事项
 
-- `IPermissionSubjectProvider` 没有默认实现，必须由业务项目提供（通常基于 `ICurrentUser` 等安全组件），否则 `IPermissionChecker` 恒定返回"未授予"。
-- `PermissionSubject.IsSuperAdmin` 为 `true` 时会**跳过存储层查询**直接判定为已授予，业务项目需自行保证该标志的正确来源（约定的 claim 类型见 `Leistd.Security.Claims.CustomClaimTypes.IsSuperAdmin`）。
-- `AddPermissionAuthorization` 依赖调用方已执行 ASP.NET Core 原生的 `AddAuthorization()`；`PermissionPolicyProvider` 只在策略名命中已定义权限时接管，其余策略名回退到默认提供器，不会破坏既有的角色/命名策略。
-- `EfCorePermissionGrantManager`/`EfCorePermissionGrantStore` 依赖调用方在 `OnModelCreating` 中执行 `modelBuilder.ConfigureAuthorization()`，否则 `PermissionGrantRecord` 不会被正确映射。
-- 权限定义（`IPermissionDefinitionProvider`）在 `PermissionDefinitionManager` 构造时一次性加载并缓存于内存，运行期新增/修改权限定义需重启进程；权限**授予**（谁拥有权限）则可随时通过 `IPermissionGrantManager` 动态增删，无需重启。
+- `IPermissionSubjectProvider` 没有默认实现，未注册时 DI 解析直接失败。`GetSubjectAsync` 只按传入主体的声明解析（读标识用 `ClaimTypeOptions.FindUserId`），不读 `ICurrentUser` 等环境态。业务实现必须提供角色 Id、从可信来源判定 `IsSuperAdmin`，并在请求期反映账号禁用或锁定状态。
+- `IsSuperAdmin` 的来源必须可信；它会在定义、启用状态与多租户侧别校验通过后跳过 Store。
+- 所有授予写入都经 `IPermissionGrantManager`，不直接写 DbContext，否则会绕过定义校验、祖先补齐与版本。
+- 主体永久删除时调用 `RemoveProviderAsync`；软删除不清理授予。
+- 权限管理 UI 从定义树端点构造，不在前端复制权限列表。
+- `IPermissionSubjectDirectory` 没有默认实现：映射管理端点的宿主必须注册，否则解析管理用例失败。它的 Key 格式判断也归宿主（格式不对返回 `null` 即 404）。
+
+### 删除或改名一个权限定义
+
+授予按名字存，不随定义一起消失。定义删掉之后，旧授予行仍留在表里：
+
+| 环节 | 行为 |
+| --- | --- |
+| 权限检查 | 未定义即拒绝，旧授予不生效 |
+| 下发给前端 | 按可用定义过滤，旧授予不出现 |
+| 对话框全量替换 | 该主体的旧授予被这次替换顺带清掉 |
+| 再次定义同名权限 | 旧授予立即生效 |
+
+因此删除或改名权限时，带一条迁移删掉该名字的授予，与删除定义同一次提交：
+
+```csharp
+// 表名由宿主的 DbSet<PermissionGrantRecord> 决定（模板里是 PermissionGrantRecords）
+migrationBuilder.Sql(
+    """
+    DELETE FROM "PermissionGrantRecords" WHERE "PermissionName" = 'App.Orders.Approve';
+    """);
+```
+
+改名按同一条处理：旧名删掉，新名由使用者重新授予，不要就地 `UPDATE` 成新名。
+
+框架不自动清理：定义缺失也可能只是本次启动没注册（条件编译、模块未加载）。
 
 ## 相关
 
-- [组件总览](./README.md)
-- [依赖注入](./dependency-injection.md)
+- [多租户](./multi-tenancy.md)
+- [资源实例授权](./authorization-resource.md)
+- [数据范围](./authorization-data-scope.md)
 - [审计](./auditing.md)

@@ -1,83 +1,70 @@
-using Leistd.Tracing.Core.Constants;
-using Leistd.Tracing.Core.Options;
-using Leistd.Tracing.Core.Services;
+using System.Diagnostics;
+using Leistd.Tracing.Abstractions;
+using Leistd.Tracing.Constants;
+using Leistd.Tracing.Options;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Primitives;
 
 namespace Leistd.Tracing.AspNetCore.Middlewares;
 
+/// <summary>入站关联标识中间件：定案本次请求的关联标识、写入日志作用域，并按配置回写响应头。</summary>
+/// <remarks>
+/// <para>取值顺序：合法的入站请求头 → 当前 Activity 的 TraceId → 新建；不合法的入站值忽略，不让请求失败。</para>
+/// <para>不改写 <see cref="HttpContext.TraceIdentifier"/>：错误响应的 <c>traceId</c> 保持官方的链路标识。</para>
+/// <para>应尽量靠近管道前端，使后续中间件的日志都带上关联标识。</para>
+/// </remarks>
 public class CorrelationIdMiddleware(
     RequestDelegate next,
     ILogger<CorrelationIdMiddleware> logger,
-    IOptions<CorrelationIdOptions> options)
+    IOptionsMonitor<CorrelationIdOptions> optionsMonitor)
 {
-    private readonly CorrelationIdOptions _options = options.Value;
-
+    /// <inheritdoc />
     public async Task InvokeAsync(HttpContext context, ICorrelationIdProvider correlationIdProvider)
     {
-        if (!_options.Enable)
+        var options = optionsMonitor.CurrentValue;
+        if (!options.Enabled)
         {
             await next(context);
             return;
         }
 
-        var correlationId = GetCorrelationIdFromRequest(context, correlationIdProvider);
+        var correlationId = ReadInbound(context, options.HeaderName)
+            ?? Activity.Current?.TraceId.ToHexString()
+            ?? ActivityTraceId.CreateRandom().ToHexString();
 
-        // 1. 设置 Provider 上下文 (用于程序内传递)
+        if (options.SetResponseHeader)
+        {
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers.TryAdd(options.HeaderName, correlationId);
+                return Task.CompletedTask;
+            });
+        }
+
         using (correlationIdProvider.Change(correlationId))
+        using (logger.BeginScope(new Dictionary<string, object> { [CorrelationIdConstants.LogKey] = correlationId }))
         {
-            // 2. 设置日志上下文 (用于 Serilog 等日志库)
-            using (logger.BeginScope(new Dictionary<string, object>
-            {
-                { CorrelationIdConstants.TraceIdLogKey, correlationId }
-            }))
-            {
-                // 3. 设置响应头 (如果需要)
-                if (_options.SetResponseHeader)
-                {
-                    CheckAndSetCorrelationIdOnResponse(context, correlationId);
-                }
-
-                await next(context);
-            }
+            await next(context);
         }
     }
 
-    private string GetCorrelationIdFromRequest(HttpContext context, ICorrelationIdProvider provider)
+    private string? ReadInbound(HttpContext context, string headerName)
     {
-        var headers = _options.GetHttpHeaderNames();
-        foreach (var headerName in headers)
+        var value = context.Request.Headers[headerName].ToString();
+        if (string.IsNullOrEmpty(value))
         {
-            if (context.Request.Headers.TryGetValue(headerName, out StringValues headerValue))
-            {
-                var correlationId = headerValue.ToString();
-                if (!string.IsNullOrWhiteSpace(correlationId))
-                {
-                    return correlationId;
-                }
-            }
+            return null;
         }
 
-        // 否则生成新 ID
-        var newId = provider.Create();
-        return newId;
-    }
-
-    private void CheckAndSetCorrelationIdOnResponse(HttpContext context, string correlationId)
-    {
-        context.Response.OnStarting(() =>
+        if (CorrelationIdConstants.IsWellFormed(value))
         {
-            var headers = _options.GetHttpHeaderNames();
-            foreach (var headerName in headers)
-            {
-                if (!context.Response.Headers.ContainsKey(headerName))
-                {
-                    context.Response.Headers.Append(headerName, correlationId);
-                }
-            }
-            return Task.CompletedTask;
-        });
+            return value;
+        }
+
+        logger.LogDebug(
+            "Discarded malformed inbound correlation id from header {HeaderName} (length {Length})",
+            headerName, value.Length);
+        return null;
     }
 }

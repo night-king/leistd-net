@@ -4,6 +4,8 @@ name: Release
 #   push main    -> stable  : vX.Y.Z，发布 nuget.org + GitHub 正式 Release
 #   push develop -> beta    : vX.Y.Z-beta.N，发布 nuget.org 预发布包 + GitHub prerelease
 #   schedule     -> nightly : vX.Y.Z-preview.YYYYMMDD.RUN，发布 GitHub Packages + tag
+#   template 通道（template-release 作业）：与框架同号。main 上框架正式版与 Leistd.Templates 总是一起发布（任一侧有变化即两侧都发），
+#     模板版本即框架版本（tag template-vX.Y.Z，nuget.org + GitHub Release）；develop 上模板有变化时只打包验证，不推送。
 # 发布原则：所有通道都打唯一 tag；stable Release Notes 从上一个 stable tag 累积所有 beta/nightly 期间变更。
 on:
   push:
@@ -12,20 +14,91 @@ on:
     - cron: '0 18 * * 1-5'   # UTC 18:00（北京次日 02:00），工作日 -> nightly
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
-  release:
-    # 跳过机器人自身回写提交与 [skip ci]，避免死循环；schedule/dispatch 没有 head_commit。
+  candidate:
     if: github.event_name != 'push' || (github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip ci]'))
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      needed: ${{ steps.plan.outputs.release_required }}
+      release_base_tag: ${{ steps.plan.outputs.release_base_tag }}
+      release_base_sha: ${{ steps.plan.outputs.release_base_sha }}
+      channel: ${{ steps.commit.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.sha }}
+          fetch-depth: 0
+      - id: commit
+        shell: bash
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then channel=nightly
+          elif [ "$GITHUB_REF" = refs/heads/main ]; then channel=stable
+          else channel=beta; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+      - id: plan
+        name: 判断质量与发布责任
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.before || '' }}
+          CANDIDATE_SHA: ${{ steps.commit.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/plan-quality-checks.py --tier full --release-channel '${{ steps.commit.outputs.channel }}' --output .tmp/quality-plan.json --github-output
+
+  quality:
+    needs: candidate
+    if: needs.candidate.result == 'success'
+    uses: ./.github/workflows/ci.yml
+    with:
+      candidate_sha: ${{ needs.candidate.outputs.sha }}
+      quality_base_sha: ${{ github.event.before || '' }}
+      release_channel: ${{ needs.candidate.outputs.channel }}
+      release_base_tag: ${{ needs.candidate.outputs.release_base_tag }}
+      release_base_sha: ${{ needs.candidate.outputs.release_base_sha }}
+
+  release:
+    needs: [candidate, quality]
+    # 跳过机器人自身回写提交与 [skip ci]，避免死循环；schedule/dispatch 没有 head_commit。
+    if: needs.candidate.outputs.needed == 'true' && needs.quality.result == 'success' && fromJSON(needs.quality.outputs.validation_plan).ReleaseRequired && fromJSON(needs.quality.outputs.validation_plan).Mode == 'full' && fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha
+    runs-on: ubuntu-latest
+    outputs:
+      # 模板通道从这个提交打包：stable 是版本回写提交（模板默认的 LeistdFrameworkVersion 已是本次正式版），beta 即候选 SHA
+      release_sha: ${{ steps.tag.outputs.release_sha }}
+      # 模板与框架同号：stable 时模板直接用这个版本
+      version: ${{ steps.ver.outputs.version }}
+    # 同一分支的发布必须排队：版本推算是对 tag 命名空间的「读—改—写」，
+    # stable 还要把版本回写 main。两个 run 并行时各自读到同一状态、算出同一个 tag，
+    # 后落地的那个被 remote rejected（2026-09-11 两次合并撞出 v0.13.0-beta.148 即此）。
+    # 按 ref 分组：stable / beta 各自排队，互不阻塞。
+    #
+    # cancel-in-progress: false —— 发布不能半途掐断（包已推 nuget，tag 未落）。
+    # 代价是连续合并时中间那次可能在排队中被更新的 run 顶掉，那一版没有自己的 beta tag；
+    # 它的内容会随下一版发出，可以接受。
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    # 必须有上限：没有上限时挂死一次按默认 360 分钟计费
+    timeout-minutes: 90
     permissions:
       contents: write      # 回写 VERSION / 打 tag / 建 Release
-      id-token: write      # nuget.org Trusted Publishing（stable/beta）
+      id-token: write      # nuget.org Trusted Publishing（stable/beta）；来源证明的签名证书
+      attestations: write  # 写入来源证明
       packages: write      # GitHub Packages（nightly）
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          # nightly 固定构建 develop；其余构建触发分支。
-          ref: ${{ (github.event_name == 'schedule') && 'develop' || github.ref }}
+          # nightly 固定构建 develop；其余构建**触发的那个提交**，不是分支当下的 tip。
+          #
+          # 写分支名会让"发了什么"取决于 checkout 那一刻分支在哪：两次合并挨得近时，
+          # 两个 run 都检出同一个 tip，于是 beta 序号（按距上一个 stable tag 的提交数算）
+          # 也一模一样，第二个 run 必然撞 tag。写 SHA 之后每个 run 各自对应一个提交，
+          # 序号天然不同，tag 也就不会撞。
+          ref: ${{ needs.candidate.outputs.sha }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -46,41 +119,13 @@ jobs:
           "channel=$channel" | Out-File $env:GITHUB_OUTPUT -Append
           Write-Host "发布通道: $channel"
 
-      - name: 判断是否需要发版（stable）
-        id: gate
-        if: steps.ch.outputs.channel == 'stable' && github.event_name == 'push'
-        shell: pwsh
-        run: |
-          $changed = git diff --name-only HEAD~1..HEAD
-          # 触发正式版的变更：VERSION、框架源码、或 framework/docs 组件文档
-          # （组件文档随包分发 P5/L4，文档更新需能触发发版以随新包送达消费者）。
-          # 仍排除非框架的 *.md（模板 docs、仓库根 docs），避免文档改动误发。
-          $hit = $changed | Where-Object {
-            ($_ -eq 'VERSION') -or
-            ($_ -match '^framework/docs/') -or
-            ($_ -match '^framework/' -and $_ -notmatch '\.md$')
-          }
-
-          "needed=$([bool]$hit ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
-          Write-Host ($hit ? '需要发版' : '仅非框架变更，跳过 stable')
-
-      - name: 是否继续
-        id: go
-        shell: pwsh
-        run: |
-          $go = '${{ steps.ch.outputs.channel }}' -ne 'stable' -or '${{ github.event_name }}' -ne 'push' -or '${{ steps.gate.outputs.needed }}' -eq 'true'
-          "go=$($go ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
-          Write-Host "go=$go"
-
       - name: 安装 .NET 10 SDK
-        if: steps.go.outputs.go == 'true'
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
 
       - name: 推算版本与 tag
         id: ver
-        if: steps.go.outputs.go == 'true'
         shell: pwsh
         run: |
           git fetch --tags --force
@@ -88,29 +133,50 @@ jobs:
           $base = (Get-Content VERSION -Raw).Trim()
           if ($base -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION 非法: $base" }
 
-          $stableTags = @(git tag --merged HEAD | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_ -replace '^v', '') })
+          # 提交解析、破坏性判据、升版幅度与发布说明分类由两条发布通道共用（scripts/release-commits.ps1）
+          . ./scripts/release-commits.ps1
+
+          # 最高正式版取全部 tag，不限 HEAD 的祖先：正式 tag 打在 main 的回写提交上，合回 develop 之前 develop 看不到它，
+          # 只看祖先会把已发布的提交再算一遍，推出低于或虚高于已发布正式版的 beta。`tag..HEAD` 对非祖先 tag 同样只取未发布的提交。
+          $stableTags = @(git tag -l | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_ -replace '^v', '') })
           $lastStableTag = if ($stableTags.Count -gt 0) { $stableTags[-1] } else { '' }
+          # 前提是它发布的源码都在候选里：除合并提交与版本回写外没有候选缺少的提交。否则在推包前停止——
+          # stable 是排队晚到的旧候选（更新的候选已发布），按它递增会用旧源码发出更高版本；develop 则是 main 上有未合回的提交。
+          if ($lastStableTag) {
+            $missing = @(Read-ReleaseCommits "HEAD..$lastStableTag" | Where-Object { -not (Test-ReleaseWriteBack $_.Subject) })
+            if ($missing.Count -gt 0) {
+              $listed = ($missing | ForEach-Object { "  $($_.Sha.Substring(0,8)) $($_.Subject)" }) -join "`n"
+              throw ("已发布的 $lastStableTag 含本候选没有的提交：`n$listed`n" +
+                "stable：本候选已被更新的发布覆盖，不再发布。develop：先把 main 合回 develop（见 docs/framework/versioning.md）。")
+            }
+          }
           $range = if ([string]::IsNullOrWhiteSpace($lastStableTag)) { 'HEAD' } else { "$lastStableTag..HEAD" }
           $commitCount = [int](git rev-list --count $range)
-          $log = git log $range --pretty=format:'%s%n%b' --no-merges
-          $logText = ($log -join "`n")
 
-          $p = $base.Split('.')
-          [int]$maj = $p[0]
-          [int]$min = $p[1]
-          [int]$pat = $p[2]
+          $commits = @(Read-ReleaseCommits $range)
 
-          $bump = 'patch'
-          if ($logText -match '(?im)(BREAKING CHANGE)|(^[a-z]+(\([^)]*\))?!:)') { $bump = 'major' }
-          elseif ($logText -match '(?im)^feat(\([^)]*\))?:') { $bump = 'minor' }
-
-          switch ($bump) {
-            'major' { $maj++; $min = 0; $pat = 0 }
-            'minor' { $min++; $pat = 0 }
-            default { $pat++ }
+          # 脚注检查从固定锚点开始，不扩大历史豁免；升版推算仍使用完整提交范围。
+          $footnoteAnchor = '802b4dca012bda2e6d64f4a7939860bf950cd302'
+          git merge-base --is-ancestor $footnoteAnchor HEAD 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            throw ("脚注闸门的起点 $footnoteAnchor 不在当前历史里。若这是有意的分支重构，" +
+              "请把 `$footnoteAnchor 更新成新历史里「闸门开始生效」的那个提交，并在 docs/framework/versioning.md 写明原因。")
           }
+          $footnoteScope = [System.Collections.Generic.HashSet[string]]::new(
+            [string[]]@(git rev-list "$footnoteAnchor..HEAD"), [StringComparer]::Ordinal)
+          Assert-BreakingFooters @($commits | Where-Object { $footnoteScope.Contains($_.Sha) })
 
-          $baseVersion = "$maj.$min.$pat"
+          # VERSION 高于最高正式版：维护者显式指定了下一版（如 1.0.0），原样发布，不按提交递增。
+          # 否则从两者中较高者递增：合回 develop 之前 develop 的 VERSION 仍是旧值。
+          $latest = if ($lastStableTag) { [version]($lastStableTag -replace '^v', '') } else { $null }
+          if ($latest -and [version]$base -gt $latest) {
+            $bump = 'explicit'
+            $baseVersion = $base
+          } else {
+            if ($latest -and $latest -gt [version]$base) { $base = "$latest" }
+            $bump = Get-ReleaseBump $commits $base
+            $baseVersion = Step-ReleaseVersion $base $bump
+          }
           $preNumber = [Math]::Max($commitCount, 1)
           switch ('${{ steps.ch.outputs.channel }}') {
             'beta' {
@@ -136,7 +202,6 @@ jobs:
           Write-Host "通道=${{ steps.ch.outputs.channel }} bump=$bump version=$version tag=$tag lastStable=$lastStableTag"
 
       - name: 检查 tag 是否已存在
-        if: steps.go.outputs.go == 'true'
         shell: pwsh
         run: |
           $tag = '${{ steps.ver.outputs.tag }}'
@@ -148,34 +213,32 @@ jobs:
           }
           $global:LASTEXITCODE = 0
 
+      # 发布说明固定到本次 tag；有可选指南时链接指南，否则链接对应 Release 或 nightly 提交页。
+      - name: 确定升级指南与包发布说明链接
+        id: links
+        shell: pwsh
+        run: |
+          $repoUrl = 'https://github.com/${{ github.repository }}'
+          $tag = '${{ steps.ver.outputs.tag }}'
+          $channel = '${{ steps.ch.outputs.channel }}'
+          $guide = 'docs/framework/upgrades/${{ steps.ver.outputs.baseVersion }}.md'
+          $guideUrl = if (Test-Path -LiteralPath $guide -PathType Leaf) { "$repoUrl/blob/$tag/$guide" } else { '' }
+          if ($channel -notin 'stable', 'beta', 'nightly') { throw "未知发布通道: $channel" }
+          $packageReleaseNotes = if ($guideUrl) { $guideUrl }
+            elseif ($channel -eq 'nightly') { "$repoUrl/commit/$tag" }
+            else { "$repoUrl/releases/tag/$tag" }
+          "guideUrl=$guideUrl" | Out-File $env:GITHUB_OUTPUT -Append
+          "packageReleaseNotes=$packageReleaseNotes" | Out-File $env:GITHUB_OUTPUT -Append
+          Write-Host "升级指南: $(if ($guideUrl) { $guideUrl } else { '无' })；PackageReleaseNotes: $packageReleaseNotes"
+
       - name: 生成发布说明
         id: notes
-        if: steps.go.outputs.go == 'true'
         shell: pwsh
         run: |
           $lastStableTag = '${{ steps.ver.outputs.lastStableTag }}'
           $range = if ([string]::IsNullOrWhiteSpace($lastStableTag)) { 'HEAD' } else { "$lastStableTag..HEAD" }
-          $commits = @(git log $range --pretty=format:'%s' --no-merges)
-
-          $breaking = New-Object System.Collections.Generic.List[string]
-          $features = New-Object System.Collections.Generic.List[string]
-          $fixes = New-Object System.Collections.Generic.List[string]
-          $others = New-Object System.Collections.Generic.List[string]
-
-          foreach ($commit in $commits) {
-            if ([string]::IsNullOrWhiteSpace($commit)) { continue }
-            if ($commit -match '(?i)bump version|发布 v|chore:.*version') { continue }
-
-            if ($commit -match '(?i)BREAKING CHANGE|^[a-z]+(\([^)]*\))?!:') {
-              $breaking.Add("- $commit")
-            } elseif ($commit -match '^feat(\([^)]*\))?:\s*(.+)$') {
-              $features.Add("- $($Matches[2])")
-            } elseif ($commit -match '^fix(\([^)]*\))?:\s*(.+)$') {
-              $fixes.Add("- $($Matches[2])")
-            } else {
-              $others.Add("- $commit")
-            }
-          }
+          . ./scripts/release-commits.ps1
+          $sections = Format-ReleaseChangeSections @(Read-ReleaseCommits $range)
 
           $preTags = @()
           if (-not [string]::IsNullOrWhiteSpace($lastStableTag)) {
@@ -203,11 +266,15 @@ jobs:
           }
           $lines.Add('')
 
-          if ($breaking.Count -gt 0) { $lines.Add('## Breaking Changes'); $lines.Add(''); $breaking | ForEach-Object { $lines.Add($_) }; $lines.Add('') }
-          if ($features.Count -gt 0) { $lines.Add('## 新功能'); $lines.Add(''); $features | ForEach-Object { $lines.Add($_) }; $lines.Add('') }
-          if ($fixes.Count -gt 0) { $lines.Add('## 修复'); $lines.Add(''); $fixes | ForEach-Object { $lines.Add($_) }; $lines.Add('') }
-          if ($others.Count -gt 0) { $lines.Add('## 其他更新'); $lines.Add(''); $others | ForEach-Object { $lines.Add($_) }; $lines.Add('') }
-          if ($breaking.Count + $features.Count + $fixes.Count + $others.Count -eq 0) { $lines.Add('## 更新内容'); $lines.Add(''); $lines.Add('- 代码优化和维护更新。'); $lines.Add('') }
+          $sections | ForEach-Object { $lines.Add($_) }
+
+          $guideUrl = '${{ steps.links.outputs.guideUrl }}'
+          if ($guideUrl) {
+            $lines.Add('## 升级指南')
+            $lines.Add('')
+            $lines.Add("- [从上一版本升级到 ${{ steps.ver.outputs.baseVersion }}]($guideUrl)")
+            $lines.Add('')
+          }
 
           if ($preTags.Count -gt 0 -and '${{ steps.ch.outputs.channel }}' -eq 'stable') {
             $lines.Add('## 已验证的预发布版本')
@@ -222,7 +289,7 @@ jobs:
           "EOF" | Out-File $env:GITHUB_OUTPUT -Append
 
       - name: 准备 stable 版本提交
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel == 'stable'
+        if: steps.ch.outputs.channel == 'stable'
         shell: pwsh
         run: |
           Set-Content -NoNewline -Path VERSION -Value '${{ steps.ver.outputs.version }}'
@@ -244,77 +311,446 @@ jobs:
           } else {
             Write-Host '没有需要回写的版本文件变更。'
           }
-          git tag -a '${{ steps.ver.outputs.tag }}' -m 'Release ${{ steps.ver.outputs.tag }}'
 
-      - name: 打包
-        if: steps.go.outputs.go == 'true'
+      # tag 只在这里创建一次，后面的推送与失败恢复都用这同一个 tag 对象（随原产物保存为 bundle）。
+      # stable 指向上一步的版本回写提交（无回写变更时即候选 SHA），beta/nightly 指向候选 SHA。
+      - name: 创建发布 tag（仅本地）
+        id: tag
         shell: pwsh
         run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -a '${{ steps.ver.outputs.tag }}' -m 'Release ${{ steps.ver.outputs.tag }}'
+          if ($LASTEXITCODE -ne 0) { throw '创建本地 tag 失败' }
+          $sha = git rev-parse '${{ steps.ver.outputs.tag }}^{commit}'
+          "release_sha=$sha" | Out-File $env:GITHUB_OUTPUT -Append
+          Write-Host "发布 SHA: $sha"
+
+      - name: 打包
+        id: pack
+        shell: pwsh
+        env:
+          PACKAGE_RELEASE_NOTES: ${{ steps.links.outputs.packageReleaseNotes }}
+        run: |
+          if (-not $env:PACKAGE_RELEASE_NOTES) { throw '缺少 PackageReleaseNotes 链接' }
           if (Test-Path framework/artifacts) { Remove-Item -Recurse -Force framework/artifacts }
           dotnet pack framework/Leistd.Framework.slnx -c Release `
             -o framework/artifacts `
             -p:Version="${{ steps.ver.outputs.version }}" `
             -p:PackageVersion="${{ steps.ver.outputs.version }}" `
+            -p:PackageReleaseNotes="$env:PACKAGE_RELEASE_NOTES" `
             -p:ContinuousIntegrationBuild=true
           if ($LASTEXITCODE -ne 0) { throw 'dotnet pack 失败' }
 
+      # 与 CI 候选包源同一证明：消费方按 candidate.json 断言 restore 到的就是这批最终版本包
+      - name: 记录最终版本包的身份
+        shell: pwsh
+        run: |
+          . ./framework/build/candidate-feed.ps1
+          Write-CandidateManifest framework/artifacts '${{ steps.ver.outputs.version }}' | Format-List
+
+      - name: 检查最终版本的包内容与隔离消费
+        shell: pwsh
+        run: pwsh framework/build/test-package-consumption.ps1 -FeedPath framework/artifacts
+
+      - name: 用最终 stable 版本生成并构建项目
+        if: steps.ch.outputs.channel == 'stable'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path .tmp/release-feed -Force | Out-Null
+          Copy-Item framework/artifacts/*.nupkg, framework/artifacts/candidate.json .tmp/release-feed/
+          pwsh scripts/test-template-matrix.ps1 -Scenarios standalone -SkipPack `
+            -LocalFeedPath .tmp/release-feed -SkipFrontend -SkipRuntime
+          if ($LASTEXITCODE -ne 0) { throw '最终 stable 版本的模板生成验证失败' }
+
+      # 推包前保存最终产物：推包或之后任一步失败时，恢复只能用这批原 nupkg 与原 tag，
+      # 不能从包源取回未上传的包，也不能从分支重新打包（见 versioning.md「部分发布恢复」）。
+      - name: 整理最终发布产物
+        id: release-files
+        shell: pwsh
+        env:
+          RELEASE_NOTES: ${{ steps.notes.outputs.content }}
+        run: |
+          # runner 临时目录而非 .tmp：upload-artifact v4 默认排除以点开头的隐藏路径
+          $out = Join-Path $env:RUNNER_TEMP 'release-artifact'
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          New-Item -ItemType Directory -Path "$out/packages" -Force | Out-Null
+          $version = '${{ steps.ver.outputs.version }}'
+          $packages = @(Get-ChildItem framework/artifacts -Filter '*.nupkg' | Sort-Object Name)
+          if ($packages.Count -eq 0) { throw 'framework/artifacts 下没有 nupkg' }
+          $foreign = @($packages | Where-Object { -not $_.Name.EndsWith(".$version.nupkg") })
+          if ($foreign) { throw "包版本与 $version 不符：$($foreign.Name -join ', ')" }
+          $packages | Copy-Item -Destination "$out/packages/"
+          $manifest = [ordered]@{
+            channel = '${{ steps.ch.outputs.channel }}'
+            version = $version
+            tag = '${{ steps.ver.outputs.tag }}'
+            releaseSha = '${{ steps.tag.outputs.release_sha }}'
+            candidateSha = '${{ needs.candidate.outputs.sha }}'
+            runId = '${{ github.run_id }}'
+            packages = @($packages | ForEach-Object {
+              [ordered]@{ id = $_.Name.Substring(0, $_.Name.Length - ".$version.nupkg".Length); file = $_.Name; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+            })
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content "$out/manifest.json" -Encoding utf8
+          $env:RELEASE_NOTES | Set-Content "$out/release-notes.md" -Encoding utf8
+          # tag 对象及 stable 版本提交只在 runner 本地，bundle 让恢复时推送的是同一对象
+          git bundle create "$out/release.bundle" 'refs/tags/${{ steps.ver.outputs.tag }}' --not '${{ needs.candidate.outputs.sha }}'
+          if ($LASTEXITCODE -ne 0) { throw '生成 tag bundle 失败' }
+          Write-Host "已整理 $($packages.Count) 个包，发布 SHA ${{ steps.tag.outputs.release_sha }}"
+
+      # 来源证明绑定上一步整理出的最终 nupkg 字节，在推包前完成：失败时包源与远端都还没有本版本。
+      - name: 生成来源证明
+        id: attest
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ runner.temp }}/release-artifact/packages/*.nupkg
+
+      - name: 上传最终发布产物
+        id: artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-packages-${{ steps.ver.outputs.version }}
+          path: ${{ runner.temp }}/release-artifact/
+          if-no-files-found: error
+
       - name: 登录 nuget.org
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel != 'nightly'
+        if: steps.ch.outputs.channel != 'nightly'
         uses: NuGet/login@v1
         id: nuget-login
         with:
           user: ${{ secrets.NUGET_USER }}
 
       - name: 推送到 nuget.org
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel != 'nightly'
+        id: push-nuget
+        if: steps.ch.outputs.channel != 'nightly'
         run: >
           dotnet nuget push "framework/artifacts/*.nupkg"
           --source https://api.nuget.org/v3/index.json
           --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
-          --skip-duplicate
 
       - name: 推送到 GitHub Packages（nightly）
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel == 'nightly'
+        id: push-gpr
+        if: steps.ch.outputs.channel == 'nightly'
         run: >
           dotnet nuget push "framework/artifacts/*.nupkg"
           --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
           --api-key ${{ secrets.GITHUB_TOKEN }}
-          --skip-duplicate
 
-      - name: 推送 stable 提交与 tag
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel == 'stable'
+      # 包源写入后立即固定版本身份；索引延迟不能阻止 tag 记录已发布产物。
+      # 只重试推送，不重建 tag；每次推送前查远端，同名 tag 已指向发布 SHA 即完成，指向其他提交即停止。
+      - name: 推送 tag
+        id: push-tag
+        shell: pwsh
+        run: pwsh scripts/push-release-ref.ps1 -Kind tag -Name '${{ steps.ver.outputs.tag }}' -ExpectedSha '${{ steps.tag.outputs.release_sha }}'
+
+      # stable 的版本回写提交单独推：tag 已落地后，main 只允许从候选 SHA 快进到发布 SHA。
+      - name: 推送 stable 版本回写提交
+        id: push-main
+        if: steps.ch.outputs.channel == 'stable'
+        shell: pwsh
+        run: pwsh scripts/push-release-ref.ps1 -Kind branch -Name main -ExpectedSha '${{ steps.tag.outputs.release_sha }}' -BaseSha '${{ needs.candidate.outputs.sha }}'
+
+      # action 自带创建重试与按 tag 查找已有 Release，这里不再叠加重试；失败时由下一步给出补齐指引。
+      - name: 创建 GitHub Release（stable / beta）
+        id: gh-release
+        if: steps.ch.outputs.channel != 'nightly'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ch.outputs.channel == 'stable' && 'Release' || 'Prerelease' }} ${{ steps.ver.outputs.tag }}
+          body: ${{ steps.notes.outputs.content }}
+          files: framework/artifacts/*.nupkg
+          prerelease: ${{ steps.ch.outputs.channel != 'stable' }}
+          make_latest: ${{ steps.ch.outputs.channel == 'stable' }}
+
+      # 只按步骤 outcome 与推送脚本的 result 判定到达的阶段，不解析日志文字。
+      - name: 写出恢复指引
+        if: failure() || cancelled()
+        shell: pwsh
+        env:
+          CHANNEL: ${{ steps.ch.outputs.channel }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
+          RELEASE_SHA: ${{ steps.tag.outputs.release_sha }}
+          ARTIFACT_NAME: release-packages-${{ steps.ver.outputs.version }}
+          ARTIFACT_OUTCOME: ${{ steps.artifact.outcome }}
+          PUSH_OUTCOME: ${{ steps.ch.outputs.channel == 'nightly' && steps.push-gpr.outcome || steps.push-nuget.outcome }}
+          TAG_OUTCOME: ${{ steps.push-tag.outcome }}
+          TAG_RESULT: ${{ steps.push-tag.outputs.result }}
+          BRANCH_OUTCOME: ${{ steps.push-main.outcome }}
+          BRANCH_RESULT: ${{ steps.push-main.outputs.result }}
+          RELEASE_OUTCOME: ${{ steps.gh-release.outcome }}
+        # 同一会话内调用：空的 outcome/result 作为空字符串绑定参数，交给子进程会被当作缺省实参丢掉
+        run: >
+          & ./scripts/write-release-recovery-summary.ps1
+          -Channel $env:CHANNEL -Version $env:VERSION -Tag $env:TAG
+          -CandidateSha $env:CANDIDATE_SHA -ReleaseSha $env:RELEASE_SHA
+          -Repository '${{ github.repository }}' -ServerUrl '${{ github.server_url }}' -RunId '${{ github.run_id }}'
+          -ArtifactName $env:ARTIFACT_NAME -ArtifactOutcome $env:ARTIFACT_OUTCOME
+          -PushOutcome $env:PUSH_OUTCOME -TagOutcome $env:TAG_OUTCOME -TagResult $env:TAG_RESULT
+          -BranchOutcome $env:BRANCH_OUTCOME -BranchResult $env:BRANCH_RESULT -ReleaseOutcome $env:RELEASE_OUTCOME
+
+  # 模板通道：与框架同号（template-vX.Y.Z = 框架 vX.Y.Z），只在 main 发布，且框架正式版发布时一定同时发布。放行条件与框架通道相同——
+  # 同一候选 SHA 的 full 计划、全部质量责任成功；另要求框架通道已成功（develop 上可为跳过），因为生成项目默认的
+  # LeistdFrameworkVersion 必须已在 nuget.org 上可还原（模板发布晚于它所依赖的框架正式版）。develop 上只打包并跑同一组验证，不推送。
+  template-release:
+    needs: [candidate, quality, release]
+    if: >-
+      !cancelled() && needs.candidate.result == 'success' && needs.quality.result == 'success' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped') &&
+      (fromJSON(needs.quality.outputs.validation_plan).TemplateRelease.Changed || fromJSON(needs.quality.outputs.validation_plan).TemplateRelease.Required) &&
+      fromJSON(needs.quality.outputs.validation_plan).Mode == 'full' &&
+      fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha
+    runs-on: ubuntu-latest
+    # template-v* 的推算同样是对 tag 命名空间的读—改—写，同一分支排队；不与框架发布共用分组
+    concurrency:
+      group: template-release-${{ github.ref }}
+      cancel-in-progress: false
+    # 含 nuget.org 还原等待（框架正式版刚推送时建索引的延迟）与升级闸门（两个场景各两次完整 verify）
+    timeout-minutes: 150
+    permissions:
+      contents: write      # 打 template-v tag / 建 Release
+      id-token: write      # nuget.org Trusted Publishing
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.release_sha || needs.candidate.outputs.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # 从质量计划冻结的基线独立重算"有无模板变化"，不一致即失败。规划之后合法新增的 template-v tag
+      # （相邻两次发布的上一轮模板、本版本重跑时自己的 tag）不改变这个判定。
+      - name: 推算模板版本
+        id: tver
+        shell: pwsh
+        env:
+          VALIDATION_PLAN: ${{ needs.quality.outputs.validation_plan }}
+        run: |
+          git fetch --tags --force
+          . ./scripts/release-commits.ps1
+          $decision = ($env:VALIDATION_PLAN | ConvertFrom-Json).TemplateRelease
+          $channel = '${{ needs.candidate.outputs.channel }}'
+          $inputs = @('template/', 'template-package/')
+          $planBase = [string]$decision.BaseTag
+          if ($planBase) {
+            if (-not (git tag -l $planBase)) { throw "计划的模板基线 $planBase 不存在" }
+            git merge-base --is-ancestor $planBase HEAD
+            if ($LASTEXITCODE -ne 0) { throw "计划的模板基线 $planBase 不是候选的祖先" }
+          }
+          $planRange = if ($planBase) { "$planBase..HEAD" } else { 'HEAD' }
+          # 框架 stable 的版本回写提交不算模板变更：只改框架时模板仍同号发布，但"有变化"与发布说明不计入它
+          $commits = @(Read-ReleaseCommits $planRange $inputs | Where-Object { -not (Test-ReleaseWriteBack $_.Subject) })
+          $changed = -not $planBase -or $commits.Count -gt 0
+          if ($changed -ne $decision.Changed) {
+            throw "模板通道判定与质量计划不一致：自计划基线 '$planBase' 起 本步骤有变化=$changed、计划有变化=$($decision.Changed)"
+          }
+          if ($planBase) { Assert-BreakingFooters $commits }
+          $publish = $channel -eq 'stable' -and $decision.Required
+          if ($decision.Required -and -not $publish) { throw "只有 main 发布模板，当前通道 $channel 的计划却要求发布" }
+          $props = [xml](Get-Content -Raw template/backend/Directory.Build.props)
+          $frameworkVersion = @($props.Project.PropertyGroup | ForEach-Object { $_.LeistdFrameworkVersion } | Where-Object { $_ })[0]
+          if ($frameworkVersion -notmatch '^\d+\.\d+\.\d+$') { throw "模板默认的 LeistdFrameworkVersion 必须是正式版：'$frameworkVersion'" }
+          if ($publish) {
+            # 与框架同号：版本取框架通道本次的正式版，模板默认的框架版本（版本回写提交里）必须就是它
+            $baseVersion = '${{ needs.release.outputs.version }}'
+            if ($baseVersion -notmatch '^\d+\.\d+\.\d+$') { throw "框架通道没有给出正式版本：'$baseVersion'" }
+            if ($frameworkVersion -cne $baseVersion) { throw "模板默认的 LeistdFrameworkVersion '$frameworkVersion' 不是本次框架正式版 $baseVersion" }
+            $version = $baseVersion
+          } else {
+            # 只验证：带唯一后缀的候选版本，不会与已发布版本相同
+            $baseVersion = (Get-Content VERSION -Raw).Trim()
+            $version = "$baseVersion-ci.${{ github.run_id }}.${{ github.run_attempt }}"
+          }
+          # 上一个已发布的模板版本：发布说明的范围与升级闸门的起点。发布时只取低于本版本的 tag，重跑时自己的 tag 已经存在
+          $lastTag = @(git tag --merged HEAD | Where-Object { $_ -cmatch '^template-v\d+\.\d+\.\d+$' } |
+            ForEach-Object { [pscustomobject]@{ Tag = $_; Version = [version]($_ -replace '^template-v', '') } } |
+            Where-Object { -not $publish -or $_.Version -lt [version]$baseVersion } | Sort-Object Version | ForEach-Object Tag)
+          $lastTag = if ($lastTag.Count -gt 0) { $lastTag[-1] } else { '' }
+          "version=$version" | Out-File $env:GITHUB_OUTPUT -Append
+          "baseVersion=$baseVersion" | Out-File $env:GITHUB_OUTPUT -Append
+          "tag=template-v$baseVersion" | Out-File $env:GITHUB_OUTPUT -Append
+          "lastTag=$lastTag" | Out-File $env:GITHUB_OUTPUT -Append
+          "publish=$($publish.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
+          "frameworkVersion=$frameworkVersion" | Out-File $env:GITHUB_OUTPUT -Append
+          "sourceSha=$(git rev-parse HEAD)" | Out-File $env:GITHUB_OUTPUT -Append
+          Write-Host "模板通道=$channel version=$version 上一版=$(if ($lastTag) { $lastTag } else { '无' }) 发布=$publish 默认框架版本=$frameworkVersion"
+
+      # 重跑模板作业时 tag 可能已由上次运行推送：指向同一源提交即沿用（后续只补缺的步骤），指向别处即停止
+      - name: 检查模板 tag 是否已存在
+        id: texisting
+        if: steps.tver.outputs.publish == 'true'
         shell: pwsh
         run: |
-          git push origin HEAD:main
-          git push origin '${{ steps.ver.outputs.tag }}'
+          $tag = '${{ steps.tver.outputs.tag }}'
+          $exists = [bool](git tag -l $tag)
+          if ($exists) {
+            $sha = git rev-parse "$tag^{commit}"
+            if ($sha -cne '${{ steps.tver.outputs.sourceSha }}') { throw "tag 已存在且指向 $sha，不是本次源提交 ${{ steps.tver.outputs.sourceSha }}" }
+            Write-Host "tag $tag 已指向本次源提交，沿用"
+          }
+          "exists=$($exists.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
+          $global:LASTEXITCODE = 0
 
-      - name: 推送 tag（beta/nightly）
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel != 'stable'
+      # 模板的变更说明就是 template-v tag 的 Release 正文：分类与框架通道同一份解析（scripts/release-commits.ps1）
+      - name: 生成模板发布说明
+        id: tnotes
+        shell: pwsh
+        run: |
+          . ./scripts/release-commits.ps1
+          $lastTag = '${{ steps.tver.outputs.lastTag }}'
+          $range = if ($lastTag) { "$lastTag..HEAD" } else { 'HEAD' }
+          $tag = '${{ steps.tver.outputs.tag }}'
+          $lines = New-Object System.Collections.Generic.List[string]
+          $lines.Add('## 安装'); $lines.Add('')
+          $lines.Add('```bash')
+          $lines.Add('dotnet new install Leistd.Templates::${{ steps.tver.outputs.baseVersion }}')
+          $lines.Add('dotnet new fullstack-app -n <项目名>')
+          $lines.Add('```'); $lines.Add('')
+          $lines.Add('## 默认框架版本'); $lines.Add('')
+          $lines.Add('- 生成项目的 `LeistdFrameworkVersion` 为 ${{ steps.tver.outputs.frameworkVersion }}，只用 nuget.org 即可还原。'); $lines.Add('')
+          $lines.Add('## 变更范围'); $lines.Add('')
+          $lines.Add($(if ($lastTag) { "- $lastTag..$tag" } else { '- 首个模板版本。' })); $lines.Add('')
+          if ($lastTag) {
+            $commits = @(Read-ReleaseCommits $range @('template/', 'template-package/') | Where-Object { -not (Test-ReleaseWriteBack $_.Subject) })
+            if ($commits.Count -gt 0) { Format-ReleaseChangeSections $commits | ForEach-Object { $lines.Add($_) } }
+            # 只改框架时模板随框架同号发布：内容只有默认框架版本变化
+            else { $lines.Add('## 更新内容'); $lines.Add(''); $lines.Add('- 模板无变更，随框架同号发布，默认框架版本更新为 ${{ steps.tver.outputs.frameworkVersion }}。'); $lines.Add('') }
+          }
+          $guide = 'docs/template/upgrades/${{ steps.tver.outputs.baseVersion }}.md'
+          if (Test-Path -LiteralPath $guide -PathType Leaf) {
+            $lines.Add('## 升级说明'); $lines.Add('')
+            $lines.Add("- [升级到 ${{ steps.tver.outputs.baseVersion }}](https://github.com/${{ github.repository }}/blob/$tag/$guide)"); $lines.Add('')
+          }
+          "content<<EOF" | Out-File $env:GITHUB_OUTPUT -Append
+          ($lines -join "`n") | Out-File $env:GITHUB_OUTPUT -Append
+          "EOF" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: 打包模板
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'template-package'
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          dotnet pack template-package/Leistd.Templates.csproj -c Release -o $out `
+            -p:TemplateVersion='${{ steps.tver.outputs.version }}' -p:TemplateSourceSha='${{ steps.tver.outputs.sourceSha }}' `
+            -p:ContinuousIntegrationBuild=true
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet pack 失败' }
+
+      # 包内容、隔离安装、来源标记与重建确定性；发布时另要求生成项目只用 nuget.org 还原默认的 LeistdFrameworkVersion。
+      # develop 不做 nuget.org 还原：那里的默认版本仍是上一个正式版，之后新增的框架包还没有正式版，还原必然失败。
+      - name: 验证模板包
+        shell: pwsh
+        run: |
+          $restore = @(if ('${{ steps.tver.outputs.publish }}' -eq 'true') { '-NuGetOrgRestore' })
+          pwsh template-package/test-template-package.ps1 `
+            -PackagePath "$env:RUNNER_TEMP/template-package/Leistd.Templates.${{ steps.tver.outputs.version }}.nupkg" `
+            -Version '${{ steps.tver.outputs.version }}' -SourceSha '${{ steps.tver.outputs.sourceSha }}' @restore
+          if ($LASTEXITCODE -ne 0) { throw '模板包验证失败' }
+
+      # 升级闸门（从第二个模板版本起是发布前提）：上一个已发布版本生成两个代表场景、提交项目定制，用生成项目自带的
+      # scripts/sync-template.ps1 同步到候选包；无冲突自动合并、同一处冲突退出 2、解决后 -Complete 三类验收，verify 用本次源码打的
+      # 候选 Framework 包。只在发布时运行：develop 上自上一个 tag 起每次 push 都算模板有变化，在那里跑等于每次多 20 多分钟；
+      # 合并逻辑本身由 test-template-sync.ps1 在本地覆盖。首个模板版本没有上一版，走 test-template-package.ps1 的首版自举验证。
+      - name: 安装 Node.js（升级闸门）
+        if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: 准备升级闸门的候选 Framework 包与 Chromium
+        if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''
+        shell: pwsh
+        run: |
+          pwsh framework/build/pack-local-feed.ps1 -VersionSuffix 'ci.${{ github.run_id }}.${{ github.run_attempt }}'
+          if ($LASTEXITCODE -ne 0) { throw '候选 Framework 包打包失败' }
+          # 前端单测跑在 Playwright 的 Chromium 里；版本取生成项目的锁文件（模板锁文件含条件行，不是合法 JSON），与实际安装的一致
+          dotnet new install ./template --debug:custom-hive .tmp/browser-tools-hive --force
+          if ($LASTEXITCODE -ne 0) { throw '浏览器工具模板安装失败' }
+          dotnet new fullstack-app -n Ci.Tools -o .tmp/browser-tools --debug:custom-hive .tmp/browser-tools-hive
+          if ($LASTEXITCODE -ne 0) { throw '浏览器工具依赖生成失败' }
+          $version = (Get-Content .tmp/browser-tools/frontend/package-lock.json -Raw | ConvertFrom-Json -AsHashTable).packages['node_modules/playwright'].version
+          if (-not $version) { throw '模板锁文件里没有 playwright' }
+          npx --yes "playwright@$version" install --with-deps chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Chromium 安装失败' }
+
+      - name: 模板升级闸门
+        if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''
+        shell: pwsh
+        run: |
+          $previous = '${{ steps.tver.outputs.lastTag }}' -replace '^template-v', ''
+          pwsh template-package/test-template-upgrade.ps1 -PreviousVersion $previous `
+            -CandidatePackage "$env:RUNNER_TEMP/template-package/Leistd.Templates.${{ steps.tver.outputs.version }}.nupkg" `
+            -LocalFeedPath .tmp/local-feed -Verify Full
+          if ($LASTEXITCODE -ne 0) { throw '模板升级闸门失败' }
+
+      - name: 上传模板包
+        uses: actions/upload-artifact@v7
+        with:
+          name: template-package-${{ steps.tver.outputs.version }}
+          path: ${{ runner.temp }}/template-package/*.nupkg
+          if-no-files-found: error
+
+      - name: 创建模板 tag（仅本地）
+        id: ttag
+        if: steps.tver.outputs.publish == 'true' && steps.texisting.outputs.exists != 'true'
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a '${{ steps.ver.outputs.tag }}' -m 'Release ${{ steps.ver.outputs.tag }}'
-          git push origin '${{ steps.ver.outputs.tag }}'
+          git tag -a '${{ steps.tver.outputs.tag }}' -m 'Template ${{ steps.tver.outputs.tag }}'
+          if ($LASTEXITCODE -ne 0) { throw '创建本地 tag 失败' }
 
-      - name: 创建 GitHub Release（stable）
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel == 'stable'
-        uses: softprops/action-gh-release@v2
+      # 同版本已在 nuget.org（上次运行推送后失败）时，只有其源提交与本次相同才跳过推送继续补齐 tag 与 Release；
+      # 不同则停止：同一版本号不能对应两份源码。
+      - name: 核对 nuget.org 上的同版本模板包
+        id: tremote
+        if: steps.tver.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.tver.outputs.version }}'.ToLowerInvariant()
+          $url = "https://api.nuget.org/v3-flatcontainer/leistd.templates/$version/leistd.templates.nuspec"
+          try { $response = Invoke-WebRequest -Uri $url -UseBasicParsing } catch {
+            if ($_.Exception.Response.StatusCode.value__ -eq 404) { 'present=false' | Out-File $env:GITHUB_OUTPUT -Append; return }
+            throw
+          }
+          $commit = ([xml]$response.Content).package.metadata.repository.commit
+          if ($commit -cne '${{ steps.tver.outputs.sourceSha }}') {
+            throw "nuget.org 已有 Leistd.Templates $version，源提交为 '$commit'，与本次 ${{ steps.tver.outputs.sourceSha }} 不同"
+          }
+          'present=true' | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: 登录 nuget.org
+        if: steps.tver.outputs.publish == 'true' && steps.tremote.outputs.present == 'false'
+        uses: NuGet/login@v1
+        id: tnuget-login
         with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: Release ${{ steps.ver.outputs.tag }}
-          body: ${{ steps.notes.outputs.content }}
-          files: framework/artifacts/*.nupkg
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: 推送模板包到 nuget.org
+        if: steps.tver.outputs.publish == 'true' && steps.tremote.outputs.present == 'false'
+        run: >
+          dotnet nuget push "${{ runner.temp }}/template-package/Leistd.Templates.${{ steps.tver.outputs.version }}.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "${{ steps.tnuget-login.outputs.NUGET_API_KEY }}"
+
+      - name: 推送模板 tag
+        if: steps.tver.outputs.publish == 'true'
+        shell: pwsh
+        run: pwsh scripts/push-release-ref.ps1 -Kind tag -Name '${{ steps.tver.outputs.tag }}' -ExpectedSha '${{ steps.tver.outputs.sourceSha }}'
+
+      - name: 创建模板 GitHub Release
+        if: steps.tver.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.tver.outputs.tag }}
+          name: Template ${{ steps.tver.outputs.tag }}
+          body: ${{ steps.tnotes.outputs.content }}
+          files: ${{ runner.temp }}/template-package/*.nupkg
           prerelease: false
-          make_latest: true
-
-      - name: 创建 GitHub Prerelease（beta）
-        if: steps.go.outputs.go == 'true' && steps.ch.outputs.channel == 'beta'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: Prerelease ${{ steps.ver.outputs.tag }}
-          body: ${{ steps.notes.outputs.content }}
-          files: framework/artifacts/*.nupkg
-          prerelease: true
           make_latest: false

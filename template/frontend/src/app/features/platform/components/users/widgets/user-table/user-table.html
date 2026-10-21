@@ -1,212 +1,691 @@
-<div class="bg-surface-0 dark:bg-surface-900 rounded-xl shadow-sm border border-surface-200 dark:border-surface-700 overflow-hidden">
-  <p-table
-    [value]="users()"
-    [totalRecords]="totalRecords()"
-    [lazy]="true"
-    (onLazyLoad)="onPage($event)"
-    [loading]="loading()"
-    [first]="first"
-    [rows]="rows"
-    [paginator]="true"
-    [rowHover]="true"
-    [rowsPerPageOptions]="[10, 20, 50, 100]"
-    [showCurrentPageReport]="true"
-    currentPageReportTemplate="共 {totalRecords} 条"
-    [showJumpToPageInput]="true"
-    paginatorDropdownAppendTo="body"
-    styleClass="w-full"
-    responsiveLayout="scroll"
-    [breakpoint]="'960px'"
-    [sortField]="sortField()"
-    [sortOrder]="sortOrder()"
-  >
-    <ng-template pTemplate="header">
-      <tr class="bg-surface-50 dark:bg-surface-800 text-muted-color text-xs font-medium backdrop-blur-sm uppercase">
-        <th
-          class="bg-transparent font-medium text-xs border-b border-surface-200 dark:border-surface-700 px-6 py-3"
-          pSortableColumn="username"
-        >
-          <div class="flex items-center gap-1 whitespace-nowrap">用户 <p-sortIcon field="username" /></div>
-        </th>
-        <th
-          class="bg-transparent font-medium text-xs border-b border-surface-200 dark:border-surface-700 px-6 py-3 hidden sm:table-cell"
-          pSortableColumn="email"
-        >
-          <div class="flex items-center gap-1 whitespace-nowrap">邮箱 <p-sortIcon field="email" /></div>
-        </th>
-        <th
-          class="bg-transparent font-medium text-xs border-b border-surface-200 dark:border-surface-700 px-6 py-3 hidden md:table-cell whitespace-nowrap"
-        >
-          角色
-        </th>
-        <th
-          class="bg-transparent font-medium text-xs border-b border-surface-200 dark:border-surface-700 px-6 py-3 hidden lg:table-cell whitespace-nowrap"
-        >
-          状态
-        </th>
-        <th
-          class="bg-transparent font-medium text-xs border-b border-surface-200 dark:border-surface-700 px-6 py-3 hidden xl:table-cell"
-          pSortableColumn="lastLoginTime"
-        >
-          <div class="flex items-center gap-1 whitespace-nowrap">最近登录 <p-sortIcon field="lastLoginTime" /></div>
-        </th>
-        <th
-          class="bg-transparent font-medium text-xs border-b border-surface-200 dark:border-surface-700 px-6 py-3 hidden 2xl:table-cell"
-          pSortableColumn="creationTime"
-        >
-          <div class="flex items-center gap-1 whitespace-nowrap">创建时间 <p-sortIcon field="creationTime" /></div>
-        </th>
-        <th
-          class="bg-transparent font-medium text-xs border-b border-surface-200 dark:border-surface-700 px-6 py-3 text-right whitespace-nowrap"
-        >
-          操作
-        </th>
-      </tr>
-    </ng-template>
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="flex flex-col gap-4">
+    <div
+      class="@container rounded-xl border border-border overflow-hidden"
+      [appTableFit]="tableViewport()"
+      [appTableFitContent]="users()"
+    >
+      @defer {
+        <div hlmTableContainer class="w-full overflow-x-auto">
+          <table hlmTable class="w-full">
+            <thead hlmTHead class="bg-muted sticky top-0 z-10">
+              @for (headerGroup of table.getHeaderGroups(); track headerGroup.id) {
+                <tr hlmTr class="text-sm font-medium">
+                  @for (header of headerGroup.headers; track header.id) {
+                    <th
+                      hlmTh
+                      [class]="header.column.columnDef.meta?.headClass ?? 'first:ps-4'"
+                      [attr.aria-sort]="sortAria(header.column.id)"
+                    >
+                      @switch (header.column.id) {
+                        @case ('select') {
+                          <hlm-checkbox
+                            [checked]="table.getIsAllPageRowsSelected()"
+                            [indeterminate]="
+                              table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()
+                            "
+                            [disabled]="loading()"
+                            [aria-label]="t('users.batch.selectAll')"
+                            (checkedChange)="table.toggleAllPageRowsSelected($event)"
+                          />
+                        }
+                        @case ('actions') {
+                          <span class="sr-only">{{ t('common.actions') }}</span>
+                        }
+                        @default {
+                          <!-- 表头与展开详情取同一份列标签；能排序的列由排序按钮承载标签 -->
+                          @if (header.column.getCanSort()) {
+                            <button
+                              type="button"
+                              class="flex items-center gap-1 whitespace-nowrap hover:text-foreground transition-colors pointer-coarse:min-h-11"
+                              (click)="toggleSort(header.column.id)"
+                            >
+                              {{ t(columnLabelKeys[header.column.id]) }}
+                              <ng-icon [name]="sortIcon(header.column.id)" class="text-sm" />
+                            </button>
+                          } @else {
+                            <span class="whitespace-nowrap">{{
+                              t(columnLabelKeys[header.column.id])
+                            }}</span>
+                          }
+                        }
+                      }
+                    </th>
+                  }
+                </tr>
+              }
+            </thead>
 
-    <ng-template pTemplate="body" let-item>
-      <tr
-        class="transition-colors group border-b border-transparent hover:bg-surface-50 dark:hover:bg-surface-800/50 text-sm text-color-secondary"
-      >
-        <td class="bg-transparent border-b border-surface-200 dark:border-surface-700 px-6 py-4">
-          <div class="flex min-w-0 items-center gap-3 whitespace-nowrap">
-            <p-avatar [image]="item.avatar" [label]="item.avatar ? undefined : item.username.slice(0, 1).toUpperCase()" shape="circle" />
-            <div class="min-w-0 flex flex-col">
-              <span class="text-color text-sm font-semibold group-hover:text-primary transition-colors truncate">
-                {{ item.displayName || item.username }}
-              </span>
-              <span class="text-xs text-muted-color truncate">{{ item.username }}</span>
-            </div>
-          </div>
-        </td>
-
-        <td class="bg-transparent border-b border-surface-200 dark:border-surface-700 px-6 py-4 hidden sm:table-cell">
-          <span class="whitespace-nowrap text-sm text-color-secondary">{{ item.email }}</span>
-        </td>
-
-        <td class="bg-transparent border-b border-surface-200 dark:border-surface-700 px-6 py-4 hidden md:table-cell">
-          <div class="flex max-w-[18rem] items-center gap-1 overflow-hidden whitespace-nowrap">
-            @for (role of getVisibleRoles(item); track role) {
-              <p-tag [value]="getRoleLabel(role)" [severity]="getRoleSeverity(role)" styleClass="text-[10px]" />
+            <tbody hlmTBody>
+              @if (loading()) {
+                <tr hlmTr>
+                  <td
+                    hlmTd
+                    [attr.colspan]="table.getVisibleLeafColumns().length"
+                    class="h-32 text-center"
+                  >
+                    <hlm-spinner class="mx-auto" />
+                    <span class="sr-only">Loading</span>
+                  </td>
+                </tr>
+              } @else {
+                @for (row of table.getRowModel().rows; track row.original.id) {
+                  <tr
+                    hlmTr
+                    class="group text-sm hover:bg-muted/50 transition-colors"
+                    [attr.data-state]="row.getIsSelected() ? 'selected' : null"
+                  >
+                    @for (cell of row.getVisibleCells(); track cell.id) {
+                      <td hlmTd [class]="cell.column.columnDef.meta?.cellClass ?? 'first:ps-4'">
+                        @switch (cell.column.id) {
+                          @case ('select') {
+                            <hlm-checkbox
+                              [checked]="row.getIsSelected()"
+                              [disabled]="!row.getCanSelect()"
+                              [aria-label]="
+                                t('users.batch.selectRow', {
+                                  name: row.original.displayName || row.original.username,
+                                })
+                              "
+                              (checkedChange)="row.toggleSelected($event)"
+                            />
+                          }
+                          @case ('username') {
+                            <div
+                              class="flex min-w-0 items-center gap-3 whitespace-nowrap"
+                              [class]="titleContentClass"
+                            >
+                              @if (hasCollapsedColumns()) {
+                                <button
+                                  hlmBtn
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  class="-ml-2 shrink-0"
+                                  [attr.aria-label]="t('common.details')"
+                                  [attr.aria-expanded]="row.getIsExpanded()"
+                                  (click)="row.toggleExpanded()"
+                                >
+                                  <ng-icon
+                                    name="lucideChevronRight"
+                                    class="transition-transform duration-200"
+                                    [class.rotate-90]="row.getIsExpanded()"
+                                  />
+                                </button>
+                              }
+                              <!-- 头像是装饰：最窄一档让出宽度给姓名 -->
+                              <hlm-avatar class="in-data-[table-fit=mobile]:hidden">
+                                @if (row.original.avatar) {
+                                  <img
+                                    hlmAvatarImage
+                                    [src]="row.original.avatar"
+                                    [alt]="row.original.username"
+                                  />
+                                }
+                                <span hlmAvatarFallback>{{
+                                  row.original.username.slice(0, 1).toUpperCase()
+                                }}</span>
+                              </hlm-avatar>
+                              <div class="min-w-0 flex flex-col">
+                                <span class="text-foreground text-sm font-medium truncate">
+                                  {{ row.original.displayName || row.original.username }}
+                                </span>
+                                <span class="text-xs text-muted-foreground truncate">{{
+                                  row.original.username
+                                }}</span>
+                              </div>
+                            </div>
+                          }
+                          @case ('actions') {
+                            <!-- 操作列（7 项 > 3）：桌面端显示 2 个高频操作 + … 溢出菜单；<sm 全部收进菜单省列宽。
+                               规则见 docs/standards/frontend-lists.md §2。 -->
+                            <div class="flex items-center justify-end gap-0.5">
+                              <!-- 内置超管行（他人查看）：行内按钮置灰。禁用按钮收不到悬停与焦点，
+                                 原因提示挂在外层（Spartan 官方做法），外层此时可聚焦供键盘查看；读屏经 aria-describedby 读到。 -->
+                              @if (isOtherSuperAdmin(row.original)) {
+                                <span
+                                  [id]="'user-super-admin-inline-' + row.original.id"
+                                  data-testid="user-super-admin-inline-reason"
+                                  class="sr-only"
+                                  >{{ t('users.tooltip.superAdminNoManage') }}</span
+                                >
+                              }
+                              <!--#if (LocalIdentity)-->
+                              @if (canUpdate()) {
+                                <span
+                                  class="hidden sm:inline-flex"
+                                  [hlmTooltip]="t('users.tooltip.superAdminNoManage')"
+                                  [tooltipDisabled]="!isOtherSuperAdmin(row.original)"
+                                  [attr.tabindex]="isOtherSuperAdmin(row.original) ? 0 : null"
+                                >
+                                  <button
+                                    hlmBtn
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    [disabled]="isOtherSuperAdmin(row.original)"
+                                    [hlmTooltip]="t('common.edit')"
+                                    [attr.aria-label]="t('common.edit')"
+                                    [attr.aria-describedby]="
+                                      isOtherSuperAdmin(row.original)
+                                        ? 'user-super-admin-inline-' + row.original.id
+                                        : null
+                                    "
+                                    (click)="edit.emit(row.original.id)"
+                                  >
+                                    <ng-icon name="lucidePencil" />
+                                  </button>
+                                </span>
+                              }
+                              <!--#endif-->
+                              <!-- 角色分配与资料编辑分离：需要 App.Users.ManageRoles 才出现。 -->
+                              @if (canManageRoles()) {
+                                <span
+                                  class="hidden sm:inline-flex"
+                                  [hlmTooltip]="t('users.tooltip.superAdminNoManage')"
+                                  [tooltipDisabled]="!isOtherSuperAdmin(row.original)"
+                                  [attr.tabindex]="isOtherSuperAdmin(row.original) ? 0 : null"
+                                >
+                                  <button
+                                    hlmBtn
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    [disabled]="isOtherSuperAdmin(row.original)"
+                                    [hlmTooltip]="t('users.actions.manageRoles')"
+                                    [attr.aria-label]="t('users.actions.manageRoles')"
+                                    [attr.aria-describedby]="
+                                      isOtherSuperAdmin(row.original)
+                                        ? 'user-super-admin-inline-' + row.original.id
+                                        : null
+                                    "
+                                    (click)="manageRoles.emit(row.original)"
+                                  >
+                                    <ng-icon name="lucideShieldCheck" />
+                                  </button>
+                                </span>
+                              }
+                              @if (hasRowActions()) {
+                                <!-- 菜单里只剩行内按钮的窄屏副本时，桌面端不显示触发器，免得点开为空。 -->
+                                <button
+                                  hlmBtn
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  align="end"
+                                  class="sm:data-inline-only:hidden"
+                                  [attr.data-inline-only]="hasMenuOnlyActions() ? null : ''"
+                                  [attr.aria-label]="t('common.actions')"
+                                  [hlmDropdownMenuTrigger]="rowMenu"
+                                >
+                                  <ng-icon name="lucideEllipsis" />
+                                </button>
+                              }
+                              <ng-template #rowMenu>
+                                <hlm-dropdown-menu>
+                                  <!-- 内置超管行（他人查看）：各项置灰，原因在菜单首说一次，被禁用的项经 aria-describedby 指向它。 -->
+                                  @if (isOtherSuperAdmin(row.original)) {
+                                    <p
+                                      [id]="superAdminReasonId(row.original)"
+                                      data-testid="user-super-admin-reason"
+                                      class="px-1.5 pt-1 pb-1 text-xs text-muted-foreground"
+                                    >
+                                      {{ t('users.tooltip.superAdminNoManage') }}
+                                    </p>
+                                  }
+                                  <hlm-dropdown-menu-group>
+                                    <!--#if (LocalIdentity)-->
+                                    @if (canUpdate()) {
+                                      <button
+                                        hlmDropdownMenuItem
+                                        class="sm:hidden"
+                                        [disabled]="isOtherSuperAdmin(row.original)"
+                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
+                                        (click)="edit.emit(row.original.id)"
+                                      >
+                                        <ng-icon name="lucidePencil" />
+                                        {{ t('common.edit') }}
+                                      </button>
+                                    }
+                                    <!--#endif-->
+                                    @if (canManageRoles()) {
+                                      <button
+                                        hlmDropdownMenuItem
+                                        class="sm:hidden"
+                                        [disabled]="isOtherSuperAdmin(row.original)"
+                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
+                                        (click)="manageRoles.emit(row.original)"
+                                      >
+                                        <ng-icon name="lucideShieldCheck" />
+                                        {{ t('users.actions.manageRoles') }}
+                                      </button>
+                                    }
+                                    <!--#if (LocalIdentity)-->
+                                    <!-- 重置密码走 Users.Update 策略，与编辑同权限裁剪，避免制造必然 403 的入口。 -->
+                                    @if (canUpdate()) {
+                                      <button
+                                        hlmDropdownMenuItem
+                                        [disabled]="isOtherSuperAdmin(row.original)"
+                                        [attr.aria-describedby]="superAdminReasonId(row.original)"
+                                        (click)="resetPassword.emit(row.original.id)"
+                                      >
+                                        <ng-icon name="lucideKey" />
+                                        {{ t('users.tooltip.resetPassword') }}
+                                      </button>
+                                    }
+                                    @if (canUpdate() && row.original.isLockedOut) {
+                                      <button
+                                        hlmDropdownMenuItem
+                                        data-testid="user-unlock"
+                                        (click)="unlock.emit(row.original)"
+                                      >
+                                        <ng-icon name="lucideLockOpen" />
+                                        {{ t('users.tooltip.unlock') }}
+                                      </button>
+                                    }
+                                    @if (canUpdate() && row.original.isTwoFactorEnabled) {
+                                      <!-- 本人行：会绕过个人设置里停用要的口令与验证码和组织的强制策略，服务端同样拒绝；置灰并就地说明 -->
+                                      <button
+                                        hlmDropdownMenuItem
+                                        data-testid="user-reset-two-factor"
+                                        [disabled]="
+                                          isOtherSuperAdmin(row.original) || isSelf(row.original)
+                                        "
+                                        [attr.aria-describedby]="
+                                          isSelf(row.original)
+                                            ? 'user-self-reset-two-factor-' + row.original.id
+                                            : superAdminReasonId(row.original)
+                                        "
+                                        (click)="resetTwoFactor.emit(row.original)"
+                                      >
+                                        <ng-icon name="lucideShieldOff" />
+                                        {{ t('users.tooltip.resetTwoFactor') }}
+                                      </button>
+                                      @if (isSelf(row.original)) {
+                                        <p
+                                          [id]="'user-self-reset-two-factor-' + row.original.id"
+                                          data-testid="user-self-reset-two-factor-reason"
+                                          class="px-1.5 pb-1 text-xs text-muted-foreground"
+                                        >
+                                          {{ t('users.tooltip.selfNoResetTwoFactor') }}
+                                        </p>
+                                      }
+                                    }
+                                    <!--#endif-->
+                                    @if (canUpdate()) {
+                                      <!-- 本人行：停用会当场作废自己的会话，服务端同样拒绝；置灰并就地说明原因，禁用项上的提示悬停不到。 -->
+                                      <button
+                                        hlmDropdownMenuItem
+                                        [disabled]="
+                                          isSuperAdmin(row.original) || isSelf(row.original)
+                                        "
+                                        [attr.aria-describedby]="
+                                          isSelf(row.original)
+                                            ? 'user-self-disable-' + row.original.id
+                                            : superAdminReasonId(row.original)
+                                        "
+                                        (click)="toggleActive.emit(row.original)"
+                                      >
+                                        <ng-icon
+                                          [name]="
+                                            row.original.isActive
+                                              ? 'lucideBan'
+                                              : 'lucideCircleCheck'
+                                          "
+                                        />
+                                        {{
+                                          row.original.isActive
+                                            ? t('users.tooltip.disable')
+                                            : t('users.tooltip.enable')
+                                        }}
+                                      </button>
+                                      @if (isSelf(row.original)) {
+                                        <p
+                                          [id]="'user-self-disable-' + row.original.id"
+                                          data-testid="user-self-disable-reason"
+                                          class="px-1.5 pb-1 text-xs text-muted-foreground"
+                                        >
+                                          {{ t('users.tooltip.selfNoDisable') }}
+                                        </p>
+                                      }
+                                    }
+                                  </hlm-dropdown-menu-group>
+                                  @if (canDelete()) {
+                                    <hlm-dropdown-menu-separator />
+                                    <button
+                                      hlmDropdownMenuItem
+                                      variant="destructive"
+                                      [disabled]="
+                                        isSuperAdmin(row.original) || isSelf(row.original)
+                                      "
+                                      [attr.aria-describedby]="
+                                        isSelf(row.original)
+                                          ? 'user-self-delete-' + row.original.id
+                                          : superAdminReasonId(row.original)
+                                      "
+                                      (click)="delete.emit(row.original)"
+                                    >
+                                      <ng-icon name="lucideTrash2" />
+                                      {{ t('common.delete') }}
+                                    </button>
+                                    @if (isSelf(row.original)) {
+                                      <p
+                                        [id]="'user-self-delete-' + row.original.id"
+                                        data-testid="user-self-delete-reason"
+                                        class="px-1.5 pb-1 text-xs text-muted-foreground"
+                                      >
+                                        {{ t('users.tooltip.selfNoDelete') }}
+                                      </p>
+                                    }
+                                  }
+                                </hlm-dropdown-menu>
+                              </ng-template>
+                            </div>
+                          }
+                          @default {
+                            <ng-container
+                              [ngTemplateOutlet]="columnValue"
+                              [ngTemplateOutletContext]="{
+                                $implicit: row.original,
+                                id: cell.column.id,
+                                mode: 'cell',
+                              }"
+                            />
+                          }
+                        }
+                      </td>
+                    }
+                  </tr>
+                  <!-- 行展开：按列定义顺序列出被折叠的数据列（meta.detail），再接不对应列的附加项 -->
+                  @if (hasCollapsedColumns() && row.getIsExpanded()) {
+                    <tr hlmTr class="bg-muted/30 hover:bg-muted/30">
+                      <td
+                        hlmTd
+                        [attr.colspan]="table.getVisibleLeafColumns().length"
+                        class="px-4 pb-3 pt-2"
+                      >
+                        <!-- 表格单元格默认不折行；详情是内容，长文本在这里折行 -->
+                        <dl
+                          class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm whitespace-normal"
+                          data-testid="user-detail"
+                        >
+                          @for (column of detailColumns(); track column.id) {
+                            <dt class="text-muted-foreground">
+                              {{ t(columnLabelKeys[column.id]) }}
+                            </dt>
+                            <dd class="min-w-0" [attr.data-detail-column]="column.id">
+                              <ng-container
+                                [ngTemplateOutlet]="columnValue"
+                                [ngTemplateOutletContext]="{
+                                  $implicit: row.original,
+                                  id: column.id,
+                                  mode: 'detail',
+                                }"
+                              />
+                            </dd>
+                          }
+                          <!-- 附加项：最窄一档（data-table-fit=mobile）主列截断姓名与用户名，这里给出全文；更宽时主列完整，不重复 -->
+                          @if (foldLevel() === 'mobile') {
+                            <dt class="text-muted-foreground">{{ t('users.table.colUser') }}</dt>
+                            <dd class="min-w-0" data-testid="user-detail-identity">
+                              <span class="block font-medium wrap-anywhere">{{
+                                row.original.displayName || row.original.username
+                              }}</span>
+                              <span class="text-muted-foreground block text-xs wrap-anywhere">{{
+                                row.original.username
+                              }}</span>
+                            </dd>
+                          }
+                          <!--#if (LocalIdentity)-->
+                          <!-- 附加项：窄容器里状态列不放"邮箱未验证"徽章（同一 @2xl 判定），在这里补上；宽容器主行已有，不重复 -->
+                          @if (!row.original.isEmailVerified) {
+                            <dt class="text-muted-foreground @2xl:hidden">
+                              {{ t('users.filter.emailLabel') }}
+                            </dt>
+                            <dd class="@2xl:hidden" data-testid="user-detail-email-status">
+                              <span hlmBadge appStatusDot variant="warning">{{
+                                t('users.status.emailUnverified')
+                              }}</span>
+                            </dd>
+                          }
+                          <!--#endif-->
+                        </dl>
+                      </td>
+                    </tr>
+                  }
+                } @empty {
+                  <tr hlmTr class="hover:bg-transparent">
+                    <td
+                      hlmTd
+                      [attr.colspan]="table.getVisibleLeafColumns().length"
+                      class="!p-0 !border-0"
+                    >
+                      <div
+                        class="flex h-64 flex-col items-center justify-center gap-2 text-muted-foreground"
+                      >
+                        <!-- 加载失败与"暂无数据"分开表达：说出原因并给重试，不让人误以为确实没有数据。 -->
+                        @if (loadError(); as error) {
+                          <ng-icon name="lucideCircleAlert" class="text-5xl opacity-30" />
+                          <p class="text-base font-medium" role="alert">
+                            {{ t('common.loadFailed') }}
+                          </p>
+                          <p class="text-sm opacity-70">{{ error }}</p>
+                          <button
+                            hlmBtn
+                            variant="outline"
+                            data-testid="table-retry"
+                            (click)="retry.emit()"
+                          >
+                            {{ t('common.retry') }}
+                          </button>
+                        } @else {
+                          <ng-icon
+                            [name]="filtered() ? 'lucideSearchX' : 'lucideUsers'"
+                            class="text-5xl opacity-30"
+                          />
+                          @if (filtered()) {
+                            <p class="text-base font-medium">
+                              {{ t('users.table.emptyFilteredTitle') }}
+                            </p>
+                            <p class="text-sm opacity-70">
+                              {{ t('users.table.emptyFilteredHint') }}
+                            </p>
+                          } @else {
+                            <p class="text-base font-medium">
+                              {{ t('users.table.emptyTitle') }}
+                            </p>
+                            <p class="text-sm opacity-70">
+                              {{ t('users.table.emptyHint') }}
+                            </p>
+                          }
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+        <!-- 各数据列的值：单元格（cell）与展开详情（detail）共用；详情给完整时刻、全部角色与邮箱全文 -->
+        <ng-template #columnValue [appColumnValue]="users()" let-user let-id="id" let-mode="mode">
+          @switch (id) {
+            @case ('email') {
+              <span
+                class="text-sm"
+                [class]="mode === 'detail' ? 'block wrap-anywhere' : 'whitespace-nowrap'"
+                >{{ user.email }}</span
+              >
             }
-            @if (getHiddenRoles(item).length > 0) {
-              <p-tag
-                [value]="'+' + getHiddenRoles(item).length"
-                severity="secondary"
-                styleClass="text-[10px] cursor-pointer shrink-0"
-                (click)="openRolesPopover($event, rolePopover, getHiddenRoles(item))"
-              />
+            @case ('roles') {
+              @if (mode === 'detail') {
+                <div class="flex flex-wrap gap-1">
+                  @for (role of user.roles; track role.id) {
+                    <!-- 徽章默认单行裁切，详情里放开让超长角色名整段可读；文字包一层才能在徽章内折行 -->
+                    <span
+                      hlmBadge
+                      class="h-auto min-h-5 justify-start whitespace-normal"
+                      [variant]="getRoleVariant()"
+                      ><span class="min-w-0 wrap-anywhere">{{ role.displayName }}</span></span
+                    >
+                  } @empty {
+                    <span class="text-muted-foreground">-</span>
+                  }
+                </div>
+              } @else if (user.roles?.length) {
+                <!-- 整个摘要就是面板入口：角色少、没有 "+N" 时也能打开读全名。名称各自截断，"+N" 不收缩 -->
+                <app-readonly-list-popover
+                  [items]="getRoleListItems(user)"
+                  [triggerLabel]="
+                    t('users.popover.rolesTrigger', {
+                      name: user.displayName || user.username,
+                      count: (user.roles.length | appNumber: 'integer' : displayLocale()),
+                    })
+                  "
+                  [title]="t('users.popover.rolesTitle')"
+                  [subtitle]="user.displayName || user.username"
+                  [filterLabel]="t('users.popover.filterRoles')"
+                  [emptyText]="t('users.popover.noMatchingRoles')"
+                >
+                  @for (role of getVisibleRoles(user); track role.id) {
+                    <span
+                      hlmBadge
+                      class="max-w-[9rem] min-w-0 shrink"
+                      [variant]="getRoleVariant()"
+                      [title]="role.displayName"
+                      ><span class="truncate">{{ role.displayName }}</span></span
+                    >
+                  }
+                  @if (getHiddenRoles(user).length > 0) {
+                    <span
+                      hlmBadge
+                      variant="outline"
+                      class="shrink-0 tabular-nums"
+                      data-testid="user-roles-more"
+                      >+{{
+                        getHiddenRoles(user).length | appNumber: 'integer' : displayLocale()
+                      }}</span
+                    >
+                  }
+                </app-readonly-list-popover>
+              } @else {
+                <span class="text-xs text-muted-foreground">-</span>
+              }
             }
-          </div>
-        </td>
-
-        <td class="bg-transparent border-b border-surface-200 dark:border-surface-700 px-6 py-4 hidden lg:table-cell">
-          <div class="flex items-center gap-1.5 whitespace-nowrap">
-            <p-tag
-              [value]="item.isActive ? '启用' : '禁用'"
-              [severity]="item.isActive ? 'success' : 'secondary'"
-              styleClass="text-[10px]"
-            />
-            <p-tag
-              [value]="item.isEmailVerified ? '邮箱已验证' : '邮箱未验证'"
-              [severity]="item.isEmailVerified ? 'info' : 'warn'"
-              styleClass="text-[10px] hidden xl:inline-flex"
-            />
-          </div>
-        </td>
-
-        <td class="bg-transparent border-b border-surface-200 dark:border-surface-700 px-6 py-4 hidden xl:table-cell">
-          <span class="text-[11px] text-muted-color whitespace-nowrap">
-            {{ item.lastLoginTime ? (item.lastLoginTime | date: 'yyyy-MM-dd HH:mm:ss') : '-' }}
-          </span>
-        </td>
-
-        <td class="bg-transparent border-b border-surface-200 dark:border-surface-700 px-6 py-4 hidden 2xl:table-cell">
-          <span class="text-[11px] text-muted-color whitespace-nowrap">{{ item.creationTime | date: 'yyyy-MM-dd HH:mm:ss' }}</span>
-        </td>
-
-        <td class="bg-transparent border-b border-surface-200 dark:border-surface-700 px-6 py-4 text-right">
-          <div class="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-            <p-button
-              (onClick)="edit.emit(item.id)"
-              [text]="true"
-              [rounded]="true"
-              severity="secondary"
-              icon="pi pi-pencil"
-              styleClass="w-8 h-8 !p-0"
-              [disabled]="isOtherSuperAdmin(item)"
-              [pTooltip]="isOtherSuperAdmin(item) ? '系统内置超级管理员不允许被其他管理员更新' : '编辑'"
-              tooltipPosition="top"
-            />
-            <p-button
-              (onClick)="toggleActive.emit(item)"
-              [text]="true"
-              [rounded]="true"
-              [severity]="item.isActive ? 'warn' : 'success'"
-              [icon]="item.isActive ? 'pi pi-ban' : 'pi pi-check-circle'"
-              styleClass="w-8 h-8 !p-0"
-              [disabled]="isSuperAdmin(item)"
-              [pTooltip]="
-                isOtherSuperAdmin(item)
-                  ? '系统内置超级管理员不允许被其他管理员禁用'
-                  : isSelfSuperAdmin(item)
-                    ? '系统内置超级管理员不允许禁用自己'
-                    : item.isActive
-                      ? '禁用'
-                      : '启用'
-              "
-              tooltipPosition="top"
-            />
-            <p-button
-              (onClick)="resetPassword.emit(item.id)"
-              [text]="true"
-              [rounded]="true"
-              severity="secondary"
-              icon="pi pi-key"
-              styleClass="w-8 h-8 !p-0"
-              [disabled]="isOtherSuperAdmin(item)"
-              [pTooltip]="isOtherSuperAdmin(item) ? '系统内置超级管理员的密码不允许被其他管理员重置' : '重置密码'"
-              tooltipPosition="top"
-            />
-            <p-button
-              (onClick)="delete.emit(item)"
-              [text]="true"
-              [rounded]="true"
-              severity="danger"
-              icon="pi pi-trash"
-              styleClass="w-8 h-8 !p-0"
-              [disabled]="isSuperAdmin(item)"
-              [pTooltip]="isSuperAdmin(item) ? '系统内置超级管理员不允许删除' : '删除'"
-              tooltipPosition="top"
-            />
-          </div>
-        </td>
-      </tr>
-    </ng-template>
-
-    <ng-template pTemplate="emptymessage">
-      <tr class="hover:!bg-transparent">
-        <td colspan="7" class="!p-0 !border-0">
-          <div class="flex flex-col items-center justify-center h-64 text-muted-color">
-            <i class="pi pi-users text-5xl opacity-30 mb-3"></i>
-            <p class="text-base font-medium m-0">暂无用户</p>
-            <p class="text-sm mt-1 opacity-70">请创建新的用户</p>
-          </div>
-        </td>
-      </tr>
-    </ng-template>
-  </p-table>
-</div>
-
-<p-popover #rolePopover>
-  <div class="min-w-48 max-w-sm p-2">
-    <div class="mb-3 text-sm font-semibold text-color">{{ rolePopoverTitle() }}</div>
-    <div class="flex flex-wrap gap-2">
-      @for (role of activeRoles(); track role) {
-        <p-tag [value]="getRoleLabel(role)" [severity]="getRoleSeverity(role)" />
-      } @empty {
-        <div class="text-sm text-muted-color">暂无角色</div>
+            @case ('status') {
+              <div class="flex items-center gap-1.5 whitespace-nowrap">
+                @if (user.isActive) {
+                  <span hlmBadge appStatusDot variant="success">{{
+                    t('users.status.active')
+                  }}</span>
+                } @else {
+                  <span hlmBadge appStatusDot variant="secondary">{{
+                    t('users.status.inactive')
+                  }}</span>
+                }
+                <!--#if (LocalIdentity)-->
+                @if (user.isLockedOut) {
+                  <span
+                    hlmBadge
+                    appStatusDot
+                    variant="destructive"
+                    tabindex="0"
+                    class="outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    data-testid="user-locked"
+                    [hlmTooltip]="
+                      user.lockoutEnd
+                        ? t('users.status.lockedUntil', {
+                            time:
+                              user.lockoutEnd
+                              | appDate: 'short' : displayTimeZone() : displayLocale(),
+                          })
+                        : t('users.status.lockedIndefinitely')
+                    "
+                    >{{ t('users.status.locked') }}</span
+                  >
+                }
+                <!-- 邮箱只标例外：已验证是常态不占列宽，未验证才提醒；窄容器里状态列只留主状态 -->
+                @if (!user.isEmailVerified) {
+                  <span hlmBadge appStatusDot variant="warning" class="hidden @2xl:inline-flex">{{
+                    t('users.status.emailUnverified')
+                  }}</span>
+                }
+                <!--#endif-->
+              </div>
+            }
+            <!--#if (LocalIdentity)-->
+            @case ('lastLoginTime') {
+              @if (!user.lastLoginTime) {
+                <span class="text-xs text-muted-foreground">-</span>
+              } @else if (mode === 'detail') {
+                <span class="text-muted-foreground">{{
+                  user.lastLoginTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                }}</span>
+              } @else {
+                <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
+                <span
+                  tabindex="0"
+                  class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  [hlmTooltip]="
+                    user.lastLoginTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                  "
+                  >{{
+                    user.lastLoginTime | appDate: 'short' : displayTimeZone() : displayLocale()
+                  }}</span
+                >
+              }
+            }
+            <!--#endif-->
+            @case ('creationTime') {
+              @if (mode === 'detail') {
+                <span class="text-muted-foreground">{{
+                  user.creationTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                }}</span>
+              } @else {
+                <!-- 列里写到分钟，完整时刻（含秒）放进可聚焦的提示 -->
+                <span
+                  tabindex="0"
+                  class="text-xs text-muted-foreground whitespace-nowrap rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  [hlmTooltip]="
+                    user.creationTime | appDate: 'full' : displayTimeZone() : displayLocale()
+                  "
+                  >{{
+                    user.creationTime | appDate: 'short' : displayTimeZone() : displayLocale()
+                  }}</span
+                >
+              }
+            }
+          }
+        </ng-template>
       }
     </div>
+
+    <!-- 分页栏独立于表格卡片，置于其下方。 -->
+    @if (totalCount() > 0) {
+      <app-table-paginator
+        [labels]="{
+          currentPageReport: t('users.table.currentPageReport', {
+            total: (totalCount() | appNumber: 'integer' : displayLocale()),
+          }),
+          rowsPerPage: t('common.rowsPerPage'),
+          page: t('common.pageOf', {
+            page: (currentPage() | appNumber: 'integer' : displayLocale()),
+            total: (totalPages() | appNumber: 'integer' : displayLocale()),
+          }),
+          first: t('common.pagination.first'),
+          previous: t('common.pagination.previous'),
+          next: t('common.pagination.next'),
+          last: t('common.pagination.last'),
+        }"
+        [rows]="pagination().pageSize"
+        [canPrev]="table.getCanPreviousPage()"
+        [canNext]="table.getCanNextPage()"
+        (firstPage)="table.firstPage()"
+        (prevPage)="table.previousPage()"
+        (nextPage)="table.nextPage()"
+        (lastPage)="table.lastPage()"
+        (rowsChange)="changePageSize($event)"
+      />
+    }
   </div>
-</p-popover>
+</ng-container>

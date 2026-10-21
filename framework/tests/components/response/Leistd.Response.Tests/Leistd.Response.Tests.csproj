@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- 端点包装要在真实 Minimal API 管线里验证：结果类型的判定依赖框架实际产出的 IResult -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\response\Leistd.Response.AspNetCore\Leistd.Response.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\exception-handling\Leistd.ExceptionHandling.AspNetCore\Leistd.ExceptionHandling.AspNetCore.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,52 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <!-- 与设置行同一写法（标签在左、控件与恢复按钮在右），默认值是跟随系统 -->
+  <div hlmFieldGroup class="gap-5" data-testid="appearance-setting">
+    <hlm-field orientation="responsive">
+      <div hlmFieldContent class="min-w-0 wrap-anywhere">
+        <div
+          class="flex flex-wrap items-center gap-x-2 gap-y-1 @md/field-group:min-h-9 @md/field-group:pointer-coarse:min-h-11"
+        >
+          <label hlmFieldLabel for="appearance-mode">{{ t('settings.appearance.label') }}</label>
+          <hlm-field-description class="text-xs leading-4">
+            {{ t('settings.appearance.hint') }}
+          </hlm-field-description>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 @md/field-group:self-center">
+        <hlm-select
+          class="flex-1 @md/field-group:w-64 @md/field-group:flex-none"
+          data-testid="appearance-select"
+          [value]="theme.mode()"
+          [itemToString]="labelOf()"
+          (valueChange)="select($event)"
+        >
+          <hlm-select-trigger buttonId="appearance-mode" class="w-full">
+            <hlm-select-value />
+          </hlm-select-trigger>
+          <hlm-select-content *hlmSelectPortal>
+            @for (mode of modes; track mode) {
+              <hlm-select-item [value]="mode">{{ t('theme.mode.' + mode) }}</hlm-select-item>
+            }
+          </hlm-select-content>
+        </hlm-select>
+        <button
+          type="button"
+          hlmBtn
+          size="icon-sm"
+          variant="ghost"
+          data-testid="appearance-reset"
+          [disabled]="theme.mode() === 'system'"
+          [attr.aria-label]="t('settings.reset')"
+          [hlmTooltip]="t('settings.reset')"
+          (click)="select('system')"
+        >
+          <ng-icon name="lucideRotateCcw" size="16" />
+        </button>
+      </div>
+    </hlm-field>
+  </div>
+</ng-container>

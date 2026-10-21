@@ -1,65 +1,373 @@
-@import 'primeicons/primeicons.css';
-@import 'tailwindcss';
+@layer theme, base, components, utilities;
 
-@plugin "tailwindcss-primeui";
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/utilities.css';
 
-@custom-variant dark (&:where(.dark, .dark *));
+@import '@spartan-ng/brain/hlm-tailwind-preset.css';
 
+/* 正文字体 Geist；业务项目可替换为品牌字体或系统字体栈。 */
+@import '@fontsource/geist';
+
+/*
+ * 不要给 html/body 加 scrollbar-gutter: stable：常规滚动条（Windows 默认）下它让 CDK 浮层容器比
+ * documentElement.clientWidth 窄一个槽位，而 CDK 按 clientWidth 摆放右对齐的浮层，下拉菜单会整体偏移。
+ * 主布局在内部容器里滚动，文档本身不滚动，这条样式也没有要防的跳动。
+ */
 html,
 body {
   height: 100%;
-  font-size: 14px;
-  color: var(--p-text-color);
-  background-color: light-dark(var(--p-surface-50), var(--p-surface-950));
 }
 
-:root {
-  --app-scrollbar-size: 0.8rem;
-  --app-scrollbar-thumb: color-mix(in srgb, var(--p-surface-400) 82%, transparent);
-  --app-scrollbar-thumb-hover: color-mix(in srgb, var(--p-primary-color) 28%, var(--p-surface-500));
-  --app-scrollbar-thumb-active: color-mix(in srgb, var(--p-primary-color) 44%, var(--p-surface-600));
-}
-
-.dark {
-  --app-scrollbar-thumb: color-mix(in srgb, var(--p-surface-500) 82%, transparent);
-  --app-scrollbar-thumb-hover: color-mix(in srgb, var(--p-primary-color) 34%, var(--p-surface-400));
-  --app-scrollbar-thumb-active: color-mix(in srgb, var(--p-primary-color) 50%, var(--p-surface-300));
-}
-
+/* 全局细滚动条：用 CSS 标准属性 + Spartan 语义色变量（现代浏览器原生支持，无需 webkit 伪元素）。 */
 * {
-  scrollbar-color: var(--app-scrollbar-thumb) transparent;
+  scrollbar-color: var(--border) transparent;
   scrollbar-width: thin;
 }
 
-*::-webkit-scrollbar {
-  width: var(--app-scrollbar-size);
-  height: var(--app-scrollbar-size);
+/*
+ * 语义色使用规范（保持克制、避免花哨）：
+ * - primary            : 主操作 / 最高强调（主按钮、当前项、最高权限分类）
+ * - destructive（红）  : 仅危险 / 删除 / 错误（删除、错误提示、校验失败、无 PKCE 等安全风险），不用于普通分类
+ * - warning（amber）   : 需注意但非错误（一次性密钥提示、重置告警）
+ * - success（绿）      : 正态 / 成功（启用、已验证、成功 toast）
+ * - secondary / muted  : 次要 / 中性（普通分类、禁用态、辅助文字）
+ * 用法见 docs/standards/frontend-ui.md §2.3 与 §2.6。
+ */
+
+/*
+ * Spartan UI 主题变量，按品牌改这些变量即可换整套配色。
+ *
+ * - 品牌色相 250 跨主题恒定，亮暗只调明度与彩度（亮色 L=0.52 保证白字可读，暗色 L=0.72）；
+ *   --primary / --ring / --sidebar-primary / --sidebar-ring 必须始终同色。
+ * - 中性色带少量跟随品牌色相的彩度（C≈0.004–0.01），纯灰与品牌色并置显脏。
+ * - destructive / warning / success 既作文字色又作淡色底（bg-*\/10~25），判据是文字压在自身
+ *   淡色底上 ≥ 4.5:1，亮暗分开定值；淡色底 alpha 上限 0.25。改这些值后重新核算。
+ * - 表面分层：亮色画布（sidebar）最暗，主面板（background）与卡片同为白色，靠描边与阴影分层；
+ *   暗色不用纯黑，分五层逐级提亮（sidebar < background < card < popover < muted）。
+ * - 中性色彩度统一取 0.004–0.006；accent 用于悬停，不带品牌色调。当前导航项用 sidebar-accent
+ *   （亮色白底，与画布拉开）加细描边。
+ * - input 是控件边界，比装饰分隔线 border 深一档，二者分开定值。
+ * - info 是中性提示色（toast 的 info 图标），不借用 primary。
+ * - chart-1…5 是图表序列色，色相彼此间隔 ≥ 60°，亮色在卡片上 ≥ 3:1；暗色整体提亮。
+ * - hero-* 是营销面板（认证页品牌面板）的固定深色表面，亮暗主题同值，不跟随主题切换；
+ *   强调色取品牌色相的浅色档，文字在 hero 上 ≥ 4.5:1。
+ */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.18 0.01 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 255);
+  --primary: oklch(0.52 0.16 250);
+  --primary-foreground: oklch(0.99 0.002 250);
+  --secondary: oklch(0.966 0.004 250);
+  --secondary-foreground: oklch(0.24 0.02 255);
+  --muted: oklch(0.966 0.004 250);
+  --muted-foreground: oklch(0.505 0.015 255);
+  --accent: oklch(0.955 0.005 250);
+  --accent-foreground: oklch(0.24 0.02 255);
+  --destructive: oklch(0.457 0.245 27.325);
+  --warning: oklch(0.47 0.12 70);
+  --warning-foreground: oklch(0.99 0.01 80);
+  --success: oklch(0.51 0.13 155);
+  --success-foreground: oklch(0.99 0.01 155);
+  --info: oklch(0.52 0.12 230);
+  --border: oklch(0.925 0.005 250);
+
+  /*
+   * 交互控件的边界（输入框、复选框、描边按钮）比装饰分隔线深一档、带品牌色相的冷灰，
+   * 在白底与 muted 底上都看得出轮廓又不压过内容；聚焦时由 --ring 给出强指示。
+   */
+  --input: oklch(0.86 0.02 250);
+  --ring: oklch(0.52 0.16 250);
+  --chart-1: oklch(0.52 0.16 250);
+  --chart-2: oklch(0.6 0.11 195);
+  --chart-3: oklch(0.66 0.15 70);
+  --chart-4: oklch(0.55 0.17 300);
+  --chart-5: oklch(0.6 0.02 255);
+  --sidebar: oklch(0.966 0.004 250);
+  --sidebar-foreground: oklch(0.18 0.01 255);
+  --sidebar-primary: oklch(0.52 0.16 250);
+  --sidebar-primary-foreground: oklch(0.99 0.002 250);
+  --sidebar-accent: oklch(1 0 0);
+  --sidebar-accent-foreground: oklch(0.18 0.01 255);
+  --sidebar-border: oklch(0.925 0.005 250);
+  --sidebar-ring: oklch(0.52 0.16 250);
+  --hero: oklch(0.23 0.015 250);
+  --hero-foreground: oklch(0.97 0.004 250);
+  --hero-muted: oklch(0.78 0.015 250);
+  --hero-accent: oklch(0.78 0.11 250);
+  --hero-border: oklch(1 0 0 / 12%);
+  --hero-surface: oklch(1 0 0 / 5%);
+
+  color-scheme: light;
 }
 
-*::-webkit-scrollbar-track {
-  border-radius: 999px;
-  background: transparent;
+:root.dark {
+  --background: oklch(0.2 0.006 255);
+  --foreground: oklch(0.94 0.003 255);
+  --card: oklch(0.225 0.006 255);
+  --card-foreground: oklch(0.94 0.003 255);
+  --popover: oklch(0.25 0.006 255);
+  --popover-foreground: oklch(0.94 0.003 255);
+  --primary: oklch(0.72 0.14 250);
+  --primary-foreground: oklch(0.18 0.02 255);
+  --secondary: oklch(0.27 0.006 255);
+  --secondary-foreground: oklch(0.94 0.003 255);
+  --muted: oklch(0.27 0.006 255);
+  --muted-foreground: oklch(0.72 0.012 250);
+  --accent: oklch(0.28 0.006 255);
+  --accent-foreground: oklch(0.94 0.003 255);
+  --destructive: oklch(0.759 0.191 22.216);
+  --warning: oklch(0.8 0.14 75);
+  --warning-foreground: oklch(0.2 0.03 70);
+  --success: oklch(0.76 0.15 155);
+  --success-foreground: oklch(0.2 0.03 155);
+  --info: oklch(0.75 0.11 230);
+  --border: oklch(1 0 0 / 10%);
+
+  /* 交互控件的边界单独提亮：装饰分隔线可以淡，输入框与描边按钮的边界必须看得清 */
+  --input: oklch(1 0 0 / 22%);
+  --ring: oklch(0.72 0.14 250);
+  --chart-1: oklch(0.72 0.14 250);
+  --chart-2: oklch(0.72 0.11 195);
+  --chart-3: oklch(0.8 0.14 75);
+  --chart-4: oklch(0.68 0.16 300);
+  --chart-5: oklch(0.7 0.02 255);
+  --sidebar: oklch(0.165 0.005 250);
+  --sidebar-foreground: oklch(0.94 0.003 255);
+  --sidebar-primary: oklch(0.72 0.14 250);
+  --sidebar-primary-foreground: oklch(0.18 0.02 255);
+  --sidebar-accent: oklch(0.255 0.006 255);
+  --sidebar-accent-foreground: oklch(0.94 0.003 255);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.72 0.14 250);
+
+  color-scheme: dark;
 }
 
-*::-webkit-scrollbar-thumb {
-  min-height: 2.5rem;
-  border: 2px solid transparent;
-  border-radius: 999px;
-
-  background: var(--app-scrollbar-thumb);
-  background-clip: content-box;
+/* 字体与语义色接入 Tailwind：body 用 font-sans；success、warning、info 与 hero-* 暴露为语义工具类。 */
+@theme {
+  --font-sans: 'Geist', system-ui, sans-serif;
 }
 
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--app-scrollbar-thumb-hover);
-  background-clip: content-box;
+@theme inline {
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-info: var(--info);
+  --color-hero: var(--hero);
+  --color-hero-foreground: var(--hero-foreground);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-accent: var(--hero-accent);
+  --color-hero-border: var(--hero-border);
+  --color-hero-surface: var(--hero-surface);
 }
 
-*::-webkit-scrollbar-thumb:active {
-  background: var(--app-scrollbar-thumb-active);
-  background-clip: content-box;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+
+  /*
+   * 校验不通过时只标红输入框与错误提示，标签保持正文色。spartan 的 Field 会把整个字段容器染成
+   * destructive，标签自身不设颜色、随之继承变红；这里直接给标签定色，不改按上游维护的 libs/ui。
+   */
+  [data-slot='field'][data-matches-spartan-invalid='true']
+    :is([data-slot='label'], [data-slot='field-label']) {
+    color: var(--color-foreground);
+  }
+
+  /* Tailwind v4 preflight 不再给 button 默认手型光标，这里补回。 */
+  button:not([disabled]),
+  [role='button']:not([disabled]) {
+    cursor: pointer;
+  }
 }
 
-*::-webkit-scrollbar-corner {
-  background: transparent;
+/*
+ * 以下规则调整 Spartan 组件在本项目的表现。样式表能区分的调整写在这里而不是改 libs/ui，这些组件
+ * 升级时可直接同步上游；确需改组件的已登记在 docs/standards/frontend-spartan.md，升级时逐个手工合入。
+ * 规则不放进 @layer，才能盖过组件上的 Tailwind 工具类。
+ */
+
+/*
+ * 减少动效：系统开启"减少动效"时，浮层不播放缩放、淡入淡出，侧栏、抽屉与导航菜单不播放位移过渡。
+ * 动画挂在浮层的开合状态（data-state 或 data-open / data-closed）上，按属性匹配即可覆盖对话框、抽屉、弹出层、下拉、提示等全部浮层；
+ * Brain 关闭浮层时只等待正在播放的动画，没有动画就立即关闭。
+ */
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    [data-state='open'],
+    [data-state='closed'],
+    [data-state='delayed-open'],
+    [data-open],
+    [data-closed],
+    [data-motion]
+  ) {
+    animation: none;
+  }
+
+  [data-slot^='sidebar'],
+  [data-slot='sheet-content'],
+  [data-slot^='navigation-menu'],
+  [data-slot^='navigation-menu'] * {
+    transition: none;
+  }
+}
+
+/*
+ * 对话框与抽屉的关闭按钮绝对定位在右上角，页头让出它的宽度，长标题与说明换行而不钻到按钮下面。
+ * 让位宽度覆盖按钮所在区域（触屏下按钮为 44px），数值沿用 Nova 时期截图核对过的留白。
+ */
+[data-slot='dialog-header'] {
+  padding-inline-end: calc(var(--spacing) * 6);
+}
+
+[data-slot='sheet-header'] {
+  padding-inline-end: calc(var(--spacing) * 12);
+}
+
+@media (pointer: coarse) {
+  [data-slot='dialog-header'] {
+    padding-inline-end: calc(var(--spacing) * 10);
+  }
+
+  [data-slot='sheet-header'] {
+    padding-inline-end: calc(var(--spacing) * 16);
+  }
+}
+
+/*
+ * 下拉与组合框触发器里的选中值、占位只是一段文字（Brain 直接写 textContent）：放不下时单行截断并带省略号，
+ * 箭头留在控件内。上游把选择框的值区写成 flex + line-clamp，省略号只对块容器生效，这里改回块级文字盒；
+ * 组合框的值区没有任何收缩约束，长文字会把箭头挤出边框。隐藏状态（无值且无占位）不覆盖。
+ */
+:is([data-slot='select-value'], [data-slot='combobox-value']):not([data-hidden]) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 触屏点按目标不小于 44px（frontend-ui.md「可访问性」）。按钮、输入框等在 helm 里按尺寸档位加了 pointer-coarse；
+ * 菜单项、选项、导航链接、侧栏菜单按钮、分段控件项与验证码格的最小目标尺寸不随档位变化，在这里统一补足，内容多行时照常撑高。
+ * 折叠为图标的侧栏加宽到能放下 44px 的按钮（按钮本身的尺寸见 helm sidebar-menu-button）。
+ */
+@media (pointer: coarse) {
+  :is(
+    [data-slot='dropdown-menu-item'],
+    [data-slot='dropdown-menu-checkbox-item'],
+    [data-slot='dropdown-menu-radio-item'],
+    [data-slot='dropdown-menu-sub-trigger'],
+    [data-slot='select-item'],
+    [data-slot='combobox-item'],
+    [data-slot='command-item'],
+    [data-slot='navigation-menu-link'],
+    [data-slot='sidebar-menu-button']
+  ) {
+    min-height: calc(var(--spacing) * 11);
+  }
+
+  :is([data-slot='toggle-group-item'], [data-slot='input-otp-slot']) {
+    min-width: calc(var(--spacing) * 11);
+    min-height: calc(var(--spacing) * 11);
+  }
+
+  [data-slot='sidebar'] {
+    --sidebar-width-icon: calc(var(--spacing) * 15);
+  }
+
+  /* 折叠时分组标题透明并上移一行盖住上一组的底部，按钮加高后会挡住末项的下沿，不让它接收点按 */
+  [data-collapsible='icon'] [data-slot='sidebar-group-label'] {
+    pointer-events: none;
+  }
+}
+
+/*
+ * 复选框、开关、单选的视觉尺寸不变，粗指针下用透明伪元素把命中区以控件中心铺成 44×44；伪元素的点按归属于
+ * 宿主元素：复选框与开关是 Brain 内部带点击处理的 button，单选是指示器（点按冒泡到 Brain 的指示器容器）。
+ * 伪元素只扩控件本身，容器要按各轴的伸出量为它留出空间（16px 复选框每侧 14px），否则被裁掉或与邻近目标
+ * 互相覆盖：表格里含复选框的单元格在这里补末端内边距、表头补高，起始侧靠选择列已有的内边距；
+ * 列表行由使用方留足内边距与行高。
+ */
+@media (pointer: coarse) {
+  :is(
+    [data-slot='checkbox'] [role='checkbox'],
+    [data-slot='switch'] [role='switch'],
+    [data-slot='radio-group-indicator']
+  ) {
+    position: relative;
+  }
+
+  :is(
+    [data-slot='checkbox'] [role='checkbox'],
+    [data-slot='switch'] [role='switch'],
+    [data-slot='radio-group-indicator']
+  )::after {
+    content: '';
+
+    position: absolute;
+
+    /* 定宽定高再居中：用 inset 百分比反推会因布局取整差出零点几像素 */
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+
+    width: calc(var(--spacing) * 11);
+    height: calc(var(--spacing) * 11);
+  }
+
+  :is([data-slot='table-head'], [data-slot='table-cell']):has([role='checkbox']) {
+    padding-inline-end: calc(var(--spacing) * 3.5);
+  }
+
+  [data-slot='table-head']:has([role='checkbox']) {
+    height: calc(var(--spacing) * 11);
+  }
+}
+
+/*
+ * 侧栏当前项：Vega 已给 sidebar-accent 底色与 500 字重；再加一圈细描边，亮色下白底当前项才能与
+ * 同为浅色的悬停态区分开。
+ */
+[data-slot='sidebar-menu-button'][data-active='true'] {
+  box-shadow: 0 0 0 1px var(--sidebar-border);
+}
+
+/*
+ * 分段控件（ToggleGroup 默认变体）：灰色轨道里选中项浮起为底色 + 轻阴影，未选中的文字减弱——与 Spartan Tabs
+ * 列表同一写法，暗色同样取 input/30 底与 input 描边。选中靠底色、阴影与文字色三者区分，不用深色描边。
+ * sm 档项高收一档，整条轨道与旁边 h-8 的按钮等高（触屏下项与按钮都放大到 44px，轨道比按钮高出内边距）。描边（outline）变体保持官方样式。
+ */
+[data-slot='toggle-group'][data-variant='default'] {
+  @apply bg-muted rounded-lg p-0.5;
+}
+
+[data-slot='toggle-group-item'][data-variant='default'] {
+  @apply text-muted-foreground hover:bg-transparent hover:text-foreground;
+}
+
+[data-slot='toggle-group-item'][data-variant='default'][data-size='sm'] {
+  @apply h-7;
+}
+
+[data-slot='toggle-group-item'][data-variant='default'][data-state='on'] {
+  @apply bg-background text-foreground shadow-sm dark:border dark:border-input dark:bg-input/30;
+}
+
+/* Vega 的对话框与抽屉标题不设字号，会继承正文的 14px；恢复到卡片标题同档的 16px，与说明文字拉开层级。 */
+[data-slot='dialog-title'],
+[data-slot='sheet-title'] {
+  @apply text-base;
 }

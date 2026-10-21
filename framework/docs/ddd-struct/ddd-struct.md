@@ -1,28 +1,41 @@
 # DDD 四层基座
 
-构建中大型业务系统时，最难统一的不是某个框架，而是**分层约定**：实体基类放哪、仓储接口长什么样、应用服务怎么组织、分页结果怎么返回、领域事件何时发布、软删除怎么落地。各团队各写一套，代码就难以复用与维护。
-
-`ddd-struct` 提供一套按 **Domain / Application.Contracts / Application / Infrastructure** 四层划分的 DDD 基础类型：Domain 定义实体基类、仓储抽象与数据过滤器；Application.Contracts 提供应用服务标记接口、DTO 基类与分页约定；Application 提供应用服务基类与分页映射扩展；Infrastructure 基于 EF Core 落地仓储、提供审计/本地事件拦截器、软删除全局过滤。业务项目继承这些基类、调用 `AddDddInfrastructure()` 获得仓储自动注册与软删除全局过滤；**审计填充与领域事件发布依赖两个 SaveChanges 拦截器，需在配置 DbContext 时显式挂载**（见下方「挂载拦截器」）——这一步不可省略，否则审计字段不填充、领域事件不发布、软删除不由删转改。
+DDD 基座为 Domain、Application.Contracts、Application 和 Infrastructure 提供实体、仓储、数据过滤、DTO 与 EF Core 集成。
 
 ## 何时使用
 
-| 场景 | 引用的包 |
-| --- | --- |
-| 定义领域实体、仓储接口、数据过滤器（领域层代码） | `Leistd.Ddd.Domain` |
-| 定义应用服务契约、DTO、分页请求/结果 | `Leistd.Ddd.Application.Contracts` |
-| 编写应用服务、做分页结果的整体映射 | `Leistd.Ddd.Application` |
-| 用 EF Core 落地仓储、启用软删除全局过滤与本地事件发布、注册基础设施 | `Leistd.Ddd.Infrastructure` |
+| 层 | 包 | 主要能力 |
+| --- | --- | --- |
+| Domain | `Leistd.Ddd.Domain` | 实体、审计基类、仓储契约、数据过滤器 |
+| Application.Contracts | `Leistd.Ddd.Application.Contracts` | 应用服务契约、DTO、分页类型 |
+| Application | `Leistd.Ddd.Application` | 应用服务标记基类、分页映射 |
+| Infrastructure | `Leistd.Ddd.Infrastructure` | EF Core 仓储、DbContext 基类、过滤器和本地事件 |
 
-> 四层按依赖方向引用：Application 依赖 Application.Contracts 与 Domain，Infrastructure 依赖 Domain（并引用 `Leistd.Auditing.EntityFrameworkCore`、`Leistd.UnitOfWork.EfCore` 接入审计与工作单元）。业务项目通常每层各建一个工程，分别引用对应的 `Leistd.Ddd.*` 包。
+业务项目通常每层建立一个工程并只引用对应包，层间依赖为 Application → Application.Contracts → Domain。
+
+框架包本身：`Leistd.Ddd.Application` 只引用 `Application.Contracts` 与 `Leistd.ObjectMapping.Core`（分页映射需要 `IObjectMapper`）；
+`Application.Contracts` 不依赖映射组件；`Leistd.Ddd.Infrastructure` 依赖 `Domain`。
+
+### DbContext 显式接入
+
+每个注册过的 DbContext 都要调用一次 `AddDddDbContext<TDbContext>()`，完整写法见[注册](#注册)。
+
+漏掉的上下文不受租户过滤器闸门检查。装了 `DynamicProxyServiceRegistrationCallbackFactory` 时，漏写在构建容器时失败；
+不装则框架查不出漏登记。不需要仓储的上下文调用无参重载即可。框架不扫描容器自动发现上下文。
+
+默认仓储只给聚合根：实体来源是公开的 `DbSet<T>` 声明中实现 `IAggregateRoot` 的类型。子实体可以声明 `DbSet`
+让表名走命名约定，不会得到仓储，只能经根修改。只经 `modelBuilder` 映射的聚合根用 `AddDefaultRepository<TEntity>()`
+点名，或用 `AddRepository<TEntity, TImpl>()` 指定自定义实现。
+
+同一实体被两个上下文各注册一次时抛异常；同一上下文以相同选项重复登记不会抛，也不会多出注册。
+
+### 应用服务基类
+
+`BaseAppService`（`Leistd.Ddd.Application.AppServices`）当前只实现
+`IAppService`（`Leistd.Ddd.Application.Contracts.AppServices`）标记，不参与注册或织入；服务仍需显式注册，
+横切行为由特性和拦截器提供。派生服务的依赖应保留在构造函数中，不通过 `IServiceProvider` 隐藏。
 
 ## 安装
-
-| 包 | 层 | 提供什么 |
-| --- | --- | --- |
-| `Leistd.Ddd.Domain` | Domain | `Entity`/`Entity<TKey>` 实体基类、审计实体基类、`IRepository<TEntity[,TKey]>` 仓储接口、`IDataFilter[<TFilter>]` 数据过滤器 |
-| `Leistd.Ddd.Application.Contracts` | Application.Contracts | `IAppService` 标记接口、`EntityDto[<TKey>]`、`PagedRequestDto`、`PagedResultDto<T>` |
-| `Leistd.Ddd.Application` | Application | `BaseAppService` 应用服务基类、`IApplicationService` 标记接口、`ObjectMapperExtensions.MapPagedResult` 分页映射扩展 |
-| `Leistd.Ddd.Infrastructure` | Infrastructure | `AddDddInfrastructure()` DI 入口、`EfCoreRepository<...>`、`BaseDbContext`、`LocalEventSaveChangesInterceptor`、`ModelBuilderExtensions` |
 
 ```bash
 dotnet add package Leistd.Ddd.Domain
@@ -31,239 +44,258 @@ dotnet add package Leistd.Ddd.Application
 dotnet add package Leistd.Ddd.Infrastructure
 ```
 
-> 本仓库的模板项目通过中央包管理（CPM）统一版本，添加时无需写版本号。
+## 注册
 
-> **本文档覆盖四层整体基座**（4 个 `Leistd.Ddd.*` 包共用这一份，讲清四层如何协作）。若你只安装了其中的子集，按上表对应你装的包阅读相应内容即可——特别地，**「注册基础设施」「挂载拦截器」「软删除全局过滤」「本地事件发布」等运行时装配内容属 `Leistd.Ddd.Infrastructure` 专属**（并需 `Leistd.Auditing.EntityFrameworkCore`），只装 Domain/Application(.Contracts) 的项目用不到这些节。各节标题已标注所属包。
+注册基础设施、每个 DbContext 和所需拦截器：
+
+```csharp
+// 拦截器织入与漏登记校验依赖此工厂。
+builder.Host.UseServiceProviderFactory(new DynamicProxyServiceRegistrationCallbackFactory());
+
+builder.Services.AddDddInfrastructure(options =>
+{
+    options.IsTransactional = true;
+});
+
+builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+
+// 每个 DbContext 显式登记一次；不需要仓储时用无参重载。
+builder.Services.AddDddDbContext<AppDbContext>(o => o.AddDefaultRepositories());
+builder.Services.AddDddDbContext<ControlPlaneDbContext>();
+```
+
+`AddDddInfrastructure()` 注册工作单元、本地事件总线、EF Core 支持和数据过滤器，工作单元选项绑定 `Leistd:UnitOfWork` 配置节，传入的委托在绑定之后应用；仓储由 `AddDddDbContext<TDbContext>()` 按上下文显式注册。登记派生自 `BaseDbContext` 的上下文时，它经官方 `ConfigureDbContext<TDbContext>` 挂载三个保存拦截器（与 `AddDbContext` 的先后无关，重复登记不会挂第二层）：
+
+- `AuditSaveChangesInterceptor`：修改/删除审计与软删除转换。
+- `LocalEventSaveChangesInterceptor`：收集并发布实体本地事件。
+- `ConcurrencyStampSaveChangesInterceptor`：配置并换发乐观并发标记。
+
+不继承 `BaseDbContext` 的上下文不挂载。控制面上下文若只需审计，在 `AddDbContext` 中单独添加 `AuditSaveChangesInterceptor`。拦截器按作用域解析，因此不支持 DbContext 池与默认（单例）生命周期的 `AddDbContextFactory`：其选项为单例，解析拦截器与 `BaseDbContext` 所用的都是根容器。
 
 ## 使用
 
-### 定义实体（Domain）
-
-继承审计实体基类获得创建/修改/软删除审计字段（由 `Leistd.Auditing.EntityFrameworkCore` 的拦截器在保存时填充，业务代码不手动赋值——前提是该拦截器已按「挂载拦截器」小节挂到 DbContext）；通过 `AddLocalEvent` 登记领域事件：
+### 定义实体与本地事件
 
 ```csharp
-public class Order : FullAuditedEntity<Guid>   // 创建+修改+软删除审计
+public class Order : FullAuditedEntity<Guid>, IAggregateRoot<Guid>
 {
-    public string CustomerName { get; private set; } = default!;
+    public string CustomerName { get; private set; } = string.Empty;
 
     private Order() { }
 
     public Order(Guid id, string customerName) : base(id)
     {
         CustomerName = customerName;
-        AddLocalEvent(new OrderCreatedEvent(id));  // 随 SaveChanges 自动发布
+        AddLocalEvent(new OrderCreatedEvent(id));
     }
 }
 ```
 
-### 通过仓储读写（IRepository 接口属 Domain；自动注册与 EF 实现属 Leistd.Ddd.Infrastructure）
+审计字段由基础设施填充，业务代码不手动赋值。创建审计在实体进入跟踪时落定，修改与删除审计在保存时落定；详见[审计组件](../components/auditing.md)。
+
+### 通过仓储读写
 
 ```csharp
-public class OrderManager(IRepository<Order, Guid> orderRepository)
+public class OrderManager(IRepository<Order, Guid> repository)
 {
-    public async Task<Order?> GetAsync(Guid id, CancellationToken ct = default)
-        => await orderRepository.GetByIdAsync(id, ct);
+    public Task<Order?> GetAsync(Guid id, CancellationToken ct = default)
+        => repository.GetByIdAsync(id, ct);
 
-    public async Task<Order> CreateAsync(Order order, CancellationToken ct = default)
-        => await orderRepository.InsertAsync(order, ct);
-
-    public async Task<IEnumerable<Order>> SearchAsync(string keyword, CancellationToken ct = default)
-        => await orderRepository.GetListAsync(o => o.CustomerName.Contains(keyword), ct);
+    public Task<Order> CreateAsync(Order order, CancellationToken ct = default)
+        => repository.InsertAsync(order, ct);
 }
 ```
 
-### 应用服务与分页结果（Application.Contracts + Application）
+仓储写入在工作单元内延迟到统一提交，在工作单元外立即调用 `SaveChangesAsync`。`GetByIdAsync` 使用过滤查询而非 `FindAsync`，不会绕过软删除或租户隔离。
+
+唯一索引等约束冲突在冲刷时才抛出，不在 `InsertAsync` 抛出；工作单元内要就地处理并发首次写入，先
+`IUnitOfWork.SaveChangesAsync`（见[工作单元](../components/unit-of-work.md#在事务内提前冲刷)）：
 
 ```csharp
-public class OrderAppService(IRepository<Order, Guid> repo, IObjectMapper mapper)
-    : BaseAppService, IAppService
+// 错：catch 永不触发
+try { await repository.InsertAsync(entity, ct); }
+catch (DbUpdateException) { /* 死代码 */ }
+
+// 对：先冲刷，冲刷才是抛出点
+await repository.InsertAsync(entity, ct);
+try { await unitOfWorkManager.Current!.SaveChangesAsync(ct); }
+catch (DbUpdateException) { /* 这里才捕获得到 */ }
+```
+
+### 自定义仓储接口
+
+同一聚合的专属查询被多个用例复用时，在 Domain 声明派生自 `IRepository<TEntity, TKey>` 的接口，在 Infrastructure 继承 `EfCoreRepository<TDbContext, TEntity, TKey>` 实现，再用 `AddRepository<TEntity, TImpl>()` 登记。只被一个用例使用的查询直接经 `GetQueryableAsync` 写在用例里，不必为它新增接口。
+
+```csharp
+// Domain
+public interface IOrderRepository : IRepository<Order, Guid>
 {
-    public async Task<PagedResultDto<OrderDto>> GetListAsync(PagedRequestDto input, CancellationToken ct = default)
+    Task<List<Order>> GetByCustomerAsync(string customerName, CancellationToken ct = default);
+}
+
+// Infrastructure
+public class OrderRepository(IDbContextProvider<AppDbContext> dbContextProvider, IUnitOfWorkManager uow)
+    : EfCoreRepository<AppDbContext, Order, Guid>(dbContextProvider, uow), IOrderRepository
+{
+    public async Task<List<Order>> GetByCustomerAsync(string customerName, CancellationToken ct = default)
     {
-        var total = await repo.CountAsync(cancellationToken: ct);
-        var items = await repo.GetListAsync(cancellationToken: ct);
-        var source = new PagedResultDto<Order>(total, items);
-        return mapper.MapPagedResult<Order, OrderDto>(source);  // 分页整体映射
+        var orders = await GetDbSetAsync(ct);
+        return await orders.Where(x => x.CustomerName == customerName).ToListAsync(ct);
     }
+}
+
+// 注册：IOrderRepository、IRepository<Order>、IRepository<Order, Guid> 都解析到 OrderRepository
+builder.Services.AddDddDbContext<AppDbContext>(o => o
+    .AddDefaultRepositories()
+    .AddRepository<Order, OrderRepository>());
+```
+
+实现类上派生自 `IRepository<TEntity>` 的自定义接口与默认接口一起按 Scoped 注册。相同登记重复调用不重复生效；同一接口登记另一个实现时抛 `InvalidOperationException`，先登记的实现保持不变。
+
+### 分页映射
+
+```csharp
+var source = new PagedResult<Order>(total, orders);
+return mapper.MapPagedResult<Order, OrderDto>(source);
+```
+
+`PageRequest` 默认 `Offset = 0`、`Limit = 10`，上限为 1000。`Sorting` 的可用字段应由具体应用服务校验。
+
+### 临时关闭数据过滤器
+
+```csharp
+using (dataFilter.Disable<ISoftDelete>())
+{
+    return await repository.GetListAsync();
 }
 ```
 
-### 临时禁用软删除过滤器（Domain）
+`IDataFilter` 基于嵌套作用域恢复先前状态。多租户过滤可使用 `Disable<IMultiTenant>()` 独立关闭。
+
+### 定义 DbContext
 
 ```csharp
-public class OrderReportService(IDataFilter dataFilter, IRepository<Order, Guid> repo)
-{
-    public async Task<IEnumerable<Order>> GetAllIncludingDeletedAsync()
-    {
-        using (dataFilter.Disable<ISoftDelete>())   // 作用域内查询包含已软删除数据
-        {
-            return await repo.GetListAsync();
-        }
-    }
-}
-```
-
-### 注册基础设施（Program.cs · Leistd.Ddd.Infrastructure）
-
-```csharp
-// 注册 DDD 基础设施：UnitOfWork + EF Core 支持 + 自动仓储注册 + DataFilter
-builder.Services.AddDddInfrastructure();
-
-// 可选：配置 UnitOfWork 选项
-builder.Services.AddDddInfrastructure(uow =>
-{
-    // 在此配置 UnitOfWorkOptions
-});
-```
-
-### 挂载拦截器（必需 · Leistd.Ddd.Infrastructure + Leistd.Auditing.EntityFrameworkCore）
-
-`AddDddInfrastructure()` 只把 `AuditSaveChangesInterceptor` 与 `LocalEventSaveChangesInterceptor` 注册为**可解析的服务**，**不会**自动挂到任何 DbContext 上。必须在配置 DbContext 时从容器解析并显式 `AddInterceptors`：
-
-```csharp
-builder.Services.AddDbContext<AppDbContext>((sp, options) =>
-{
-    options.UseNpgsql(connectionString);   // 或其它 provider
-
-    // ⚠️ 必须显式挂载这两个拦截器，否则：
-    //   - 审计字段（CreationTime/CreatorId…）不会填充
-    //   - 实体 AddLocalEvent 登记的领域事件不会随保存发布
-    //   - 软删除不会由物理删除自动转为逻辑删除
-    options.AddInterceptors(
-        sp.GetRequiredService<AuditSaveChangesInterceptor>(),
-        sp.GetRequiredService<LocalEventSaveChangesInterceptor>());
-});
-```
-
-> 若领域事件"未触发订阅"、审计字段全为空，几乎都是漏了这一步。拦截器由消费方挂载是 EF Core 的推荐做法（框架不代持/代挂业务的 DbContext）。
-
-### DbContext 基类与软删除运行时开关（Leistd.Ddd.Infrastructure）
-
-派生 DbContext 继承 `BaseDbContext`。若需在运行时用 `IDataFilter.Disable<ISoftDelete>()` **临时关闭软删除过滤**（见下文），DbContext 必须选用**接收 `IServiceProvider` 的构造函数重载**并把它传给 `base`：
-
-```csharp
-public class AppDbContext(DbContextOptions<AppDbContext> options, IServiceProvider serviceProvider)
-    : BaseDbContext(options, serviceProvider)   // 传入 sp，Disable<ISoftDelete>() 才对本 DbContext 生效
+public class AppDbContext(
+    DbContextOptions<AppDbContext> options,
+    IServiceProvider serviceProvider)
+    : BaseDbContext(options, serviceProvider)
 {
     public DbSet<Order> Orders => Set<Order>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void ConfigureModel(ModelBuilder modelBuilder)
     {
-        base.OnModelCreating(modelBuilder);      // 保留 base：套用软删除全局过滤器
-        modelBuilder.Entity<Order>(b =>
-        {
-            b.ConfigureByConvention();           // 按约定配置审计者 ID 列长度（HasMaxLength(64)）
-            // …其余 Fluent 配置
-        });
+        modelBuilder.ConfigurePermissionAuthorization();
     }
 }
 ```
 
-> 若使用**不带 `IServiceProvider`** 的构造函数，`IsSoftDeleteFilterEnabled` 恒为 `true`，`Disable<ISoftDelete>()` 对该 DbContext 无效（查询仍会过滤已删数据）。
+`BaseDbContext.OnModelCreating` 与 `ConfigureConventions` 已封闭；派生类覆盖 `ConfigureModel` 配置实体、覆盖 `ConfigureModelConventions` 追加模型约定（如枚举统一存为字符串）。基类在派生配置完成后为已进入模型的非 owned 根实体（含未声明 `DbSet` 的组件实体）添加命名过滤器，使用数据 EF 组件的建模原语；owned 与派生类型沿所属查询根的过滤规则加载。
+
+基类分别登记 `AuditingEntityConvention`（审计人字段最长 64）与 `DddEntityConvention`（[乐观并发标记](#乐观并发标记)）。两者采用约定来源，Fluent 配置与数据注解优先。普通上下文只需审计时登记审计约定；另需 DDD 并发标记时再登记 DDD 约定，详见[审计组件](../components/auditing.md)。
+
+需要审计、租户上下文或运行时过滤开关时，DbContext 必须接收 `IServiceProvider` 并传给基类。否则它固定为宿主视角，创建审计与 `IDataFilter` 作用域均无法生效。
+
+软删除与租户过滤器分别命名为 `SoftDelete` 和 `MultiTenant`，同时命中时以 AND 叠加。注册了 `ICurrentTenant` 后，启动检查会拒绝任何未带 `MultiTenant` 过滤器的非 owned 根 `IMultiTenant` 实体。
 
 ## 接口参考
 
-### Leistd.Ddd.Domain
-
-实体（`Leistd.Ddd.Domain.Entities`）：
-
-| 成员 | 说明 |
+| 包 | 关键类型 |
 | --- | --- |
-| `IEntity` | 实体标记接口；`GetKeys()` 返回主键数组 |
-| `IEntity<TKey>` | 带主键的实体接口，继承 `IEntity`，含 `Id` |
-| `Entity` | 实体抽象基类（`[Serializable]`），实现 `IEntity`；`AddLocalEvent(ILocalEvent)`（`protected`）登记本地事件；`GetLocalEvents()` 返回只读事件集合；`ClearLocalEvents()` 清空事件——后两者标注仅供 `BaseDbContext`/拦截器使用。**未重写 `Equals`/`GetHashCode`：实体走引用相等，若需按主键值相等由业务自行实现** |
-| `Entity<TKey>` | 带主键的实体基类，继承 `Entity` 并实现 `IEntity<TKey>`；`Id` 为 `virtual`、`protected set`；`GetKeys()` 返回 `[Id]` |
+| `Leistd.Ddd.Domain` | `Entity<TKey>`、审计实体基类、`IRepository<TEntity, TKey>` |
+| `Leistd.Ddd.Application.Contracts` | `AppServices.IAppService`、`EntityDto<TKey>`、`PageRequest`、`PagedResult<T>` |
+| `Leistd.Ddd.Application` | `AppServices.BaseAppService`、`MapPagedResult<TSource, TDestination>` |
+| `Leistd.Ddd.Infrastructure` | `AddDddInfrastructure`、`AddDddDbContext`、`BaseDbContext`、`DddEntityConvention`、`EfCoreRepository` |
 
-审计实体（`Leistd.Ddd.Domain.Entities.Auditing`，审计接口 `ICreationAuditedObject` 等来自 `Leistd.Auditing` 组件）：
+`IRepository<TEntity>` 提供查询、计数、存在性与批量写入；带主键的接口另提供按 Id 读取和删除。数据过滤端口与异步查询端口由[数据组件](../components/data.md)提供：`Leistd.Data.Filters.IDataFilter`、`Leistd.Data.Querying.IQueryableAsyncExecuter`。DDD 基础设施组合其注册与可选 EF 执行器。
 
-| 成员 | 说明 |
-| --- | --- |
-| `CreationAuditedEntity[<TKey>]` | 实现 `ICreationAuditedObject`：`CreatorId`（`string?`）、`CreationTime` |
-| `ModificationAuditedEntity[<TKey>]` | 继承 `CreationAuditedEntity[<TKey>]`，实现 `IModificationAuditedObject`：`LastModifierId`（`string?`）、`LastModificationTime`（`DateTime?`） |
-| `DeletionAuditedEntity[<TKey>]` | 继承 `ModificationAuditedEntity[<TKey>]`，实现 `IDeletionAuditedObject`：`IsDeleted`、`DeleterId`（`string?`）、`DeletionTime`（`DateTime?`） |
-| `FullAuditedEntity[<TKey>]` | 继承 `DeletionAuditedEntity[<TKey>]`，实现 `IFullAuditedObject`（聚合创建+修改+删除审计），无新增成员，最常用 |
+EF 仓储的所有读方法均经 `GetQueryableAsync`：覆写可追加 Where、Include 或拆分查询，必须保留原实体身份和跟踪，不投影或使用 AsNoTracking。Count/Any 使用相同筛选，由 provider 执行标量而不物化关联。普通读取不自动加载业务关联，具体仓储按需要显式追加。
 
-> 上述属性均为 `virtual`、`protected set`——业务代码不能直接赋值，由 Infrastructure 层的审计拦截器写入。
+写入使用原始 DbSet。按 Id 删除先经读入口查找，受自定义读筛选影响；按条件或主键集合批量删除使用原始集合，仅受全局过滤器影响。
 
-仓储（`Leistd.Ddd.Domain.Repositories`）：
-
-| 成员 | 说明 |
-| --- | --- |
-| `IRepository` | 空标记接口，所有仓储的公共基接口 |
-| `IRepository<TEntity>` | 无主键仓储：`GetQueryableAsync`、`GetOneAsync`（谓词命中多条抛异常）、`GetFirstAsync`（可选 `orderBy`）、`GetListAsync`（谓词为 `null` 表示全量）、`CountAsync`/`AnyAsync`（谓词可选）、`InsertAsync`/`InsertManyAsync`、`UpdateAsync`/`UpdateManyAsync`、`DeleteAsync`/`DeleteManyAsync`（含按谓词批量删除重载） |
-| `IRepository<TEntity, TKey>` | 继承 `IRepository<TEntity>`，额外提供 `GetByIdAsync(id)`、按 `TKey` 的 `DeleteAsync`/`DeleteManyAsync` |
-| `BaseRepository<TEntity>` | 实现 `IRepository<TEntity>` 的抽象基类，方法均为 `abstract`，供 Infrastructure 实现 |
-| `IQueryableAsyncExecuter` | 把 `IQueryable` 的异步执行（`ToListAsync`/`CountAsync`/`LongCountAsync`/`FirstOrDefaultAsync`/`SingleOrDefaultAsync`/`AnyAsync`）从领域层接口中解耦出来，避免领域层直接依赖 EF Core |
-
-数据过滤器（`Leistd.Ddd.Domain.DataFilters`）：
-
-| 成员 | 说明 |
-| --- | --- |
-| `IDataFilter<TFilter>` | 单一过滤器开关：`Disable()`/`Enable()` 返回 `IDisposable`（释放时恢复状态）；`IsEnabled` 只读 |
-| `IDataFilter` | 非泛型版本，按 `TFilter` 类型动态操作，方法签名与泛型版一致但带类型参数 |
-
-### Leistd.Ddd.Application.Contracts
-
-| 成员 | 说明 |
-| --- | --- |
-| `IAppService`（`Leistd.Ddd.Application.Contracts.AppService`） | 应用服务空标记接口 |
-| `EntityDto<TKey>`（`Leistd.Ddd.Application.Contracts.Dtos`） | DTO 抽象 record 基类，`required TKey Id { get; init; }` |
-| `EntityDto`（同上） | 继承 `EntityDto<Guid>`，即默认 `Guid` 主键的 DTO 基类 |
-| `PagedRequestDto`（同上） | 分页请求 record：`Offset`（默认 0）、`Limit`（默认 10，常量 `DefaultLimit`）、`Sorting`（`string?`） |
-| `PagedResultDto<T>`（同上） | 分页结果 record：`TotalCount`（`long`）+ 只读 `Items`（`IReadOnlyList<T>`）；提供接受 `IEnumerable<T>` 的构造函数，**`items` 为 `null` 时不抛异常，而是回退为 `ReadOnlyCollection<T>.Empty`** |
-
-### Leistd.Ddd.Application
-
-| 成员 | 说明 |
-| --- | --- |
-| `BaseAppService`（`Leistd.Ddd.Application.AppService`） | 应用服务抽象基类，当前无成员 |
-| `IApplicationService`（`Leistd.Ddd.Application.Services`） | 应用服务空标记接口（与 Contracts 层的 `IAppService` 是两个不同的空标记接口） |
-| `ObjectMapperExtensions.MapPagedResult<TSource,TDestination>`（`Leistd.Ddd.Application.Extensions`） | 对 `PagedResultDto<TSource>` 做整体映射：内部调用 `IObjectMapper` 的 `MapList` 映射 `Items`，`TotalCount` 原样带过；`mapper` 或 `pagedSource` 为 `null` 时抛 `ArgumentNullException` |
-
-### Leistd.Ddd.Infrastructure
-
-| 成员 | 说明 |
-| --- | --- |
-| `AddDddInfrastructure(configureUnitOfWork?)`（`Leistd.Ddd.Infrastructure.DependencyInjection`） | 注册基础设施的唯一 DI 入口 |
-| `BaseDbContext`（`Leistd.Ddd.Infrastructure.Persistence`） | DbContext 抽象基类，`OnModelCreating` 自动为 `ISoftDelete` 套用全局查询过滤器 |
-| `EfCoreRepository<TDbContext, TEntity>`（`Leistd.Ddd.Infrastructure.Persistence.Repositories`） | 继承 `BaseRepository<TEntity>` 的 EF Core 仓储实现，写操作后调用 `SaveChangesIfNeededAsync` |
-| `EfCoreRepository<TDbContext, TEntity, TKey>` | 继承上者并实现 `IRepository<TEntity, TKey>`；额外提供 `GetByIdAsync`（`FindAsync`）、按 `TKey` 的 `DeleteAsync`/`DeleteManyAsync`；`TKey` 约束为 `IEquatable<TKey>` |
-| `EfCoreQueryableAsyncExecuter`（同命名空间） | `IQueryableAsyncExecuter` 的 EF Core 实现，直接转调 `EntityFrameworkQueryableExtensions` 对应方法 |
-| `LocalEventSaveChangesInterceptor`（`Leistd.Ddd.Infrastructure.EventBus`） | 继承 `SaveChangesInterceptor`，见[实现行为](#实现行为) |
-| `ModelBuilderExtensions.ConfigureByConvention<TEntity>`（`Leistd.Ddd.Infrastructure.Persistence.Extensions`） | 按约定为实现 `ICreationAuditedObject`/`IModificationAuditedObject`/`IDeletionAuditedObject` 的实体配置对应审计者 ID 列的最大长度 |
-| `ModelBuilderExtensions.ApplyGlobalFilters<TInterface>` | 为所有实现 `TInterface` 的**根实体类型**（`BaseType == null`，不含继承实体）批量应用全局查询过滤器表达式 |
-| `RepositoryExtensions.GetQueryIncludingAsync<TEntity,TKey>`（`Leistd.Ddd.Infrastructure.Persistence.Repositories`） | 在 `IRepository<TEntity,TKey>.GetQueryableAsync` 基础上按传入的属性选择器依次 `Include` 导航属性 |
+审计实体层次为 `CreationAuditedEntity<TKey>` → `ModificationAuditedEntity<TKey>` → `DeletionAuditedEntity<TKey>`；`FullAuditedEntity<TKey>` 聚合创建、修改与删除审计契约。
 
 ## 实现行为
 
-### Leistd.Ddd.Infrastructure（EF Core 落地）
+- `AddDddDbContext<TDbContext>(o => o.AddDefaultRepositories())` 扫描该上下文的 public `DbSet<>` 属性，为其中的聚合根注册 Scoped 仓储；不传选项即只登记上下文、不注册仓储。未声明 `DbSet<>` 的聚合根用 `AddDefaultRepository<TEntity>()` 点名。
+- `LocalEventSaveChangesInterceptor` 在保存前收集并清空实体事件，保存成功后加入当前工作单元；无工作单元时直接发布。保存失败会丢弃本次收集。
+- 使用同步 `SaveChanges()` 时，本地事件发布需要 sync-over-async 并记录 Warning；应优先使用 `SaveChangesAsync()`。
+- 全局过滤器只应用于 EF Core 模型中的非 owned 根实体类型，派生实体不重复添加，owned 不设置独立过滤器。
 
-- **仓储自动注册**：`AddDddInfrastructure` 通过 `OnServiceRegistered` 钩子，在容器构建时对每个非抽象、非 `DbContext` 本身的已注册 `DbContext` 类型，反射扫描其所有 `DbSet<>` 属性，对属性对应的实体类型注册 `IRepository<TEntity>`（Scoped，实现 `EfCoreRepository<TDbContext,TEntity>`）；若实体实现 `IEntity<TKey>`，额外注册 `IRepository<TEntity,TKey>`（实现 `EfCoreRepository<TDbContext,TEntity,TKey>`）。业务侧无需逐个手工注册仓储。
-- **写操作的智能保存**：`EfCoreRepository<TDbContext,TEntity>` 的所有写方法（`InsertAsync`/`InsertManyAsync`/`UpdateAsync`/`UpdateManyAsync`/`DeleteAsync`/`DeleteManyAsync`）在完成 EF 操作后统一调用 `protected SaveChangesIfNeededAsync`：**若 `Uow.Current != null`（当前处于 UnitOfWork 内）则直接返回、不立即保存**，交由工作单元统一提交；**否则立即 `await dbContext.SaveChangesAsync()`**。`GetByIdAsync`（`TKey,TKey` 重载）使用 EF `FindAsync`，可命中已被追踪的实体。
-- **本地事件收集与发布**（`LocalEventSaveChangesInterceptor`）：
-  - **收集**发生在 `SavingChanges`/`SavingChangesAsync`（保存前），此时实体状态仍为 `Added`/`Modified`/`Deleted`——从 `ChangeTracker.Entries<Entity>()` 中筛出这三种状态的实体、调用其 `GetLocalEvents()` 收集事件后立即 `ClearLocalEvents()`，按 `DbContext` 实例暂存到 `ConditionalWeakTable`（避免持有 `DbContext` 引用导致泄漏，天然隔离并发的不同 `DbContext`）。若在保存后（`SavedChanges`）才收集，EF Core 此时已把实体状态置为 `Unchanged`，会被状态过滤器漏掉、导致事件丢失——这正是该拦截器把收集和发布拆成两个阶段的原因。
-  - **发布**发生在 `SavedChanges`/`SavedChangesAsync`（保存成功后）：取出该 `DbContext` 暂存的事件列表；若存在 `IUnitOfWorkManager.Current`（当前处于 UnitOfWork），调用 `currentUow.AddPendingEvents(localEvents)` 加入工作单元的待发布队列（随事务提交发布）；否则（无 UnitOfWork）直接经 `ILocalEventBus.PublishAsync` 逐个发布——异步路径 `await` 逐个发布，同步路径（`SaveChanges` 而非 `SaveChangesAsync`）用 `GetAwaiter().GetResult()` 阻塞发布并记录一条 `LogWarning`（同步发布本地事件属于 sync-over-async 风险路径）。
-  - **保存失败**（`SaveChangesFailed`/`SaveChangesFailedAsync`）会从暂存表中丢弃本次收集的事件，避免残留到下一次保存周期。
-- **软删除全局过滤**：`BaseDbContext.OnModelCreating` 调用 `modelBuilder.ApplyGlobalFilters<ISoftDelete>(...)`，过滤表达式为 `!IsSoftDeleteFilterEnabled || !e.IsDeleted`——过滤器被禁用时该表达式恒为 `true`（不过滤，可见已删除数据），启用时只返回未删除数据。`IsSoftDeleteFilterEnabled` 读取 `IDataFilter.IsEnabled<ISoftDelete>()`；若 `BaseDbContext` 构造时未传入 `IServiceProvider`，则默认视为**已启用**（过滤生效）。
-- **审计字段自动填充**（由 `Leistd.Auditing.EntityFrameworkCore` 的 `AuditSaveChangesInterceptor` 提供，Infrastructure 层通过 `AddAuditingEfCore()` 一并注册）：在 `SavingChanges` 阶段按 `ChangeTracker.Entries()` 的状态调用 `IAuditPropertySetter`——`Added` 设置创建属性；`Modified` 且实体是 `ISoftDelete { IsDeleted: true }` 时跳过（避免与删除审计重复设置）否则设置修改属性；`Deleted` 且实体实现 `ISoftDelete` 时，把状态由 `Deleted` 改为 `Modified` 并设置删除属性——即**物理删除自动转换为逻辑删除**。
+## 建模原语
 
-### Leistd.Ddd.Domain（数据过滤器）
+### 聚合根
 
-- `DataFilter<TFilter>` 用 `AsyncLocal<FilterState>` 内含 `Stack<bool>` 保存启用状态，支持嵌套 `Disable`/`Enable`：栈为空时 `IsEnabled` 默认返回 `true`（默认启用）；`Disable()`/`Enable()` 入栈对应值并返回一个 `DisposeAction`，`Dispose()` 时出栈恢复上一层状态。非泛型 `DataFilter` 用 `ConcurrentDictionary<Type, object>` 按 `TFilter` 类型缓存并委托到对应的 `IDataFilter<TFilter>` 实例（通过 `IServiceProvider.GetRequiredService` 解析）。
+```csharp
+public class Order : FullAuditedEntity<Guid>, IAggregateRoot<Guid>;
+```
+
+`IAggregateRoot<TKey>` 可与实体或审计基类组合；该标记本身不限制仓储泛型。
+
+### 值对象
+
+```csharp
+public sealed class Money : ValueObject
+{
+    public decimal Amount { get; }
+    public string Currency { get; }
+
+    public Money(decimal amount, string currency)
+    {
+        Amount = amount;
+        Currency = currency.ToUpperInvariant();
+    }
+
+    protected override IEnumerable<object?> GetAtomicValues()
+    {
+        yield return Amount;
+        yield return Currency;
+    }
+}
+```
+
+`ValueObject` 按严格运行时类型与 `GetAtomicValues()` 结果实现相等、哈希和运算符。所有字段都参与相等且无构造不变量时，直接使用 `record`；需要排除派生字段或防止 `with` 绕过构造校验时使用本基类。
+
+### 乐观并发标记
+
+```csharp
+public class Document : Entity<Guid>, IHasConcurrencyStamp
+{
+    public string ConcurrencyStamp { get; set; } = ConcurrencyStamps.New();
+}
+```
+
+`DddEntityConvention` 将该属性配置为必填、最长 40 的并发令牌。`ConcurrencyStampSaveChangesInterceptor` 在新增时补种空值，在修改时换发；并发更新的落败方收到 `DbUpdateConcurrencyException`。
+
+断开连接更新时，应将客户端回传的标记设置为 EF Core `OriginalValue`。
+
+## 迁移快照检查
+
+模型约定和组件实体配置随框架版本变化。更新框架后核对迁移快照与当前模型一致；不一致时真实库上执行迁移会失败，InMemory 测试察觉不到。
+
+在测试中经设计时工厂检查，不连库、不装 `dotnet-ef`：
+
+```csharp
+[Fact]
+public void The_migration_snapshot_matches_the_model()
+{
+    using var dbContext = new AppDbContextFactory().CreateDbContext([]);
+    Assert.False(dbContext.Database.HasPendingModelChanges());
+}
+```
+
+或在命令行执行 `dotnet ef migrations has-pending-model-changes --context AppDbContext`。有差异时用 `dotnet ef migrations add` 生成迁移。
 
 ## 注意事项
 
-- **软删除是默认行为**：对实现 `ISoftDelete` 的实体调用 `DeleteAsync`，`AuditSaveChangesInterceptor` 会把物理删除转换为逻辑删除（`IsDeleted = true`），查询默认经全局过滤器看不到这些记录；需要时用 `IDataFilter.Disable<ISoftDelete>()` 在作用域内临时关闭过滤器。
-- **拦截器必须显式挂载**：`AuditSaveChangesInterceptor` 与 `LocalEventSaveChangesInterceptor` 不会被 `AddDddInfrastructure()` 自动挂到 DbContext，必须在配置 DbContext 时 `AddInterceptors`（见「挂载拦截器」）；漏挂会导致审计不填充、领域事件不发布、软删除不转换，且**不报错、静默失效**。
-- 审计字段（创建/修改/删除时间与操作者）均为 `virtual`、`protected set`，由 `Leistd.Auditing.EntityFrameworkCore` 的拦截器在保存时填充，业务代码不要手动赋值；脱离 Infrastructure 层（如纯领域单测直接 `new` 实体）不会写入审计值。
-- 仓储写操作在 UnitOfWork 内**不会立即落库**——`Uow.Current != null` 时 `SaveChangesIfNeededAsync` 直接返回，依赖工作单元统一提交；脱离 UnitOfWork 调用仓储写方法时才会立即 `SaveChangesAsync`。
-- 本地事件请通过实体的 `AddLocalEvent`（`protected`，只能在实体内部调用）登记；`GetLocalEvents()`/`ClearLocalEvents()` 仅供拦截器使用，业务代码不应直接调用。同步 `SaveChanges()` 发布本地事件会记录 sync-over-async 警告，建议始终使用 `SaveChangesAsync()`。
-- 仓储自动注册依赖 `DbContext` 暴露 `public` 的 `DbSet<>` 属性；未声明为 `DbSet<>` 的实体不会被自动注册仓储。
-- 全局查询过滤器（`ApplyGlobalFilters`）只应用于**根实体类型**（EF Core 模型中 `BaseType == null`），继承体系中的派生实体类型不会被单独处理。
-- 应用服务标记接口有两个、彼此独立：Application.Contracts 层的 `Leistd.Ddd.Application.Contracts.AppService.IAppService` 与 Application 层的 `Leistd.Ddd.Application.Services.IApplicationService`，均为空标记接口，未见二者存在继承关系。
-- `PagedResultDto<T>` 的 `IEnumerable<T>` 构造函数对 `null` 是**容错**的（回退为空集合），而 `ObjectMapperExtensions.MapPagedResult` / `MapList` 对 `null` 参数是**抛异常**的（`ArgumentNullException`）——两处 null 处理策略不同，使用时注意区分。
+- 业务 DbContext 必须继承 `BaseDbContext` 并经 `AddDddDbContext<TDbContext>()` 登记；否则修改/删除审计、软删除转换、本地事件与并发标记都不生效。
+- 实现 `ISoftDelete` 的实体在删除时转为逻辑删除，查询默认不可见；临时读取使用 `IDataFilter.Disable<ISoftDelete>()`。
+- `AddLocalEvent` 只由实体内部调用；`GetLocalEvents()` 与 `ClearLocalEvents()` 仅供基础设施使用。
+- `PagedResult<T>` 将 `null` items 视为空集合；`MapPagedResult` 对空 mapper 或 source 抛 `ArgumentNullException`。
+- Entity 默认使用引用相等；需要按主键值相等时由业务类型明确实现。
 
 ## 相关
 
-- [组件总览](../components/README.md)
-- [ddd-struct 索引](./README.md)
+- [审计](../components/auditing.md)
+- [多租户](../components/multi-tenancy.md)
+- [工作单元](../components/unit-of-work.md)
+- [事件总线](../components/event-bus.md)

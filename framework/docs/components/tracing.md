@@ -1,187 +1,126 @@
-# 链路追踪
+# 关联标识
 
-在分布式或多层调用的系统里，一次请求往往横跨多个服务、多个异步任务。当出现异常时，如果日志里没有一根贯穿始终的「线」，就很难把分散在各处的日志拼回同一次请求。链路追踪通过为每次请求生成一个全局唯一的 **TraceId（CorrelationId）**，并让它随上下文、日志、下游 HTTP 调用一路传递，从而把整条调用链的日志串联起来。
-
-Leistd 以 `ICorrelationIdProvider` 为核心抽象，基于 `AsyncLocal` 在异步链路中保存当前 TraceId；并提供三个层面的接入点：ASP.NET Core 中间件（入口）、`HttpClient` 处理器（出口转发）、以及 `[CorrelationId]` 特性 + AOP 拦截器（无入口请求的后台任务/方法）。日志键名与 Java 版保持一致（`leistd.correlationId.traceId`），便于跨语言系统对齐。
+关联标识是业务层面的请求标识：默认等于当前 `Activity` 的 TraceId，调用方或入口也可以显式指定，并在上下文、日志、后台任务与下游 HTTP 调用间传递。
 
 ## 何时使用
 
 | 场景 | 接入方式 | 包 |
 | --- | --- | --- |
-| ASP.NET Core Web 应用，需从请求头读取/生成 TraceId 并写回响应 | `UseCorrelationId()` 中间件 | `Leistd.Tracing.AspNetCore` |
-| 通过 `HttpClient` 调用下游服务，需把当前 TraceId 透传过去 | `AddCorrelationIdForwarding()` | `Leistd.Tracing.HttpClient` |
-| 后台任务、消息消费等无 HTTP 入口的场景，需为方法自动开启 TraceId 作用域 | `[CorrelationId]` 特性 + AOP | `Leistd.Tracing.Core` |
-| 业务代码只需读取/切换当前 TraceId | 注入 `ICorrelationIdProvider` | `Leistd.Tracing.Core` |
-
-> Core 是抽象与核心实现所在包，AspNetCore 与 HttpClient 均传递引用 Core。Web 应用通常同时引用 AspNetCore（入口）与 HttpClient（出口）。
+| ASP.NET Core Web 应用，需从请求头读取关联标识、写进日志并写回响应 | `UseCorrelationId()` 中间件 | `Leistd.Tracing.AspNetCore` |
+| 通过 `HttpClient` 调用下游服务，需把当前关联标识透传过去 | `AddCorrelationIdForwarding()` | `Leistd.Tracing.HttpClient` |
+| Hub 调用、后台作业、消息消费等无 HTTP 入口的场景 | `IAmbientContext.Begin(principal, correlationId)` | `Leistd.Core` + `Leistd.Tracing.Core` |
+| 业务代码只需读取/切换当前关联标识 | 注入 `ICorrelationIdProvider` | `Leistd.Tracing.Core` |
 
 ## 安装
 
 ```bash
-# 核心：Provider、特性、AOP 拦截器（业务代码与后台任务）
 dotnet add package Leistd.Tracing.Core
-
-# ASP.NET Core 入口中间件（会传递引用 Core）
 dotnet add package Leistd.Tracing.AspNetCore
-
-# HttpClient 出口转发（会传递引用 Core）
 dotnet add package Leistd.Tracing.HttpClient
 ```
 
-> 本仓库的模板项目通过中央包管理（CPM）统一版本，添加时无需写版本号。
+## 注册
 
-## 配置 Provider
-
-### Web 应用（推荐）
-
-在 `Program.cs` 注册并启用中间件：
+### Web 应用
 
 ```csharp
-// 注册核心服务 + 从配置节 "Leistd:CorrelationId" 绑定 Options
-builder.Services.AddCorrelationId(builder.Configuration);
-// 或用委托配置
-// builder.Services.AddCorrelationId(o => o.HttpHeaderName = "X-Correlation-Id,X-Request-Id");
+builder.Services.AddCorrelationId();
 
 var app = builder.Build();
-
-// 尽量靠前注册：从请求头解析或生成 TraceId，写入上下文与日志 Scope
 app.UseCorrelationId();
 ```
 
-`AddCorrelationId` 内部调用 `AddCorrelationIdCore`，注册：
-- `ICorrelationIdProvider` → `CorrelationIdProvider`（Singleton）
-- `CorrelationIdInterceptor`（Transient），并通过 `OnServiceRegistered` 回调为带 `[CorrelationId]` 特性的服务挂载 AOP 拦截器。
+`UseCorrelationId` 应尽量靠前，以便后续日志和中间件共享同一关联标识。
 
 ### 非 Web 宿主
 
-若没有 ASP.NET Core 入口（如 Worker Service），直接注册核心服务：
+没有 ASP.NET Core 入口（如 Worker Service）时只注册核心服务：
 
 ```csharp
-services.AddCorrelationIdCore(configuration);
-// 或 services.AddCorrelationIdCore(o => o.Enable = true);
+services.AddCorrelationIdCore();
 ```
 
 ### HttpClient 出口转发
 
-在配置具名/类型化 `HttpClient` 时追加转发处理器，把当前 TraceId 写入出站请求头：
+宿主自己配置的第三方客户端按需挂上；调用本系统内部服务走 ServiceClient，注册了关联标识时自动转发。
 
 ```csharp
-builder.Services.AddHttpClient<MyApiClient>()
+builder.Services.AddHttpClient<ThirdPartyClient>()
     .AddCorrelationIdForwarding();
 ```
 
 ## 使用
 
-### 注入 Provider 读取/切换 TraceId
+### 读取和切换
 
 ```csharp
-public class OrderService(ICorrelationIdProvider correlationId)
+public class OrderService(ICorrelationIdProvider correlationId, OrderSubmitter submitter)
 {
-    public void DoWork()
+    public async Task RetryAsync(Order order, CancellationToken ct)
     {
-        var current = correlationId.Get(); // 可能为 null（上下文未初始化时）
-
-        // 临时切换上下文，using 离开作用域时自动恢复为原值
-        using (correlationId.Change(correlationId.Create()))
+        // 重试沿用下单时的关联标识：两次执行是两条链路，但在日志里按同一个标识串起来
+        using (correlationId.Change(order.CorrelationId))
         {
-            // —— 此作用域内 Get() 返回新生成的 TraceId ——
+            await submitter.SubmitAsync(order, ct);
         }
     }
 }
 ```
 
-### 后台任务用特性自动开启作用域
+### 非 HTTP 入口
 
-对没有 HTTP 入口的方法/类标注 `[CorrelationId]`，AOP 拦截器会在进入时（若当前无 TraceId）自动生成并开启日志 Scope：
+消息消费、自建宿主的作业入口用环境上下文建立作用域，带上消息里的关联标识：
 
 ```csharp
-[CorrelationId]
-public class ReportJob
+using (ambientContext.Begin(principal, correlationId: message.CorrelationId))
 {
-    public virtual async Task RunAsync()
-    {
-        // 进入时自动拥有 TraceId，整条链路的日志都会带上它
-    }
+    await handler.HandleAsync(message, ct);
 }
 ```
 
-> AOP 依赖动态代理，被拦截的方法需为 `virtual`，且类须经容器解析（Leistd 依赖注入扫描会自动挂载拦截器）。
+不指定时，当前有 `Activity` 就沿用它的 TraceId，没有就新建。作用域内同时打开日志作用域 `leistd.correlationId`，与 HTTP 中间件一致。进程内后台队列（`Leistd.BackgroundJobs.InProcess`）入队时自动捕获关联标识与链路，执行时还原，工作项的日志（含失败日志）都带着入队时的关联标识。
 
 ## 接口参考
 
-`Leistd.Tracing.Core` 命名空间：
-
 | 成员 | 说明 |
 | --- | --- |
-| `ICorrelationIdProvider` | 链路追踪核心抽象（`Leistd.Tracing.Core.Services`） |
-| `ICorrelationIdProvider.Get()` | 返回当前上下文的 TraceId；上下文未初始化时返回 `null` |
-| `ICorrelationIdProvider.Create()` | 生成新的 TraceId（32 位无连字符 UUID，`Guid.ToString("N")`） |
-| `ICorrelationIdProvider.Change(correlationId)` | 切换当前上下文 TraceId，返回 `IDisposable`；`Dispose` 时恢复为切换前的值 |
-| `CorrelationIdProvider` | 默认实现，基于 `AsyncLocal<string?>` 保存上下文（Singleton） |
-| `[CorrelationId]` | 标注在方法或类上（`Leistd.Tracing.Core.Attributes`），触发 AOP 自动开启 TraceId 作用域 |
-| `CorrelationIdConstants.TraceIdLogKey` | 日志 Scope 中的 TraceId 键名，常量值 `leistd.correlationId.traceId` |
-
-DI 扩展方法：
+| `ICorrelationIdProvider.Get()` | 当前关联标识：显式 `Change()` 的值优先，其次当前 `Activity.TraceId`，都没有为 `null` |
+| `ICorrelationIdProvider.Change(correlationId)` | 在返回的作用域内切换，可嵌套，释放时恢复上一层 |
+| `CorrelationIdProvider` | 默认实现，`AsyncLocal` 保存显式值（Singleton）；宿主可先注册自己的实现替换 |
+| `CorrelationIdConstants.LogKey` | 日志作用域键名 `leistd.correlationId` |
+| `CorrelationIdConstants.MaxLength` / `IsWellFormed(value)` | 入站值的约束：不超过 64，只含 ASCII 字母、数字、`-`、`_` |
 
 | 方法 | 所在包 | 说明 |
 | --- | --- | --- |
-| `AddCorrelationIdCore(IConfiguration)` / `AddCorrelationIdCore(Action<CorrelationIdOptions>)` | Core | 注册 Provider、AOP 拦截器，并绑定 Options |
-| `AddCorrelationId(IConfiguration)` / `AddCorrelationId(Action<CorrelationIdOptions>)` | AspNetCore | 内部调用 `AddCorrelationIdCore` 注册核心服务 |
-| `UseCorrelationId()` | AspNetCore | 注册 `CorrelationIdMiddleware` 中间件 |
-| `AddCorrelationIdForwarding()` | HttpClient | 在 `IHttpClientBuilder` 上挂载 `CorrelationIdDelegatingHandler` |
+| `AddCorrelationIdCore(configure?, configSectionPath?)` | Core | 注册 Provider 与环境上下文维度，绑定 `Leistd:CorrelationId` 并启动期校验 |
+| `AddCorrelationId(configure?, configSectionPath?)` | AspNetCore | 调用 `AddCorrelationIdCore` |
+| `UseCorrelationId()` | AspNetCore | 挂载入站中间件 |
+| `AddCorrelationIdForwarding()` | HttpClient | 在命名/类型化客户端上挂载出站处理器；只影响挂载了它的客户端 |
 
-## 实现行为
-
-### Leistd.Tracing.Core（核心）
-
-- `CorrelationIdProvider` 用 `AsyncLocal<string?>` 保存当前 TraceId，可在异步调用链中传播；以 Singleton 注册。
-- `Change` 返回的 `IDisposable` 仅恢复上一层值（保存 parent 并在 `Dispose` 时还原），可安全嵌套。
-- `CorrelationIdInterceptor` 优先级 `Order = -1000`（最外层），确保 TraceId 作用域在 UnitOfWork 等其他拦截器之前建立，覆盖整条链路。
-- 拦截器逻辑：若当前上下文**已有** TraceId 则不重复创建（直接放行）；否则 `Create()` 新 ID，同时开启 `ICorrelationIdProvider.Change` 与 `ILogger.BeginScope`。
-
-### Leistd.Tracing.AspNetCore（入口中间件）
-
-- `CorrelationIdMiddleware` 按 `Options.GetHttpHeaderNames()` 顺序从请求头读取首个非空 TraceId；都没有则调用 `Create()` 生成。
-- 同时写入 Provider 上下文与日志 Scope（键 `TraceIdLogKey`）。
-- 当 `SetResponseHeader = true` 时，通过 `Response.OnStarting` 把 TraceId 回写到尚不存在的同名响应头。
-- `Options.Enable = false` 时中间件直接放行，不做任何处理。
-
-### Leistd.Tracing.HttpClient（出口转发）
-
-- `CorrelationIdDelegatingHandler` 在发送出站请求前，取当前 TraceId 写入所有配置的 Header（仅当请求中尚不包含该 Header 时追加）。
-- 当前 TraceId 为 `null`/空，或 `Options.Enable = false` 时，不附加任何头，直接转发。
-
-## 配置项 / Options
-
-`CorrelationIdOptions`（`Leistd.Tracing.Core.Options`），绑定配置节 `Leistd:CorrelationId`：
+## 配置项（`Leistd:CorrelationId`）
 
 | 属性 | 默认值 | 说明 |
 | --- | --- | --- |
-| `Enable` | `true` | 是否启用链路追踪；`false` 时中间件与 HttpClient 处理器均不处理 |
-| `HttpHeaderName` | `X-Correlation-Id` | TraceId 的请求/响应头名；支持逗号分隔多个，如 `X-Correlation-Id,X-Request-Id` |
-| `SetResponseHeader` | `true` | 是否将 TraceId 回写到响应头 |
+| `Enabled` | `true` | 是否经 HTTP 传播（入站读取、响应回写、出站转发），全局生效。用于面向公网、不采信外部请求头的边缘服务：关闭后调用方不能往本服务的日志与操作记录里写入自选标识，进程内关联照常取 TraceId。只是不想向某个第三方转发时，那个客户端不挂 `AddCorrelationIdForwarding()` 即可（宿主自己配置的 HttpClient；ServiceClient 管道在注册了关联标识时自动转发，面向本系统的内部服务） |
+| `HeaderName` | `X-Correlation-Id` | 读取、回写与转发的请求头名；空白时启动失败 |
+| `SetResponseHeader` | `true` | 是否把关联标识写入响应头（响应里已有同名头时不覆盖） |
 
-```json
-{
-  "Leistd": {
-    "CorrelationId": {
-      "Enable": true,
-      "HttpHeaderName": "X-Correlation-Id,X-Request-Id",
-      "SetResponseHeader": true
-    }
-  }
-}
-```
+入站与出站每次都读取 `IOptionsMonitor<CorrelationIdOptions>.CurrentValue`，配置重载对后续请求生效。
+
+## 与 W3C Trace Context 的关系
+
+- 链路追踪用 W3C `traceparent` 与 `Activity`，由 .NET 自动传播；关联标识用 `X-Correlation-Id`，可以跨多条链路。默认情况下两者相等。
+- 入站取值顺序：合法的入站 `X-Correlation-Id` → 当前 `Activity.TraceId` → 新建。非法值被丢弃（记 Debug 日志），请求不失败。
+- 错误响应的 `traceId` 是官方链路标识（当前 `Activity.Id`，取第二段检索），不是关联标识；中间件不改写 `HttpContext.TraceIdentifier`。
 
 ## 注意事项
 
-- `Get()` 在上下文尚未初始化时返回 `null`，业务代码读取后需判空。
-- `Change()` 返回的 `IDisposable` 必须 `using`/释放，否则上下文不会恢复，可能污染同一异步流后续逻辑。
-- `[CorrelationId]` 走动态代理 AOP，被拦截方法需 `virtual` 且经容器解析；直接 `new` 出来的实例不会被拦截。
-- TraceId 作用域具有「就近优先」语义：若链路上层已有 TraceId，中间件/拦截器都不会覆盖，保证一次请求只用一个 ID。
-- 日志键名 `leistd.correlationId.traceId` 与 Java 版一致，但要在日志里看到它，需日志库（如 Serilog）启用 Scope 富化。
+- `Get()` 在没有显式值也没有 Activity 时返回 `null`，读取后需判空。
+- `Change()` 返回的 `IDisposable` 必须释放，否则上下文不会恢复，会污染同一异步流的后续逻辑。
+- 显式指定的值超过 64 个字符时，操作记录落库会截断；请求头传入的值超长会被丢弃。
+- 日志键 `leistd.correlationId` 是跨服务约定键；要在日志里看到它，日志库（如 Serilog）需启用作用域富化。TraceId 由日志库按 `Activity` 另行记录。
 
 ## 相关
 
-- [组件总览](./README.md)
-- [依赖注入](./dependency-injection.md)
+- [后台任务](./background-jobs.md)
+- [异常处理](./exception-handling.md)

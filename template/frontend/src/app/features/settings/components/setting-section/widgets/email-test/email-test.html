@@ -1,0 +1,38 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <!-- 独立的操作分区：与设置分组同级，分区标题下一条实线 -->
+  <section class="flex flex-col gap-5" data-testid="email-test">
+    <header class="flex flex-col gap-1 border-b pb-3">
+      <h4 class="text-sm leading-none font-semibold">{{ t('settings.emailTest.title') }}</h4>
+      <p class="text-muted-foreground text-sm">{{ t('settings.emailTest.description') }}</p>
+    </header>
+    <form
+      class="flex flex-col gap-2 @md/panel:flex-row"
+      novalidate
+      (submit)="$event.preventDefault(); send()"
+    >
+      <input
+        hlmInput
+        type="email"
+        autocomplete="email"
+        class="@md/panel:max-w-sm @md/panel:flex-1"
+        data-testid="email-test-to"
+        [attr.aria-label]="t('settings.emailTest.recipient')"
+        [placeholder]="t('settings.emailTest.recipient')"
+        [value]="to()"
+        (input)="to.set($any($event.target).value)"
+      />
+      <button hlmBtn type="submit" data-testid="email-test-send" [disabled]="!canSend()">
+        @if (sending()) {
+          <hlm-spinner class="text-base" data-icon="inline-start" />
+        } @else {
+          <ng-icon name="lucideSend" data-icon="inline-start" />
+        }
+        {{ t('settings.emailTest.send') }}
+      </button>
+    </form>
+  </section>
+</ng-container>

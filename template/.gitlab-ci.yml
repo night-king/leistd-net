@@ -1,0 +1,138 @@
+# 只准备运行环境，验证步骤全部在 scripts/verify.ps1（与本地完整回归同一入口）；
+# 默认分支的 push 验证通过后由 publish-images 构建并推送 api、migrator 两个镜像。
+# 设为合并必过的方法见 docs/standards/testing.md §1.1。
+#
+# Runner 前提：Docker executor 且 privileged = true（Docker-in-Docker）。集成测试经 Testcontainers
+# 在 dind 服务里启动 PostgreSQL；连接方式按 Testcontainers 官方 GitLab CI 配置：
+# DOCKER_HOST 指向 dind 服务，关闭 TLS（DOCKER_TLS_CERTDIR 置空，daemon 带 --tls=false 避免启动延迟）。
+stages:
+  - verify
+  # 镜像发布在 verify 阶段全部作业（verify 与适用的依赖审计）成功之后
+  - publish
+
+verify:
+  stage: verify
+  # .NET SDK 镜像自带 PowerShell 与 curl；Python 与 Node.js 在 before_script 安装
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  services:
+    - name: docker:dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    # GitLab 只缓存项目目录内的路径：把 NuGet 全局包与 npm 缓存放进来
+    NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+#if (SpaFrontend)
+    npm_config_cache: "$CI_PROJECT_DIR/.npm"
+#endif
+  timeout: 1h
+  # 缓存只存下载内容，不存构建输出；合并请求只读，默认分支读写并刷新
+  cache:
+    - key:
+        prefix: nuget
+        files:
+          - backend/Directory.Packages.props
+      paths:
+        - .nuget/packages
+      policy: $CACHE_POLICY
+#if (SpaFrontend)
+    - key:
+        prefix: npm
+        files:
+          - frontend/package-lock.json
+      paths:
+        - .npm
+      policy: $CACHE_POLICY
+#endif
+  rules:
+    # 定时流水线只做依赖审计
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        CACHE_POLICY: pull
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        CACHE_POLICY: pull-push
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends python3
+#if (SpaFrontend)
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+    - apt-get install -y --no-install-recommends nodejs
+    # 前端单测跑在 Playwright 驱动的 Chromium 里，浏览器版本取锁文件里的 playwright
+    - >-
+      pwsh -NoProfile -Command '$version = (Get-Content frontend/package-lock.json -Raw | ConvertFrom-Json -AsHashTable).packages["node_modules/playwright"].version;
+      if (-not $version) { throw "playwright is missing from frontend/package-lock.json" };
+      npx --yes "playwright@$version" install --with-deps chromium; exit $LASTEXITCODE'
+#endif
+  script:
+    - pwsh -NoProfile -File scripts/verify.ps1
+#if (LocalIdentity)
+  # 保留 Playwright 报告、trace 与 API 日志：成功时也保留，重试后才通过的 flaky 用例据此诊断
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - frontend/playwright-report/
+      - frontend/test-results/
+#endif
+#if (SpaFrontend)
+
+# 前端生产依赖审计：不在 scripts/verify.ps1 里，只在锁文件变化、定时（需在项目里建 Schedule）和手动时运行。
+# 门槛是生产依赖无 high/critical；审计查询走网络，失败时有限重试（退出码分不出网络错误与漏洞，真有漏洞时重试照样失败）。
+frontend-audit:
+  stage: verify
+  image: node:24
+  timeout: 10m
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - frontend/package-lock.json
+  script:
+    - cd frontend
+    - |
+      for attempt in 1 2 3; do
+        npm audit --omit=dev --audit-level=high --package-lock-only && exit 0
+        if [ "$attempt" -lt 3 ]; then sleep $((5 * attempt)); fi
+      done
+      exit 1
+#endif
+
+# 镜像发布：只在默认分支的 push 流水线上运行，阶段屏障保证同一提交的 verify 与依赖审计都已成功；
+# 合并请求、定时与手动运行不发布。前提是项目已启用 Container Registry，Runner 要求同 verify（privileged）。
+# 标签为提交 SHA，部署按日志与 dotenv 报告里的 digest 晋级。
+publish-images:
+  stage: publish
+  image: docker:cli
+  services:
+    - name: docker:dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+  timeout: 30m
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - |
+      set -eu
+      version_arg=""
+      if [ -f VERSION ]; then version_arg="APP_VERSION=$(tr -d '[:space:]' < VERSION)"; fi
+      : > images.env
+      for target in api migrator; do
+        image="$CI_REGISTRY_IMAGE/$target:$CI_COMMIT_SHA"
+        docker build --target "$target" --build-arg "APP_REVISION=$CI_COMMIT_SHA" ${version_arg:+--build-arg "$version_arg"} -t "$image" .
+        docker push "$image"
+        digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+        echo "$image@$digest"
+        echo "$(echo "$target" | tr '[:lower:]' '[:upper:]')_IMAGE_DIGEST=$digest" >> images.env
+      done
+  artifacts:
+    reports:
+      dotenv: images.env

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\tracing\Leistd.Tracing.Core\Leistd.Tracing.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\tracing\Leistd.Tracing.AspNetCore\Leistd.Tracing.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\tracing\Leistd.Tracing.HttpClient\Leistd.Tracing.HttpClient.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,95 +1,103 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using Castle.DynamicProxy;
-using Leistd.DynamicProxy;
-using Leistd.UnitOfWork.Core.Attributes;
-using Leistd.UnitOfWork.Core.Options;
-using Leistd.UnitOfWork.Core.Uow;
+using Leistd.UnitOfWork.Attributes;
+using Leistd.UnitOfWork.Options;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Leistd.DynamicProxy.Interceptors;
 
-namespace Leistd.UnitOfWork.Core.Interceptor;
+namespace Leistd.UnitOfWork.Interceptors;
 
-/// <summary>
-/// 工作单元拦截器（支持同步和异步方法）
-/// </summary>
+/// <summary>为同步和异步方法建立声明式工作单元边界。</summary>
 public class UnitOfWorkInterceptor : BaseAsyncInterceptor
 {
+    // 特性只取决于 MethodInfo，可按程序集生命周期缓存。
+    private static readonly ConcurrentDictionary<MethodInfo, UnitOfWorkAttribute?> AttributeCache = new();
+
     private readonly UnitOfWorkOptions _unitOfWorkOptions;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
     private readonly ILogger<UnitOfWorkInterceptor>? _logger;
 
+    /// <summary>创建工作单元拦截器。<c>ILogger</c> 为可选依赖，未注册时不记日志。</summary>
     public UnitOfWorkInterceptor(
-        UnitOfWorkOptions unitOfWorkOptions,
+        IOptions<UnitOfWorkOptions> unitOfWorkOptions,
         IUnitOfWorkManager unitOfWorkManager,
         ILogger<UnitOfWorkInterceptor>? logger = null)
     {
-        _unitOfWorkOptions = unitOfWorkOptions;
+        _unitOfWorkOptions = unitOfWorkOptions.Value;
         _unitOfWorkManager = unitOfWorkManager;
         _logger = logger;
     }
 
-    protected override async Task InterceptAsync(
+    /// <inheritdoc />
+    protected override Task InterceptAsync(
         IInvocation invocation,
         IInvocationProceedInfo proceedInfo,
         Func<IInvocation, IInvocationProceedInfo, Task> proceed)
-    {
-        var method = GetMethodInfo(invocation);
-        var unitOfWorkOptions = GetUnitOfWorkAttribute(method);
-
-        if (unitOfWorkOptions == null)
+        => RunAsync(invocation, async () =>
         {
             await proceed(invocation, proceedInfo);
-            return;
-        }
+            return default(object?);
+        });
 
-        _logger?.LogDebug("拦截方法 {Method}，开始工作单元", method.Name);
-
-        var uow = await _unitOfWorkManager.BeginAsync(unitOfWorkOptions, requiresNew: false);
-
-        try
-        {
-            await proceed(invocation, proceedInfo);
-            await uow.CompleteAsync();
-
-            _logger?.LogDebug("方法 {Method} 执行完成，工作单元已提交", method.Name);
-        }
-        catch
-        {
-            uow.Dispose();
-            throw;
-        }
-    }
-
-    protected override async Task<TResult> InterceptAsync<TResult>(
+    /// <inheritdoc />
+    protected override Task<TResult> InterceptAsync<TResult>(
         IInvocation invocation,
         IInvocationProceedInfo proceedInfo,
         Func<IInvocation, IInvocationProceedInfo, Task<TResult>> proceed)
+        => RunAsync(invocation, () => proceed(invocation, proceedInfo));
+
+    // CompleteAsync 在作用域存活期执行 AfterCommit；finally 负责释放作用域。
+    // 提交使用方法声明的第一个 CancellationToken 参数（Web 请求里即 RequestAborted）：BeforeCommit 处理器拿到同一个令牌，
+    // 提交前因它而起的取消按调用方取消处理，而不是记成提交失败。回滚不响应取消。
+    private async Task<TResult> RunAsync<TResult>(IInvocation invocation, Func<Task<TResult>> proceed)
     {
         var method = GetMethodInfo(invocation);
-        var unitOfWorkOptions = GetUnitOfWorkAttribute(method);
+        var attribute = GetUnitOfWorkAttribute(method);
 
-        if (unitOfWorkOptions == null)
+        if (attribute is null || attribute.IsDisabled)
         {
-            return await proceed(invocation, proceedInfo);
+            return await proceed();
         }
 
-        _logger?.LogDebug("拦截方法 {Method}，开始工作单元", method.Name);
+        var unitOfWorkOptions = attribute.CreateOptionsFromDefault(_unitOfWorkOptions);
 
-        var uow = await _unitOfWorkManager.BeginAsync(unitOfWorkOptions, requiresNew: false);
+        _logger?.LogDebug("Intercepting method {Method}; starting a unit of work", method.Name);
+
+        var uow = _unitOfWorkManager.Begin(unitOfWorkOptions, requiresNew: false);
 
         try
         {
-            var result = await proceed(invocation, proceedInfo);
-            await uow.CompleteAsync();
+            var result = await proceed();
+            await uow.CompleteAsync(GetCancellationToken(invocation, method));
 
-            _logger?.LogDebug("方法 {Method} 执行完成，工作单元已提交", method.Name);
+            _logger?.LogDebug("Method {Method} completed; unit of work committed", method.Name);
 
             return result;
         }
         catch
         {
-            uow.Dispose();
+            // AfterCommit 失败时工作单元已提交，此时回滚是幂等空操作。
+            await uow.RollbackAsync();
             throw;
         }
+        finally
+        {
+            uow.Dispose();
+        }
+    }
+
+    // 按声明的参数类型取，而不是按运行期值：object 参数里装箱的令牌不是这个方法的取消令牌
+    private static CancellationToken GetCancellationToken(IInvocation invocation, MethodInfo method)
+    {
+        var parameters = method.GetParameters();
+        for (var index = 0; index < parameters.Length; index++)
+        {
+            if (parameters[index].ParameterType == typeof(CancellationToken))
+                return invocation.Arguments[index] is CancellationToken token ? token : CancellationToken.None;
+        }
+        return CancellationToken.None;
     }
 
     private MethodInfo GetMethodInfo(IInvocation invocation)
@@ -97,29 +105,12 @@ public class UnitOfWorkInterceptor : BaseAsyncInterceptor
         return invocation.MethodInvocationTarget ?? invocation.GetConcreteMethod();
     }
 
-    /// <summary>
-    /// 获取方法或类上的 UnitOfWork 配置
-    /// </summary>
-    private UnitOfWorkOptions? GetUnitOfWorkAttribute(MethodInfo methodInfo)
+    // 仅缓存特性；每次调用都需要独立的可变选项实例。
+    private UnitOfWorkAttribute? GetUnitOfWorkAttribute(MethodInfo methodInfo)
     {
-        // 检查方法级别特性
-        var attrs = methodInfo.GetCustomAttributes(true).OfType<UnitOfWorkAttribute>().ToArray();
-        if (attrs.Length > 0)
-        {
-            return attrs[0].CreateOptionsFromDefault(_unitOfWorkOptions);
-        }
-
-        // 检查类级别特性
-        attrs = methodInfo.DeclaringType?.GetTypeInfo()
-            .GetCustomAttributes(true).OfType<UnitOfWorkAttribute>().ToArray()
-            ?? Array.Empty<UnitOfWorkAttribute>();
-
-        if (attrs.Length > 0)
-        {
-            return attrs[0].CreateOptionsFromDefault(_unitOfWorkOptions);
-        }
-
-        // 仅支持显式 [UnitOfWork] 特性
-        return null;
+        return AttributeCache.GetOrAdd(methodInfo, static method =>
+            method.GetCustomAttributes(true).OfType<UnitOfWorkAttribute>().FirstOrDefault()
+            ?? method.DeclaringType?.GetTypeInfo()
+                .GetCustomAttributes(true).OfType<UnitOfWorkAttribute>().FirstOrDefault());
     }
 }

@@ -1,42 +1,49 @@
 using System.ComponentModel.DataAnnotations;
+using CompanyName.ProjectName.Domain.Users.Constants;
+using CompanyName.ProjectName.Domain.Users.Policies;
 
 namespace CompanyName.ProjectName.Application.Users.Dtos;
 
-/// <summary>
-/// 创建用户输入 DTO
-/// </summary>
+/// <summary>创建用户输入 DTO。</summary>
 public record CreateUserInputDto
 {
-    [Display(Name = "用户名")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [StringLength(64, MinimumLength = 3, ErrorMessage = "{0}长度必须在 {2}-{1} 个字符之间")]
-    [RegularExpression(@"^[a-zA-Z0-9_]+$", ErrorMessage = "{0}只能包含字母、数字和下划线")]
-    public required string Username { get; init; }
+    [Display(Name = "Username")]
+    [Required(ErrorMessage = "{0} is required.")]
+    [StringLength(UsernameRules.MaxLength, MinimumLength = UsernameRules.MinLength, ErrorMessage = "{0} must be between {2} and {1} characters.")]
+    [RegularExpression(UsernameRules.Pattern, ErrorMessage = "{0} can contain only letters, numbers, and underscores.")]
+    public string Username { get; init; } = null!;
 
-    [Display(Name = "邮箱")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [EmailAddress(ErrorMessage = "{0}格式不正确")]
-    [StringLength(256, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
-    public required string Email { get; init; }
+    [Display(Name = "Email")]
+    [Required(ErrorMessage = "{0} is required.")]
+    [EmailAddress(ErrorMessage = "{0} has an invalid format.")]
+    [StringLength(256, ErrorMessage = "{0} cannot exceed {1} characters.")]
+    public string Email { get; init; } = null!;
 
-    [Display(Name = "显示名称")]
-    [StringLength(128, ErrorMessage = "{0}长度不能超过 {1} 个字符")]
+    [Display(Name = "Display name")]
+    [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
     public string? DisplayName { get; init; }
 
-    [Display(Name = "头像")]
-    [StringLength(1500000, ErrorMessage = "{0}内容过大，请压缩后重试")]
+    [Display(Name = "Avatar")]
+    [StringLength(1500000, ErrorMessage = "{0} is too large. Compress it and try again.")]
     public string? Avatar { get; init; }
 
-    [Display(Name = "密码")]
-    [Required(ErrorMessage = "{0}不能为空")]
-    [StringLength(100, MinimumLength = 6, ErrorMessage = "{0}长度必须在 {2}-{1} 个字符之间")]
-    [RegularExpression(@"^(?=.*[a-zA-Z])(?=.*\d).{6,}$",
-        ErrorMessage = "{0}需 6 位以上，包含字母和数字")]
-    public required string Password { get; init; }
+    [Display(Name = "Password")]
+    [Required(ErrorMessage = "{0} is required.")]
+    // 仅快速反馈；权威在服务端 PasswordPolicy
+    [StringLength(PasswordPolicy.MaximumLength, MinimumLength = PasswordPolicy.MinimumLength,
+        ErrorMessage = "{0} must be between {2} and {1} characters.")]
+    public string Password { get; init; } = null!;
 
     public bool IsActive { get; init; } = true;
 
     public bool IsEmailVerified { get; init; }
 
-    public List<string> Roles { get; init; } = [];
+    /// <summary>初始角色 Id 集合。按 Id 提交而非角色名，角色名只用于展示。</summary>
+    /// <remarks>
+    /// 非空时应用服务会额外要求 <c>App.Users.ManageRoles</c>：
+    /// 只持有创建权限的主体不能在创建时把自己或他人提升为管理员。
+    /// </remarks>
+    [Display(Name = "Roles")]
+    [MaxLength(20, ErrorMessage = "{0} cannot contain more than {1} items.")]
+    public List<Guid> RoleIds { get; init; } = [];
 }

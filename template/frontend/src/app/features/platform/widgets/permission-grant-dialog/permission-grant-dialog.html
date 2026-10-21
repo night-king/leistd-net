@@ -1,0 +1,143 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-dialog [state]="open() ? 'open' : 'closed'" (stateChanged)="open.set($event === 'open')">
+    <hlm-dialog-content
+      *hlmDialogPortal
+      class="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-2xl"
+    >
+      <hlm-dialog-header>
+        <h2 hlmDialogTitle>{{ t('permissions.dialogTitle', { name: roleName() }) }}</h2>
+        <p hlmDialogDescription>{{ t('permissions.description') }}</p>
+      </hlm-dialog-header>
+
+      @if (loading()) {
+        <div class="flex items-center justify-center py-12">
+          <hlm-spinner />
+        </div>
+      } @else if (loadError(); as error) {
+        <!-- 加载失败与"没有权限"分开表达：说出原因并给重试。 -->
+        <div class="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+          <ng-icon name="lucideCircleAlert" class="text-5xl opacity-30" />
+          <p class="text-base font-medium" role="alert">{{ t('permissions.loadFailed') }}</p>
+          <p class="text-sm opacity-70">{{ error }}</p>
+          <button
+            hlmBtn
+            variant="outline"
+            type="button"
+            data-testid="permissions-retry"
+            (click)="retry()"
+          >
+            {{ t('common.retry') }}
+          </button>
+        </div>
+      } @else {
+        <div class="flex flex-col items-stretch gap-3 pb-3 sm:flex-row sm:items-center">
+          <hlm-input-group class="w-full sm:max-w-xs sm:flex-1">
+            <hlm-input-group-addon>
+              <ng-icon name="lucideSearch" />
+            </hlm-input-group-addon>
+            <!-- placeholder 不是可访问名：读屏软件在输入框获得焦点、内容非空时不再朗读它。 -->
+            <input
+              hlmInputGroupInput
+              type="text"
+              [attr.aria-label]="t('permissions.searchPlaceholder')"
+              [placeholder]="t('permissions.searchPlaceholder')"
+              [value]="keyword()"
+              (input)="onKeywordChange($any($event.target).value)"
+            />
+          </hlm-input-group>
+
+          <span class="text-sm text-muted-foreground sm:ml-auto">{{
+            t('permissions.grantedCount', { count: grantedCount() })
+          }}</span>
+        </div>
+
+        <!-- 滚动容器必须是画边框的这一层：第三方滚动组件会撑到内容高度，不被 flex 约束。 -->
+        <div class="min-h-0 flex-1 overflow-y-auto rounded-md border">
+          @if (hasNoMatch()) {
+            <p class="py-10 text-center text-sm text-muted-foreground">
+              {{ t('common.noResults') }}
+            </p>
+          }
+
+          <div hlmAccordion type="multiple">
+            @for (group of visibleGroups(); track group.name) {
+              <div
+                hlmAccordionItem
+                [isOpened]="isExpanded(group.name)"
+                (openedChange)="onGroupOpenedChange(group.name, $event)"
+              >
+                <!-- 组标题不带复选框：组是容器不是权限；授予情况由 n/总数 徽标回显。 -->
+                <div class="flex items-center bg-muted/50 px-3">
+                  <!-- 组标题只是展开开关，不是链接：去掉 hover 下划线。类要给 triggerClass，
+                     它才会合并进内部按钮；写在宿主上管不到那个按钮。 -->
+                  <hlm-accordion-trigger class="flex-1" triggerClass="hover:no-underline">
+                    <span class="flex items-center gap-2 font-semibold">
+                      {{ group.displayName }}
+                      <span hlmBadge variant="secondary">
+                        {{
+                          t('permissions.groupSummary', {
+                            granted: group.grantedCount,
+                            total: group.rows.length,
+                          })
+                        }}
+                      </span>
+                    </span>
+                  </hlm-accordion-trigger>
+                </div>
+
+                <hlm-accordion-content>
+                  <!-- 缩进表达前置关系：depth 0 是资源，更深的是其上的动作。
+                       触屏下复选框的命中区每侧伸出 14px：起始缩进不小于 14px；行高 48px，扣掉上边框后
+                       相邻两行的 44px 命中区之间仍留有余量，不会因取整互相覆盖。 -->
+                  <ul class="flex list-none flex-col p-0">
+                    @for (row of group.rows; track row.name) {
+                      <li
+                        class="flex items-center gap-3 border-t py-2 pr-3 hover:bg-muted/40 pointer-coarse:min-h-12"
+                        [class.font-medium]="row.depth === 0"
+                        [style.padding-left.rem]="0.875 + row.depth * 1.5"
+                      >
+                        <hlm-checkbox
+                          [inputId]="row.name"
+                          [checked]="isGranted(row.name)"
+                          (checkedChange)="onCheckedChange(row.name, $event)"
+                        />
+                        <label
+                          class="flex min-w-0 flex-1 cursor-pointer flex-wrap items-baseline gap-x-1 text-sm"
+                          [attr.for]="row.name"
+                        >
+                          {{ row.displayName }}
+                          <!-- 顶层行勾上等于能看到这份列表，名称本身读不出来，旁边写明。 -->
+                          @if (row.depth === 0 && row.hasChildren) {
+                            <span class="text-xs font-normal text-muted-foreground">
+                              {{ t('permissions.viewAccessHint') }}
+                            </span>
+                          }
+                        </label>
+                      </li>
+                    }
+                  </ul>
+                </hlm-accordion-content>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <hlm-dialog-footer>
+        <button hlmBtn variant="outline" type="button" (click)="open.set(false)">
+          {{ t('common.cancel') }}
+        </button>
+        <button hlmBtn type="button" [disabled]="!canSave() || saving()" (click)="onSave()">
+          @if (saving()) {
+            <hlm-spinner class="size-4" />
+          }
+          {{ t('common.save') }}
+        </button>
+      </hlm-dialog-footer>
+    </hlm-dialog-content>
+  </hlm-dialog>
+</ng-container>

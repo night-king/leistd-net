@@ -1,81 +1,182 @@
-<aside
-  class="bg-surface-0 dark:bg-surface-900 border-r border-surface-200 dark:border-surface-800 flex flex-col h-full transition-all duration-300 ease-in-out"
-  [ngClass]="{
-    'w-64': !layoutService.sidebarCollapsed() || isMobileMenuOpen(),
-    'w-20': layoutService.sidebarCollapsed() && !isMobileMenuOpen()
-  }"
->
-  <div
-    [class.gap-3]="!layoutService.sidebarCollapsed() || isMobileMenuOpen()"
-    [class.gap-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-    class="h-16 px-6 flex items-center justify-between border-b border-surface-200 dark:border-surface-800 shrink-0 overflow-hidden transition-all duration-300 ease-in-out"
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-sidebar
+    variant="inset"
+    collapsible="icon"
+    [srOnlySheetTitle]="t('layout.sidebar.navigation')"
+    [srOnlySheetDescription]="t('layout.sidebar.navigationDescription')"
   >
-    <div class="flex items-center gap-3">
-      <app-logo size="normal" />
-
-      <span
-        class="font-bold text-lg tracking-tight bg-gradient-to-r from-primary-600 to-primary-500 bg-clip-text text-transparent whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out"
-        [class.max-w-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-        [class.opacity-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-        [class.max-w-40]="!layoutService.sidebarCollapsed() || isMobileMenuOpen()"
-        [class.opacity-100]="!layoutService.sidebarCollapsed() || isMobileMenuOpen()"
-        >模板项目</span
-      >
+    <!-- 品牌头与搜索是两块：间距与搜索到第一个分组一致（16px），不贴在一起 -->
+    <div hlmSidebarHeader class="gap-4">
+      <ul hlmSidebarMenu>
+        <li hlmSidebarMenuItem>
+          <!-- 品牌头用 menu-button 基元（size=lg），折叠为 icon 时收成方形图标。同时是区域切换器：
+               副标题显示当前区域，点开可切到另一区。 -->
+          @if (areaOptions().length > 1) {
+            <!-- 弹出方向照官方 nav-user：桌面从侧栏右侧弹出、与顶部对齐；手机上侧栏是抽屉，改为向下。
+               按钮默认点击即关掉手机端抽屉，这里点开的是菜单，抽屉必须留着（同头像菜单）。 -->
+            <button
+              hlmSidebarMenuButton
+              size="lg"
+              class="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              [closeMobileSidebarOnClick]="false"
+              [hlmDropdownMenuTrigger]="areaMenu"
+              [side]="areaMenuSide()"
+              align="start"
+              [attr.aria-label]="t('layout.sidebar.switchArea')"
+              data-testid="area-switcher"
+            >
+              <app-logo size="normal" />
+              <div class="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+                <span class="truncate text-sm font-medium">{{ t('layout.sidebar.appTitle') }}</span>
+                <span class="truncate text-xs text-muted-foreground">{{ currentAreaLabel() }}</span>
+              </div>
+              <ng-icon
+                name="lucideChevronsUpDown"
+                class="ml-auto text-base group-data-[collapsible=icon]:hidden"
+              />
+            </button>
+            <!-- 版式照 shadcn 侧栏的 team switcher：小标题 + 带边框的图标方块 + 名称。
+               不放快捷键（没有实现对应的键位），当前区域在快捷键的位置打勾。 -->
+            <ng-template #areaMenu>
+              <hlm-dropdown-menu class="min-w-56">
+                <hlm-dropdown-menu-label class="text-muted-foreground text-xs">
+                  {{ t('layout.sidebar.switchArea') }}
+                </hlm-dropdown-menu-label>
+                <hlm-dropdown-menu-group>
+                  @for (area of areaOptions(); track area.route) {
+                    <button
+                      hlmDropdownMenuItem
+                      class="gap-2 p-2"
+                      [attr.data-testid]="'area-option-' + area.route"
+                      (click)="goToArea(area.route)"
+                    >
+                      <span
+                        class="flex size-6 shrink-0 items-center justify-center rounded-md border"
+                      >
+                        <ng-icon [name]="area.icon" class="text-[length:--spacing(3.5)]" />
+                      </span>
+                      {{ area.label }}
+                      @if (area.current) {
+                        <ng-icon name="lucideCheck" class="ml-auto" />
+                      }
+                    </button>
+                  }
+                </hlm-dropdown-menu-group>
+              </hlm-dropdown-menu>
+            </ng-template>
+          } @else {
+            <a hlmSidebarMenuButton size="lg" [routerLink]="layoutService.homeRoute()">
+              <app-logo size="normal" />
+              <div class="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+                <span class="truncate text-sm font-medium">{{ t('layout.sidebar.appTitle') }}</span>
+                <span class="truncate text-xs text-muted-foreground">{{ currentAreaLabel() }}</span>
+              </div>
+            </a>
+          }
+        </li>
+      </ul>
+      <!-- 搜索入口：打开命令面板。折叠为图标轨时只留放大镜。 -->
+      <ul hlmSidebarMenu>
+        <li hlmSidebarMenuItem>
+          <button
+            hlmSidebarMenuButton
+            variant="outline"
+            class="text-muted-foreground"
+            [tooltip]="t('layout.commandPalette.search')"
+            [attr.aria-label]="t('layout.commandPalette.search')"
+            data-testid="sidebar-search"
+            (click)="commandPalette.open()"
+          >
+            <ng-icon name="lucideSearch" />
+            <span class="group-data-[collapsible=icon]:hidden">{{
+              t('layout.commandPalette.search')
+            }}</span>
+            <kbd hlmKbd class="ms-auto group-data-[collapsible=icon]:hidden">⌘K</kbd>
+          </button>
+        </li>
+      </ul>
     </div>
 
-    <p-button
-      icon="pi pi-times"
-      [text]="true"
-      [rounded]="true"
-      severity="secondary"
-      class="md:hidden min-w-[44px] min-h-[44px]"
-      styleClass="w-10 h-10"
-      (onClick)="mobileMenuClosed.emit()"
-    >
-    </p-button>
-  </div>
-
-  <nav class="flex-1 px-3 py-4 overflow-y-auto custom-scrollbar overflow-x-hidden">
-    <ul class="list-none p-0 m-0">
+    <div hlmSidebarContent>
       @for (group of menuGroups(); track $index) {
-        @if (group.label) {
-          <li
-            class="px-3 pt-5 pb-1 text-xs font-medium text-muted-color/70 uppercase tracking-wider whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out"
-            [class.max-h-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-            [class.opacity-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-          >
-            {{ group.label }}
-          </li>
-        }
-        @for (item of group.items; track item.route) {
-          <li>
-            <a
-              [routerLink]="item.route"
-              [pTooltip]="layoutService.sidebarCollapsed() && !isMobileMenuOpen() ? item.label : undefined"
-              tooltipPosition="right"
-              class="flex items-center cursor-pointer px-3 py-4 md:py-3 rounded-md text-color hover:bg-surface-100 dark:hover:bg-surface-800 transition-all duration-300 ease-in-out focus:outline-none min-h-[44px] md:min-h-0"
-              [class.gap-3]="!layoutService.sidebarCollapsed() || isMobileMenuOpen()"
-              [class.gap-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-              [class.!text-primary-600]="isItemActive(item)"
-              [class.dark:!text-primary-400]="isItemActive(item)"
-              [class.font-bold]="isItemActive(item)"
-              (click)="isMobileMenuOpen() && mobileMenuClosed.emit()"
-            >
-              <div class="w-8 h-8 flex items-center justify-center shrink-0">
-                <i class="pi {{ item.icon }} text-xl"></i>
-              </div>
-              <span
-                class="font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out"
-                [class.max-w-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-                [class.opacity-0]="layoutService.sidebarCollapsed() && !isMobileMenuOpen()"
-                [class.max-w-60]="!layoutService.sidebarCollapsed() || isMobileMenuOpen()"
-                [class.opacity-100]="!layoutService.sidebarCollapsed() || isMobileMenuOpen()"
-                >{{ item.label }}</span
-              >
-            </a>
-          </li>
-        }
+        <div hlmSidebarGroup>
+          <div hlmSidebarGroupLabel>{{ group.label }}</div>
+          <div hlmSidebarGroupContent>
+            <ul hlmSidebarMenu>
+              @for (item of group.items; track item.route) {
+                <li hlmSidebarMenuItem>
+                  <a
+                    hlmSidebarMenuButton
+                    [routerLink]="item.route"
+                    [isActive]="isItemActive(item)"
+                    [tooltip]="item.label"
+                  >
+                    <ng-icon [name]="item.icon" />
+                    <span>{{ item.label }}</span>
+                  </a>
+                </li>
+              }
+            </ul>
+          </div>
+        </div>
       }
-    </ul>
-  </nav>
-</aside>
+    </div>
+
+    <!-- Spartan canonical：侧栏底部（nav-user 模式）——用户菜单，折叠时收成图标。 -->
+    <div hlmSidebarFooter>
+      <!--#if (IncludeRealTime)-->
+      <!-- 实时连接状态：还没请求连接（或由 Mock 应答）时不显示，掉线与重连要让管理员看得到。 -->
+      @if (realtimeStatus() !== 'idle') {
+        <div
+          class="bg-background flex items-center gap-2 rounded-md border p-2 text-xs group-data-[collapsible=icon]:hidden"
+          role="status"
+          data-testid="realtime-status"
+        >
+          <!-- 可见文案是一行短状态，完整说明放进可聚焦的提示；常驻的状态区另放一份视觉隐藏的完整说明给读屏，
+             它不在可聚焦元素里，聚焦时只读到短状态与提示，不重复 -->
+          @switch (realtimeStatus()) {
+            @case ('connected') {
+              <span hlmBadge variant="success">{{ t('layout.realtime.label') }}</span>
+              <span
+                tabindex="0"
+                class="text-muted-foreground focus-visible:ring-ring/50 min-w-0 truncate rounded-sm outline-none focus-visible:ring-[3px]"
+                data-testid="realtime-status-text"
+                [hlmTooltip]="t('layout.realtime.connected')"
+                >{{ t('layout.realtime.connectedShort') }}</span
+              >
+              <span class="sr-only">{{ t('layout.realtime.connected') }}</span>
+            }
+            @case ('reconnecting') {
+              <span hlmBadge variant="outline">{{ t('layout.realtime.label') }}</span>
+              <span
+                tabindex="0"
+                class="text-muted-foreground focus-visible:ring-ring/50 min-w-0 truncate rounded-sm outline-none focus-visible:ring-[3px]"
+                data-testid="realtime-status-text"
+                [hlmTooltip]="t('layout.realtime.reconnecting')"
+                >{{ t('layout.realtime.reconnectingShort') }}</span
+              >
+              <span class="sr-only">{{ t('layout.realtime.reconnecting') }}</span>
+            }
+            @default {
+              <span hlmBadge variant="destructive">{{ t('layout.realtime.label') }}</span>
+              <span
+                tabindex="0"
+                class="text-muted-foreground focus-visible:ring-ring/50 min-w-0 truncate rounded-sm outline-none focus-visible:ring-[3px]"
+                data-testid="realtime-status-text"
+                [hlmTooltip]="t('layout.realtime.disconnected')"
+                >{{ t('layout.realtime.disconnectedShort') }}</span
+              >
+              <span class="sr-only">{{ t('layout.realtime.disconnected') }}</span>
+            }
+          }
+        </div>
+      }
+      <!--#endif-->
+      <app-user-menu />
+    </div>
+  </hlm-sidebar>
+</ng-container>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\aop\Leistd.DynamicProxy\Leistd.DynamicProxy.csproj" />
+    <ProjectReference Include="..\..\..\..\components\dependency-injection\Leistd.DependencyInjection\Leistd.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\..\..\components\dependency-injection\Leistd.DependencyInjection.DynamicProxy\Leistd.DependencyInjection.DynamicProxy.csproj" />
+  </ItemGroup>
+
+</Project>

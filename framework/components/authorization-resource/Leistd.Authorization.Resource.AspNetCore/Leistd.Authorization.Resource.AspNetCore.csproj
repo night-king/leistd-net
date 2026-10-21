@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 判定走官方授权管线（IAuthorizationService / AuthorizationHandler）；不依赖 HttpContext，普通后台宿主同样可用 -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.Authorization.Resource.Core\Leistd.Authorization.Resource.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Leistd.Authorization.Resource.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,11 +1,24 @@
 <Project>
 
   <!--
-    仓库内直接构建模板源码时，启用所有模板条件符号。
+    仓库内直接构建模板源码时，按 Identity 全功能场景（ServiceRole=Identity、三个可选能力全开）
+    定义代码里实际引用的条件符号；RemoteTokenAuth 在该场景为假，故不定义。
     dotnet new 生成的项目不会包含此文件，仍由模板参数裁剪功能。
+    scripts/check-template-symbols.ps1 只拦截这里的未定义符号，不校验组合是否与 template.json 的计算一致。
+
+    仓库内直接构建只保证编译与单元测试：模板里带条件指令的 JSON（如 Api/Resources/*.json）
+    在这里未经裁剪、不是合法 JSON，集成测试以生成项目为准（scripts/test-template-matrix.ps1）。
   -->
   <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('CompanyName.ProjectName')) and Exists('$(MSBuildThisFileDirectory)template\.template.config\template.json')">
-    <DefineConstants>$(DefineConstants);IncludeIdentity;IncludeRoles;IncludeOpenIddict;IncludeExternalLogin;IncludeNotifications</DefineConstants>
+    <DefineConstants>$(DefineConstants);LocalIdentity;OpenIddictServer;ExternalLogin;IncludeNotifications;IncludeLocalization</DefineConstants>
   </PropertyGroup>
+
+  <!--
+    同一场景下模板只保留一套业务迁移（template.json：LocalIdentity 时排除 Migrations/Resource）。
+    两套快照同时编译会让 EF 在同一上下文的多个快照里任取其一，迁移与快照比对随之失真。
+  -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'CompanyName.ProjectName.Infrastructure' and Exists('$(MSBuildThisFileDirectory)template\.template.config\template.json')">
+    <Compile Remove="Persistence/Migrations/Resource/**" />
+  </ItemGroup>
 
 </Project>

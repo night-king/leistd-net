@@ -1,0 +1,63 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <dl class="grid grid-cols-[minmax(5rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm">
+    <!-- 调用方被折叠的列（dt/dd）排在最前，与追查字段共用一个网格 -->
+    <ng-content />
+    <!-- 目标标识常驻："对谁做的"的精确答案；有名称时名称在上，句子或列表里折叠掉的名称在这里仍看得到。 -->
+    <dt class="text-muted-foreground">
+      {{ t('operationRecords.table.colTarget') }}
+    </dt>
+    <dd class="min-w-0">
+      @if (record().targetName; as targetName) {
+        <span class="block wrap-anywhere">{{ targetName }}</span>
+      }
+      <span class="block font-mono text-xs break-all">{{ record().targetId }}</span>
+    </dd>
+
+    @if (failure(); as reason) {
+      <dt class="text-muted-foreground">
+        {{ t('operationRecords.table.colFailure') }}
+      </dt>
+      <dd class="min-w-0 text-destructive">{{ reason }}</dd>
+    }
+
+    <!-- 技术详情仅宿主可见：服务端已按读者裁剪，租户拿到的恒为空。 -->
+    @if (record().failureDetail; as detail) {
+      <dt class="text-muted-foreground">
+        {{ t('operationRecords.table.colFailureDetail') }}
+      </dt>
+      <dd class="min-w-0 font-mono text-xs break-all">{{ detail }}</dd>
+    }
+    @if (showTime()) {
+      <dt class="text-muted-foreground">
+        {{ t('operationRecords.table.colTime') }}
+      </dt>
+      <dd class="text-muted-foreground">
+        {{ record().creationTime | appDate: 'full' : displayTimeZone() : displayLocale() }}
+      </dd>
+    }
+    <!-- 授权依据常驻：回答"凭什么"，只在追查时看，不占列。 -->
+    <dt class="text-muted-foreground">
+      {{ t('operationRecords.table.colBasis') }}
+    </dt>
+    <dd class="min-w-0 font-mono text-xs break-all">
+      {{ record().authorizationBasis }}
+    </dd>
+    @if (record().actorTenantId; as actorTenantId) {
+      <dt class="text-muted-foreground">
+        {{ t('operationRecords.table.colActorTenantId') }}
+      </dt>
+      <dd class="min-w-0 font-mono text-xs break-all">{{ actorTenantId }}</dd>
+    }
+    <!-- 链路标识常驻：把这条记录接到日志上的唯一钥匙。 -->
+    <dt class="text-muted-foreground">
+      {{ t('operationRecords.table.colCorrelationId') }}
+    </dt>
+    <dd class="min-w-0 font-mono text-xs break-all">
+      {{ record().correlationId || '-' }}
+    </dd>
+  </dl>
+</ng-container>

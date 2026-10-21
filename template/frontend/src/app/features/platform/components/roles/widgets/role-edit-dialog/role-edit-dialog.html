@@ -1,0 +1,78 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-dialog [state]="open() ? 'open' : 'closed'" (stateChanged)="open.set($event === 'open')">
+    <hlm-dialog-content *hlmDialogPortal class="sm:max-w-lg">
+      <hlm-dialog-header>
+        <h2 hlmDialogTitle>{{ isEdit() ? t('roles.editTitle') : t('roles.createTitle') }}</h2>
+        <p hlmDialogDescription>{{ t('roles.editDescription') }}</p>
+      </hlm-dialog-header>
+
+      <form class="flex flex-col gap-4 py-2" (ngSubmit)="onSubmit()">
+        <hlm-field>
+          <label hlmFieldLabel for="role-name">{{ t('roles.fieldName') }}</label>
+          <input
+            hlmInput
+            id="role-name"
+            class="w-full"
+            autocomplete="off"
+            [formField]="roleForm.name"
+          />
+          @for (error of roleForm.name().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
+        </hlm-field>
+
+        <hlm-field>
+          <label hlmFieldLabel for="role-display-name">{{ t('roles.fieldDisplayName') }}</label>
+          <input
+            hlmInput
+            id="role-display-name"
+            class="w-full"
+            autocomplete="off"
+            [formField]="roleForm.displayName"
+          />
+          @for (error of roleForm.displayName().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
+        </hlm-field>
+
+        <hlm-field>
+          <label hlmFieldLabel for="role-description">{{ t('roles.fieldDescription') }}</label>
+          <input
+            hlmInput
+            id="role-description"
+            class="w-full"
+            autocomplete="off"
+            [formField]="roleForm.description"
+          />
+          @for (error of roleForm.description().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
+        </hlm-field>
+
+        <div hlmField orientation="horizontal">
+          <hlm-checkbox inputId="role-is-default" [formField]="roleForm.isDefault" />
+          <label hlmFieldLabel for="role-is-default">{{ t('roles.fieldIsDefault') }}</label>
+        </div>
+      </form>
+
+      <hlm-dialog-footer>
+        <button hlmBtn variant="outline" type="button" (click)="open.set(false)">
+          {{ t('common.cancel') }}
+        </button>
+        <button hlmBtn type="button" [disabled]="roleForm().invalid()" (click)="onSubmit()">
+          {{ t('common.save') }}
+        </button>
+      </hlm-dialog-footer>
+    </hlm-dialog-content>
+  </hlm-dialog>
+</ng-container>

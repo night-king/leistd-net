@@ -1,0 +1,10 @@
+# 测试项目不生成 XML 文档（GenerateDocumentationFile=false），而构建期的 IDE0005 需要它；
+# 未使用 using 的构建期检查只约束随包分发的组件与 DDD 基座，测试里交给 IDE 提示。
+root = false
+
+[*.cs]
+dotnet_diagnostic.IDE0005.severity = none
+
+# 不启用 CA1812（未实例化的内部类型）：测试替身几乎都经 DI 泛型参数、typeof、AddScheme<,>
+# 或最小 API 参数绑定实例化，分析器认不出这些用法。实测在框架测试中报出 114 处，逐一核对均有引用、
+# 无一是死代码；开启只会让每个替身都挂抑制特性。死替身由评审与开发指南 §7.3 的上移规则把关。

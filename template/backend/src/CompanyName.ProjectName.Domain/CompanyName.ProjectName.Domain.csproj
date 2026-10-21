@@ -9,13 +9,26 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
+<!--#if (LocalIdentity)-->
+    <!-- 两步验证密钥用宿主的 Data Protection 加密，只引用抽象 -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" />
+    <PackageReference Include="Leistd.Security.OneTimeCodes" />
+<!--#endif-->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 超管标记只经 UserDomainService 落值（它挡住租户上下文），测试准备数据时直接标记 -->
+    <InternalsVisibleTo Include="CompanyName.ProjectName.IntegrationTests" />
+    <InternalsVisibleTo Include="CompanyName.ProjectName.UnitTests" />
   </ItemGroup>
 
   <!-- Leistd 框架引用 -->
   <ItemGroup>
-    <PackageReference Include="Leistd.Exception.Core" />
+    <PackageReference Include="Leistd.Auditing.Core" />
+    <PackageReference Include="Leistd.ExceptionHandling.Core" />
     <PackageReference Include="Leistd.Lock.Core" />
     <PackageReference Include="Leistd.Security.Core" />
+    <PackageReference Include="Leistd.MultiTenancy.Core" />
     <PackageReference Include="Leistd.Ddd.Domain" />
   </ItemGroup>
 

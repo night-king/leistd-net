@@ -1,0 +1,196 @@
+{
+  "common": {
+    "signIn": "登录",
+    "continueToSignIn": "继续登录",
+    "workspace": "工作区",
+    "unknownError": "未知错误",
+    "appError": "应用错误",
+    "unexpectedError": "应用发生了未知错误，请刷新页面重试。",
+    "networkError": "无法连接到服务器，请检查网络后重试。",
+    "requestError": "请求错误",
+    "requestFailed": "请求未能完成。",
+    "invalidResponse": "无法处理服务器的响应，请刷新页面后重试。",
+    "uncertainResult": "操作可能已经完成，请先核实结果再决定是否重试。",
+    "traceId": "追踪 ID",
+    "authFailedReLogin": "身份验证失败，请重新登录。",
+    "retry": "重试",
+    "loadFailed": "列表加载失败",
+    "cancel": "取消",
+    "save": "保存",
+    "success": "成功",
+    "notice": "提示",
+    "error": "错误",
+    "refresh": "刷新",
+    "confirm": "确认",
+    "ok": "确定",
+    "create": "创建",
+    "edit": "编辑",
+    "delete": "删除",
+    "details": "查看详情",
+    "showFullText": "展开全文",
+    "showLess": "收起",
+    "close": "关闭",
+    "copy": "复制",
+    "add": "添加",
+    "remove": "移除",
+    "uploadAvatar": "上传头像",
+    "actions": "操作",
+    "rowsPerPage": "每页条数",
+    "pageOf": "第 {{page}} / {{total}} 页",
+    "pagination": {
+      "first": "首页",
+      "previous": "上一页",
+      "next": "下一页",
+      "last": "末页"
+    },
+    "toggleSidebar": "切换侧栏",
+    "clearFilter": "清除筛选",
+    "noResults": "无匹配结果",
+    "noData": "暂无数据",
+    "paginator": {
+      "report": "第 {{from}}-{{to}} 条，共 {{total}} 条",
+      "rowsPerPage": "每页条数",
+      "page": "页",
+      "first": "首页",
+      "previous": "上一页",
+      "next": "下一页",
+      "last": "末页"
+    },
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码",
+    "time": {
+      "justNow": "刚刚",
+      "yesterdayAt": "昨天 {{time}}"
+    },
+    "calendar": {
+      "previousMonth": "上个月",
+      "nextMonth": "下个月"
+    },
+    "twoFactorCodeReuseHint": "如果刚用过这个验证码，请等待新的验证码。",
+    "reauthenticate": {
+      "header": "确认是你本人",
+      "description": "这项修改会影响你或他人的登录方式。请先确认是你本人。",
+      "passwordLabel": "你的当前密码",
+      "codeLabel": "验证码",
+      "codeHint": "输入身份验证器应用上的 6 位验证码。",
+      "useCode": "改用身份验证器验证码",
+      "usePassword": "改用密码",
+      "cannotUseAuthenticator": "无法使用身份验证器？重新登录",
+      "signInAgainHint": "你的账号没有可用于确认的密码或身份验证器，请重新登录后再继续。",
+      "signInAgain": "重新登录",
+      "confirm": "确认"
+    }
+  },
+  "validation": {
+    "required": "此字段为必填项",
+    "email": "请输入有效的邮箱地址",
+    "minLength": "至少需要 {{minLength}} 个字符",
+    "maxLength": "不能超过 {{maxLength}} 个字符",
+    "usernamePattern": "只能为 3~64 位字母、数字或下划线",
+    "roleNamePattern": "只能为 2~64 位字母、数字或下划线",
+    "phonePattern": "只能包含数字、空格及 + - ( ) 符号",
+    "passwordMismatch": "两次输入的密码不一致",
+    "passwordSameAsCurrent": "新密码不能与当前密码相同",
+    "tenantNamePattern": "只能使用字母、数字与连字符，不能以连字符开头或结尾，最多 63 位。",
+    "connectionNamePattern": "连接名只能是小写字母、数字与连字符，长度 1 到 64 位。",
+    "connectionNameTaken": "该连接名已登记，要换连接串请用「改连接串」。",
+    "pkceRequired": "Native/Public 客户端必须启用 PKCE。",
+    "credentialRejected": "未通过验证，请检查后重试。"
+  },
+  "menu": {
+    "workspace": "工作空间",
+    "platform": "管理平台",
+    "logout": "退出登录",
+    "personalSettings": "个人设置"
+  },
+  "language": {
+    "label": "语言",
+    "saveFailed": "本次已切换，但账户偏好未保存"
+  },
+  "layout": {
+    "sidebar": {
+      "navigation": "导航",
+      "navigationDescription": "浏览本区域的各项功能。",
+      "appTitle": "模板项目",
+      "switchArea": "切换区域",
+      "groupWork": "工作",
+      "dashboard": "仪表盘",
+      "workbench": "工作台",
+      "groupBusiness": "业务",
+      "exampleModule": "示例模块",
+      "groupSystem": "系统",
+      "users": "用户管理",
+      "roles": "角色管理",
+      "tenants": "租户管理",
+      "groupDeveloper": "开发者",
+      "openApplications": "开放应用",
+      "systemSettings": "系统设置",
+      "operationRecords": "操作记录",
+      "groupIdentity": "身份与访问",
+      "groupAudit": "审计",
+      "toggle": "折叠/展开侧边栏"
+    },
+    "commandPalette": {
+      "search": "搜索",
+      "title": "命令面板",
+      "description": "搜索要打开的页面。",
+      "placeholder": "搜索页面…",
+      "empty": "没有匹配的页面。"
+    },
+    "realtime": {
+      "label": "实时",
+      "connected": "实时更新已连接",
+      "reconnecting": "连接中断，正在重连…",
+      "disconnected": "实时更新已断开，刷新页面重试。",
+      "connectedShort": "已连接",
+      "reconnectingShort": "正在重连…",
+      "disconnectedShort": "已断开"
+    },
+    "topbar": {
+      "openNavigation": "打开导航",
+      "navigationDescription": "选择要前往的页面",
+      "more": "更多"
+    },
+    "notifications": {
+      "title": "通知",
+      "markAllRead": "全部标为已读",
+      "clearAll": "清空全部",
+      "empty": "暂无通知",
+      "loading": "正在加载通知…",
+      "loadFailed": "通知加载失败。",
+      "historyStale": "更早的通知未能刷新。",
+      "clearAllConfirm": "清空全部通知？此操作不可撤销。",
+      "unreadAria": "通知（{{count}} 条未读）"
+    }
+  },
+  "theme": {
+    "toggle": "切换主题",
+    "current": "主题：{{mode}}",
+    "mode": {
+      "light": "浅色",
+      "system": "跟随系统",
+      "dark": "深色"
+    }
+  },
+  "app": {
+    "name": "模板项目",
+    "startup": {
+      "loading": "正在加载...",
+      "failed": "应用加载失败",
+      "clientError": "客户端错误: {{message}}",
+      "requestFailed": "请求失败: {{message}} (代码: {{code}})",
+      "serverError": "未知服务端错误: {{status}} - {{statusText}}",
+      "unknownErrorDetail": "发生未知错误: {{message}}",
+      "unknownError": "发生未知错误，请稍后重试。"
+    }
+  },
+  "impersonation": {
+    "banner": "正以租户 {{tenant}} 的身份操作 · 由 {{impersonator}} 发起",
+    "exit": "退出模拟",
+    "exited": "已回到你自己的账号。",
+    "exitFailed": "无法结束模拟。",
+    "badge": "模拟中 · {{tenant}}",
+    "title": "正在模拟租户",
+    "note": "此期间的所有操作都会记在该租户账号上。"
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "appearance": {
+    "label": "Appearance",
+    "hint": "Applies to this device only"
+  },
+  "reset": "Reset to default",
+  "empty": "No configurable items in this section",
+  "loadFailed": "Couldn't load settings",
+  "timeZoneSearch": "Search city or UTC offset",
+  "timeZoneEmpty": "No matching time zone",
+  "timeZoneToggle": "Show time zones",
+  "browserTimeZone": "browser",
+  "followSystem": "Follows your system",
+  "followOrganization": "Follows your organization",
+  "deploymentDefault": "Deployment default",
+  "hostScope": {
+    //#if (IncludeMultiTenancy)
+    "note": ". Applies to all tenants",
+    "standalone": "Applies to all tenants",
+    //#endif
+    "hint": "One value for the whole system; changes reach every server within about 30 seconds"
+  },
+  "savedEverywhere": "Saved; reaches every server within about 30 seconds",
+  "saved": "Saved",
+  "saving": "Saving…",
+  "logLevelHints": {
+    "Verbose": "Logs everything, including every SQL statement and request detail. For short troubleshooting only; left on, it fills the disk quickly.",
+    "Debug": "Logs debugging details. Turn it on while investigating; not recommended day to day.",
+    "Information": "Logs the normal business flow. The default level.",
+    "Warning": "Logs only warnings and errors; the normal flow is not written.",
+    "Error": "Logs only errors. You may miss clues that are wrong without raising an error.",
+    "Fatal": "Logs only failures that stop the process. Almost the same as turning logging off."
+  },
+  "personal": {
+    "title": "Personal settings",
+    "description": "Manage your profile, account security and preferences"
+  },
+  "system": {
+    "title": "System settings",
+    "description": "Defaults and policies for everyone here; each user may override their own preferences",
+    "empty": "No settings you can manage",
+    "emptyHint": "Each settings section needs its own permission. Ask an administrator to grant the sections you look after"
+  },
+  "navigation": "Settings navigation",
+  "openNavigation": "Open settings navigation",
+  "panels": {
+    "profile": {
+      "title": "Profile",
+      "description": "Your avatar, name and contact details"
+    },
+    "security": {
+      "title": "Account & security",
+      "description": "Your password and how you sign in"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Choose where each kind of notification reaches you. In-app security alerts are always on; email only goes to a verified address"
+    },
+    "preferences": {
+      "title": "Preferences",
+      "description": "Language, time zone and appearance. Language and time zone apply to you only; leave blank to follow your organization, or your system when neither the organization nor the deployment sets one"
+    }
+  },
+  "groupDescriptions": {
+    "Display": "Default language and time zone for everyone here; each person can override them in their preferences. Leave blank to use the deployment default, or follow each device when the deployment sets none",
+    //#if (LocalIdentity)
+    //#if (ExternalLogin)
+    "Registration": "Whether self sign-up is open (external sign-in can still create accounts), how new accounts are verified and how long codes stay valid",
+    //#else
+    "Registration": "Whether self sign-up is open, how new accounts are verified and how long codes stay valid",
+    //#endif
+    "Security": "Sign-in lockout, two-factor requirements and how long idle sessions last",
+    //#if (ExternalLogin)
+    "ExternalLogin": "Sign-in with GitHub, Google and other providers: a switch and client credentials for each",
+    //#endif
+    //#if (Email)
+    "Email": "SMTP server and sender used for outgoing mail",
+    //#endif
+    //#endif
+    //#if (IncludeOperationRecords || IncludeNotifications)
+    "Retention": "How long expired data is kept before it is cleaned up",
+    //#endif
+    "Operations": "How much detail the logs record"
+  },
+  "secretSet": "Set (type a new value to replace it)",
+  "secretUnset": "Not set",
+  //#if (ExternalLogin)
+  "externalLoginProviders": {
+    "description": "Status shows the instance that answered this request.",
+    "active": "Active",
+    "inactive": "Not active",
+    "off": "Off",
+    "clientId": "Client ID",
+    "clientSecret": "Client secret",
+    "configured": "Set",
+    "notConfigured": "Not set",
+    "missingClientId": "Enabled but not active: the client ID is missing.",
+    "missingClientSecret": "Enabled but not active: the client secret is missing.",
+    "missingBoth": "Enabled but not active: the client ID and client secret are missing.",
+    "pending": "Enabled and configured, but this instance has not picked it up yet. Refresh in about 30 seconds.",
+    "stopping": "Turned off, but this instance still offers it. Refresh in about 30 seconds.",
+    "callbackUrl": "Callback URL",
+    "copyCallbackUrl": "Copy callback URL",
+    "copied": "Copied",
+    "loadFailed": "Couldn't load the sign-in status"
+  },
+  //#endif
+  "emailTest": {
+    "title": "Send a test email",
+    "description": "Uses the settings above as they are now. Save your changes first.",
+    "recipient": "Recipient",
+    "send": "Send test email",
+    "sent": "Test email sent to {{to}}"
+  }
+}

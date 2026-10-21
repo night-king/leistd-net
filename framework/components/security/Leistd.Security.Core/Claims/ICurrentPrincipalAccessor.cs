@@ -2,26 +2,25 @@ using System.Security.Claims;
 
 namespace Leistd.Security.Claims;
 
-/// <summary>
-/// 当前认证主体访问器
-/// </summary>
+/// <summary>提供当前认证主体并支持临时切换。</summary>
 public interface ICurrentPrincipalAccessor
 {
-    /// <summary>
-    /// 获取当前认证主体
-    /// </summary>
+    /// <summary>当前认证主体；没有时为 <see langword="null"/>。</summary>
     ClaimsPrincipal? Principal { get; }
 
-    /// <summary>
-    /// 临时切换认证主体（支持嵌套和自动恢复）
-    /// </summary>
-    /// <param name="principal">要切换到的认证主体</param>
-    /// <returns>Dispose 时自动恢复到之前的认证主体</returns>
+    /// <summary>临时切换认证主体，并在释放返回句柄时恢复父主体。</summary>
     /// <remarks>
-    /// 使用场景：
-    /// - 后台任务中设置系统用户
-    /// - 单元测试中模拟用户
-    /// - 跨用户操作
+    /// 仅切换主体，不更新租户或链路标识。后台任务、消息消费者和 Hub 调用应通过
+    /// <c>Leistd.AmbientContext.IAmbientContext.Begin(principal)</c> 建立已注册的上下文维度。
     /// </remarks>
+    /// <example>
+    /// <code>
+    /// // 测试中只替换身份读取面，不切换租户或链路。
+    /// using (principalAccessor.Change(testPrincipal))
+    /// {
+    ///     var principal = principalAccessor.Principal;
+    /// }
+    /// </code>
+    /// </example>
     IDisposable Change(ClaimsPrincipal principal);
 }

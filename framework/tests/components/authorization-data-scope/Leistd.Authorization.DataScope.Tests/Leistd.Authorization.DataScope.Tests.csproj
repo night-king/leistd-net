@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!--
+      必须使用关系型 Provider：数据范围的核心约束是"谓词可被数据库翻译"，
+      InMemory 全内存求值会让不可翻译的 Provider 静默通过，等于没有验证。
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\authorization-data-scope\Leistd.Authorization.DataScope.Core\Leistd.Authorization.DataScope.Core.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

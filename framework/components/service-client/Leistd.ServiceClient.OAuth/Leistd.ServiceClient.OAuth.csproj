@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
+    <PackageReference Include="OpenIddict.Client" />
+    <PackageReference Include="OpenIddict.Client.SystemNetHttp" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.ServiceClient.Core\Leistd.ServiceClient.Core.csproj" />
+  </ItemGroup>
+
+<ItemGroup><InternalsVisibleTo Include="Leistd.ServiceClient.Tests" /></ItemGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t; prefix: 'notFound'">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <section class="flex min-h-svh flex-col items-center justify-center gap-6 px-6 text-center">
+    <div
+      class="flex size-16 items-center justify-center rounded-full bg-muted text-muted-foreground"
+    >
+      <ng-icon name="lucideSearchX" size="32" aria-hidden="true" />
+    </div>
+
+    <div class="flex flex-col gap-2">
+      <h1 class="text-2xl font-semibold tracking-tight">{{ t('title') }}</h1>
+      <p class="max-w-md text-sm text-muted-foreground">
+        {{ t('description') }}
+      </p>
+    </div>
+
+    <a hlmBtn routerLink="/">{{ t('backHome') }}</a>
+  </section>
+</ng-container>

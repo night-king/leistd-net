@@ -1,0 +1,13 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="flex min-h-64 flex-col items-center justify-center gap-4 py-10 text-center">
+    <!-- 状态由 spinner（role="status"）播报，可见文字不再重复读一遍 -->
+    <hlm-spinner class="text-3xl" [aria-label]="text() ?? t('app.startup.loading')" />
+    <div class="text-sm text-muted-foreground" aria-hidden="true">
+      {{ text() ?? t('app.startup.loading') }}
+    </div>
+  </div>
+</ng-container>

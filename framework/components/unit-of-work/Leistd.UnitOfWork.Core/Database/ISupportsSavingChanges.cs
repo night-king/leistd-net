@@ -1,12 +1,8 @@
-namespace Leistd.UnitOfWork.Core.Database;
+namespace Leistd.UnitOfWork.Database;
 
-/// <summary>
-/// 支持保存更改的接口
-/// </summary>
+/// <summary>允许工作单元冲刷已登记数据库资源。</summary>
 public interface ISupportsSavingChanges
 {
-    /// <summary>
-    /// 保存更改
-    /// </summary>
+    /// <summary>将待处理更改冲刷到数据库。</summary>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

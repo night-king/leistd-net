@@ -4,16 +4,16 @@ namespace CompanyName.ProjectName.Application.Auth.Dtos;
 
 public record SendEmailCodeInputDto
 {
-    [Display(Name = "邮箱")]
-    [Required(ErrorMessage = "请输入{0}")]
-    [EmailAddress(ErrorMessage = "{0}格式不正确")]
-    public required string Email { get; init; }
+    [Display(Name = "Email")]
+    [Required(ErrorMessage = "{0} is required.")]
+    [EmailAddress(ErrorMessage = "{0} has an invalid format.")]
+    public string Email { get; init; } = null!;
 
-    [Display(Name = "验证码凭据")]
-    [Required(ErrorMessage = "图形验证码已失效，请刷新重试")]
-    public required string CaptchaToken { get; init; }
+    [Display(Name = "Captcha token")]
+    [Required(ErrorMessage = "The captcha has expired. Refresh it and try again.")]
+    public string CaptchaToken { get; init; } = null!;
 
-    [Display(Name = "图形验证码")]
-    [Required(ErrorMessage = "请输入{0}")]
-    public required string CaptchaCode { get; init; }
+    [Display(Name = "Captcha")]
+    [Required(ErrorMessage = "{0} is required.")]
+    public string CaptchaCode { get; init; } = null!;
 }

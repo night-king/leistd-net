@@ -1,0 +1,21 @@
+{
+  "culture": "en",
+  "texts": {
+    "Tenant:ActivationRejected": "This tenant cannot be activated yet.",
+    "Tenant:InvalidClaim": "The sign-in carries invalid tenant information. Sign in again.",
+    "Tenant:ConcurrencyConflict": "The tenant was changed by someone else. Reload and try again.",
+    "Tenant:DedicatedDatabaseMissing": "The database named in the connection string does not exist. Create and migrate it, then create the tenant.",
+    "Tenant:DedicatedDatabaseNotMigrated": "The database exists but has not been migrated; its tables are missing. Migrate it first.",
+    "Tenant:DedicatedDatabaseRejected": "The database rejected the credentials in the connection string.",
+    "Tenant:DedicatedDatabaseUnreachable": "The tenant's dedicated database is unreachable. Check that the host and port are reachable and the database server is running.",
+    "Tenant:DuplicateName": "A tenant named '{Name}' already exists.",
+    "Tenant:NameInvalid": "Tenant name '{Name}' is invalid. Use letters, digits and hyphens only, not starting or ending with a hyphen, at most 63 characters (pattern {Pattern}).",
+    "Tenant:NotActive": "This tenant is not active.",
+    "Tenant:NotFound": "The tenant does not exist.",
+    "TenantConnection:ChangeRequiresInactiveTenant": "Deactivate the tenant before changing where its data lives.",
+    "TenantConnection:ConnectionStringInvalid": "The connection string is empty, too long or malformed. It must be semicolon-separated key=value pairs; the value is not echoed back because it carries credentials.",
+    "TenantConnection:NameDuplicated": "The same connection name '{Name}' was given more than once. Each name may be registered only once per tenant.",
+    "TenantConnection:NameInvalid": "Connection name '{Name}' is invalid. After lowercasing it must match {Pattern}.",
+    "TenantConnection:VersionConflict": "The connection was changed by someone else. Reload and try again."
+  }
+}

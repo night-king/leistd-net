@@ -32,7 +32,7 @@ def validate_skill(skill_path):
     except yaml.YAMLError as error:
         return False, f"Invalid YAML in frontmatter: {error}"
 
-    allowed_properties = {"name", "description", "license", "allowed-tools", "metadata"}
+    allowed_properties = {"name", "description", "license", "allowed-tools", "metadata", "user-invocable"}
     unexpected_keys = set(frontmatter) - allowed_properties
     if unexpected_keys:
         allowed = ", ".join(sorted(allowed_properties))

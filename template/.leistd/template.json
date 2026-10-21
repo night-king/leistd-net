@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "id": "Leistd.Templates",
+    "version": "__LEISTD_TEMPLATE_PACKAGE_VERSION__",
+    "sourceSha": "__LEISTD_TEMPLATE_SOURCE_SHA__"
+  },
+  "sdkVersion": "__LEISTD_TEMPLATE_SDK_VERSION__",
+  "name": "CompanyName.ProjectName",
+  "parameters": {
+    "ServiceRole": "__LEISTD_TEMPLATE_PARAMETER_SERVICE_ROLE__",
+    "IncludeFrontend": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_FRONTEND__,
+    "IncludeMultiTenancy": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_MULTI_TENANCY__,
+    "IncludeRealTime": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_REAL_TIME__,
+    "IncludeEmail": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_EMAIL__,
+    "IncludeOperationRecords": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_OPERATION_RECORDS__,
+    "IncludeNotifications": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_NOTIFICATIONS__,
+    "IncludeExternalLogin": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_EXTERNAL_LOGIN__,
+    "IncludeLocalization": __LEISTD_TEMPLATE_PARAMETER_INCLUDE_LOCALIZATION__,
+    "Ci": "__LEISTD_TEMPLATE_PARAMETER_CI__"
+  },
+  "userSecretsIds": {
+    "backend/src/CompanyName.ProjectName.Api/CompanyName.ProjectName.Api.csproj": "7f3c2a1e-4b5d-4e6f-9a8b-0c1d2e3f4a5b",
+    "backend/src/CompanyName.ProjectName.DbMigrator/CompanyName.ProjectName.DbMigrator.csproj": "7f3c2a1e-4b5d-4e6f-9a8b-0c1d2e3f4a5b"
+  }
+}

@@ -1,0 +1,115 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <div class="bg-background grid min-h-svh lg:grid-cols-2">
+    <!--
+      左栏是独立的品牌面板，贴边铺满半屏；窄屏不显示，表单独占一屏，品牌标识改由表单栏顶部给出。
+      面板用固定深色的 hero 表面，亮暗主题同色，与表单栏形成明暗对照
+    -->
+    <aside
+      class="bg-hero text-hero-foreground relative hidden flex-col overflow-hidden px-10 py-6 lg:flex"
+      [attr.aria-label]="t('account.brand.title')"
+    >
+      <!--
+        营销装饰：两团品牌色光晕在深色底上铺开，两道同心细环的圆心落在面板右下角外，只露出弧线，
+        环绕居中的内容。全部取 hero 令牌，亮暗主题同样
+      -->
+      <div aria-hidden="true" class="pointer-events-none absolute inset-0">
+        <div
+          class="bg-hero-accent/25 absolute -start-32 -top-32 size-112 rounded-full blur-3xl"
+        ></div>
+        <div class="bg-primary/35 absolute -end-24 -bottom-40 size-120 rounded-full blur-3xl"></div>
+        <div
+          class="border-hero-border absolute -end-64 -bottom-64 size-160 rounded-full border"
+        ></div>
+        <div
+          class="border-hero-border absolute -end-96 -bottom-96 size-224 rounded-full border"
+        ></div>
+      </div>
+      <!-- 与右栏主题、语言切换同高，两栏顶部一条线 -->
+      <a
+        routerLink="/"
+        class="relative flex h-9 items-center gap-2 self-start text-sm font-semibold"
+      >
+        <app-logo />
+        {{ t('account.brand.title') }}
+      </a>
+      <div class="relative flex flex-1 items-center justify-center py-10">
+        <div class="flex w-full max-w-lg flex-col gap-10">
+          <!--
+            展示标题固定两行：引导句 + 强调句，在逗号处分行，lg 与 xl 两档字号都放得下单行，
+            不随宽度在词中间折行；英文等更长的译文由 balance 均衡折行
+          -->
+          <div class="flex flex-col gap-4">
+            <p
+              class="text-4xl leading-tight font-semibold tracking-tight text-balance break-keep wrap-anywhere xl:text-5xl xl:leading-tight"
+            >
+              {{ t(copy().headlineLead) }}
+              <span class="text-hero-accent block">{{ t(copy().headlineAccent) }}</span>
+            </p>
+            <p class="text-hero-muted text-base">{{ t(copy().subtitle) }}</p>
+          </div>
+          <!-- 亮点只写不随模板参数变化的能力，任何裁剪形态下都成立（见 copy） -->
+          <ul
+            class="bg-hero-surface border-hero-border divide-hero-border divide-y rounded-xl border"
+          >
+            @for (highlight of copy().highlights; track highlight.title) {
+              <li class="flex items-center gap-4 px-5 py-4">
+                <span
+                  class="bg-hero-accent/15 text-hero-accent flex size-9 shrink-0 items-center justify-center rounded-full"
+                >
+                  <ng-icon [name]="highlight.icon" />
+                </span>
+                <div class="flex min-w-0 flex-col gap-0.5">
+                  <p class="text-sm font-medium">{{ t(highlight.title) }}</p>
+                  <p class="text-hero-muted text-sm">{{ t(highlight.description) }}</p>
+                </div>
+              </li>
+            }
+          </ul>
+        </div>
+      </div>
+      <!-- 品牌栏底行：左边一句说明，右边版权，与顶部 Logo 同属这块面板 -->
+      <div class="text-hero-muted relative flex items-center justify-between gap-4 text-xs">
+        <p>{{ t('account.brand.note') }}</p>
+        <p class="shrink-0">© {{ year }} {{ t('account.brand.title') }}</p>
+      </div>
+    </aside>
+
+    <div class="flex min-w-0 flex-col gap-8 px-4 py-6 sm:px-10">
+      <div class="flex items-center justify-between gap-4 lg:justify-end">
+        <a routerLink="/" class="flex items-center gap-2 text-sm font-semibold lg:hidden">
+          <app-logo />
+          {{ t('account.brand.title') }}
+        </a>
+        <div class="flex gap-2 md:gap-4">
+          <app-theme-mode-toggle />
+          <!--#if (IncludeLocalization)-->
+          @if (showLanguageSwitcher()) {
+            <app-language-switcher />
+          }
+          <!--#endif-->
+        </div>
+      </div>
+
+      <!-- 表单直接放在右栏，不再套卡片：左右分栏本身已经划出了区域 -->
+      <div class="flex flex-1 items-center justify-center">
+        <div
+          class="flex w-full flex-col gap-6"
+          [class.max-w-sm]="width() === 'default'"
+          [class.max-w-xl]="width() === 'wide'"
+        >
+          <ng-content />
+          <ng-content select="[authShellFooter]" />
+        </div>
+      </div>
+
+      <!-- 窄屏没有品牌栏，版权放到表单下方，与居中的表单对齐 -->
+      <p class="text-muted-foreground text-center text-xs lg:hidden">
+        © {{ year }} {{ t('account.brand.title') }}
+      </p>
+    </div>
+  </div>
+</ng-container>

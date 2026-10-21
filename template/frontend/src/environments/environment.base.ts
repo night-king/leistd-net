@@ -2,7 +2,13 @@ import { MockConfig } from '../../_mock/core/models';
 
 export interface Environment {
   production: boolean;
+  //#if (LocalIdentity)
+  /**
+   * 是否启用哈希路由（`#/path`）。只在本地身份形态下提供：OIDC 回调地址是无 fragment 的普通路径，
+   * 哈希路由下回调组件不会渲染。
+   */
   useHash: boolean;
+  //#endif
   /**
    * 是否启用 Mock 服务，仅在非生产环境有效。
    * - `false`: 关闭 Mock
@@ -11,38 +17,18 @@ export interface Environment {
    */
   useMock: boolean | MockConfig;
   api: {
-    gateway: string; // 网关地址, 为空则不使用（服务地址为完整地址）
-    authService: {
-      url: string;
-      refreshTokenEnabled?: boolean;
-      refreshTokenType?: string;
-    };
-    appService: {
-      url: string;
-    };
-    envService: {
-      url: string;
-    };
+    /** 网关地址；保持空值，请求以相对路径访问同源 API（同镜像托管、部署代理或开发代理）。 */
+    gateway: string;
   };
 }
 
-// 这是所有环境共享的基础配置
 export const environmentBase: Environment = {
   production: false,
+  //#if (LocalIdentity)
   useHash: false,
+  //#endif
   useMock: false, // 默认关闭
   api: {
-    gateway: 'https://example.com', // 本地开发的网关地址
-    authService: {
-      url: '/auth-service',
-      refreshTokenEnabled: true,
-      refreshTokenType: 'auth-refresh'
-    },
-    appService: {
-      url: '/app-service'
-    },
-    envService: {
-      url: '/env-service'
-    }
-  }
+    gateway: '',
+  },
 };

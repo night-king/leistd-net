@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Refit.HttpClientFactory" />
+    <!-- Refit 15 起，multipart/原始响应等无法内联源生成的方法形态需要反射构建器；
+         由本包统一携带，业务 Client 包无需感知（RF006 诊断即可忽略）。 -->
+    <PackageReference Include="Refit.Reflection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.ServiceClient.Core\Leistd.ServiceClient.Core.csproj" />
+  </ItemGroup>
+
+</Project>

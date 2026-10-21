@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- 与 Api 共用同一份 user-secrets：本机迁移读到的连接串就是 API 用的那一条 -->
+    <UserSecretsId>7f3c2a1e-4b5d-4e6f-9a8b-0c1d2e3f4a5b</UserSecretsId>
+    <!-- dotnet run 时以项目目录为内容根（Web SDK 的默认行为），从 backend/ 运行也能读到本项目的 appsettings.Development.json -->
+    <RunWorkingDirectory>$(MSBuildProjectDirectory)</RunWorkingDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+<!--#if (OpenIddictServer)-->
+    <PackageReference Include="OpenIddict.EntityFrameworkCore" />
+<!--#endif-->
+  </ItemGroup>
+  <!-- Leistd 框架引用 -->
+  <ItemGroup>
+    <PackageReference Include="Leistd.Data" />
+  </ItemGroup>
+  <ItemGroup>
+<!--#if (RemoteTokenAuth || LocalIdentity)-->
+    <ProjectReference Include="..\CompanyName.ProjectName.Application\CompanyName.ProjectName.Application.csproj" />
+    <PackageReference Include="Leistd.Tracing.Core" />
+<!--#if (!IncludeOperationRecords)-->
+    <PackageReference Include="Leistd.OperationRecords.Logging" />
+<!--#endif-->
+<!--#endif-->
+    <ProjectReference Include="..\CompanyName.ProjectName.Domain\CompanyName.ProjectName.Domain.csproj" />
+    <ProjectReference Include="..\CompanyName.ProjectName.Infrastructure\CompanyName.ProjectName.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 管理员引导要在进程内暂停在提交前验证持锁范围：集成测试直接驱动内部的执行器 -->
+    <InternalsVisibleTo Include="CompanyName.ProjectName.IntegrationTests" />
+  </ItemGroup>
+</Project>

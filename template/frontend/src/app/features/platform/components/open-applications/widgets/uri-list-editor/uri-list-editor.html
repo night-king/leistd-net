@@ -1,0 +1,49 @@
+<div class="flex flex-col gap-3 rounded-md border border-border bg-muted/40 p-4">
+  <div class="flex items-center justify-between gap-3">
+    <label hlmFieldLabel [for]="inputId()">{{ label() }}</label>
+    <span class="text-xs text-muted-foreground">{{ hint() }}</span>
+  </div>
+  <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-2 sm:flex-row">
+      <input
+        hlmInput
+        [id]="inputId()"
+        class="w-full font-mono"
+        [value]="value()"
+        (input)="onInput($event)"
+        (keydown.enter)="$event.preventDefault(); onAdd()"
+        [placeholder]="placeholder()"
+      />
+      <button
+        hlmBtn
+        type="button"
+        class="min-w-24 whitespace-nowrap"
+        (click)="onAdd()"
+        [disabled]="!value() || isInvalid()"
+      >
+        <ng-icon name="lucidePlus" data-icon="inline-start" />
+        {{ addLabel() }}
+      </button>
+    </div>
+    @if (isInvalid()) {
+      <hlm-field-error>{{ invalidText() }}</hlm-field-error>
+    }
+  </div>
+  <div class="flex flex-wrap gap-2">
+    @for (uri of uris(); track uri) {
+      <span hlmBadge [variant]="badgeVariant()" class="max-w-full gap-1">
+        <span class="max-w-96 truncate font-mono text-xs">{{ uri }}</span>
+        <button
+          type="button"
+          class="-mr-1 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          [attr.aria-label]="removeLabel() + ': ' + uri"
+          (click)="remove.emit(uri)"
+        >
+          <ng-icon name="lucideX" class="text-xs" />
+        </button>
+      </span>
+    } @empty {
+      <span class="text-xs text-muted-foreground">{{ emptyText() }}</span>
+    }
+  </div>
+</div>

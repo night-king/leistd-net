@@ -1,156 +1,128 @@
 # 审计
 
-审计用于自动记录实体的创建人/创建时间、最后修改人/修改时间，以及删除人/删除时间（软删除），免去在每个应用服务里手写这些样板代码。典型场景包括：合规审计（谁在何时创建/修改/删除了这条数据）、软删除（业务上不允许物理删除，但需要标记"已删除"并保留数据）、审计字段的统一自动填充。
-
-Leistd 通过一组标记接口（`ICreationAuditedObject` / `IModificationAuditedObject` / `IDeletionAuditedObject` 等）表达实体"具备哪些审计能力"，业务代码只需让实体实现相应接口；真正的字段填充由 `IAuditPropertySetter` 完成，EF Core 适配层通过 `SaveChangesInterceptor` 在保存前自动调用它，业务代码无需手动赋值。
+审计组件按实体标记接口自动填充创建、修改和软删除的用户与时间；业务代码无需手动赋值。
 
 ## 何时使用
 
-| 场景 | 推荐 |
+| 场景 | 使用 |
 | --- | --- |
-| 实体需要记录创建人/创建时间 | 实现 `ICreationAuditedObject`（或至少 `IHasCreationTime`） |
-| 实体需要记录最后修改人/修改时间 | 实现 `IModificationAuditedObject`（或至少 `IHasModificationTime`） |
-| 实体需要软删除（标记删除而非物理删除）并记录删除人/删除时间 | 实现 `IDeletionAuditedObject`（内含 `ISoftDelete`） |
-| 实体需要以上全部审计能力 | 实现 `IFullAuditedObject` |
-| 仅编写业务代码（定义实体、消费审计字段），不关心填充逻辑 | 只引用 `Leistd.Auditing.Core` 中的接口 |
-| 使用 EF Core 作为持久化层，需要保存时自动填充审计字段 | 引用 `Leistd.Auditing.EntityFrameworkCore`，注册 `AuditSaveChangesInterceptor` |
+| 记录创建、修改或删除信息 | 实现对应的时间、软删除或用户审计接口 |
+| 同时需要全部审计字段 | 实现 `IFullAuditedObject` |
+| 仅定义和读取审计字段 | 引用 `Leistd.Auditing.Core` |
+| 使用 EF Core 自动填充 | 引用 `Leistd.Auditing.EntityFrameworkCore` |
 
-> 审计字段的自动填充依赖 EF Core 拦截器；若不使用 EF Core，只能引用 `Leistd.Auditing.Core` 的接口自行实现填充逻辑。
+`AuditSaveChangesInterceptor` 只处理修改和删除。创建审计需由 `BaseDbContext` 或 `EntityTrackingExtensions` 在实体进入跟踪时落定。
 
 ## 安装
 
 ```bash
-# 抽象（审计标记接口 + IAuditPropertySetter 定义）
 dotnet add package Leistd.Auditing.Core
-
-# EF Core 实现（AuditPropertySetter + AuditSaveChangesInterceptor）
 dotnet add package Leistd.Auditing.EntityFrameworkCore
 ```
 
-> 本仓库的模板项目通过中央包管理（CPM）统一版本，添加时无需写版本号。
-
-## 配置 Provider
-
-在 `Program.cs`（或组合根）注册审计能力：
+## 注册
 
 ```csharp
-builder.Services.AddAuditingCore();      // 当前为空实现，仅占位保留扩展点
-builder.Services.AddAuditingEfCore();    // 注册 IAuditPropertySetter 与 AuditSaveChangesInterceptor
+builder.Services.AddAuditingEfCore();
+
+builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+{
+    options.AddInterceptors(
+        serviceProvider.GetRequiredService<AuditSaveChangesInterceptor>());
+});
 ```
 
-`AddAuditingEfCore` 以 **Transient** 注册 `IAuditPropertySetter`（实现为 `AuditPropertySetter`）与 `AuditSaveChangesInterceptor`。它依赖容器中已注册的 `Leistd.Timing.IClock`（提供审计时间）与 `Leistd.Security.Users.ICurrentUser`（提供当前用户 ID），需确保这两者已注册。
+`AddAuditingEfCore` 以 Transient 注册 `IAuditPropertySetter` 和 `AuditSaveChangesInterceptor`，但不自动挂载拦截器。它要求容器已注册 `IClock`；`ICurrentUser` 可选，未注册时时间字段仍会填充，用户字段保持 `null`。
 
-`AddAuditingEfCore` **不会**自动把拦截器挂到 DbContext 上，调用方需要在配置 `DbContextOptionsBuilder` 时显式调用 `AddInterceptors`，传入已注册的 `AuditSaveChangesInterceptor` 实例：
+继承 `BaseDbContext` 时，应将作用域 `IServiceProvider` 传给基类构造函数；否则当前用户和运行时过滤开关不可用。普通 `DbContext` 可调用 `ChangeTracker.EnableCreationAuditing(serviceProvider)` 接入创建审计。
+
+审计人字段的默认列长通过 EF 约定单独登记，与拦截器注册独立：
 
 ```csharp
-// 在 DbContext 注册处（options 为 DbContextOptionsBuilder）：
-options.AddInterceptors(serviceProvider.GetRequiredService<AuditSaveChangesInterceptor>());
+using Leistd.Auditing.EntityFrameworkCore.Conventions;
+using Microsoft.EntityFrameworkCore;
+
+public sealed class AuditDbContext(DbContextOptions<AuditDbContext> options) : DbContext(options)
+{
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+        => configurationBuilder.Conventions.Add(_ => new AuditingEntityConvention());
+}
 ```
+
+`CreatorId`、`LastModifierId`、`DeleterId` 默认最长 64；显式 Fluent 配置与数据注解优先。DDD 基座已登记此约定。
 
 ## 使用
-
-实体按需实现审计接口，`SaveChanges`/`SaveChangesAsync` 时字段会被拦截器自动填充，无需手动赋值。审计字段的 setter 用 `private set`（仅由拦截器经 EF Core 写入，业务代码不手动赋值）：
 
 ```csharp
 public class Order : IFullAuditedObject
 {
-    public Guid Id { get; set; }
-
-    // —— 创建审计 ——
     public DateTime CreationTime { get; private set; }
     public string? CreatorId { get; private set; }
-
-    // —— 修改审计 ——
     public DateTime? LastModificationTime { get; private set; }
     public string? LastModifierId { get; private set; }
-
-    // —— 删除审计（软删除）——
     public bool IsDeleted { get; private set; }
     public DateTime? DeletionTime { get; private set; }
     public string? DeleterId { get; private set; }
 }
+
+dbContext.Add(new Order());
+await dbContext.SaveChangesAsync();
 ```
 
-字段在保存时由 `AuditSaveChangesInterceptor` 自动填充——只要 `DbContext` 挂了该拦截器（见上方"配置 Provider"），无论如何写入都生效：
-
-```csharp
-// dbContext 为挂载了 AuditSaveChangesInterceptor 的 DbContext
-dbContext.Set<Order>().Add(order);
-await dbContext.SaveChangesAsync();
-// order.CreationTime / order.CreatorId 已由拦截器自动填充
-
-dbContext.Set<Order>().Remove(order);
-await dbContext.SaveChangesAsync();
-// 因 Order 实现 ISoftDelete：不会物理删除，
-// 而是 IsDeleted=true 且写入 DeletionTime / DeleterId（详见"实现行为"）
-```
-
-> 在采用 [DDD 四层基座](../ddd-struct/ddd-struct.md) 的项目里，实体通常继承 `FullAuditedEntity<TKey>`（已内置这些字段）、并经仓储读写而非直接操作 `DbContext`；本组件本身不依赖 ddd-struct，上面直接实现接口 + 直用 `DbContext` 是其最小自包含用法。
+采用 [DDD 四层基座](../ddd-struct/ddd-struct.md) 时，可直接继承 `FullAuditedEntity<TKey>`。
 
 ## 接口参考
 
-`Leistd.Auditing`（`Leistd.Auditing.Core` 包）命名空间：
-
-| 成员 | 说明 |
+| 类型 | 用途 |
 | --- | --- |
-| `IHasCreationTime` | 含 `CreationTime`（创建时间） |
-| `ICreationAuditedObject : IHasCreationTime` | 额外含 `CreatorId`（创建者 ID） |
-| `IHasModificationTime` | 含 `LastModificationTime`（可空，最后修改时间） |
-| `IModificationAuditedObject : IHasModificationTime` | 额外含 `LastModifierId`（最后修改者 ID） |
-| `IHasDeletionTime` | 含 `DeletionTime`（可空，删除时间） |
-| `ISoftDelete` | 含 `IsDeleted`（是否已删除） |
-| `IDeletionAuditedObject : IHasDeletionTime, ISoftDelete` | 额外含 `DeleterId`（删除者 ID） |
-| `IFullAuditedObject` | 聚合 `ICreationAuditedObject` + `IModificationAuditedObject` + `IDeletionAuditedObject` 的完整审计对象 |
-| `IAuditPropertySetter` | 审计属性设置器接口，含 `SetCreationProperties` / `SetModificationProperties` / `SetDeletionProperties`（均以 `object entityEntry` 作为参数，避免核心包依赖 EF Core） |
-
-`Leistd.Auditing.EntityFrameworkCore` 命名空间：
-
-| 成员 | 说明 |
-| --- | --- |
-| `AuditPropertySetter : IAuditPropertySetter` | 基于 EF Core `EntityEntry` API 的默认实现，依赖 `IClock` 与 `ICurrentUser` |
-| `AuditSaveChangesInterceptor` | `SaveChangesInterceptor` 实现，在 `SavingChanges`/`SavingChangesAsync` 中遍历 `ChangeTracker.Entries()` 并按实体状态自动调用 `IAuditPropertySetter` |
+| `IHasCreationTime` | 定义 `CreationTime` |
+| `ICreationAuditedObject` | 增加 `CreatorId` |
+| `IHasModificationTime` | 定义 `LastModificationTime` |
+| `IModificationAuditedObject` | 增加 `LastModifierId` |
+| `IHasDeletionTime` | 定义 `DeletionTime` |
+| `ISoftDelete` | 定义 `IsDeleted` |
+| `IDeletionAuditedObject` | 组合软删除、删除时间和 `DeleterId` |
+| `IFullAuditedObject` | 组合全部审计契约 |
+| `IAuditPropertySetter` | 填充创建、修改和删除审计属性 |
+| `AuditSaveChangesInterceptor` | 在保存时处理修改审计和软删除 |
+| `AuditingEntityConvention` | 配置审计人字段默认列长，支持普通 DbContext |
+| `EntityTrackingExtensions` | 在实体进入 `Added` 状态时执行创建审计 |
 
 ## 实现行为
 
-### Leistd.Auditing.EntityFrameworkCore
+### 落值时机
 
-`AuditSaveChangesInterceptor` 在保存前按 `EntityEntry.State` 决定动作：
+| 状态 | 时机 | 处理者 |
+| --- | --- | --- |
+| `Added` | 进入变更跟踪时 | `BaseDbContext` 或 `EntityTrackingExtensions` |
+| `Modified` / `Deleted` | `SavingChanges` | `AuditSaveChangesInterceptor` |
 
-| `EntityState` | 行为 |
-| --- | --- |
-| `Added` | 调用 `SetCreationProperties`（设置 `CreationTime` / `CreatorId`） |
-| `Modified` | 若实体是 `ISoftDelete` 且 `IsDeleted == true`（本次改动只是软删除标记），**跳过**修改审计，避免与删除审计重复设置；否则调用 `SetModificationProperties`（设置 `LastModificationTime` / `LastModifierId`） |
-| `Deleted` | 若实体实现 `ISoftDelete`：将 `entry.State` 由 `Deleted` **改写为 `Modified`**（物理删除转为逻辑删除），并调用 `SetDeletionProperties`（设置 `IsDeleted=true` / `DeletionTime` / `DeleterId`）；未实现 `ISoftDelete` 的实体按 EF Core 默认行为物理删除，不做任何审计处理 |
+创建审计在进入跟踪时落值；`Tracked` 和 `StateChanged` 两条路径都覆盖。
 
-`AuditPropertySetter` 对每个字段均做**幂等判断，已设置则跳过**，避免覆盖已有值或重复赋值：
+### 软删除
 
-- `SetCreationTime`：仅当 `CreationTime == default` 时才写入 `clock.Normalize(clock.Now)`。
-- `SetCreatorId`：仅当 `ICurrentUser.Id` 有值、且当前 `CreatorId` 为空时才写入。
-- `SetLastModificationTime`：只要实体实现 `IHasModificationTime` 就**无条件**覆盖为 `clock.Normalize(clock.Now)`，不依赖 `ICurrentUser`、无幂等跳过（每次修改都刷新为最新时间）。
-- `SetLastModifierId`：仅当 `ICurrentUser.Id` 有值、且实体实现 `IModificationAuditedObject` 时才写入，每次覆盖为最新修改者（无幂等跳过）。
-- `SetIsDeleted`：仅当 `IsDeleted` 尚为 `false` 时才置为 `true`。
-- `SetDeletionTime`：仅当 `DeletionTime` 尚无值时才写入。
-- `SetDeleterId`：仅当 `ICurrentUser.Id` 有值、且当前 `DeleterId` 为空时才写入。
+| 写法 | EF Core 状态 | 结果 |
+| --- | --- | --- |
+| `Remove(entity)` | `Deleted` | 转为 `Modified`，填充删除审计 |
+| 将 `IsDeleted` 设为 `true` | `Modified` | 仅在 `false -> true` 迁移时填充删除审计 |
 
-`ICurrentUser.Id` 未登录（无值）时，`CreatorId` / `LastModifierId` / `DeleterId` 均不会被设置，仅时间类字段照常填充。
+已删除实体的后续修改不会重写删除者，也不记录修改审计。未实现 `ISoftDelete` 的实体仍按 EF Core 默认行为物理删除。
 
-`AuditPropertySetter` 的各 `SetXxx` 保护方法均为 `virtual`，可通过继承重写自定义单个字段的设置逻辑。
+### 字段更新
 
-## 配置项 / Options
-
-当前无配置项：`AddAuditingCore` 与 `AddAuditingEfCore` 均无参数，也未暴露 Options 类。
+- 创建和删除字段仅在尚未设置时填充。
+- `LastModificationTime` 在每次修改时刷新，`LastModifierId` 同步写为当前用户；没有当前用户（后台作业、机器主体）时置空，不保留上一次的修改人。
+- 时间经 `IClock.Normalize` 归一化。
+- EF Core 的 `IAuditPropertySetter` 实现只接受 `EntityEntry`，其他类型抛 `ArgumentException`。
 
 ## 注意事项
 
-- 软删除是**状态翻转**（`IsDeleted=true` + 写入删除审计字段），不是物理删除：`Deleted` 状态的实体只要实现 `ISoftDelete`，就会被拦截器改写为 `Modified` 并保留在数据库中；未实现 `ISoftDelete` 的实体仍会被物理删除。
-- `AddAuditingEfCore` 不会自动把 `AuditSaveChangesInterceptor` 挂载到 DbContext，必须在 `DbContextOptionsBuilder.AddInterceptors(...)` 中显式添加，否则审计字段不会被填充。
-- `AddAuditingEfCore` 依赖 `Leistd.Timing.IClock` 与 `Leistd.Security.Users.ICurrentUser` 已在容器中注册；未注册会在解析 `AuditPropertySetter` 时失败。
-- 各字段的自动填充只在**实体实现对应接口**时生效；未实现相应接口（如只实现 `IHasCreationTime` 而未实现 `ICreationAuditedObject`）则只会填充该接口覆盖的字段。
-- 创建/删除相关字段（`CreationTime`/`CreatorId`/`DeletionTime`/`DeleterId`）已设置后不会被覆盖；修改相关字段（`LastModificationTime`/`LastModifierId`）每次修改都会被覆盖为最新值。
+- `AddAuditingEfCore` 不会自动挂载 `AuditSaveChangesInterceptor`。
+- 自动填充只对实现对应审计接口的实体生效。
+- 普通 `DbContext` 未接入创建审计钩子时，`Added` 实体不会自动填充创建字段。
+- `ICurrentUser` 缺失时用户字段保持 `null`，不影响时间字段。
 
 ## 相关
 
-- [组件总览](./README.md)
 - [当前用户与身份信息](./security.md)
-- [权限授权](./authorization.md)（其 EF Core 存储引用审计基类型）
-- [DDD 四层基座](../ddd-struct/ddd-struct.md)（`Leistd.Ddd.Infrastructure` 集成审计拦截器）
+- [DDD 四层基座](../ddd-struct/ddd-struct.md)

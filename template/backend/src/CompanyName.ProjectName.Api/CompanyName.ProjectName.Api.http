@@ -1,6 +1,11 @@
-@CompanyName.ProjectName.Api_HostAddress = http://localhost:5240
+@HostAddress = http://localhost:5240
 
-GET {{CompanyName.ProjectName.Api_HostAddress}}/weatherforecast/
+### 存活探针：进程在跑即 200
+GET {{HostAddress}}/api/health/live
+
+### 就绪探针：数据库等依赖可用才 200
+GET {{HostAddress}}/api/health/ready
+
+### 接口清单（仅 Development）
+GET {{HostAddress}}/openapi/v1.json
 Accept: application/json
-
-###

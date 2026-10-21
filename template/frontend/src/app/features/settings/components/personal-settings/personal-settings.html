@@ -1,0 +1,13 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <app-settings-shell
+    [heading]="t('settings.personal.title')"
+    [description]="t('settings.personal.description')"
+    [panels]="panels()"
+    [navLabel]="t('settings.navigation')"
+    [openNavLabel]="t('settings.openNavigation')"
+  />
+</ng-container>

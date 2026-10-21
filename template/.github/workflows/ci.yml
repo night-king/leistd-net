@@ -1,0 +1,142 @@
+# 只准备运行环境，验证步骤全部在 scripts/verify.ps1（与本地完整回归同一入口）；
+# 默认分支的 push 验证通过后由 publish-images 构建并推送 api、migrator 两个镜像。
+# 设为合并必过的方法见 docs/standards/testing.md §1.1。
+name: CI
+
+on:
+  push:
+    # 默认分支不是 main 时同步修改这里，否则默认分支的 push 不会触发验证与镜像发布
+    branches: [main]
+  pull_request:
+  # merge queue 要求必过检查对队列分支也报告状态
+  merge_group:
+  workflow_dispatch:
+#if (SpaFrontend)
+  # 每周一次前端生产依赖审计（只跑审计，不跑 verify）
+  schedule:
+    - cron: '17 3 * * 1'
+#endif
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    # 托管 Runner 自带 Docker（集成测试经 Testcontainers 使用）与 PowerShell
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      # 只缓存 NuGet 下载内容（模板没有 NuGet 锁文件，key 取依赖声明的哈希），不缓存构建输出
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('backend/Directory.Packages.props', 'backend/**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+#if (SpaFrontend)
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # 前端单测跑在 Playwright 驱动的 Chromium 里，浏览器版本取锁文件里的 playwright
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: |
+          $version = (Get-Content frontend/package-lock.json -Raw | ConvertFrom-Json -AsHashTable).packages['node_modules/playwright'].version
+          if (-not $version) { throw 'playwright is missing from frontend/package-lock.json' }
+          npx --yes "playwright@$version" install --with-deps chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Playwright Chromium installation failed' }
+#endif
+#if (SpaFrontend)
+      # 前端生产依赖审计不在 scripts/verify.ps1 里：定时、手动，或前端锁文件在本次事件的基线与头之间变化时运行，
+      # 否则跳过；门槛是生产依赖无 high/critical。只有网络错误才有限重试，发现漏洞直接失败。
+      - name: Audit production dependencies
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.event.merge_group.base_sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: |
+          run_audit=false
+          case "$EVENT" in
+            schedule|workflow_dispatch) run_audit=true ;;
+            *)
+              if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ]; then run_audit=true
+              elif git fetch --no-tags --depth=1 origin "$BASE" "$HEAD" 2>/dev/null; then
+                git diff --quiet "$BASE" "$HEAD" -- frontend/package-lock.json || run_audit=true
+              else run_audit=true
+              fi ;;
+          esac
+          if [ "$run_audit" != true ]; then echo "未改依赖，跳过审计"; exit 0; fi
+          cd frontend
+          for attempt in 1 2 3; do
+            if output=$(npm audit --omit=dev --audit-level=high --package-lock-only 2>&1); then echo "$output"; exit 0; fi
+            echo "$output"
+            if ! echo "$output" | grep -Eq 'ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ECONNREFUSED|FETCH_ERROR|audit endpoint returned an error' || [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep $((5 * attempt))
+          done
+#endif
+      - name: Verify
+        # 定时运行只做审计
+        if: ${{ github.event_name != 'schedule' }}
+        shell: pwsh
+        run: ./scripts/verify.ps1
+#if (LocalIdentity)
+      # 保留 Playwright 报告、trace 与 API 日志：成功时也上传，重试后才通过的 flaky 用例据此诊断
+      - name: Upload E2E report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+#endif
+
+  # 镜像发布：只在默认分支的 push 上、同一提交的 verify（含适用的依赖审计）成功后运行；
+  # PR、merge queue、定时审计与手动运行不发布。标签为提交 SHA，部署按作业摘要里的 digest 晋级。
+  publish-images:
+    name: publish-images
+    needs: verify
+    if: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and push images
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # GHCR 镜像名必须小写
+          base="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version_args=()
+          if [ -f VERSION ]; then version_args=(--build-arg "APP_VERSION=$(tr -d '[:space:]' < VERSION)"); fi
+          echo "| 镜像 | digest |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for target in api migrator; do
+            image="$base-$target:$GITHUB_SHA"
+            docker build --target "$target" --build-arg "APP_REVISION=$GITHUB_SHA" "${version_args[@]}" -t "$image" .
+            docker push "$image"
+            digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+            echo "$image@$digest"
+            echo "| \`$base-$target\` | \`$digest\` |" >> "$GITHUB_STEP_SUMMARY"
+          done

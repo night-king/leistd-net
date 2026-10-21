@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Leistd.OperationRecords</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 操作人取自 ICurrentUser；模拟登录的真实操作人 claim 名归口在 Security 的 CustomClaimTypes -->
+    <ProjectReference Include="..\..\security\Leistd.Security.Core\Leistd.Security.Core.csproj" />
+    <!-- 记录带租户归属：写入的 TenantId 由记录器显式盖章，不依赖宿主 DbContext 是否为 BaseDbContext -->
+    <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!-- CorrelationId 让记录可以保持窄：细节留在日志里，按同一个链路标识回查 -->
+    <ProjectReference Include="..\..\tracing\Leistd.Tracing.Core\Leistd.Tracing.Core.csproj" />
+    <ProjectReference Include="..\..\core\Leistd.Core\Leistd.Core.csproj" />
+    <!-- 查询用例：分页契约 -->
+    <ProjectReference Include="..\..\data\Leistd.Data\Leistd.Data.csproj" />
+    <!-- 失败原因按错误码渲染：占位符填充与错误响应共用 LocalizationPlaceholders，同一个码两处句子一致 -->
+    <ProjectReference Include="..\..\exception-handling\Leistd.ExceptionHandling.Core\Leistd.ExceptionHandling.Core.csproj" />
+    <!-- 自产失败码的默认译文随包分发，经 AddJsonLocalizationResources 登记 -->
+    <ProjectReference Include="..\..\localization\Leistd.Localization.Core\Leistd.Localization.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 自产失败码的默认中英文案，宿主资源可覆盖 -->
+    <EmbeddedResource Include="Resources\*.json" />
+  </ItemGroup>
+
+  <!--
+    刻意不引用 unit-of-work：本包只决定记录写进哪一层，与事务的关系由写入实现按记录结果执行
+    （契约见 IOperationRecordWriter.InsertAsync），工作单元依赖落在 .EntityFrameworkCore 与 .Logging 适配包里。
+  -->
+
+  <ItemGroup>
+    <!-- 记录器是 internal 实现，用例直接构造它来钉住上下文补齐的口径 -->
+    <InternalsVisibleTo Include="Leistd.OperationRecords.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Localization.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+
+</Project>

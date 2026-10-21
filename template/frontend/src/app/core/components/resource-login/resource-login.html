@@ -1,0 +1,18 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <main class="bg-background flex min-h-svh items-center justify-center p-4 sm:p-6">
+    <section hlmCard class="w-full max-w-sm">
+      <div hlmCardHeader>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ t('common.signIn') }}</h1>
+      </div>
+      <div hlmCardContent>
+        <button hlmBtn type="button" class="w-full" (click)="signIn()">
+          {{ t('common.continueToSignIn') }}
+        </button>
+      </div>
+    </section>
+  </main>
+</ng-container>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <!-- 并发令牌校验需要关系型 provider：InMemory 不实现它 -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\ddd-struct\Leistd.Ddd.Infrastructure\Leistd.Ddd.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\components\event-bus\Leistd.EventBus.Local\Leistd.EventBus.Local.csproj" />
+    <ProjectReference Include="..\..\..\components\auditing\Leistd.Auditing.EntityFrameworkCore\Leistd.Auditing.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\components\security\Leistd.Security.Core\Leistd.Security.Core.csproj" />
+    <ProjectReference Include="..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

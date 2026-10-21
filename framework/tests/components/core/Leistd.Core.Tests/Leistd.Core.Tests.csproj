@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- ClockExtensions 的时区行为用官方 FakeTimeProvider 驱动，不手写时间替身 -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\core\Leistd.Core\Leistd.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -29,10 +29,19 @@ yarn-error.log
 .history/*
 
 # Miscellaneous
+/.cache/lint/
 /.angular/cache
 .sass-cache/
 /connect.lock
 /coverage
+# Vitest 浏览器模式在用例失败时截的图
+__screenshots__/
+#if (LocalIdentity)
+# Playwright 端到端测试的结果、报告与经接口登录保存的会话
+/test-results/
+/playwright-report/
+/playwright/.auth/
+#endif
 /libpeerconnection.log
 testem.log
 /typings
@@ -40,6 +49,3 @@ testem.log
 # System files
 .DS_Store
 Thumbs.db
-
-# Local environment settings
-src/environments/environment.debug.ts

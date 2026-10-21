@@ -1,19 +1,22 @@
-using Leistd.Lock.Core;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using StackExchange.Redis;
+using Leistd.Lock.Redis.Options;
+using Leistd.Lock.Abstractions;
 
 namespace Leistd.Lock.Redis;
 
-/// <summary>
-/// Redis 分布式锁实现
-/// 使用 StackExchange.Redis 的 LockTake / LockRelease API（内部封装 SET NX + Lua 脚本）
-/// </summary>
-public sealed class RedisDistributedLock(IConnectionMultiplexer connectionMultiplexer, ILogger<RedisDistributedLock> logger)
-    : IDistributedLock
+/// <summary>通过 Redis 租约提供跨进程互斥。</summary>
+public sealed class RedisDistributedLock(
+    IConnectionMultiplexer connectionMultiplexer,
+    IOptions<RedisLockOptions> options,
+    ILogger<RedisDistributedLock> logger,
+    TimeProvider? timeProvider = null) : IDistributedLock
 {
-    private static readonly TimeSpan DefaultLockExpiry = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
+    private readonly RedisLockOptions _options = options.Value;
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
+    /// <inheritdoc />
     public async Task<ILockHandle> LockAsync(string key, CancellationToken cancellationToken = default)
     {
         while (true)
@@ -22,58 +25,105 @@ public sealed class RedisDistributedLock(IConnectionMultiplexer connectionMultip
             var handle = await TryAcquireAsync(key, cancellationToken);
             if (handle != null)
                 return handle;
-            await Task.Delay(PollInterval, cancellationToken);
+            await Task.Delay(_options.RetryInterval, _timeProvider, cancellationToken);
         }
     }
 
-    public async Task<ILockHandle?> TryLockAsync(string key, TimeSpan timeout, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public Task<ILockHandle?> TryLockAsync(string key, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
+        // 负值是编程错误；无限等待应使用 LockAsync。
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.Zero);
+
+        return TryAcquireWithRetryAsync(
+            ct => TryAcquireAsync(key, ct),
+            timeout,
+            _options.RetryInterval,
+            _timeProvider,
+            () => logger.LogDebug("Failed to acquire lock [{Key}]: timeout", key),
+            cancellationToken);
+    }
+
+    // 先尝试再判断超时，使零超时仍尝试一次并与内存实现一致。
+    // 使用单调时间，避免墙钟调整改变等待期限。
+    internal static async Task<ILockHandle?> TryAcquireWithRetryAsync(
+        Func<CancellationToken, Task<ILockHandle?>> attempt,
+        TimeSpan timeout,
+        TimeSpan retryInterval,
+        TimeProvider timeProvider,
+        Action onTimeout,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = timeProvider.GetTimestamp();
+
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var handle = await TryAcquireAsync(key, cancellationToken);
-            if (handle != null)
-                return handle;
-            var remaining = deadline - DateTime.UtcNow;
-            if (remaining <= TimeSpan.Zero) break;
-            await Task.Delay(PollInterval < remaining ? PollInterval : remaining, cancellationToken);
-        }
-        logger.LogDebug("尝试加锁【{Key}】失败：超时", key);
-        return null;
-    }
 
-    public async Task UnlockAsync(string key, CancellationToken cancellationToken = default)
-    {
-        // 显式解锁不持有 token，直接删除（用于异常兜底场景）
-        var db = connectionMultiplexer.GetDatabase();
-        await db.KeyDeleteAsync(key);
-        logger.LogDebug("解锁【{Key}】", key);
+            var handle = await attempt(cancellationToken);
+            if (handle != null)
+            {
+                return handle;
+            }
+
+            var remaining = timeout - timeProvider.GetElapsedTime(startedAt);
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            var delay = retryInterval < remaining ? retryInterval : remaining;
+            await Task.Delay(delay, timeProvider, cancellationToken);
+        }
+
+        onTimeout();
+        return null;
     }
 
     private async Task<ILockHandle?> TryAcquireAsync(string key, CancellationToken cancellationToken)
     {
         var token = Guid.NewGuid().ToString("N");
-        var db = connectionMultiplexer.GetDatabase();
+        var redisKey = Prefixed(key);
+        var expiry = _options.Expiry;
 
-        // 使用 LockTake API（内部封装 SET NX + 过期时间）
-        var acquired = await db.LockTakeAsync(key, token, DefaultLockExpiry);
+        var acquired = await TakeAsync(redisKey, token, expiry);
         if (!acquired)
             return null;
 
-        logger.LogDebug("加锁【{Key}】成功", key);
-        return new RedisLockHandle(key, token, this);
+        logger.LogDebug("Lock [{Key}] acquired", redisKey);
+        return new RedisLockHandle(
+            redisKey,
+            expiry,
+            e => ExtendAsync(redisKey, token, e),
+            () => ReleaseAsync(redisKey, token),
+            logger,
+            _timeProvider);
     }
 
-    internal async Task ReleaseAsync(string key, string token)
+    private string Prefixed(string key) =>
+        _options.KeyPrefix.Length == 0 ? key : _options.KeyPrefix + key;
+
+    private async Task<bool> TakeAsync(string key, string token, TimeSpan expiry)
+    {
+        var db = connectionMultiplexer.GetDatabase();
+        return await db.LockTakeAsync(key, token, expiry);
+    }
+
+    // 仅续期仍由当前令牌持有的锁，避免延长其他持有者的租约。
+    private async Task<bool> ExtendAsync(string key, string token, TimeSpan expiry)
+    {
+        var db = connectionMultiplexer.GetDatabase();
+        return await db.LockExtendAsync(key, token, expiry);
+    }
+
+    private async Task ReleaseAsync(string key, string token)
     {
         var db = connectionMultiplexer.GetDatabase();
 
-        // 使用 LockRelease API（内部封装 Lua 脚本原子校验 + 删除）
         var released = await db.LockReleaseAsync(key, token);
         if (released)
-            logger.LogDebug("解锁【{Key}】成功", key);
+            logger.LogDebug("Lock [{Key}] released", key);
         else
-            logger.LogWarning("解锁【{Key}】失败：锁已过期或被他人持有", key);
+            logger.LogWarning("Failed to release lock [{Key}]: it has expired or is held by another owner", key);
     }
 }

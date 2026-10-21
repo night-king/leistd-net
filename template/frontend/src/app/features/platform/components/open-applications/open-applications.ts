@@ -1,136 +1,303 @@
-import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormsModule } from '@angular/forms';
-import { ConfirmationService, MessageService } from 'primeng/api';
-import { ButtonModule } from 'primeng/button';
-import { ConfirmDialogModule } from 'primeng/confirmdialog';
-import { DialogModule } from 'primeng/dialog';
-import { IconFieldModule } from 'primeng/iconfield';
-import { InputIconModule } from 'primeng/inputicon';
-import { InputTextModule } from 'primeng/inputtext';
-import { SelectModule } from 'primeng/select';
-import { TooltipModule } from 'primeng/tooltip';
-import { Subject } from 'rxjs';
-import { debounceTime, distinctUntilChanged, finalize } from 'rxjs/operators';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, ParamMap, Params, Router } from '@angular/router';
+//#if (IncludeLocalization)
+import { TranslocoDirective, TranslocoService, translateSignal } from '@jsverse/transloco';
+//#endif
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import {
+  lucideGlobe,
+  lucideLockKeyhole,
+  lucideMonitor,
+  lucidePlus,
+  lucideRefreshCw,
+  lucideSearch,
+  lucideServer,
+  lucideUnlock,
+} from '@ng-icons/lucide';
+import { toast } from '@spartan-ng/brain/sonner';
+import { HlmButton } from '@spartan-ng/helm/button';
+import {
+  HlmInputGroup,
+  HlmInputGroupInput,
+  HlmInputGroupAddon,
+} from '@spartan-ng/helm/input-group';
+import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
+import { PaginationState, SortingState } from '@tanstack/angular-table';
+import { combineLatest, defer, EMPTY, of, Subject } from 'rxjs';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  finalize,
+  startWith,
+  switchMap,
+} from 'rxjs/operators';
 
-import { LayoutService } from '../../../../layout/services/layout-service';
-import { FilterStateService } from '../../../../shared/services/filter-state.service';
+import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
+import { ConfirmService } from '../../../../core/feedback/confirm-service';
+import { AuthorizationService } from '../../../../core/services/authorization-service';
+import { LayoutService } from '../../../../core/services/layout-service';
+import { FacetedFilter } from '../../../../shared/components/faceted-filter/faceted-filter';
+import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
+//#if (!IncludeLocalization)
+import { englishText } from '../../../../shared/utils/english-text';
+//#endif
+import {
+  paginationFromQuery,
+  sortingFromQuery,
+  tableStateToQuery,
+  toApiSorting,
+} from '../../../../shared/utils/table-query-state';
 import {
   CreateOpenApplicationInputDto,
+  GetOpenApplicationsInputDto,
   OpenApplicationClientType,
   OpenApplicationOutputDto,
   OpenApplicationType,
-  UpdateOpenApplicationInputDto
-} from '../../models/open-application.dto';
+  UpdateOpenApplicationInputDto,
+} from '../../dtos/open-application.dto';
 import { OpenApplicationService } from '../../services/open-application-service';
-import { OpenApplicationEditDialogComponent } from './widgets/open-application-edit-dialog/open-application-edit-dialog';
-import { OpenApplicationTable, OpenApplicationTableFilterEvent } from './widgets/open-application-table/open-application-table';
+import { OpenApplicationEditDialog } from './widgets/open-application-edit-dialog/open-application-edit-dialog';
+import { OpenApplicationTable } from './widgets/open-application-table/open-application-table';
+import {
+  SecretRevealDialog,
+  SecretRevealKind,
+} from './widgets/secret-reveal-dialog/secret-reveal-dialog';
+
+const APPLICATION_SORT_COLUMNS = ['clientId', 'creationTime'] as const;
+const DEFAULT_APPLICATION_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
 
 @Component({
   selector: 'app-open-applications',
   imports: [
-    CommonModule,
-    FormsModule,
-    SelectModule,
-    IconFieldModule,
-    InputIconModule,
-    InputTextModule,
-    ButtonModule,
-    TooltipModule,
-    ConfirmDialogModule,
-    DialogModule,
+    NgIcon,
+    HlmButton,
+    HlmInputGroup,
+    HlmInputGroupInput,
+    HlmInputGroupAddon,
+    ...HlmTooltipImports,
+    FacetedFilter,
+    //#if (IncludeLocalization)
+    TranslocoDirective,
+    //#endif
     OpenApplicationTable,
-    OpenApplicationEditDialogComponent
+    OpenApplicationEditDialog,
+    SecretRevealDialog,
   ],
-  providers: [ConfirmationService],
+  providers: [
+    provideIcons({
+      lucidePlus,
+      lucideRefreshCw,
+      lucideSearch,
+      lucideGlobe,
+      lucideMonitor,
+      lucideServer,
+      lucideUnlock,
+      lucideLockKeyhole,
+    }),
+  ],
   templateUrl: './open-applications.html',
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class OpenApplicationsPage implements OnInit {
+export class OpenApplications {
   private readonly service = inject(OpenApplicationService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly confirmationService = inject(ConfirmationService);
-  private readonly messageService = inject(MessageService);
+  private readonly confirmService = inject(ConfirmService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly layoutService = inject(LayoutService);
-  private readonly filterStateService = inject(FilterStateService);
+  private readonly authorizationService = inject(AuthorizationService);
+  //#if (IncludeLocalization)
+  private readonly transloco = inject(TranslocoService);
+  //#else
+  protected readonly t = englishText(ENGLISH);
+  //#endif
 
-  private readonly FILTER_KEY = 'open-applications';
   private readonly searchSubject = new Subject<string>();
+  private readonly refreshRequests = new Subject<void>();
+  private readonly queryParams = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap,
+  });
 
   applications = signal<OpenApplicationOutputDto[]>([]);
   totalRecords = signal(0);
   loading = signal(false);
+  /** 列表加载失败且没有旧行可保留时的原因：有值时表格显示错误态与重试，不显示"暂无数据"。 */
+  loadError = signal<string | null>(null);
+
+  // 列表状态全部来源于 URL 查询参数（刷新 / 前进后退 / 分享皆可复原）。
+  readonly pagination = computed(() => paginationFromQuery(this.queryParams()));
+  readonly sorting = computed(() =>
+    sortingFromQuery(this.queryParams(), APPLICATION_SORT_COLUMNS, DEFAULT_APPLICATION_SORTING),
+  );
+
+  // 操作入口按权限裁剪；前端隐藏只影响体验，后端仍逐个请求校验。
+  readonly canCreate = computed(() =>
+    this.authorizationService.has(PERMISSIONS.openApplications.create),
+  );
+  readonly canUpdate = computed(() =>
+    this.authorizationService.has(PERMISSIONS.openApplications.update),
+  );
+  readonly canDelete = computed(() =>
+    this.authorizationService.has(PERMISSIONS.openApplications.delete),
+  );
+  readonly canResetSecret = computed(() =>
+    this.authorizationService.has(PERMISSIONS.openApplications.resetSecret),
+  );
 
   editDialogVisible = signal(false);
   editDialogLoading = signal(false);
   editDialogSaving = signal(false);
   selectedApplication = signal<OpenApplicationOutputDto | null>(null);
+  // 可授予的 scope：取不到时编辑框里只是没有 scope 选项，列表照常可用
+  readonly scopes = toSignal(this.service.getScopes().pipe(catchError(() => of([]))), {
+    initialValue: [],
+  });
 
-  resetSecretDialogVisible = signal(false);
-  resetSecretValue = signal('');
+  // 揭示密钥弹窗（重置 / 新建后复用同一实例）。
+  secretDialogVisible = signal(false);
 
-  createdSecretDialogVisible = signal(false);
-  createdSecretValue = signal('');
+  /** 弹窗可见性变化的唯一入口：关闭时清空 secret 与所属应用，免得下次打开显示上一次的 secret。 */
+  onSecretDialogVisibleChange(visible: boolean): void {
+    if (!visible) {
+      this.secretValue.set('');
+      this.secretApplication.set(null);
+    }
+    this.secretDialogVisible.set(visible);
+  }
+  secretValue = signal('');
+  secretKind = signal<SecretRevealKind>('created');
+  secretApplication = signal<Pick<OpenApplicationOutputDto, 'clientId' | 'displayName'> | null>(
+    null,
+  );
 
-  searchQuery = signal('');
-  selectedApplicationType = signal<OpenApplicationType | null>(null);
-  selectedClientType = signal<OpenApplicationClientType | null>(null);
+  // 搜索框即时值：随 URL 回填，输入时乐观更新，防抖后写回 URL。
+  readonly searchQuery = signal(this.route.snapshot.queryParamMap.get('keyword') ?? '');
+  // FacetedFilter 的取值由 URL 状态驱动。
+  readonly selectedApplicationType = computed(
+    () => (this.queryParams().get('applicationType') as OpenApplicationType | null) ?? null,
+  );
+  readonly selectedClientType = computed(
+    () => (this.queryParams().get('clientType') as OpenApplicationClientType | null) ?? null,
+  );
+  // 是否处于筛选/搜索态：用于区分「暂无数据」与「无匹配结果」的空状态。
+  readonly hasActiveFilters = computed(
+    () =>
+      this.searchQuery().trim().length > 0 ||
+      this.selectedApplicationType() !== null ||
+      this.selectedClientType() !== null,
+  );
 
-  offset = signal(0);
-  limit = signal(10);
-  sorting = signal('clientId asc');
+  //#if (IncludeLocalization)
+  private readonly applicationTypeOptionsTexts = {
+    web: translateSignal('openApp.appType.web', {}, { scope: 'openApp' }),
+    native: translateSignal('openApp.appType.native', {}, { scope: 'openApp' }),
+    service: translateSignal('openApp.appType.service', {}, { scope: 'openApp' }),
+  };
+  readonly applicationTypeOptions = computed(() => [
+    {
+      label: this.applicationTypeOptionsTexts.web(),
+      value: 'web' as const,
+      icon: 'lucideGlobe',
+    },
+    {
+      label: this.applicationTypeOptionsTexts.native(),
+      value: 'native' as const,
+      icon: 'lucideMonitor',
+    },
+    {
+      label: this.applicationTypeOptionsTexts.service(),
+      value: 'service' as const,
+      icon: 'lucideServer',
+    },
+  ]);
 
-  applicationTypeOptions = [
-    { label: 'Web', value: 'web' },
-    { label: '桌面/原生', value: 'native' },
-    { label: '服务端', value: 'service' }
-  ];
+  private readonly clientTypeOptionsTexts = {
+    publicLabel: translateSignal('openApp.clientType.publicLabel', {}, { scope: 'openApp' }),
+    confidentialLabel: translateSignal(
+      'openApp.clientType.confidentialLabel',
+      {},
+      { scope: 'openApp' },
+    ),
+  };
+  readonly clientTypeOptions = computed(() => [
+    {
+      label: this.clientTypeOptionsTexts.publicLabel(),
+      value: 'public' as const,
+      icon: 'lucideUnlock',
+    },
+    {
+      label: this.clientTypeOptionsTexts.confidentialLabel(),
+      value: 'confidential' as const,
+      icon: 'lucideLockKeyhole',
+    },
+  ]);
+  //#else
+  readonly applicationTypeOptions = computed(() => [
+    { label: 'Web', value: 'web' as const, icon: 'lucideGlobe' },
+    { label: 'Desktop/Native', value: 'native' as const, icon: 'lucideMonitor' },
+    { label: 'Service', value: 'service' as const, icon: 'lucideServer' },
+  ]);
 
-  clientTypeOptions = [
-    { label: 'Public', value: 'public' },
-    { label: 'Confidential', value: 'confidential' }
-  ];
+  readonly clientTypeOptions = computed(() => [
+    { label: 'Public', value: 'public' as const, icon: 'lucideUnlock' },
+    { label: 'Confidential', value: 'confidential' as const, icon: 'lucideLockKeyhole' },
+  ]);
+  //#endif
 
   constructor() {
     this.searchSubject
       .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.onFilter());
-  }
+      .subscribe((keyword) => this.updateQuery({ keyword: keyword.trim() || null, page: 1 }, true));
 
-  ngOnInit() {
-    this.layoutService.title.set('开放应用管理');
+    // 搜索框即时值随 URL 回填（前进后退 / 分享链接场景）。
+    effect(() => this.searchQuery.set(this.queryParams().get('keyword') ?? ''));
 
-    const saved = this.filterStateService.load<{
-      searchQuery: string;
-      selectedApplicationType: OpenApplicationType | null;
-      selectedClientType: OpenApplicationClientType | null;
-    }>(this.FILTER_KEY);
-
-    if (saved.searchQuery) this.searchQuery.set(saved.searchQuery);
-    if (saved.selectedApplicationType !== undefined) this.selectedApplicationType.set(saved.selectedApplicationType ?? null);
-    if (saved.selectedClientType !== undefined) this.selectedClientType.set(saved.selectedClientType ?? null);
-  }
-
-  reloadList() {
-    this.loading.set(true);
-    this.service
-      .getOpenApplications({
-        keyword: this.searchQuery(),
-        applicationType: this.selectedApplicationType() ?? undefined,
-        clientType: this.selectedClientType() ?? undefined,
-        offset: this.offset(),
-        limit: this.limit(),
-        sorting: this.sorting()
-      })
+    // URL 变化或显式刷新时重新拉取列表。
+    combineLatest([this.route.queryParamMap, this.refreshRequests.pipe(startWith(undefined))])
       .pipe(
+        // 开始状态放进当前请求的订阅里：switchMap 先取消旧请求（其 finalize 置 false）再订阅新请求，
+        // 写在 switchMap 外的话，旧请求的 finalize 会在新请求还没返回时把 loading 关掉。
+        switchMap(([params]) =>
+          defer(() => {
+            this.loading.set(true);
+            return this.service.getOpenApplications(this.queryFromParams(params)).pipe(
+              catchError((error: unknown) => {
+                // 已有行时刷新失败：保留旧行，只做提示
+                if (this.applications().length > 0) {
+                  this.showRequestError(error);
+                } else {
+                  this.loadError.set(applicationErrorMessage(error));
+                }
+                return EMPTY;
+              }),
+              finalize(() => this.loading.set(false)),
+            );
+          }),
+        ),
         takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.loading.set(false))
       )
-      .subscribe(data => {
+      .subscribe((data) => {
+        this.loadError.set(null);
         this.applications.set(data.items);
         this.totalRecords.set(data.totalCount);
       });
+
+    //#if (IncludeLocalization)
+    const title = translateSignal('openApp.page.title', {}, { scope: 'openApp' });
+    effect(() => this.layoutService.title.set(title()));
+    //#else
+    this.layoutService.title.set('Open applications');
+    //#endif
   }
 
   onSearchQueryChange(value: string) {
@@ -138,31 +305,27 @@ export class OpenApplicationsPage implements OnInit {
     this.searchSubject.next(value);
   }
 
-  onApplicationTypeChange(value: OpenApplicationType | null) {
-    this.selectedApplicationType.set(value);
-    this.onFilter();
+  onApplicationTypeChange(value: OpenApplicationType | null | undefined) {
+    this.updateQuery({ applicationType: value ?? null, page: 1 });
   }
 
-  onClientTypeChange(value: OpenApplicationClientType | null) {
-    this.selectedClientType.set(value);
-    this.onFilter();
+  onClientTypeChange(value: OpenApplicationClientType | null | undefined) {
+    this.updateQuery({ clientType: value ?? null, page: 1 });
   }
 
-  onFilter() {
-    this.offset.set(0);
-    this.filterStateService.save(this.FILTER_KEY, {
-      searchQuery: this.searchQuery(),
-      selectedApplicationType: this.selectedApplicationType(),
-      selectedClientType: this.selectedClientType()
+  onPaginationChange(pagination: PaginationState) {
+    this.updateQuery(tableStateToQuery(pagination, this.sorting()));
+  }
+
+  onSortingChange(sorting: SortingState) {
+    this.updateQuery({
+      ...tableStateToQuery({ ...this.pagination(), pageIndex: 0 }, sorting),
+      page: 1,
     });
-    this.reloadList();
   }
 
-  onPageChange(event: OpenApplicationTableFilterEvent) {
-    this.offset.set(event.offset);
-    this.limit.set(event.limit);
-    if (event.sorting) this.sorting.set(event.sorting);
-    this.reloadList();
+  reloadList() {
+    this.refreshRequests.next();
   }
 
   openAddDialog() {
@@ -177,8 +340,14 @@ export class OpenApplicationsPage implements OnInit {
 
     this.service
       .getOpenApplication(id)
-      .pipe(finalize(() => this.editDialogLoading.set(false)))
-      .subscribe(application => this.selectedApplication.set(application));
+      .pipe(
+        finalize(() => this.editDialogLoading.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (application) => this.selectedApplication.set(application),
+        error: (error) => this.showRequestError(error),
+      });
   }
 
   handleSave(data: CreateOpenApplicationInputDto | UpdateOpenApplicationInputDto) {
@@ -191,77 +360,154 @@ export class OpenApplicationsPage implements OnInit {
 
     request
       .pipe(
+        finalize(() => this.editDialogSaving.set(false)),
         takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.editDialogSaving.set(false))
       )
       .subscribe({
-        next: result => {
-          this.messageService.add({
-            severity: 'success',
-            summary: '成功',
-            detail: selected ? '开放应用更新成功' : '开放应用创建成功'
+        next: (result) => {
+          //#if (IncludeLocalization)
+          toast.success(this.transloco.translate('common.success'), {
+            description: this.transloco.translate(
+              selected ? 'openApp.toast.updated' : 'openApp.toast.created',
+            ),
           });
+          //#else
+          toast.success('Success', {
+            description: selected
+              ? 'Open application updated successfully'
+              : 'Open application created successfully',
+          });
+          //#endif
           this.editDialogVisible.set(false);
 
           // 创建 Confidential 客户端后显示自动生成的 Secret
           if (!selected && result.clientSecret) {
-            this.createdSecretValue.set(result.clientSecret);
-            this.createdSecretDialogVisible.set(true);
+            this.secretValue.set(result.clientSecret);
+            this.secretKind.set('created');
+            this.secretApplication.set(result);
+            this.secretDialogVisible.set(true);
           }
 
           this.reloadList();
-        }
+        },
+        error: (error) => this.showRequestError(error),
       });
   }
 
-  handleDelete(id: string) {
-    this.confirmationService.confirm({
-      message: '确定要删除此开放应用吗？使用该 Client ID 的客户端将无法继续登录。',
-      header: '确认删除',
-      icon: 'pi pi-exclamation-triangle',
-      accept: () => {
-        this.service.deleteOpenApplication(id).subscribe(() => {
-          this.messageService.add({ severity: 'success', summary: '成功', detail: '开放应用已删除' });
-          this.reloadList();
-        });
-      }
+  async handleDelete(id: string) {
+    const confirmed = await this.confirmService.open({
+      //#if (IncludeLocalization)
+      message: this.transloco.translate('openApp.confirm.deleteMessage'),
+      header: this.transloco.translate('openApp.confirm.deleteHeader'),
+      confirmText: this.transloco.translate('common.ok'),
+      cancelText: this.transloco.translate('common.cancel'),
+      //#else
+      message:
+        'Are you sure you want to delete this open application? Clients using this Client ID will no longer be able to sign in.',
+      header: 'Confirm deletion',
+      //#endif
+      variant: 'destructive',
     });
-  }
-
-  handleResetSecret(id: string) {
-    this.confirmationService.confirm({
-      message: '确定要重置该开放应用的 Client Secret 吗？旧密钥将立即失效。',
-      header: '确认重置密钥',
-      icon: 'pi pi-exclamation-triangle',
-      accept: () => {
-        this.service.resetSecret(id).subscribe(result => {
-          this.resetSecretValue.set(result.clientSecret);
-          this.resetSecretDialogVisible.set(true);
-          this.reloadList();
-        });
-      }
-    });
-  }
-
-  copyResetSecret() {
-    const value = this.resetSecretValue();
-    if (!value) {
+    if (!confirmed) {
       return;
     }
 
-    navigator.clipboard?.writeText(value).then(() => {
-      this.messageService.add({ severity: 'success', summary: '成功', detail: '已复制密钥' });
-    });
+    this.service
+      .deleteOpenApplication(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          //#if (IncludeLocalization)
+          toast.success(this.transloco.translate('common.success'), {
+            description: this.transloco.translate('openApp.toast.deleted'),
+          });
+          //#else
+          toast.success('Success', { description: 'Open application deleted' });
+          //#endif
+          this.reloadList();
+        },
+        error: (error) => this.showRequestError(error),
+      });
   }
 
-  copyCreatedSecret() {
-    const value = this.createdSecretValue();
-    if (!value) {
+  async handleResetSecret(id: string) {
+    const confirmed = await this.confirmService.open({
+      //#if (IncludeLocalization)
+      message: this.transloco.translate('openApp.confirm.resetSecretMessage'),
+      header: this.transloco.translate('openApp.confirm.resetSecretHeader'),
+      confirmText: this.transloco.translate('common.ok'),
+      cancelText: this.transloco.translate('common.cancel'),
+      //#else
+      message:
+        "Are you sure you want to reset this open application's client secret? The old secret will be invalidated immediately.",
+      header: 'Confirm secret reset',
+      //#endif
+      variant: 'destructive',
+    });
+    if (!confirmed) {
       return;
     }
 
-    navigator.clipboard?.writeText(value).then(() => {
-      this.messageService.add({ severity: 'success', summary: '成功', detail: '已复制密钥' });
+    // 重置入口在列表行上，所属应用取自当前列表
+    const application = this.applications().find((item) => item.id === id) ?? null;
+    this.service
+      .resetSecret(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.secretValue.set(result.clientSecret);
+          this.secretKind.set('reset');
+          this.secretApplication.set(application);
+          this.secretDialogVisible.set(true);
+          this.reloadList();
+        },
+        error: (error) => this.showRequestError(error),
+      });
+  }
+
+  private queryFromParams(params: ParamMap): GetOpenApplicationsInputDto {
+    const pagination = paginationFromQuery(params);
+    return {
+      offset: pagination.pageIndex * pagination.pageSize,
+      limit: pagination.pageSize,
+      keyword: params.get('keyword') || undefined,
+      applicationType: (params.get('applicationType') as OpenApplicationType | null) ?? undefined,
+      clientType: (params.get('clientType') as OpenApplicationClientType | null) ?? undefined,
+      sorting: toApiSorting(
+        sortingFromQuery(params, APPLICATION_SORT_COLUMNS, DEFAULT_APPLICATION_SORTING),
+      ),
+    };
+  }
+
+  private updateQuery(queryParams: Params, replaceUrl = false): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams,
+      queryParamsHandling: 'merge',
+      replaceUrl,
     });
+  }
+
+  private showRequestError(error: unknown): void {
+    //#if (IncludeLocalization)
+    toast.error(this.transloco.translate('common.requestError'), {
+      description: applicationErrorMessage(error),
+    });
+    //#else
+    toast.error('Request failed', { description: applicationErrorMessage(error) });
+    //#endif
   }
 }
+//#if (!IncludeLocalization)
+
+/** 不含本地化时的界面文案，与 `en.json` 同步。 */
+const ENGLISH: Record<string, string> = {
+  'openApp.filter.searchPlaceholder': 'Search by name / Client ID...',
+  'openApp.filter.appTypeLabel': 'Application type',
+  'common.clearFilter': 'Clear filter',
+  'common.noResults': 'No results',
+  'openApp.filter.clientTypeLabel': 'Client type',
+  'common.refresh': 'Refresh',
+  'openApp.action.create': 'New open application',
+};
+//#endif

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <!-- 连接串写入时加密、读取时解密；密钥环沿用宿主的 Data Protection 配置 -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <ProjectReference Include="..\..\dependency-injection\Leistd.DependencyInjection\Leistd.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\auditing\Leistd.Auditing.Core\Leistd.Auditing.Core.csproj" />
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.EntityFrameworkCore\Leistd.UnitOfWork.EntityFrameworkCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 本地连接解析是 internal：失败关闭、已删除租户排除等路径的用例要直接构造它 -->
+    <InternalsVisibleTo Include="Leistd.MultiTenancy.Tests" />
+  </ItemGroup>
+
+</Project>

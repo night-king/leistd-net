@@ -10,13 +10,133 @@
   ],
   "identity": "FullstackApp.Template.CSharp",
   "name": "Fullstack App (.NET + Angular)",
-  "description": ".NET 10 + Angular 21 全栈项目模板，DDD 四层架构，支持条件裁剪认证和权限模块",
+  "description": ".NET 10 + Angular 22 全栈项目模板，DDD 四层架构，支持 Identity、Standalone 和 Resource 三种服务形态，可选前端（Resource）、多租户、通知、业务实时、邮件、操作记录历史、外部登录和本地化",
   "shortName": "fullstack-app",
   "tags": {
     "language": "C#",
     "type": "project"
   },
   "sourceName": "CompanyName.ProjectName",
+  "guids": [
+    "7f3c2a1e-4b5d-4e6f-9a8b-0c1d2e3f4a5b"
+  ],
+  "SpecialCustomOperations": {
+    "**/*.mjs": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "//#if"
+            ],
+            "else": [
+              "//#else"
+            ],
+            "elseif": [
+              "//#elseif"
+            ],
+            "endif": [
+              "//#endif"
+            ],
+            "trim": "true",
+            "wholeLine": "true"
+          }
+        }
+      ]
+    },
+    "**/.env.example": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "#if"
+            ],
+            "else": [
+              "#else"
+            ],
+            "elseif": [
+              "#elseif"
+            ],
+            "endif": [
+              "#endif"
+            ],
+            "trim": "true",
+            "wholeLine": "true"
+          }
+        }
+      ]
+    },
+    "**/Dockerfile": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "#if"
+            ],
+            "else": [
+              "#else"
+            ],
+            "elseif": [
+              "#elseif"
+            ],
+            "endif": [
+              "#endif"
+            ],
+            "trim": "true",
+            "wholeLine": "true"
+          }
+        }
+      ]
+    },
+    "**/.dockerignore": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "#if"
+            ],
+            "else": [
+              "#else"
+            ],
+            "elseif": [
+              "#elseif"
+            ],
+            "endif": [
+              "#endif"
+            ],
+            "trim": "true",
+            "wholeLine": "true"
+          }
+        }
+      ]
+    },
+    "**/.gitignore": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": [
+              "#if"
+            ],
+            "else": [
+              "#else"
+            ],
+            "elseif": [
+              "#elseif"
+            ],
+            "endif": [
+              "#endif"
+            ],
+            "trim": "true",
+            "wholeLine": "true"
+          }
+        }
+      ]
+    }
+  },
   "preferNameDirectory": true,
   "forms": {
     "LastSegment": {
@@ -51,39 +171,207 @@
       "valueTransform": "FullNameKebab",
       "replaces": "companyname-projectname"
     },
-    "IncludeIdentity": {
+    "ServiceRole": {
+      "type": "parameter",
+      "datatype": "choice",
+      "defaultValue": "Identity",
+      "description": "服务形态：Identity 自签发 OIDC 令牌并持有本地身份；Standalone 只用 Cookie 会话（内部系统，不带授权服务器）；Resource 校验远端令牌、不持有认证凭据（但持有本系统授权主体）。多租户时 Identity 与 Standalone 持有租户控制面",
+      "choices": [
+        {
+          "choice": "Identity",
+          "description": "身份中心：OIDC 签发 + 本地身份（多租户时含租户控制面）"
+        },
+        {
+          "choice": "Standalone",
+          "description": "一体化应用：Cookie 会话 + 本地身份（多租户时含租户控制面），不装 OpenIddict"
+        },
+        {
+          "choice": "Resource",
+          "description": "业务服务：校验远端令牌，不持有认证凭据；持有本系统的授权主体、角色与权限数据"
+        }
+      ]
+    },
+    "LocalIdentity": {
+      "type": "computed",
+      "value": "(ServiceRole != \"Resource\")"
+    },
+    "OpenIddictServer": {
+      "type": "computed",
+      "value": "(ServiceRole == \"Identity\")"
+    },
+    "RemoteTokenAuth": {
+      "type": "computed",
+      "value": "(ServiceRole == \"Resource\")"
+    },
+    "ExternalLogin": {
+      "type": "computed",
+      "value": "(LocalIdentity && IncludeExternalLogin)"
+    },
+    "SpaFrontend": {
+      "type": "computed",
+      "value": "(LocalIdentity || IncludeFrontend)"
+    },
+    "ResourceBrowserSession": {
+      "type": "computed",
+      "value": "(RemoteTokenAuth && IncludeFrontend)"
+    },
+    "Email": {
+      "type": "computed",
+      "value": "(LocalIdentity && IncludeEmail)"
+    },
+    "Impersonation": {
+      "type": "computed",
+      "value": "(LocalIdentity && IncludeMultiTenancy && IncludeOperationRecords)"
+    },
+    "IncludeFrontend": {
       "type": "parameter",
       "datatype": "bool",
-      "description": "是否包含认证模块（登录/注册/JWT）",
+      "description": "是否包含内置 Angular 前端与浏览器会话。仅 ServiceRole=Resource 有效：false 生成纯资源 API（只接受 Bearer）；Identity/Standalone 的交互登录就在前端里，始终包含，此开关无作用",
       "defaultValue": "true"
     },
-    "IncludeRoles": {
+    "IncludeMultiTenancy": {
       "type": "parameter",
       "datatype": "bool",
-      "description": "是否包含角色权限系统",
-      "defaultValue": "true",
-      "isEnabled": "IncludeIdentity"
+      "description": "是否包含多租户产品能力（租户解析、租户管理与控制库、按租户分库、租户选择与模拟登录）。false 生成只有宿主作用域的应用，并拒绝携带租户声明的身份",
+      "defaultValue": "true"
+    },
+    "IncludeRealTime": {
+      "type": "parameter",
+      "datatype": "bool",
+      "description": "是否包含业务实时能力（业务事件发布与资源订阅，SignalR Hub）。与通知相互独立；两者都开时共用一个 Hub 与一条前端连接",
+      "defaultValue": "false"
+    },
+    "IncludeEmail": {
+      "type": "parameter",
+      "datatype": "bool",
+      "description": "是否包含邮件发送（SMTP、邮箱验证、邮件设置与测试发信、通知邮件渠道）。仅 ServiceRole=Identity|Standalone 有效；Resource 不发邮件，此开关无作用",
+      "defaultValue": "true"
+    },
+    "IncludeOperationRecords": {
+      "type": "parameter",
+      "datatype": "bool",
+      "description": "是否包含内置操作记录历史（数据库存储、查询、导出、归档与界面）。false 时安全与关键操作仍经同一记录器写成结构化日志；模拟登录依赖可查询的历史，随之移除",
+      "defaultValue": "true"
     },
     "IncludeNotifications": {
       "type": "parameter",
       "datatype": "bool",
-      "description": "是否包含实时通知和通知中心（SignalR）",
-      "defaultValue": "false",
-      "isEnabled": "IncludeIdentity"
-    },
-    "IncludeOpenIddict": {
-      "type": "parameter",
-      "datatype": "bool",
-      "description": "是否包含 OpenIddict OAuth2/OIDC Server（第三方应用接入、开放应用管理）",
-      "defaultValue": "true",
-      "isEnabled": "IncludeIdentity"
+      "description": "是否包含通知（发布、历史与未读数、通知中心、SignalR 推送与个人通知偏好）。不包含业务实时事件，后者见 IncludeRealTime",
+      "defaultValue": "false"
     },
     "IncludeExternalLogin": {
       "type": "parameter",
       "datatype": "bool",
-      "description": "是否包含外部登录（GitHub / Google 等第三方身份提供商）",
-      "defaultValue": "false",
-      "isEnabled": "IncludeIdentity"
+      "description": "是否包含外部登录（GitHub / Google 等第三方身份提供商）。仅在 ServiceRole=Identity|Standalone（有本地用户）下有效；Resource 形态下该开关无作用",
+      "defaultValue": "false"
+    },
+    "IncludeLocalization": {
+      "type": "parameter",
+      "datatype": "bool",
+      "description": "是否包含多语言（i18n）支持：前端 Transloco 运行时切换（有前端时）+ 后端按 culture 本地化（默认语言英语）",
+      "defaultValue": "false"
+    },
+    "Ci": {
+      "type": "parameter",
+      "datatype": "choice",
+      "defaultValue": "github",
+      "description": "生成的 CI 流水线薄壳：只准备运行环境并调用 scripts/verify.ps1（完整回归入口，总是生成）",
+      "choices": [
+        {
+          "choice": "github",
+          "description": "GitHub Actions：.github/workflows/ci.yml"
+        },
+        {
+          "choice": "gitlab",
+          "description": "GitLab CI：.gitlab-ci.yml（Runner 须允许 Docker-in-Docker）"
+        },
+        {
+          "choice": "none",
+          "description": "不生成流水线文件"
+        }
+      ]
+    },
+    "TemplatePackageVersion": {
+      "type": "generated",
+      "generator": "constant",
+      "parameters": {
+        "value": "0.0.0-source"
+      },
+      "replaces": "__LEISTD_TEMPLATE_PACKAGE_VERSION__"
+    },
+    "TemplateSourceSha": {
+      "type": "generated",
+      "generator": "constant",
+      "parameters": {
+        "value": "0000000000000000000000000000000000000000"
+      },
+      "replaces": "__LEISTD_TEMPLATE_SOURCE_SHA__"
+    },
+    "TemplateSdkVersion": {
+      "type": "bind",
+      "binding": "host:dotnet-cli-version",
+      "defaultValue": "",
+      "replaces": "__LEISTD_TEMPLATE_SDK_VERSION__"
+    },
+    "MarkerServiceRole": {
+      "type": "derived",
+      "valueSource": "ServiceRole",
+      "valueTransform": "identity",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_SERVICE_ROLE__"
+    },
+    "MarkerIncludeFrontend": {
+      "type": "derived",
+      "valueSource": "IncludeFrontend",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_FRONTEND__"
+    },
+    "MarkerIncludeMultiTenancy": {
+      "type": "derived",
+      "valueSource": "IncludeMultiTenancy",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_MULTI_TENANCY__"
+    },
+    "MarkerIncludeRealTime": {
+      "type": "derived",
+      "valueSource": "IncludeRealTime",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_REAL_TIME__"
+    },
+    "MarkerIncludeEmail": {
+      "type": "derived",
+      "valueSource": "IncludeEmail",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_EMAIL__"
+    },
+    "MarkerIncludeOperationRecords": {
+      "type": "derived",
+      "valueSource": "IncludeOperationRecords",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_OPERATION_RECORDS__"
+    },
+    "MarkerIncludeNotifications": {
+      "type": "derived",
+      "valueSource": "IncludeNotifications",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_NOTIFICATIONS__"
+    },
+    "MarkerIncludeExternalLogin": {
+      "type": "derived",
+      "valueSource": "IncludeExternalLogin",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_EXTERNAL_LOGIN__"
+    },
+    "MarkerIncludeLocalization": {
+      "type": "derived",
+      "valueSource": "IncludeLocalization",
+      "valueTransform": "lowerCaseInvariant",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_INCLUDE_LOCALIZATION__"
+    },
+    "MarkerCi": {
+      "type": "derived",
+      "valueSource": "Ci",
+      "valueTransform": "identity",
+      "replaces": "__LEISTD_TEMPLATE_PARAMETER_CI__"
     }
   },
   "sources": [
@@ -95,108 +383,516 @@
         "**/.template.config/**",
         "**/artifacts/**",
         "frontend/node_modules/**",
+        "frontend/node_modules*/**",
         "frontend/.angular/**",
+        "frontend/.cache/lint/**",
+        "frontend/.tmp/**",
         "frontend/dist/**",
+        "frontend/test-results/**",
+        "frontend/playwright-report/**",
+        "frontend/playwright/.auth/**",
         "test-scenarios/**",
         ".pid"
       ],
       "modifiers": [
         {
-          "condition": "!IncludeIdentity",
+          "condition": "IncludeLocalization",
           "exclude": [
+            "frontend/package.json",
+            "frontend/package-lock.json",
+            "frontend/src/app/shared/utils/english-text.ts",
+            "frontend/src/app/shared/utils/english-text.spec.ts"
+          ]
+        },
+        {
+          "condition": "!LocalIdentity",
+          "exclude": [
+            "docs/operations/runbooks/two-factor-reset.md",
+            "frontend/src/app/features/settings/components/setting-section/widgets/email-test/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/Identity/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/Control/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/IdentityControlDbContext.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/DesignTime/IdentityControlDbContextFactory.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/AuthController.cs",
-            "backend/src/CompanyName.ProjectName.Api/Controllers/AuthorizationController.cs",
-            "backend/src/CompanyName.ProjectName.Api/Controllers/OpenApplicationController.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/ExternalAuthController.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/**",
-            "backend/src/CompanyName.ProjectName.Application/OpenApplications/**",
             "backend/src/CompanyName.ProjectName.Domain/Auth/**",
-            "backend/src/CompanyName.ProjectName.Domain/Users/Options/UserRegistrationOptions.cs",
-            "backend/src/CompanyName.ProjectName.Domain/Shared/Email/**",
+            "backend/src/CompanyName.ProjectName.Application/Users/Options/UserRegistrationOptions.cs",
             "backend/src/CompanyName.ProjectName.Infrastructure/Auth/**",
-            "backend/src/CompanyName.ProjectName.Infrastructure/Email/**",
             "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/EntityConfigurations/IdentityEntityConfiguration.cs",
-            "frontend/src/app/features/platform/components/open-applications/**",
-            "frontend/src/app/features/platform/services/open-application-service.ts",
-            "frontend/src/app/features/platform/models/open-application.dto.ts",
-            "frontend/_mock/api/open-application.ts",
-            "frontend/_mock/data/open-applications.ts",
+            "backend/src/CompanyName.ProjectName.Infrastructure/TenantConnections/Provider/PostgresTenantDatabaseErrorDescriber.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/TenantDatabaseErrorDescriberTests.cs",
             "frontend/src/app/features/account/**",
-            "frontend/src/app/core/guards/auth-guard.ts",
-            "frontend/src/app/core/guards/role-guard.ts",
-            "frontend/src/app/core/guards/super-admin-guard.ts",
+            "frontend/src/app/core/services/security-config-service.ts",
+            "frontend/src/app/core/services/security-config-service.spec.ts",
+            "frontend/src/app/shared/dtos/account-security.dto.ts",
+            "frontend/src/app/features/workspace/services/**",
+            "frontend/src/app/features/platform/components/users/widgets/reset-user-password-dialog/**",
+            "frontend/src/app/core/components/reauthenticate-dialog/**",
+            "frontend/src/app/core/routing/return-url-service.ts",
+            "frontend/src/app/core/routing/return-url-service.spec.ts",
+            "frontend/src/app/shared/components/otp-code-input/**",
+            "frontend/src/app/features/platform/components/users/widgets/user-edit-dialog/**",
             "frontend/_mock/api/auth.ts",
-            "frontend/_mock/api/user.ts",
-            "frontend/_mock/data/user.ts",
-            "frontend/_mock/utils/current-user.ts",
-            "backend/src/CompanyName.ProjectName.Api/Controllers/NotificationsController.cs",
-            "frontend/src/app/core/services/signalr-service.ts",
-            "frontend/src/app/core/services/notification-service.ts",
-            "frontend/_mock/api/notification.ts",
-            "frontend/_mock/data/notifications.ts",
-            "frontend/src/app/features/platform/components/users/**",
-            "frontend/src/app/features/platform/services/platform-user-service.ts",
-            "frontend/src/app/features/platform/services/user-management-service.ts",
-            "frontend/src/app/features/platform/models/user-management.dto.ts"
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/AuthorizationAndAuditingTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/RegistrationSwitchTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SessionIdleTimeoutTests.cs",
+            "backend/src/CompanyName.ProjectName.Application/Tenants/**",
+            "backend/src/CompanyName.ProjectName.Application/TenantConnections/**",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/TenantController.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TenancyTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SettingsContractTests.cs",
+            "frontend/src/app/features/platform/components/tenants/**",
+            "frontend/src/app/features/platform/services/tenant-service.ts",
+            "frontend/src/app/features/platform/services/tenant-service.spec.ts",
+            "frontend/src/app/features/platform/services/tenant-connection-service.ts",
+            "frontend/src/app/features/platform/dtos/tenant-connection.dto.ts",
+            "frontend/_mock/api/tenant.ts",
+            "frontend/_mock/api/tenant.spec.ts",
+            "frontend/_mock/data/tenant.ts",
+            "frontend/src/app/features/platform/components/tenants/tenants.spec.ts",
+            "frontend/src/app/core/interceptors/tenant-interceptor.spec.ts",
+            "frontend/src/app/core/services/impersonation-service.spec.ts",
+            "frontend/src/app/core/services/tenant-context-service.spec.ts",
+            "frontend/_mock/api/auth.spec.ts",
+            "frontend/_mock/api/user.spec.ts",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/UserUniquenessTests.cs",
+            "backend/src/CompanyName.ProjectName.Application/Users/Options/DefaultAdminOptions.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Shared/Security/PasswordHash/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Shared/Security/PasswordHash/**",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/PasswordHashingTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Domain/TwoFactorDomainServiceTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PasswordRehashTests.cs",
+            "backend/src/CompanyName.ProjectName.Api/Auth/Authorization/AllowDuringTwoFactorSetupAttribute.cs",
+            "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/LocalSessionAuthenticationExtensions.cs",
+            "backend/src/CompanyName.ProjectName.Api/Auth/Sessions/SessionCookieIssuer.cs",
+            "backend/src/CompanyName.ProjectName.Api/Hosting/ExceptionMappings/AuthExceptionMappings.cs",
+            "backend/src/CompanyName.ProjectName.Api/Middlewares/TwoFactorSetupEnforcementMiddleware.cs",
+            "backend/src/CompanyName.ProjectName.Application/Users/Dtos/ResetUserPasswordInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Users/Dtos/ResetUserTwoFactorInputDto.cs",
+            "backend/src/CompanyName.ProjectName.DbMigrator/Runners/TwoFactorResetRunner.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TwoFactorResetCommandTests.cs",
+            "backend/src/CompanyName.ProjectName.Application/Users/Dtos/CreateUserInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Users/Dtos/UpdateUserInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Users/Validators/UserSortingValidator.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/DomainServices/TwoFactorDomainService.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/Policies/LoginLockoutPolicy.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/Policies/PasswordPolicy.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/ValueObjects/ChangePasswordStatus.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/ValueObjects/CredentialValidationStatus.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/DomainServices/CredentialValidationResult.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/ValueObjects/LockoutState.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/Errors/SecurityErrorCodes.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/ValueObjects/LoginTrace.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/ValueObjects/TwoFactorCredential.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/ControlPlaneConnectionStrings.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/AccessFailureCounterTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/CredentialChangeTransactionTests.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/EventHandlers/EmailChangedEventHandler.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Events/EmailChangedEvent.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Sessions/CurrentSessionState.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Sessions/ICurrentSessionState.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Sessions/SessionValidationResult.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/EmailChangeAlertTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TwoFactorReauthenticationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TwoFactorRequirementTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/CredentialConcurrencyTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SensitiveChangeReauthenticationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/InterleavingGate.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/LockWaitProbe.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/AvatarTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/DefaultAdminBootstrapTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/AuthorizationTestBase.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/OperationRecordQueries.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/LoginLockoutTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PagedQueryContractTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PermissionSubjectResolutionTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ReauthenticationLockoutTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SettingConcurrencyTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SessionRoleClaimTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TwoFactorTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/UserRolesQueryTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/UserSessionTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Application/CaptchaConsumptionTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Application/ReauthenticationGuardTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Application/ExpiredUserSessionCleanupTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Application/OperationActionDefinitionTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Domain/PasswordPolicyTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Users/UserSortingValidatorTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Domain/UserAccessStatusTests.cs",
+            "frontend/_mock/data/password-policy.ts",
+            "frontend/src/app/core/interceptors/tenant-interceptor.ts",
+            "frontend/src/app/core/validation/password-rule.ts",
+            "frontend/playwright.config.ts",
+            "frontend/e2e/**"
           ]
         },
         {
-          "condition": "!IncludeIdentity",
+          "condition": "(Ci != \"github\")",
           "exclude": [
-            "backend/src/CompanyName.ProjectName.Application/Permissions/**",
-            "backend/src/CompanyName.ProjectName.Domain/Permissions/**"
+            ".github/**"
           ]
         },
         {
-          "condition": "!IncludeIdentity || !IncludeNotifications",
+          "condition": "(Ci != \"gitlab\")",
           "exclude": [
-            "backend/src/CompanyName.ProjectName.Api/Controllers/NotificationsController.cs",
-            "frontend/src/app/core/services/signalr-service.ts",
+            ".gitlab-ci.yml"
+          ]
+        },
+        {
+          "condition": "!IncludeNotifications",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Notifications/**",
+            "backend/src/CompanyName.ProjectName.Api/Hosting/NotificationExtensions.cs",
+            "backend/src/CompanyName.ProjectName.Application/Notifications/**",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/NotificationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/NotificationPreferencesTests.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Validators/NotificationRetentionSettingValidator.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/NotificationRetentionSettingsTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/NotificationRetentionConcurrencyTests.cs",
+            "frontend/src/app/layout/components/notifications/**",
+            "frontend/src/app/shared/components/notification-item/**",
+            "frontend/src/app/shared/directives/overflow-probe.ts",
+            "frontend/src/app/shared/directives/overflow-probe.spec.ts",
             "frontend/src/app/core/services/notification-service.ts",
+            "frontend/src/app/core/services/notification-service.spec.ts",
+            "frontend/src/app/shared/dtos/notification.dto.ts",
             "frontend/_mock/api/notification.ts",
+            "frontend/_mock/api/notification.spec.ts",
             "frontend/_mock/data/notifications.ts"
           ]
         },
         {
-          "condition": "IncludeIdentity && !IncludeRoles",
+          "condition": "!RemoteTokenAuth",
           "exclude": [
-            "backend/src/CompanyName.ProjectName.Application/Permissions/**",
-            "backend/src/CompanyName.ProjectName.Domain/Permissions/**"
+            "frontend/_mock/api/resource-auth.spec.ts",
+            "frontend/src/app/core/components/resource-login/**",
+            "frontend/_mock/api/resource-auth.ts",
+            "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/RemoteTokenAuthenticationExtensions.cs",
+            "backend/src/CompanyName.ProjectName.Api/Auth/Authorization/LocalMemberAccess*.cs",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/ResourceAuthController.cs",
+            "backend/src/CompanyName.ProjectName.Application/Users/Dtos/CurrentResourceUserOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.DbMigrator/Runners/ResourceAdminBootstrap*.cs",
+            "backend/src/CompanyName.ProjectName.Api/HealthChecks/RemoteIdentityReadinessHealthCheck.cs",
+            "backend/src/CompanyName.ProjectName.Api/HostedServices/Initializer/RemoteIdentityReadinessInitializer.cs",
+            "backend/src/CompanyName.ProjectName.Api/Options/RemoteIdentityOptions.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceAdminBootstrapTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceMemberAccessTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SigningKeyRotationTests.cs"
           ]
         },
         {
-          "condition": "IncludeIdentity && !IncludeOpenIddict",
+          "condition": "!ExternalLogin",
           "exclude": [
-            "backend/src/CompanyName.ProjectName.Api/Controllers/AuthorizationController.cs",
-            "backend/src/CompanyName.ProjectName.Api/Controllers/OpenApplicationController.cs",
-            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/AuthPrincipalFactory.cs",
-            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/IAuthPrincipalFactory.cs",
-            "backend/src/CompanyName.ProjectName.Application/OpenApplications/**",
-            "backend/src/CompanyName.ProjectName.Domain/Auth/Options/OAuthOptions.cs",
-            "frontend/src/app/features/platform/components/open-applications/**",
-            "frontend/src/app/features/platform/services/open-application-service.ts",
-            "frontend/src/app/features/platform/models/open-application.dto.ts",
-            "frontend/_mock/api/open-application.ts",
-            "frontend/_mock/data/open-applications.ts"
-          ]
-        },
-        {
-          "condition": "IncludeIdentity && !IncludeExternalLogin",
-          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/ExternalAuthenticationExtensions.cs",
+            "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/ExternalSchemeSynchronizer.cs",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/ExternalLoginSettingController.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Dtos/ExternalLoginStatusOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Auth/OAuth/Options/ExternalAuthOptions.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/ExternalOAuthTestHost.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/ExternalAuthController.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/ExternalAuthAppService.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/IExternalAuthAppService.cs",
-            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/ExternalLoginCallbackInputDto.cs",
-            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/ExternalLoginUrlOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/ExternalLoginsOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/ExternalLoginProvidersOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/CompleteExternalLinkInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/SetPasswordInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/UnlinkExternalLoginInputDto.cs",
             "backend/src/CompanyName.ProjectName.Domain/Auth/DomainServices/ExternalAuthDomainService.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Auth/Errors/ExternalAuthErrorCodes.cs",
             "backend/src/CompanyName.ProjectName.Domain/Auth/Entities/ExternalLoginConnection.cs",
-            "backend/src/CompanyName.ProjectName.Domain/Auth/Options/ExternalAuthOptions.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Auth/ValueObjects/**",
             "backend/src/CompanyName.ProjectName.Domain/Auth/Abstractions/**",
             "backend/src/CompanyName.ProjectName.Infrastructure/Auth/**",
-            "frontend/src/app/features/account/components/external-auth-callback/**"
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ExternalAuthenticationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ExternalLoginLinkTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PasswordlessAccountTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ExternalLoginSettingsTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/ExternalSchemeSynchronizerTests.cs",
+            "frontend/src/app/features/account/components/external-auth-callback/**",
+            "frontend/src/app/features/account/widgets/external-login-buttons/**",
+            "frontend/src/app/features/account/components/external-logins/**",
+            "frontend/src/app/features/settings/components/setting-section/widgets/external-login-providers/**",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Domain/ExternalLoginConnectionTests.cs"
+          ]
+        },
+        {
+          "condition": "LocalIdentity",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/Resource/**",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/ResourceReadinessGateTests.cs",
+            "backend/src/CompanyName.ProjectName.Api/Middlewares/ResourceUserProvisioningMiddleware.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceUserProjectionTests.cs"
+          ]
+        },
+        {
+          "condition": "!IncludeLocalization",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Resources/**",
+            "backend/src/CompanyName.ProjectName.Api/Localization/**",
+            "docs/standards/frontend-i18n.md",
+            "frontend/public/i18n/**",
+            "frontend/src/app/core/i18n/**",
+            "frontend/src/app/core/services/language-service.ts",
+            "frontend/src/app/core/services/language-service.spec.ts",
+            "frontend/src/app/core/interceptors/accept-language-interceptor.ts",
+            "frontend/src/app/core/components/language-switcher/**",
+            "frontend/src/app/app.interceptors.spec.ts",
+            "scripts/check-i18n.py"
+          ]
+        },
+        {
+          "condition": "!IncludeLocalization || !LocalIdentity",
+          "exclude": [
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/LocalizationTests.cs"
+          ]
+        },
+        {
+          "condition": "!OpenIddictServer",
+          "exclude": [
+            "docs/operations/runbooks/token-certificate-rotation.md",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/ConnectController.cs",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/OpenApplicationController.cs",
+            "backend/src/CompanyName.ProjectName.Api/Auth/OpenIddict/**",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/LogoutConfirmationOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/SignIn/AuthPrincipalFactory.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/SignIn/IAuthPrincipalFactory.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/SignIn/SubjectClaims.cs",
+            "backend/src/CompanyName.ProjectName.Application/OpenApplications/**",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Options/OAuthResourceOptions.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Options/OAuthApiResource.cs",
+            "backend/src/CompanyName.ProjectName.Api/Options/OAuthServerOptions.cs",
+            "backend/src/CompanyName.ProjectName.Api/Options/OAuthCertificate.cs",
+            "backend/src/CompanyName.ProjectName.Api/Options/OAuthServerOptionsValidator.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Options/OAuthResourceOptionsValidator.cs",
+            "frontend/src/app/features/platform/components/open-applications/**",
+            "frontend/src/app/features/account/components/logout-confirm/**",
+            "frontend/src/app/features/platform/services/open-application-service.ts",
+            "frontend/src/app/features/platform/services/open-application-service.spec.ts",
+            "frontend/src/app/features/platform/dtos/open-application.dto.ts",
+            "frontend/_mock/api/open-application.ts",
+            "frontend/_mock/api/open-application.spec.ts",
+            "frontend/_mock/data/open-applications.ts",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/OpenIddictDbContext.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/OpenIddict/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/DesignTime/OpenIddictDbContextFactory.cs",
+            "backend/src/CompanyName.ProjectName.Api/Hosting/ExceptionMappings/OpenApplicationExceptionMappings.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/OAuth/OAuthScopes.cs",
+            "backend/src/CompanyName.ProjectName.Application/TenantConnections/Constants/TenantConnectionPolicies.cs",
+            "backend/src/CompanyName.ProjectName.Application/TenantConnections/Constants/TenantConnectionScopes.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/OidcRequestCaching.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/OidcLogoutTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/OpenApplicationSessionBindingTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/OpenIddictAuthorizationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/OpenIddictLifecycleTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TenantOidcFlowTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/ConnectInteractionProtectorTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/OAuthServerOptionsValidatorTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Application/OAuthResourceOptionsValidatorTests.cs"
+          ]
+        },
+        {
+          "condition": "!SpaFrontend",
+          "exclude": [
+            "frontend/**",
+            "docs/standards/coding-frontend.md",
+            "docs/standards/frontend-ui.md",
+            "docs/standards/frontend-spartan.md",
+            "docs/standards/frontend-i18n.md",
+            "docs/standards/frontend-lists.md",
+            "docs/standards/frontend-forms.md",
+            "docs/standards/frontend-navigation.md",
+            "docs/standards/frontend-routing.md",
+            "docs/standards/frontend-data.md",
+            "backend/src/CompanyName.ProjectName.Api/Hosting/SpaExtensions.cs",
+            "backend/src/CompanyName.ProjectName.Api/Options/SessionCookieOptions.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/DataProtectionExtensions.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/BrowserOriginTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/SpaStaticFileCachingTests.cs",
+            ".gitattributes",
+            ".agents/skills/spartan/**"
+          ]
+        },
+        {
+          "condition": "!ResourceBrowserSession",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Auth/Sessions/ResourceSessionRefresher.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceBrowserSessionTests.cs"
+          ]
+        },
+        {
+          "condition": "!(SpaFrontend && IncludeOperationRecords)",
+          "exclude": [
+            "scripts/check-operation-action-i18n.py"
+          ]
+        },
+        {
+          "condition": "!(IncludeNotifications || IncludeRealTime)",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Hosting/SignalRBackplaneExtensions.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/SignalRBackplaneTests.cs",
+            "frontend/src/app/core/services/signalr-service.ts",
+            "frontend/src/app/core/services/signalr-service.spec.ts"
+          ]
+        },
+        {
+          "condition": "!IncludeRealTime",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Application/RealTime/**",
+            "backend/src/CompanyName.ProjectName.Application/Roles/Events/RoleListChangedEvent.cs",
+            "backend/src/CompanyName.ProjectName.Application/Roles/EventHandlers/RoleListChangedEventHandler.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/RealTimeSubscriptionTests.cs"
+          ]
+        },
+        {
+          "condition": "!(IncludeNotifications && Email)",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Application/Notifications/Provider/UserEmailRecipientResolver.cs"
+          ]
+        },
+        {
+          "condition": "!(IncludeNotifications && LocalIdentity)",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Notifications/NotificationSecurityAlertPublisher.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/NotificationSecurityAlertPublisherTests.cs"
+          ]
+        },
+        {
+          "condition": "!Email",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/IEmailVerificationAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/EmailVerificationAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/IPasswordResetAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/AppServices/PasswordResetAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/PasswordResetInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/EmailVerification/**",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/SendEmailCodeInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/EmailVerificationChallengeOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/EmailVerificationInputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/AppServices/**",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Validators/EmailSettingValidator.cs",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/SettingController.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Auth/VerificationCodes/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Shared/Security/VerificationCodes/**",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/EmailSettingsTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/EmailVerificationChallengeTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PasswordResetTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Application/EmailChallengeStoreTests.cs",
+            "frontend/src/app/features/settings/components/setting-section/widgets/email-test/**",
+            "frontend/src/app/features/account/utils/resend-countdown.ts",
+            "frontend/src/app/features/account/utils/resend-countdown.spec.ts",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Dtos/SendTestEmailInputDto.cs"
+          ]
+        },
+        {
+          "condition": "!(LocalIdentity && IncludeMultiTenancy)",
+          "exclude": [
+            "frontend/e2e/two-factor-required.e2e.ts",
+            "frontend/e2e/support/totp.ts",
+            "backend/src/CompanyName.ProjectName.Application/Tenants/**",
+            "backend/src/CompanyName.ProjectName.Application/TenantConnections/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/TenantConnections/**",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/IdentityControlDbContext.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/DesignTime/IdentityControlDbContextFactory.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/Control/**",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/TenantController.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TenancyTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TenantAdminRestoreTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TenantOidcFlowTests.cs",
+            "backend/src/CompanyName.ProjectName.DbMigrator/Runners/TenantAdminRestoreRunner.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/TenantDatabaseErrorDescriberTests.cs",
+            "frontend/src/app/features/platform/components/tenants/**",
+            "frontend/src/app/features/platform/services/tenant-service.ts",
+            "frontend/src/app/features/platform/services/tenant-service.spec.ts",
+            "frontend/src/app/features/platform/services/tenant-connection-service.ts",
+            "frontend/src/app/features/platform/dtos/tenant-connection.dto.ts",
+            "frontend/_mock/api/tenant.ts",
+            "frontend/_mock/api/tenant.spec.ts",
+            "frontend/_mock/data/tenant.ts",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ControlPlaneModelSeparationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ControlPlaneStoreSeparationTests.cs",
+            "frontend/public/i18n/tenants/**",
+            "frontend/src/app/features/platform/dtos/tenant.dto.ts",
+            "frontend/src/app/features/account/dtos/tenant-by-host.dto.ts",
+            "backend/src/CompanyName.ProjectName.Api/Hosting/ExceptionMappings/TenantExceptionMappings.cs"
+          ]
+        },
+        {
+          "condition": "!Impersonation",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Application/Tenants/AppServices/**",
+            "backend/src/CompanyName.ProjectName.Application/Tenants/Dtos/ImpersonationStatusOutputDto.cs",
+            "backend/src/CompanyName.ProjectName.Application/Auth/Constants/ImpersonationClaimTypes.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ImpersonationTests.cs",
+            "frontend/src/app/core/services/impersonation-service.ts",
+            "frontend/src/app/core/services/impersonation-service.spec.ts",
+            "frontend/e2e/reauthentication.e2e.ts",
+            "backend/src/CompanyName.ProjectName.Api/Controllers/TenantController.cs"
+          ]
+        },
+        {
+          "condition": "IncludeMultiTenancy",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Middlewares/HostPrincipalMiddleware.cs"
+          ]
+        },
+        {
+          "condition": "!IncludeOperationRecords",
+          "exclude": [
+            "frontend/src/app/features/platform/components/operation-records/**",
+            "frontend/src/app/features/platform/services/operation-record-service.ts",
+            "frontend/src/app/features/platform/services/operation-record-service.spec.ts",
+            "frontend/_mock/api/operation-record.ts",
+            "frontend/_mock/api/operation-record.spec.ts",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/OperationRecordArchiveTests.cs",
+            "frontend/src/app/features/platform/dtos/operation-record.dto.ts",
+            "frontend/_mock/data/operation-record.ts",
+            "frontend/public/i18n/operationRecords/**"
+          ]
+        },
+        {
+          "condition": "!IncludeMultiTenancy",
+          "exclude": [
+            "frontend/src/app/core/services/tenant-context-service.ts",
+            "frontend/src/app/core/services/tenant-context-service.spec.ts",
+            "frontend/src/app/core/interceptors/tenant-interceptor.ts",
+            "frontend/src/app/core/interceptors/tenant-interceptor.spec.ts",
+            "frontend/src/app/features/account/utils/host-tenant-probe.ts"
+          ]
+        },
+        {
+          "condition": "IncludeOperationRecords",
+          "exclude": [
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/OperationRecordLogCapture.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/OperationRecordLoggingTests.cs"
+          ]
+        },
+        {
+          "condition": "!(OpenIddictServer || RemoteTokenAuth)",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Auth/Sessions/AccessTokenRenewal.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ServiceInvocationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/AuthenticationModeTests.cs"
+          ]
+        },
+        {
+          "condition": "!RemoteTokenAuth || IncludeMultiTenancy",
+          "exclude": [
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceHostPrincipalTests.cs"
+          ]
+        },
+        {
+          "condition": "!(RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))",
+          "exclude": [
+            "docs/operations/runbooks/admin-recovery.md"
           ]
         }
       ]
+    },
+    {
+      "condition": "(IncludeLocalization && SpaFrontend)",
+      "source": "./.template.config/localization/frontend",
+      "target": "./frontend"
     }
   ]
 }

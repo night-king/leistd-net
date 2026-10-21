@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\ddd-struct\Leistd.Ddd.Application\Leistd.Ddd.Application.csproj" />
+    <ProjectReference Include="..\..\..\ddd-struct\Leistd.Ddd.Application.Contracts\Leistd.Ddd.Application.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

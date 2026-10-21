@@ -1,0 +1,108 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <!-- 成功取到空目录说明部署没有可用的外部登录，整块不出现；加载中与失败照常显示，失败可重试。 -->
+  @if (!isEmpty()) {
+    <section class="flex flex-col gap-5" data-testid="security-external-logins">
+      <header class="flex flex-col gap-1 border-b pb-3">
+        <h4 class="text-sm leading-none font-semibold">{{ t('account.externalLogins.header') }}</h4>
+        <p class="text-muted-foreground text-sm">{{ t('account.externalLogins.subtitle') }}</p>
+      </header>
+
+      @if (loadFailed()) {
+        <div class="flex items-center gap-3 text-sm">
+          <span class="text-muted-foreground">{{ t('account.externalLogins.loadFailed') }}</span>
+          <button
+            hlmBtn
+            variant="link"
+            size="sm"
+            class="px-0"
+            data-testid="external-logins-retry"
+            (click)="reload()"
+          >
+            {{ t('common.retry') }}
+          </button>
+        </div>
+      } @else if (data() === null) {
+        <div class="flex justify-center py-6">
+          <hlm-spinner class="text-muted-foreground text-xl" />
+        </div>
+      } @else {
+        <div hlmItemGroup class="gap-2">
+          @for (row of rows(); track row.provider) {
+            <div hlmItem variant="outline" size="sm" data-testid="external-login-row">
+              <div hlmItemMedia variant="icon">
+                <ng-icon name="lucideLink" />
+              </div>
+              <div hlmItemContent class="min-w-0">
+                <div hlmItemTitle>{{ row.label }}</div>
+                <p hlmItemDescription>
+                  {{
+                    row.link
+                      ? t('account.externalLogins.linkedAs', {
+                          name: row.linkedName,
+                          time: row.linkedAt,
+                        })
+                      : t('account.externalLogins.notLinked')
+                  }}
+                </p>
+              </div>
+              <div hlmItemActions>
+                @if (row.link; as link) {
+                  @if (row.canUnlink) {
+                    <button
+                      hlmBtn
+                      variant="ghost"
+                      size="sm"
+                      data-testid="external-login-unlink"
+                      [disabled]="busy() !== null"
+                      (click)="unlink(row.provider, link.id)"
+                    >
+                      @if (busy() === row.provider) {
+                        <hlm-spinner class="text-base" data-icon="inline-start" />
+                      }
+                      {{ t('account.externalLogins.unlink') }}
+                    </button>
+                  } @else {
+                    <span class="text-muted-foreground text-xs">{{
+                      t('account.externalLogins.lastMethod')
+                    }}</span>
+                  }
+                } @else {
+                  <button
+                    hlmBtn
+                    variant="outline"
+                    size="sm"
+                    data-testid="external-login-link"
+                    [disabled]="busy() !== null"
+                    (click)="link(row.provider)"
+                  >
+                    @if (busy() === row.provider) {
+                      <hlm-spinner class="text-base" data-icon="inline-start" />
+                    }
+                    {{ t('account.externalLogins.link') }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </section>
+  }
+
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="reauth.setVisible($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.externalLogins.unlinkReauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
+  />
+</ng-container>

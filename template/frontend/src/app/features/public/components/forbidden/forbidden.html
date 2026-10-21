@@ -1,0 +1,25 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t; prefix: 'forbidden'">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <section class="flex min-h-svh flex-col items-center justify-center gap-6 px-6 text-center">
+    <div
+      class="flex size-16 items-center justify-center rounded-full bg-destructive/10 text-destructive"
+    >
+      <ng-icon name="lucideShieldOff" size="32" aria-hidden="true" />
+    </div>
+
+    <div class="flex flex-col gap-2">
+      <h1 class="text-2xl font-semibold tracking-tight">{{ t('title') }}</h1>
+      <p class="max-w-md text-sm text-muted-foreground">
+        {{ t('description') }}
+      </p>
+    </div>
+
+    <div class="flex flex-wrap items-center justify-center gap-3">
+      <a hlmBtn routerLink="/workspace">{{ t('backToWorkspace') }}</a>
+      <a hlmBtn variant="outline" routerLink="/">{{ t('backHome') }}</a>
+    </div>
+  </section>
+</ng-container>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\object-mapping\Leistd.ObjectMapping.Core\Leistd.ObjectMapping.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\object-mapping\Leistd.ObjectMapping.Mapster\Leistd.ObjectMapping.Mapster.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

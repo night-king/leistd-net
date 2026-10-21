@@ -253,10 +253,11 @@ paket-files/
 # Custom
 [lL]og
 [lL]ogs
-appsettings.Development.json
 
+#if (SpaFrontend)
 # DataProtection 运行时密钥
 DataProtection-Keys/
+#endif
 
 # 支付宝证书（敏感文件不入库）
 certs/*.crt

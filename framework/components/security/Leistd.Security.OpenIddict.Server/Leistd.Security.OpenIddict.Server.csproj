@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenIddict.Server" />
+    <PackageReference Include="OpenIddict.Core" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <ProjectReference Include="../../background-jobs/Leistd.BackgroundJobs.Core/Leistd.BackgroundJobs.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- SignalR/ 里的通知发送器需要 SignalR 抽象，随共享框架提供 -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      使用关系型 Provider 而非 InMemory：NotificationRecordConfiguration 的长度约束与
+      复合索引只有真正建库时才会生效，InMemory 全内存求值会让配置整块静默通过。
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" />
+    <PackageReference Include="Xunit.SkippableFact" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\notifications\Leistd.Notifications.Core\Leistd.Notifications.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\notifications\Leistd.Notifications.EntityFrameworkCore\Leistd.Notifications.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\notifications\Leistd.Notifications.AspNetCore.SignalR\Leistd.Notifications.AspNetCore.SignalR.csproj" />
+    <ProjectReference Include="..\..\..\..\components\notifications\Leistd.Notifications.AspNetCore\Leistd.Notifications.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\notifications\Leistd.Notifications.Settings\Leistd.Notifications.Settings.csproj" />
+    <ProjectReference Include="..\..\..\..\components\notifications\Leistd.Notifications.Email\Leistd.Notifications.Email.csproj" />
+    <ProjectReference Include="..\..\..\..\components\security\Leistd.Security.AspNetCore\Leistd.Security.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

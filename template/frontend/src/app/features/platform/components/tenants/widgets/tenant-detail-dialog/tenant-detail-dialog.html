@@ -1,0 +1,212 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-dialog [state]="open() ? 'open' : 'closed'" (stateChanged)="open.set($event === 'open')">
+    <!-- 宽度用 min-w 定：弹窗挂在按内容撑开的浮层里，只写 max-w 撑不开（不设下限约 282px）。
+         写法与 open-application-edit-dialog 一致，42rem 小一档；同时约束高度，连接条数不受限。 -->
+    <hlm-dialog-content
+      *hlmDialogPortal
+      class="flex max-h-[calc(100dvh-2rem)] min-w-[min(42rem,calc(100vw_-_2rem))] flex-col overflow-hidden sm:max-w-2xl"
+    >
+      <hlm-dialog-header>
+        <h2 hlmDialogTitle>{{ t('tenants.detailTitle') }}</h2>
+      </hlm-dialog-header>
+
+      @if (tenant(); as current) {
+        <div class="flex flex-col gap-4 py-2">
+          <section class="flex flex-col gap-2">
+            <h3 class="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              {{ t('tenants.detailSectionIdentity') }}
+            </h3>
+            <dl class="grid grid-cols-[minmax(6rem,auto)_1fr] items-start gap-x-4 gap-y-2 text-sm">
+              <dt class="text-muted-foreground">{{ t('tenants.fieldName') }}</dt>
+              <dd class="min-w-0 font-medium">{{ current.name }}</dd>
+
+              <dt class="text-muted-foreground">{{ t('tenants.fieldDisplayName') }}</dt>
+              <dd class="min-w-0">{{ current.displayName || '-' }}</dd>
+
+              <dt class="text-muted-foreground">{{ t('tenants.fieldDescription') }}</dt>
+              <dd class="min-w-0 break-words">{{ current.description || '-' }}</dd>
+
+              <dt class="text-muted-foreground">{{ t('tenants.colStatus') }}</dt>
+              <dd class="min-w-0">
+                {{ current.isActive ? t('tenants.active') : t('tenants.inactive') }}
+              </dd>
+
+              <dt class="text-muted-foreground">{{ t('tenants.colCreatedAt') }}</dt>
+              <dd class="text-muted-foreground min-w-0">
+                {{ current.creationTime | appDate: 'full' : displayTimeZone() : displayLocale() }}
+              </dd>
+            </dl>
+          </section>
+
+          @if (canManage()) {
+            <hlm-separator />
+
+            <section class="flex flex-col gap-3">
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                  {{ t('tenants.detailSectionConnections') }}
+                </h3>
+                @if (editorMode() === 'idle' && connections()) {
+                  <button
+                    hlmBtn
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    [disabled]="!canAddConnection()"
+                    (click)="startAdd()"
+                  >
+                    {{ t('tenants.addConnection') }}
+                  </button>
+                }
+              </div>
+
+              <!-- 点不了就得说明为什么：否则按钮灰着，人只会以为是权限不够 -->
+              @if (editorMode() === 'idle' && connections() && !canAddConnection()) {
+                <p class="text-muted-foreground text-xs">
+                  {{ t('tenants.shardRequiresInactive') }}
+                </p>
+              }
+
+              @if (connectionsLoading()) {
+                <div class="flex items-center gap-2 py-2">
+                  <hlm-spinner class="text-base" />
+                </div>
+              } @else if (connectionsError(); as error) {
+                <!-- 连接段单独降级：标识段照常呈现，不因一个副请求失败把整个详情打空 -->
+                <p class="text-destructive text-sm" role="alert">{{ error }}</p>
+              } @else if (connections(); as list) {
+                <div class="flex flex-col gap-2">
+                  @for (connection of list; track connection.name) {
+                    <div
+                      class="border-border flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+                    >
+                      <div class="flex min-w-0 flex-col">
+                        <span class="truncate font-mono">{{ connection.name }}</span>
+                        <span class="text-muted-foreground text-xs">
+                          {{ t('tenants.fieldConnectionVersion') }}: {{ connection.version }}
+                        </span>
+                      </div>
+                      <div class="flex shrink-0 items-center gap-2">
+                        <button
+                          hlmBtn
+                          size="sm"
+                          variant="outline"
+                          type="button"
+                          (click)="startEdit(connection)"
+                        >
+                          {{ t('tenants.changeConnectionString') }}
+                        </button>
+                        <button
+                          hlmBtn
+                          size="sm"
+                          variant="ghost"
+                          type="button"
+                          (click)="removeConnection(connection)"
+                        >
+                          {{ t('common.delete') }}
+                        </button>
+                      </div>
+                    </div>
+                  } @empty {
+                    <!-- 空列表须显式说明不分库，否则与漏登记无法区分。 -->
+                    <p class="text-muted-foreground text-sm">{{ t('tenants.connectionsEmpty') }}</p>
+                  }
+                </div>
+
+                @if (editorMode() !== 'idle') {
+                  <div class="border-border flex flex-col gap-3 rounded-md border p-3">
+                    @if (editorMode() === 'add') {
+                      <hlm-field>
+                        <label hlmFieldLabel for="tenant-connection-name">
+                          {{ t('tenants.fieldConnectionName') }}
+                        </label>
+                        <input
+                          hlmInput
+                          id="tenant-connection-name"
+                          class="w-full font-mono"
+                          autocomplete="off"
+                          spellcheck="false"
+                          [formField]="connectionForm.name"
+                          (keydown.enter)="$event.preventDefault(); submitEditor()"
+                        />
+                        @for (error of connectionForm.name().errors(); track error.kind) {
+                          <hlm-field-error [validator]="error.kind">{{
+                            t('validation.' + error.kind, error)
+                          }}</hlm-field-error>
+                        }
+                      </hlm-field>
+                    }
+
+                    <!-- 连接串只写：按密码框处理，不预填、不回显、不让浏览器记住 -->
+                    <hlm-field>
+                      <label hlmFieldLabel for="tenant-connection-string">
+                        {{ t('tenants.fieldConnectionString') }}
+                      </label>
+                      <input
+                        hlmInput
+                        id="tenant-connection-string"
+                        type="password"
+                        class="w-full"
+                        autocomplete="off"
+                        spellcheck="false"
+                        [formField]="connectionForm.connectionString"
+                        (keydown.enter)="$event.preventDefault(); submitEditor()"
+                      />
+                      @for (error of connectionForm.connectionString().errors(); track error.kind) {
+                        <hlm-field-error [validator]="error.kind">{{
+                          t('validation.' + error.kind, error)
+                        }}</hlm-field-error>
+                      }
+                    </hlm-field>
+
+                    <p class="text-muted-foreground text-xs">{{ t('tenants.detailSecretHint') }}</p>
+
+                    @if (actionError(); as error) {
+                      <p class="text-destructive text-sm" role="alert">{{ error }}</p>
+                    }
+
+                    <div class="flex justify-end gap-2">
+                      <button
+                        hlmBtn
+                        size="sm"
+                        variant="outline"
+                        type="button"
+                        (click)="closeEditor()"
+                      >
+                        {{ t('common.cancel') }}
+                      </button>
+                      <button
+                        hlmBtn
+                        size="sm"
+                        type="button"
+                        [disabled]="connectionForm().invalid() || submitting()"
+                        (click)="submitEditor()"
+                      >
+                        {{ t('common.save') }}
+                      </button>
+                    </div>
+                  </div>
+                } @else if (actionError(); as error) {
+                  <p class="text-destructive text-sm" role="alert">{{ error }}</p>
+                }
+              }
+            </section>
+          }
+        </div>
+      }
+
+      <hlm-dialog-footer>
+        @if (canManage()) {
+          <button hlmBtn variant="outline" type="button" (click)="onEdit()">
+            {{ t('common.edit') }}
+          </button>
+        }
+        <button hlmBtn type="button" (click)="open.set(false)">{{ t('common.close') }}</button>
+      </hlm-dialog-footer>
+    </hlm-dialog-content>
+  </hlm-dialog>
+</ng-container>

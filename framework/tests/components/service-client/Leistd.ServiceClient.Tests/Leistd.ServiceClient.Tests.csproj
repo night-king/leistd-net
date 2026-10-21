@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 端到端双宿主（身份服务 + 资源服务）需要 ASP.NET Core 共享框架。 -->
+  <ItemGroup>
+    <!-- 时间接缝用官方 FakeTimeProvider 驱动，不手写时间替身 -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 真实管道测试宿主：直接用 TestHost（TestServer/UseTestServer/GetTestClient）。 -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <!-- 验证宿主叠加官方弹性管道后，其超时被归类为 ServiceClientFailureKind.Timeout；组件本身不依赖它 -->
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <!-- Refit 接口声明在本程序集：需要直接引用以激活源生成器 -->
+    <PackageReference Include="Refit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\components\service-client\Leistd.ServiceClient.Core\Leistd.ServiceClient.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\components\service-client\Leistd.ServiceClient.OAuth\Leistd.ServiceClient.OAuth.csproj" />
+    <ProjectReference Include="..\..\..\..\components\service-client\Leistd.ServiceClient.AspNetCore\Leistd.ServiceClient.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\service-client\Leistd.ServiceClient.Refit\Leistd.ServiceClient.Refit.csproj" />
+    <ProjectReference Include="..\..\..\..\components\exception-handling\Leistd.ExceptionHandling.AspNetCore\Leistd.ExceptionHandling.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\tracing\Leistd.Tracing.AspNetCore\Leistd.Tracing.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\..\..\components\security\Leistd.Security.AspNetCore\Leistd.Security.AspNetCore.csproj" />
+    <!-- 契约测试：钉住 ServiceClient 内联的读取形状与 Leistd.Response 的写出形状一致。
+         生产代码刻意不引用 Response（信封只是"被调方长什么样"的反序列化目标），
+         测试引用两边才能验证它们没有漂移。 -->
+    <ProjectReference Include="..\..\..\..\components\response\Leistd.Response.Core\Leistd.Response.Core.csproj" />
+    <ProjectReference Include="..\..\..\shared\Leistd.TestBase\Leistd.TestBase.csproj" />
+  </ItemGroup>
+
+</Project>

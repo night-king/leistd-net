@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Leistd.ExceptionHandling</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ExceptionDescriptor 的建议日志级别；本包不写日志，只需要这一个枚举 -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- GlobalExceptionOptions 的登记结果只给写出端读；宿主经 MapCode/MapDefaultCode 写入 -->
+    <InternalsVisibleTo Include="Leistd.ExceptionHandling.AspNetCore" />
+  </ItemGroup>
+
+</Project>

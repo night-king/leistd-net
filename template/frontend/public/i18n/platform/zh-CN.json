@@ -1,0 +1,82 @@
+{
+  "dashboard": {
+    "title": "仪表盘",
+    "greeting": {
+      "morning": "早上好，{{name}}",
+      "afternoon": "下午好，{{name}}",
+      "evening": "晚上好，{{name}}"
+    },
+    "noStatistics": "查看统计数据需要仪表盘权限。",
+    "rangeLabel": "统计区间",
+    "range": {
+      "today": "今天",
+      "days7": "7 天",
+      "days30": "30 天",
+      "lastDays": "近 {{days}} 天",
+      "custom": "自定义区间"
+    },
+    "summary": {
+      "signIns": "{{count}} 次成功登录",
+      "attention": "{{count}} 项需要处理"
+    },
+    "loadFailed": "统计数据加载失败。",
+    "refreshFailed": "刷新失败，显示的是之前的数据。",
+    "kpi": {
+      "totalUsers": "用户总数",
+      "newUsers": "新注册",
+      "activeUsers": "活跃用户",
+      "failedLoginAlerts": "失败登录告警",
+      "vsPrevious": "较前 {{days}} 天",
+      "noComparison": "暂无可对比的数据",
+      "infoLabel": "关于{{metric}}",
+      "info": {
+        "totalUsers": "所选区间结束时存在的用户数，不含已删除的用户。",
+        "newUsers": "区间内注册的用户数，之后被删除的也计入。",
+        "activeUsers": "区间内登录成功过的不同用户数。",
+        "activeUsersLastLogin": "最近一次登录落在区间内的用户数。更早的登录会被后来的登录覆盖，看过去的区间时只是近似。",
+        "failedLoginAlerts": "同一登录名（按输入的用户名或邮箱计）连续失败时，只在累计到 1、5、25、100 次及之后每 100 次时各记一条；5 分钟内没有新的失败就重新计数。用来发现爆破，不等于失败次数。"
+      },
+      "vsYesterday": "较昨天同一时段",
+      "vsYesterdayShort": "较昨天",
+      "vsPreviousProgress": "较前 {{days}} 天同一进度",
+      "vsPreviousEnd": "较上期末"
+    },
+    "trend": {
+      "title": "登录趋势",
+      "succeeded": "成功",
+      "failed": "失败告警",
+      "total": "次成功登录",
+      "failedAlertsHint": "失败告警不等于失败次数：同一登录名的连续失败只在累计到 1、5、25、100 次及之后每 100 次时各记一条。",
+      "ariaLabel": "各时段的成功登录次数与失败登录告警条数",
+      "viewLabel": "聚合方式",
+      "byDay": "按日",
+      "byWeek": "按周"
+    },
+    "attention": {
+      "title": "需要关注",
+      "lockedUsers": "已锁定的账户",
+      "lockedUsersHint": "连续登录失败或被管理员锁定",
+      "adminsWithoutTwoFactor": "未开启两步验证的管理员",
+      "adminsWithoutTwoFactorHint": "建议为高权限账户开启",
+      "unconfirmedEmailUsers": "邮箱未验证的用户",
+      "unconfirmedEmailUsersHint": "无法接收找回密码邮件",
+      "disabledTenants": "已停用的租户",
+      "disabledTenantsHint": "已停用租户的用户无法登录",
+      "review": "查看",
+      "allClear": "目前没有需要处理的事项。",
+      "handle": "处理"
+    },
+    "recent": {
+      "title": "最近操作",
+      "viewAll": "查看全部",
+      "empty": "暂无操作记录",
+      "anonymous": "匿名",
+      "rejected": "被拒绝",
+      "succeeded": "成功",
+      "impersonatedBy": "由 {{name}} 代为操作"
+    },
+    "quick": {
+      "title": "快捷入口"
+    }
+  }
+}

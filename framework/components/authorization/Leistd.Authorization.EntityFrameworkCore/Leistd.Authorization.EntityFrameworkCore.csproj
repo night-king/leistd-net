@@ -2,14 +2,20 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <RootNamespace>Leistd.Authorization.EntityFrameworkCore</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Leistd.Authorization.Core\Leistd.Authorization.Core.csproj" />
     <ProjectReference Include="..\..\auditing\Leistd.Auditing.Core\Leistd.Auditing.Core.csproj" />
+    <ProjectReference Include="..\..\multi-tenancy\Leistd.MultiTenancy.Core\Leistd.MultiTenancy.Core.csproj" />
+    <!--
+      取 DbContext 必须经 IDbContextProvider，不能直接注入 TDbContext：只有它会设置
+      DbContextCreationContext.Current，宿主的 AddDbContext 回调据此拿到本工作单元已解析的
+      连接。直接注入会让独立库租户的授予落到宿主配置的默认连接上，且不进工作单元事务。
+      与 Leistd.MultiTenancy.EntityFrameworkCore 同口径。
+    -->
+    <ProjectReference Include="..\..\unit-of-work\Leistd.UnitOfWork.EntityFrameworkCore\Leistd.UnitOfWork.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\..\dependency-injection\Leistd.DependencyInjection\Leistd.DependencyInjection.csproj" />
   </ItemGroup>
 
   <ItemGroup>

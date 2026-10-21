@@ -1,0 +1,131 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <hlm-dialog [state]="open() ? 'open' : 'closed'" (stateChanged)="open.set($event === 'open')">
+    <hlm-dialog-content *hlmDialogPortal class="sm:max-w-lg">
+      <hlm-dialog-header>
+        <h2 hlmDialogTitle>{{ isEdit() ? t('tenants.editTitle') : t('tenants.createTitle') }}</h2>
+        <p hlmDialogDescription>{{ t('tenants.editDescription') }}</p>
+      </hlm-dialog-header>
+
+      <form class="flex flex-col gap-4 py-2" (ngSubmit)="onSubmit()">
+        <hlm-field>
+          <label hlmFieldLabel for="tenant-name">{{ t('tenants.fieldName') }}</label>
+          <input
+            hlmInput
+            id="tenant-name"
+            class="w-full"
+            autocomplete="off"
+            [formField]="tenantForm.name"
+          />
+          @for (error of tenantForm.name().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
+        </hlm-field>
+
+        <hlm-field>
+          <label hlmFieldLabel for="tenant-display-name">{{ t('tenants.fieldDisplayName') }}</label>
+          <input
+            hlmInput
+            id="tenant-display-name"
+            class="w-full"
+            autocomplete="off"
+            [formField]="tenantForm.displayName"
+          />
+          @for (error of tenantForm.displayName().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
+        </hlm-field>
+
+        <hlm-field>
+          <label hlmFieldLabel for="tenant-description">{{ t('tenants.fieldDescription') }}</label>
+          <textarea
+            hlmInput
+            id="tenant-description"
+            class="w-full"
+            rows="2"
+            autocomplete="off"
+            [formField]="tenantForm.description"
+          ></textarea>
+          @for (error of tenantForm.description().errors(); track error.kind) {
+            <hlm-field-error [validator]="error.kind">{{
+              t('validation.' + error.kind, error)
+            }}</hlm-field-error>
+          }
+        </hlm-field>
+
+        @if (!isEdit()) {
+          <hlm-field>
+            <label hlmFieldLabel for="tenant-admin-email">{{ t('tenants.fieldAdminEmail') }}</label>
+            <input
+              hlmInput
+              id="tenant-admin-email"
+              type="email"
+              class="w-full"
+              autocomplete="off"
+              [formField]="tenantForm.adminEmail"
+            />
+            @for (error of tenantForm.adminEmail().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </hlm-field>
+
+          <hlm-field>
+            <label hlmFieldLabel for="tenant-admin-password">{{
+              t('tenants.fieldAdminPassword')
+            }}</label>
+            <input
+              hlmInput
+              id="tenant-admin-password"
+              type="password"
+              class="w-full"
+              autocomplete="new-password"
+              [formField]="tenantForm.adminPassword"
+            />
+            @for (error of tenantForm.adminPassword().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </hlm-field>
+
+          <hlm-field>
+            <label hlmFieldLabel for="tenant-connection-string">
+              {{ t('tenants.fieldConnectionString') }}
+            </label>
+            <input
+              hlmInput
+              id="tenant-connection-string"
+              class="w-full"
+              autocomplete="off"
+              [formField]="tenantForm.connectionString"
+            />
+            <p class="text-muted-foreground text-xs">{{ t('tenants.createConnectionHint') }}</p>
+            @for (error of tenantForm.connectionString().errors(); track error.kind) {
+              <hlm-field-error [validator]="error.kind">{{
+                t('validation.' + error.kind, error)
+              }}</hlm-field-error>
+            }
+          </hlm-field>
+        }
+      </form>
+
+      <hlm-dialog-footer>
+        <button hlmBtn variant="outline" type="button" (click)="open.set(false)">
+          {{ t('common.cancel') }}
+        </button>
+        <button hlmBtn type="button" [disabled]="tenantForm().invalid()" (click)="onSubmit()">
+          {{ t('common.save') }}
+        </button>
+      </hlm-dialog-footer>
+    </hlm-dialog-content>
+  </hlm-dialog>
+</ng-container>
