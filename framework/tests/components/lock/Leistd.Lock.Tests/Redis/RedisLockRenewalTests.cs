@@ -33,7 +33,7 @@ public class RedisLockRenewalTests
 
         await using (probe.CreateHandle())
         {
-            // 持锁时间明显超过租约：不续期的实现到这里锁早已过期。
+            // 连续两轮续期：不续期的实现在这里等不到。
             await probe.AdvanceUntilAsync(() => probe.ExtendCount >= 2, "持锁期间应当持续续期。");
         }
 
@@ -120,6 +120,7 @@ public class RedisLockRenewalTests
     private sealed class HandleProbe
     {
         private readonly FakeTimeProvider time = new();
+        private readonly SemaphoreSlim extended = new(0);
         private int extendCount;
         private int releaseCount;
 
@@ -139,17 +140,20 @@ public class RedisLockRenewalTests
         /// 一次推进到位是不行的：续期循环每轮重新注册一次定时器，时间一次跨过多个周期，
         /// 也只会触发一次续期。所以按间隔逐步推进。
         /// <para>
-        /// 每步之间让出线程：<c>Advance</c> 只负责让 <c>Task.Delay</c> 完成，等待它的那半截
-        /// 续期循环仍要排到线程池才跑得起来。这里等的是"循环推进了一步"这个确定性信号，
-        /// 不是墙上时间——步数上限只用来把"续期逻辑被改坏"变成失败而不是挂起。
+        /// 每步之后等续期调用信号，超时就再推一步：<c>Advance</c> 只保证 <c>Task.Delay</c> 完成，
+        /// 不保证续期循环已经跑完、登记了下一轮延时；在下一轮登记之前推进的时间不会被它计入。
+        /// 不按让出线程的次数算——调度紧张时，几百次让出也可能在循环跑一轮之前用完。
+        /// 信号只说明续期委托被调用过，结果仍由 <paramref name="condition"/> 判断；
+        /// 总时限只用来把"续期逻辑被改坏"变成失败而不是挂起。
         /// </para>
         /// </remarks>
         public async Task AdvanceUntilAsync(Func<bool> condition, string because)
         {
-            for (var step = 0; step < 200 && !condition(); step++)
+            var deadline = TimeProvider.System.GetTimestamp() + TimeProvider.System.TimestampFrequency * 10;
+            while (!condition() && TimeProvider.System.GetTimestamp() < deadline)
             {
                 time.Advance(Interval);
-                await Task.Yield();
+                await extended.WaitAsync(TimeSpan.FromMilliseconds(50));
             }
 
             Assert.True(condition(), because);
@@ -168,6 +172,7 @@ public class RedisLockRenewalTests
         private Task<bool> ExtendAsync(TimeSpan expiry)
         {
             Interlocked.Increment(ref extendCount);
+            extended.Release();
 
             return ExtendThrows
                 ? Task.FromException<bool>(new RedisConnectionException(
