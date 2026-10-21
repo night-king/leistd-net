@@ -34,6 +34,10 @@ from xml.etree import ElementTree
 sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
+# Linux caps one argument or environment string at 128 KiB (MAX_ARG_STRLEN). This bounds the raw plan that jobs read
+# from VALIDATION_PLAN; the aggregation job's NEEDS_JSON escapes it again, which only fits because a plan without
+# path lists is a few KiB.
+PLAN_OUTPUT_LIMIT = 120 * 1024
 spec = importlib.util.spec_from_file_location('coverage', ROOT / 'scripts/check-template-scenario-coverage.py')
 coverage = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(coverage)
@@ -853,21 +857,43 @@ def main() -> None:
     else:
         plan = create_plan(args.tier, args.base, args.event, args.candidate_input, args.container_smoke == 'true',
                            args.release_channel, args.release_base_tag, args.release_base_sha)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    print(emit_plan(plan, args.output, args.github_output))
+
+
+def emitted_plan(plan: dict) -> dict:
+    """The plan as jobs receive it: path lists only drive planning and become counts.
+
+    Downstream jobs read the plan from an environment variable, and a develop -> main merge lists
+    thousands of paths, far beyond one environment string (see PLAN_OUTPUT_LIMIT).
+    """
+    emitted = {key: value for key, value in plan.items() if key not in ('ChangedPaths', 'Inputs')}
+    if 'ChangedPaths' in plan:
+        emitted['ChangedPathCount'] = len(plan['ChangedPaths'])
+    if 'Inputs' in plan:
+        emitted['InputCounts'] = {kind: len(paths) for kind, paths in plan['Inputs'].items()}
+    return emitted
+
+
+def emit_plan(plan: dict, output: Path, github_output: bool) -> str:
+    plan = emitted_plan(plan)
     text = json.dumps(plan, ensure_ascii=False, separators=(',', ':'))
-    args.output.write_text(text, encoding='utf-8')
-    if args.github_output:
-        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-            output.write('validation_plan=' + text + '\n')
-            output.write('slices=' + json.dumps(plan['Slices'], ensure_ascii=False, separators=(',', ':')) + '\n')
-            output.write('release_required=' + str(plan['ReleaseRequired']).lower() + '\n')
-            output.write('release_base_tag=' + plan['ReleaseBaseTag'] + '\n')
-            output.write('release_base_sha=' + plan['ReleaseBaseSha'] + '\n')
+    size = len(text.encode('utf-8'))
+    if github_output and size > PLAN_OUTPUT_LIMIT:
+        raise SystemExit(f'Validation plan is {size} bytes; downstream jobs accept at most {PLAN_OUTPUT_LIMIT}')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(text, encoding='utf-8')
+    if github_output:
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
+            stream.write('validation_plan=' + text + '\n')
+            stream.write('slices=' + json.dumps(plan['Slices'], ensure_ascii=False, separators=(',', ':')) + '\n')
+            stream.write('release_required=' + str(plan['ReleaseRequired']).lower() + '\n')
+            stream.write('release_base_tag=' + plan['ReleaseBaseTag'] + '\n')
+            stream.write('release_base_sha=' + plan['ReleaseBaseSha'] + '\n')
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
             if plan['DocsOnly']:
                 summary.write('本次仅修改内部文档：此作业只判定范围和生成计划；未打包 Framework，动态验证不适用。\n\n')
             summary.write('验证计划：' + text + '\n')
-    print(text)
+    return text
 
 
 if __name__ == '__main__':

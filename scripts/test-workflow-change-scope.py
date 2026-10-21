@@ -8,6 +8,7 @@ Requires PowerShell and the same PyYAML dependency used by Skill validation.
 
 `--release-publish` runs only the release publish/recovery checks (tag push retries against a
 local bare remote, recovery summary stages, artifact bundle rehearsal); they need git and pwsh, not .NET.
+`--plan-output` runs only the plan output budget check (pure Python).
 """
 
 from contextlib import contextmanager
@@ -1522,10 +1523,64 @@ def check_release_publish():
     check_release_main_stage_rehearsal()
 
 
+def check_plan_output():
+    """The emitted plan drops path lists for counts and stays within one environment string."""
+    spec = importlib.util.spec_from_file_location('planner_output', ROOT / 'scripts/plan-quality-checks.py')
+    planner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(planner)
+    # A develop -> main merge: thousands of paths, listed again under their input classes.
+    paths = [f'template/frontend/src/app/features/feature-{index:04}/components/feature-{index:04}-panel.ts'
+             for index in range(3000)]
+    plan = dict(Version=3, CandidateSha='c' * 40, BaseSha='b' * 40, Tier='core', Mode='full', ReleaseRequired=True,
+                ReleaseChannel='stable', ReleaseBaseTag='v0.12.0', ReleaseBaseSha='a' * 40, DocsOnly=False,
+                TemplateRelease=dict(Changed=True, Required=True, Reason='Template changes'),
+                Jobs={'test': True, 'template-slices': True}, Slices=[dict(Key='core-0', Scenarios=['identity'])],
+                ChangedPaths=paths, Inputs=dict(frontend=paths[:2000], backend=paths[2000:], unknown=[]))
+    original = json.loads(json.dumps(plan))
+    assert len(json.dumps(plan).encode('utf-8')) > 128 * 1024
+
+    with tempfile.TemporaryDirectory(prefix='leistd-plan-output-') as directory:
+        root = Path(directory)
+        streams = {'GITHUB_OUTPUT': root / 'output.txt', 'GITHUB_STEP_SUMMARY': root / 'summary.md'}
+        with mock.patch.dict(os.environ, {name: str(path) for name, path in streams.items()}):
+            text = planner.emit_plan(plan, root / 'plan.json', True)
+        emitted = json.loads(text)
+        assert plan == original, 'emitting must not change the plan used for selection'
+        assert len(text.encode('utf-8')) < 8 * 1024, len(text)
+        assert 'ChangedPaths' not in emitted and 'Inputs' not in emitted, emitted.keys()
+        assert emitted['ChangedPathCount'] == 3000, emitted
+        assert emitted['InputCounts'] == dict(frontend=2000, backend=1000, unknown=0), emitted
+        for key in ('CandidateSha', 'BaseSha', 'Tier', 'Mode', 'ReleaseRequired', 'ReleaseBaseTag', 'ReleaseBaseSha',
+                    'TemplateRelease', 'Jobs', 'Slices', 'DocsOnly'):
+            assert emitted[key] == plan[key], key
+        assert (root / 'plan.json').read_text(encoding='utf-8') == text
+        assert f'validation_plan={text}\n' in streams['GITHUB_OUTPUT'].read_text(encoding='utf-8')
+        assert streams['GITHUB_STEP_SUMMARY'].read_text(encoding='utf-8').endswith(f'验证计划：{text}\n')
+
+        # The budget counts UTF-8 bytes: fewer characters than the limit can still exceed it.
+        wide = dict(original, Reason='验' * (planner.PLAN_OUTPUT_LIMIT // 3 + 1))
+        assert len(json.dumps(planner.emitted_plan(wide), ensure_ascii=False)) < planner.PLAN_OUTPUT_LIMIT
+        for path in streams.values():
+            path.unlink()
+        with mock.patch.dict(os.environ, {name: str(path) for name, path in streams.items()}):
+            try:
+                planner.emit_plan(wide, root / 'wide.json', True)
+            except SystemExit as error:
+                assert 'bytes' in str(error), error
+            else:
+                raise AssertionError('an oversized plan must stop the planning job')
+        assert not any(path.exists() for path in streams.values()) and not (root / 'wide.json').exists()
+    print('PASS plan output drops path lists and enforces the byte budget', flush=True)
+
+
 def main():
     if '--release-publish' in sys.argv[1:]:
         check_release_publish()
         return
+    if '--plan-output' in sys.argv[1:]:
+        check_plan_output()
+        return
+    check_plan_output()
     check_existing_scopes()
     check_docs_scope()
     check_template_package_responsibilities()
