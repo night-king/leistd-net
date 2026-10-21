@@ -74,9 +74,11 @@ describe('ApplicationHttpError', () => {
   });
 
   // 协议层失败只有状态码语义：没有 detail 与业务码，文案取本地化标题
-  it('keeps the traceId on 5xx and builds a reportable message', () => {
+  // 不带业务码的 5xx 可能来自下游透传或网关：合法的 Problem Details 也不展示其文字
+  it('shows only the generic text and traceId for a 5xx problem without a business code', () => {
     const error = errorOf(
       {
+        detail: 'Upstream inventory service failed',
         title: '服务器内部错误',
         status: 500,
         traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
@@ -84,10 +86,30 @@ describe('ApplicationHttpError', () => {
       500,
     );
 
+    expect(error.category).toBe('server');
     expect(error.code).toBeUndefined();
-    expect(error.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736');
     expect(applicationErrorMessage(error)).toBe(
-      '服务器内部错误 (Trace ID: 4bf92f3577b34da6a3ce929d0e0e4736)',
+      'An unexpected error occurred. Please refresh the page and try again. (Trace ID: 4bf92f3577b34da6a3ce929d0e0e4736)',
+    );
+  });
+
+  it('shows the detail of a 5xx with a business code on a read request', () => {
+    const error = ApplicationHttpError.from(
+      new HttpErrorResponse({
+        error: {
+          code: 'Auth:EmailVerificationUnavailable',
+          detail: 'Email verification is temporarily unavailable.',
+          traceId: 'trace-3',
+        },
+        status: 503,
+      }),
+      { method: 'GET' },
+    );
+
+    expect(error.category).toBe('problem');
+    expect(error.code).toBe('Auth:EmailVerificationUnavailable');
+    expect(applicationErrorMessage(error)).toBe(
+      'Email verification is temporarily unavailable. (Trace ID: trace-3)',
     );
   });
 
@@ -188,11 +210,15 @@ describe('ApplicationHttpError', () => {
     );
   });
 
-  // 写请求遇到 5xx：服务端可能已经提交，提示先核实，不能让用户直接重复提交
-  it('classifies a 5xx on a write request as uncertain, even with a problem body', () => {
+  // 写请求遇到 5xx：服务端可能已经提交（业务码也可能来自提交后的回调），提示先核实，不能让用户直接重复提交
+  it('classifies a 5xx on a write request as uncertain, even with a business code', () => {
     const error = ApplicationHttpError.from(
       new HttpErrorResponse({
-        error: { title: 'Internal Server Error', traceId: 'trace-7' },
+        error: {
+          code: 'Orders:NotificationUnavailable',
+          detail: 'Notification is unavailable.',
+          traceId: 'trace-7',
+        },
         status: 500,
       }),
       { method: 'POST', uncertainResultMessage: '操作可能已经完成' },

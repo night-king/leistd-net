@@ -26,9 +26,9 @@ interface ApiProblemDetails {
 
 /**
  * 失败的分类，由归一化层按状态码、响应体与请求方法得出：
- * - `problem`：有效的 Problem Details，文案取自字段错误、`detail`、`title`；
+ * - `problem`：文案取自字段错误、`detail`、`title`：4xx 的有效 Problem Details，或读请求上带业务码的 5xx；
  * - `invalidResponse`：响应无法识别（2xx 解析失败、网关 HTML、空正文等）；
- * - `server`：5xx 且没有可用的 Problem Details；
+ * - `server`：读请求上不带业务码的 5xx；
  * - `network`：没有收到响应（status 0）；
  * - `uncertain`：写请求（非安全方法）没有收到响应、遇到 5xx 或 2xx 解析失败，操作可能已经生效。
  */
@@ -139,18 +139,20 @@ export class ApplicationHttpError extends Error {
           );
     }
 
-    if (response.status >= 500 && unsafe) {
-      return create('uncertain', uncertainMessage, diagnostics);
+    // 写请求的 5xx 即使带业务码也可能已经生效（如提交后的回调失败），一律先核实。
+    // 读请求只展示带业务码的 5xx：不带码的（未处理异常、上游故障、网关）即使是 Problem Details，文字也不保证可以公开。
+    if (response.status >= 500 && (unsafe || !problem.code)) {
+      return unsafe
+        ? create('uncertain', uncertainMessage, diagnostics)
+        : create('server', options.serverErrorMessage ?? DEFAULT_SERVER_ERROR_MESSAGE, diagnostics);
     }
 
     if (!isProblem(problem)) {
-      return response.status >= 500
-        ? create('server', options.serverErrorMessage ?? DEFAULT_SERVER_ERROR_MESSAGE, diagnostics)
-        : create(
-            'invalidResponse',
-            options.invalidResponseMessage ?? DEFAULT_INVALID_RESPONSE_MESSAGE,
-            diagnostics,
-          );
+      return create(
+        'invalidResponse',
+        options.invalidResponseMessage ?? DEFAULT_INVALID_RESPONSE_MESSAGE,
+        diagnostics,
+      );
     }
 
     // 有字段错误时由它们组成消息：校验失败时 detail / title 只是概括，

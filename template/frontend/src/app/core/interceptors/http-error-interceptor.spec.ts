@@ -206,7 +206,11 @@ describe('httpErrorInterceptor', () => {
     //#if (IncludeLocalization)
     TestBed.inject(TranslocoService).setTranslation({ common: { traceId: '追踪号' } }, 'en');
     //#endif
-    const caught = runInterceptor(httpError(503, { detail: 'Unavailable', traceId: 'trace-5' }));
+    const caught = runInterceptor(httpError(503, {
+        code: 'Auth:EmailVerificationUnavailable',
+        detail: 'Unavailable',
+        traceId: 'trace-5',
+      }),);
     //#if (IncludeLocalization)
     expect(applicationErrorMessage(caught)).toBe('Unavailable (追踪号: trace-5)');
     //#else
