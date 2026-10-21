@@ -69,6 +69,10 @@ function Initialize-Repository([string]$Path) {
     Invoke-Checked 'git' @('config', 'user.email', 'upgrade-gate@example.invalid') $Path | Out-Null
     Invoke-Checked 'git' @('config', 'user.name', 'Upgrade gate') $Path | Out-Null
     Invoke-Checked 'git' @('config', 'core.autocrlf', 'false') $Path | Out-Null
+    # 临时仓库不做后台维护：新版 git 提交后在后台把松散对象打包并删除，与紧接着的本地 clone 抢文件，
+    # clone 报"failed to copy file … No such file or directory"
+    Invoke-Checked 'git' @('config', 'maintenance.auto', 'false') $Path | Out-Null
+    Invoke-Checked 'git' @('config', 'gc.auto', '0') $Path | Out-Null
 }
 
 function Save-Commit([string]$Path, [string]$Message) {
