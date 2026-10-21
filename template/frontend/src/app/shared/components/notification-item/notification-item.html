@@ -13,7 +13,7 @@
       type="button"
       data-testid="notification-open"
       class="focus-visible:ring-ring absolute inset-0 cursor-pointer rounded-md focus-visible:ring-2 focus-visible:outline-none"
-      [attr.aria-describedby]="n.content ? contentId() : null"
+      [attr.aria-describedby]="n.content ? contentId : null"
       (click)="opened.emit()"
     >
       <span class="sr-only">{{ n.title }}</span>
@@ -26,13 +26,19 @@
     </span>
     <!-- 标题与正文是业务数据生成的内容：标题一行、正文两行，行高一致。
          最下面一行左边是时间，右边是展开入口（被截断的才有） -->
-    <div appOverflowProbe #summary="appOverflowProbe" class="min-w-0 flex-1" [id]="summaryId()">
+    <div
+      appOverflowProbe
+      #summary="appOverflowProbe"
+      class="min-w-0 flex-1"
+      [id]="summaryId"
+      [overflowProbeExpanded]="expanded()"
+    >
       <div class="flex items-start gap-6">
         <span
           data-clamp
           aria-hidden="true"
           class="min-w-0 flex-1 text-sm leading-5 wrap-anywhere"
-          [id]="titleId()"
+          [id]="titleId"
           [class.truncate]="!expanded()"
           [class.font-medium]="!n.isRead"
           [class.text-muted-foreground]="n.isRead"
@@ -68,7 +74,7 @@
         <p
           data-clamp
           class="text-muted-foreground mt-0.5 text-xs leading-relaxed wrap-anywhere"
-          [id]="contentId()"
+          [id]="contentId"
           [class.line-clamp-2]="!expanded()"
           [class.whitespace-pre-line]="expanded()"
         >
@@ -88,7 +94,7 @@
             data-testid="notification-expand"
             class="hover:text-foreground focus-visible:ring-ring relative inline-flex items-center gap-0.5 rounded-sm font-medium focus-visible:ring-2 focus-visible:outline-none pointer-coarse:-my-3 pointer-coarse:min-h-11"
             [attr.aria-expanded]="expanded()"
-            [attr.aria-controls]="summaryId()"
+            [attr.aria-controls]="summaryId"
             (click)="expandedChange.emit(!expanded())"
           >
             {{ t(expanded() ? 'common.showLess' : 'common.showFullText') }}

@@ -276,22 +276,34 @@ export class WorkspaceDashboard {
     }
   }
 
-  /** 点一行标为已读，有链接时跳转（与铃铛面板点一条的效果一致）。 */
+  /**
+   * 点一行标为已读，有链接时跳转（与铃铛面板点一条的效果一致）。等待标已读期间用户已登出，或去了别处
+   * （离开工作台、会话失效转到登录页），就不再跳转，免得覆盖那次导航。
+   */
   async openNotification(notification: NotificationOutputDto): Promise<void> {
-    await this.markNotificationRead(notification);
+    const navigation = this.router.lastSuccessfulNavigation();
+    if (!(await this.markNotificationRead(notification))) return;
+    if (this.router.currentNavigation() || this.router.lastSuccessfulNavigation() !== navigation) {
+      return;
+    }
     if (notification.link) {
       await this.router.navigateByUrl(notification.link);
     }
   }
 
-  /** 标记已读是附带动作：失败只提示，不阻断跳转或展开这些主动作。 */
-  private async markNotificationRead(notification: NotificationOutputDto): Promise<void> {
-    if (notification.isRead) return;
+  /**
+   * 标记已读是附带动作：失败只提示，不阻断跳转或展开这些主动作。返回发起时的用户是否仍在登录；
+   * 等待期间已登出或换了人，失败也不再提示（那是上一个人的请求）。
+   */
+  private async markNotificationRead(notification: NotificationOutputDto): Promise<boolean> {
+    if (notification.isRead) return true;
+    const userId = this.authService.currentUser()?.id;
     try {
       await this.notificationService.markAsRead(notification.id);
     } catch (error: unknown) {
-      this.showRequestError(error);
+      if (this.authService.currentUser()?.id === userId) this.showRequestError(error);
     }
+    return this.authService.currentUser()?.id === userId;
   }
 
   /** 最近通知：与顶栏铃铛同一份共享状态，这里只取前四条。 */

@@ -11,6 +11,7 @@ import { OverflowProbe } from './overflow-probe';
       #probe="appOverflowProbe"
       class="flex flex-col"
       [style.width.px]="width()"
+      [overflowProbeExpanded]="expanded()"
     >
       <span data-clamp [class.truncate]="!expanded()">{{ title() }}</span>
       <span data-clamp [class.line-clamp-2]="!expanded()">{{ body() }}</span>
@@ -26,7 +27,7 @@ class Host {
   readonly body = signal('Short body.');
 }
 
-/** 单行省略与限定行数都算截断；宽度、文案与展开状态变化后重新判断。 */
+/** 单行省略与限定行数都算截断；宽度与文案变化后重新判断，展开期间保留展开前的结论、收起后重量。 */
 describe('OverflowProbe', () => {
   let fixture: ComponentFixture<Host>;
 
@@ -58,12 +59,43 @@ describe('OverflowProbe', () => {
     expect(overflowing()).toBe('true');
   });
 
-  it('reports a body longer than its line limit, and clears once expanded', async () => {
+  it('reports a body longer than its line limit, and keeps it while expanded', async () => {
     fixture.componentInstance.body.set('Three entries could not be matched. '.repeat(20));
     await settle();
     expect(overflowing()).toBe('true');
 
     fixture.componentInstance.expanded.set(true);
+    await settle();
+    expect(overflowing()).toBe('true');
+
+    fixture.componentInstance.expanded.set(false);
+    await settle();
+    expect(overflowing()).toBe('true');
+  });
+
+  it('counts a host created expanded as clipped until measured collapsed', async () => {
+    fixture.destroy();
+    fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.expanded.set(true);
+    await settle();
+    expect(overflowing(), 'expanding is only offered for clipped text').toBe('true');
+
+    fixture.componentInstance.expanded.set(false);
+    await settle();
+    expect(overflowing()).toBe('false');
+  });
+
+  it('measures again once collapsed', async () => {
+    fixture.componentInstance.body.set('Three entries could not be matched. '.repeat(20));
+    await settle();
+    fixture.componentInstance.expanded.set(true);
+    await settle();
+
+    fixture.componentInstance.body.set('Short body.');
+    await settle();
+    expect(overflowing(), 'nothing to measure while expanded').toBe('true');
+
+    fixture.componentInstance.expanded.set(false);
     await settle();
     expect(overflowing()).toBe('false');
   });

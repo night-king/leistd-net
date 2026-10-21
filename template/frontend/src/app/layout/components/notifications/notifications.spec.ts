@@ -1,6 +1,6 @@
 //#if (IncludeNotifications)
 import { HttpErrorResponse } from '@angular/common/http';
-import { signal } from '@angular/core';
+import { signal, WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 //#if (IncludeLocalization)
@@ -13,6 +13,9 @@ import { ApplicationHttpError } from '../../../core/errors/application-http-erro
 import { ConfirmService } from '../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../core/i18n/transloco.testing';
+//#endif
+import { AuthService } from '../../../core/services/auth-service';
+//#if (IncludeLocalization)
 import { LanguageService } from '../../../core/services/language-service';
 //#endif
 import { NotificationService } from '../../../core/services/notification-service';
@@ -39,6 +42,7 @@ describe('Notifications', () => {
     Pick<NotificationService, 'notifications' | 'unreadCount' | 'loading' | 'loadFailed'>;
   let confirmService: Pick<MockedObject<ConfirmService>, 'open'>;
   let errorToast: Mock;
+  let currentUser: WritableSignal<{ id: string } | null>;
 
   beforeEach(() => {
     service = {
@@ -59,6 +63,7 @@ describe('Notifications', () => {
     };
     confirmService.open.mockResolvedValue(true);
     errorToast = vi.spyOn(toast, 'error').mockImplementation(() => '');
+    currentUser = signal({ id: 'u-1' });
 
     TestBed.configureTestingModule({
       imports: [Notifications],
@@ -67,6 +72,7 @@ describe('Notifications', () => {
                 provideRouter([]),
                 { provide: NotificationService, useValue: service },
                 { provide: ConfirmService, useValue: confirmService },
+                { provide: AuthService, useValue: { currentUser } },
                 //#if (IncludeLocalization)
                 ...provideTranslocoTesting(['en', 'zh-CN']),
                 // 面板里的时间要一个书写 locale，它取自活动语言（见 SettingContextService）。
@@ -167,6 +173,67 @@ describe('Notifications', () => {
     expect(component.notificationOpen()).toBe('closed');
   });
 
+  // 标已读在途时用户已登出，或去了别处（别的导航已完成或仍在进行）：放行后不跳转、不动面板，免得覆盖
+  // 那次导航；已登出或换了人时失败也不提示（那是上一个人的请求）
+  it.each(
+    (
+      [
+        'another navigation finished',
+        'another navigation is running',
+        'the user signed out',
+        'another user signed in',
+      ] as const
+    ).flatMap((interruption) => [true, false].map((succeeds) => ({ interruption, succeeds }))),
+  )(
+    'does not follow the link once $interruption (marked read: $succeeds)',
+    async ({ interruption, succeeds }) => {
+      const router = TestBed.inject(Router);
+      let settle!: () => void;
+      service.markAsRead.mockReturnValue(
+        new Promise<void>((resolve, reject) => {
+          settle = succeeds ? resolve : () => reject(httpError(500));
+        }),
+      );
+      const component = createComponent();
+      component.notificationOpen.set('open');
+
+      const opening = component.onNotificationClick({
+        id: 'n-1',
+        title: 't',
+        type: 'info',
+        isRead: false,
+        link: '/platform/users',
+        creationTime: new Date().toISOString(),
+      } as NotificationOutputDto);
+      if (interruption === 'another navigation finished') {
+        await router.navigateByUrl('/?elsewhere');
+      } else if (interruption === 'another navigation is running') {
+        router.resetConfig([
+          {
+            path: 'slow',
+            canActivate: [() => new Promise<boolean>(() => undefined)],
+            children: [],
+          },
+        ]);
+        void router.navigateByUrl('/slow');
+        await expect.poll(() => router.currentNavigation()).not.toBeNull();
+      } else if (interruption === 'the user signed out') {
+        currentUser.set(null);
+      } else {
+        currentUser.set({ id: 'u-2' });
+      }
+      const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+      settle();
+      await opening;
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(component.notificationOpen()).toBe('open');
+      if (interruption === 'the user signed out' || interruption === 'another user signed in') {
+        expect(errorToast).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   // 行的排版与截断由 NotificationItem 负责（见其 spec）；这里只验面板接线：展开只作用于那一条，不触发跳转
   it('expands one notification from its summary without opening it', async () => {
     const long = 'Three entries could not be matched against the bank statement. '.repeat(6);
@@ -201,6 +268,48 @@ describe('Notifications', () => {
     expect(fixture.componentInstance.expanded().has('n-long')).toBe(true);
     expect(navigate).not.toHaveBeenCalled();
     expect(fixture.componentInstance.notificationOpen()).toBe('open');
+  });
+
+  // 展开状态在面板外，关掉面板会销毁通知行；重开后以展开状态新建的行，收起时焦点也要留在入口上
+  it('keeps focus when collapsing a notification expanded before the panel was reopened', async () => {
+    service.notifications.set([
+      {
+        id: 'n-long',
+        title: 'Reconciliation finished',
+        content: 'Three entries could not be matched against the bank statement. '.repeat(6),
+        type: 'System',
+        isRead: true,
+        creationTime: new Date().toISOString(),
+      } as NotificationOutputDto,
+    ]);
+    const fixture = TestBed.createComponent(Notifications);
+    const component = fixture.componentInstance;
+    onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
+    const expand = () =>
+      document.querySelector<HTMLButtonElement>(
+        '.cdk-overlay-container [data-testid="notification-expand"]',
+      );
+    const row = () => document.querySelector('.cdk-overlay-container app-notification-item');
+    component.notificationOpen.set('open');
+    fixture.detectChanges();
+    await expect.poll(expand).not.toBeNull();
+    expand()!.click();
+    fixture.detectChanges();
+    component.notificationOpen.set('closed');
+    fixture.detectChanges();
+    await expect.poll(row).toBeNull();
+
+    component.notificationOpen.set('open');
+    fixture.detectChanges();
+    await expect.poll(expand).not.toBeNull();
+    const toggle = expand()!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    toggle.focus();
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(expand()).toBe(toggle);
+    expect(document.activeElement).toBe(toggle);
   });
 
   // 图标由使用方自己整组注册（测试不在父级预先提供）：漏注册不会报错，面板里只剩一块空白

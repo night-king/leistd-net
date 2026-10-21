@@ -26,6 +26,9 @@ import enWorkspace from '../../../../../../public/i18n/workspace/en.json';
 import { pseudoCatalog } from '../../../../core/i18n/pseudo-locale.testing';
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+//#if (IncludeNotifications)
+import { AuthService } from '../../../../core/services/auth-service';
+//#endif
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { CommandPaletteService } from '../../../../core/services/command-palette-service';
 import { LayoutService } from '../../../../core/services/layout-service';
@@ -43,6 +46,7 @@ import {
 } from '../../../../shared/dtos/account-security.dto';
 //#endif
 //#if (IncludeNotifications)
+import { UserOutputDto } from '../../../../shared/dtos/auth.dto';
 import { setCoarsePointer } from '../../../../shared/utils/coarse-pointer.testing';
 //#endif
 //#if (IncludeLocalization)
@@ -115,12 +119,16 @@ describe('WorkspaceDashboard', () => {
   });
   //#if (IncludeNotifications)
 
-  // 标为已读是附带动作：失败时提示原因，跳转照常进行，通知仍是未读
+  // 标为已读是附带动作：失败时提示原因，跳转照常进行，通知仍是未读。等待期间同一用户的资料刷新
+  // （换了新的用户对象）不算换人
   it('still follows the link of a notification when marking it as read fails', async () => {
     const dashboard = await setup();
-    vi.spyOn(TestBed.inject(NotificationService), 'markAsRead').mockRejectedValue(
-      new Error('offline'),
-    );
+    const auth = TestBed.inject(AuthService);
+    auth.setCurrentUser({ id: 'u-1' } as UserOutputDto);
+    vi.spyOn(TestBed.inject(NotificationService), 'markAsRead').mockImplementation(async () => {
+      auth.setCurrentUser({ id: 'u-1', displayName: 'Renamed' } as UserOutputDto);
+      throw new Error('offline');
+    });
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     const error = vi.spyOn(toast, 'error');
     const notification = {
@@ -140,6 +148,69 @@ describe('WorkspaceDashboard', () => {
     expect(error).toHaveBeenCalledOnce();
     expect(TestBed.inject(NotificationService).unreadCount()).toBe(1);
   });
+
+  // 标已读在途时用户已登出，或去了别处（离开工作台、会话失效转到登录页）：放行后不再跳转，免得覆盖那次导航；
+  // 已登出或换了人时失败也不提示（那是上一个人的请求）
+  it.each(
+    (
+      [
+        'another navigation finished',
+        'another navigation is running',
+        'the user signed out',
+        'another user signed in',
+      ] as const
+    ).flatMap((interruption) => [true, false].map((succeeds) => ({ interruption, succeeds }))),
+  )(
+    'does not follow the link once $interruption (marked read: $succeeds)',
+    async ({ interruption, succeeds }) => {
+      const dashboard = await setup();
+      const router = TestBed.inject(Router);
+      const auth = TestBed.inject(AuthService);
+      auth.setCurrentUser({ id: 'u-1' } as UserOutputDto);
+      const error = vi.spyOn(toast, 'error');
+      let settle!: () => void;
+      vi.spyOn(TestBed.inject(NotificationService), 'markAsRead').mockReturnValue(
+        new Promise<void>((resolve, reject) => {
+          settle = succeeds ? resolve : () => reject(new Error('offline'));
+        }),
+      );
+      const notification = {
+        id: 'a',
+        title: 'A notification',
+        link: '/workspace/settings',
+        type: 'System',
+        isRead: false,
+        creationTime: new Date().toISOString(),
+      };
+
+      const opening = dashboard.openNotification(notification);
+      if (interruption === 'another navigation finished') {
+        await router.navigateByUrl('/?elsewhere');
+      } else if (interruption === 'another navigation is running') {
+        router.resetConfig([
+          {
+            path: 'slow',
+            canActivate: [() => new Promise<boolean>(() => undefined)],
+            children: [],
+          },
+        ]);
+        void router.navigateByUrl('/slow');
+        await expect.poll(() => router.currentNavigation()).not.toBeNull();
+      } else if (interruption === 'the user signed out') {
+        auth.clearAuthData();
+      } else {
+        auth.setCurrentUser({ id: 'u-2' } as UserOutputDto);
+      }
+      const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+      settle();
+      await opening;
+
+      expect(navigate).not.toHaveBeenCalled();
+      if (interruption === 'the user signed out' || interruption === 'another user signed in') {
+        expect(error).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   // 行的排版与截断由 NotificationItem 负责（见其 spec）；这里验工作台接线：各条独立展开，展开即标为已读
   it('expands clipped notifications independently and marks them read', async () => {
