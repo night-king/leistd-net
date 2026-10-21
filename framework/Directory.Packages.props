@@ -43,9 +43,9 @@
          （GHSA-846f-f764-76mx、GHSA-2fmv-rv2c-59x7）。钉到已修复版本后，它随打包成为 Leistd.Email.Smtp 的依赖，消费方一并拿到修复版本。 -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageVersion Include="Mapster" Version="10.0.13" />
-    <PackageVersion Include="Refit" Version="16.3.0" />
-    <PackageVersion Include="Refit.HttpClientFactory" Version="16.3.0" />
-    <PackageVersion Include="Refit.Reflection" Version="16.3.0" />
+    <PackageVersion Include="Refit" Version="16.4.0" />
+    <PackageVersion Include="Refit.HttpClientFactory" Version="16.4.0" />
+    <PackageVersion Include="Refit.Reflection" Version="16.4.0" />
     <PackageVersion Include="StackExchange.Redis" Version="3.4.5" />
 
     <!-- 构建期（源码调试） -->
