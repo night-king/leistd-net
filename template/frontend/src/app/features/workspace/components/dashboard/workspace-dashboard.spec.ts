@@ -366,6 +366,8 @@ describe('WorkspaceDashboard', () => {
     const host: HTMLElement = fixture.nativeElement;
     const nav = host.querySelector<HTMLElement>('[data-testid="workbench-shortcuts"] nav')!;
     nav.style.width = '13rem';
+    // 网页字体用到时才加载：不等它，量到的是后备字体的宽度（CI 的 Linux 后备字体更宽）
+    await document.fonts.ready;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     await fixture.whenStable();
     // 卡片布局定下来之后把残留的物理指针移开：落在哪张卡片上，它的提示就会在聚焦之前先被悬停打开
