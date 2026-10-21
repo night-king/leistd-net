@@ -80,7 +80,7 @@ frontend/
 
 - `http-error-interceptor` 负责认证处置（401 跳转）并把 RFC 9457 Problem Details 归一化为 `ApplicationHttpError`（`errors` 兼容框架的数组与官方字典两种形状）；页面不自己猜测响应形状。
 - 发起操作的 feature 决定反馈：字段错误优先回填到表单，其余错误以归一化后的 `message` toast（`@spartan-ng/brain/sonner`），或显示空状态、静默；同一错误不重复提示。
-- 公开文案只取 Problem Details 里校验过的字段错误、`detail`、`title`，不从 `statusText`、响应正文或原始异常回落；其余情形按 `category` 用本地化通用文案，有 `traceId` 时附上。拦截器传入请求方法：写请求遇到无响应、5xx 或 2xx 解析失败归为 `uncertain`，提示操作可能已完成、先核实，不自动重放。
+- 公开文案只取 Problem Details 里校验过的字段错误、`detail`、`title`（5xx 限带码读请求），不从 `statusText`、正文或原始异常回落；其余按 `category` 用本地化通用文案，有 `traceId` 时附上。拦截器传入方法：写请求遇到无响应、5xx 或 2xx 解析失败归为 `uncertain`，提示可能已完成、先核实，不自动重放。
 - `GlobalErrorHandler` 只兜底未处理的非 HTTP 错误，识别并忽略已归一化的 HTTP 错误。
 - 状态码与 `code` 的分工：认证与协议层处置（401 跳转、受限会话的 403、启动时的未登录判定）由 `http-error-interceptor` 与 `startup-service` 按状态码处理，eslint 只对它们放行 `local/no-status-code-branch`；feature 使用归一化后的错误反馈，需要特定业务交互时按稳定 `code` 分支。业务错误缺少 `code` 不构成 feature 按状态码分支的理由，应在后端补码。
 - 启动失败（非 401）时守卫取消导航并记下目标，重试成功后进入；`/forbidden` 与 404 页地址栏保留目标（刷新与前进/后退时的行为见[前端路由规范](./frontend-routing.md)）。

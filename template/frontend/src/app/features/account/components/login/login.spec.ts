@@ -932,7 +932,9 @@ describe('Login', () => {
         (fixture.nativeElement as HTMLElement).querySelector(
           '[data-testid="external-login-failure-detail"]',
         );
-      expect(trace()?.textContent?.trim()).toBe('Service Unavailable (Trace ID: 00-trace-01)');
+      expect(trace()?.textContent?.trim()).toBe(
+        'An unexpected error occurred. Please refresh the page and try again. (Trace ID: 00-trace-01)',
+      );
 
       externalProviders = of({ providers: ['google'] });
       (fixture.nativeElement as HTMLElement)
