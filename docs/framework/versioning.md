@@ -174,7 +174,7 @@ gh attestation verify Leistd.Core.<版本>.nupkg -R zengqinglei/leistd-net
 
 ## 依赖更新
 
-`.github/dependabot.yml` 只覆盖第三方 NuGet（`framework/` 与 `template/backend/` 的 `Directory.Packages.props`）与 GitHub Actions，每周分组提 PR：minor/patch 一组，major 单独一组。`Leistd.*` 由本仓库统一版本发布，不在更新范围内。依赖 PR 与其他 PR 走同一套质量验证。
+`.github/dependabot.yml` 只覆盖第三方 NuGet（`framework/` 与 `template/backend/` 的 `Directory.Packages.props`）与 GitHub Actions，每周分组提版本更新 PR：minor/patch 一组，major 单独一组。版本更新经 `target-branch` 进 `develop`；Dependabot 只读默认分支（main）上的配置，改动随下次 develop 合入 main 生效。安全更新不受 `target-branch` 控制，仍指向 main，按分支模型移到 develop 处理。框架与模板共有的第三方依赖（如 Refit）在同一个 PR 里一起升：模板生成项目同时引用框架包，框架包把依赖下限提高、模板仍直接钉着更低版本时会因 NU1605（降级）还原失败；Dependabot 按目录分别提 PR 时，在其中一份补齐另一个目录，另一份关闭。`Leistd.*` 由本仓库统一版本发布，不在更新范围内。依赖 PR 与其他 PR 走同一套质量验证。
 
 模板前端 npm 依赖不交给 Dependabot：两份 `package.json` 与锁文件含条件行，不是合法 JSON。默认与本地化两份依赖文件和锁文件按[前端依赖维护](../template/quality-assurance.md#前端依赖维护)的规则成对更新。
 
