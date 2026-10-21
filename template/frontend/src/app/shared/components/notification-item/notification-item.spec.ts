@@ -20,6 +20,15 @@ const LONG_CONTENT =
     4,
   );
 
+const NOTIFICATION = {
+  id: 'n-1',
+  title: LONG_TITLE,
+  content: LONG_CONTENT,
+  type: 'System',
+  isRead: false,
+  creationTime: new Date().toISOString(),
+} as NotificationOutputDto;
+
 @Component({
   imports: [NotificationItem],
   providers: [provideIcons({ lucideInfo })],
@@ -41,18 +50,30 @@ const LONG_CONTENT =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class Host {
-  readonly notification = signal<NotificationOutputDto>({
-    id: 'n-1',
-    title: LONG_TITLE,
-    content: LONG_CONTENT,
-    type: 'System',
-    isRead: false,
-    creationTime: new Date().toISOString(),
-  } as NotificationOutputDto);
+  readonly notification = signal(NOTIFICATION);
   readonly expanded = signal(false);
   readonly removable = signal(false);
   opened = 0;
   removed = 0;
+}
+
+/** 工作台列表与铃铛面板同时打开时，同一条通知渲染两份。 */
+@Component({
+  imports: [NotificationItem],
+  providers: [provideIcons({ lucideInfo })],
+  template: `
+    @for (copy of [1, 2]; track copy) {
+      <app-notification-item
+        class="block w-[400px]"
+        icon="lucideInfo"
+        [notification]="notification"
+      />
+    }
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class TwoCopiesHost {
+  readonly notification = NOTIFICATION;
 }
 
 /** 摘要里标题一行、正文两行；被截断的才给展开入口，折叠时 › 指向右、展开后转向下。 */
@@ -61,8 +82,8 @@ describe('NotificationItem', () => {
   const host = () => fixture.nativeElement as HTMLElement;
   const expandButton = () =>
     host().querySelector<HTMLButtonElement>('[data-testid="notification-expand"]');
-  const title = () => host().querySelector<HTMLElement>('#notification-n-1-title')!;
-  const content = () => host().querySelector<HTMLElement>('#notification-n-1-content')!;
+  const title = () => host().querySelector<HTMLElement>('span[data-clamp]')!;
+  const content = () => host().querySelector<HTMLElement>('p[data-clamp]')!;
   const lines = (element: HTMLElement) =>
     Math.round(
       element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight),
@@ -88,12 +109,12 @@ describe('NotificationItem', () => {
     await settle();
   });
 
-  async function settle(): Promise<void> {
-    fixture.detectChanges();
+  async function settle(target: ComponentFixture<unknown> = fixture): Promise<void> {
+    target.detectChanges();
     // 截断由 ResizeObserver 与 MutationObserver 在下一帧前量出
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    await fixture.whenStable();
-    fixture.detectChanges();
+    await target.whenStable();
+    target.detectChanges();
   }
 
   it('clamps a long notification and expands it from the summary', async () => {
@@ -101,7 +122,8 @@ describe('NotificationItem', () => {
     expect(lines(content())).toBe(2);
     const toggle = expandButton()!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle.getAttribute('aria-controls')).toBe('notification-n-1');
+    const controlled = host().querySelector(`#${toggle.getAttribute('aria-controls')}`);
+    expect(controlled?.contains(content())).toBe(true);
     expect(toggle.querySelector('ng-icon')!.classList).not.toContain('rotate-90');
 
     toggle.click();
@@ -119,6 +141,60 @@ describe('NotificationItem', () => {
     toggle.click();
     await settle();
     expect(lines(content())).toBe(2);
+  });
+
+  // 展开后截断解除；收起那一刻若入口先被移除再重建，焦点会落到 body
+  async function expectCollapseKeepsFocus(): Promise<void> {
+    const toggle = expandButton()!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    toggle.focus();
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(expandButton()).toBe(toggle);
+    expect(document.activeElement).toBe(toggle);
+    await settle();
+    expect(expandButton()).toBe(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  }
+
+  it('keeps focus on the same control when collapsing', async () => {
+    expandButton()!.click();
+    await settle();
+
+    await expectCollapseKeepsFocus();
+  });
+
+  // 展开状态由使用方保存（铃铛面板关掉再打开会新建这一行），新建时还没量过截断
+  it('keeps focus when collapsing a row created expanded', async () => {
+    fixture.destroy();
+    fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.expanded.set(true);
+    await settle();
+
+    await expectCollapseKeepsFocus();
+  });
+
+  it('keeps ids unique and ARIA references within the row when shown twice', async () => {
+    const twoCopies = TestBed.createComponent(TwoCopiesHost);
+    await settle(twoCopies);
+    const root = twoCopies.nativeElement as HTMLElement;
+    const ids = Array.from(root.querySelectorAll('[id]'), (element) => element.id);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const rows = root.querySelectorAll('app-notification-item');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const references = Array.from(
+        row.querySelectorAll('[aria-controls], [aria-describedby]'),
+        (element) =>
+          element.getAttribute('aria-controls') ?? element.getAttribute('aria-describedby')!,
+      );
+      expect(references).toHaveLength(2);
+      for (const id of references) {
+        expect(row.querySelector(`#${id}`), id).not.toBeNull();
+      }
+    }
   });
 
   it('offers no expand control when the summary fits', async () => {
@@ -145,7 +221,7 @@ describe('NotificationItem', () => {
   it('opens from anywhere on the row and names the row by its title', () => {
     const open = host().querySelector<HTMLButtonElement>('[data-testid="notification-open"]')!;
     expect(open.textContent?.trim()).toBe(LONG_TITLE);
-    expect(open.getAttribute('aria-describedby')).toBe('notification-n-1-content');
+    expect(open.getAttribute('aria-describedby')).toBe(content().id);
 
     open.click();
 

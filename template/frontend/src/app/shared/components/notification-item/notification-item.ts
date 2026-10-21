@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 //#if (IncludeLocalization)
 import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
@@ -10,6 +10,8 @@ import { NotificationOutputDto } from '../../dtos/notification.dto';
 //#if (!IncludeLocalization)
 import { englishText } from '../../utils/english-text';
 //#endif
+
+let nextId = 0;
 
 /**
  * 通知列表的一行，铃铛面板与工作台共用：类型图标放浅色圆底、与标题顶部对齐；标题一行，未读圆点在标题右侧；
@@ -46,9 +48,10 @@ export class NotificationItem {
   readonly expandedChange = output<boolean>();
   readonly removed = output<void>();
 
-  protected readonly summaryId = computed(() => `notification-${this.notification().id}`);
-  protected readonly titleId = computed(() => `${this.summaryId()}-title`);
-  protected readonly contentId = computed(() => `${this.summaryId()}-content`);
+  // 按实例编号：同一条通知可能同时出现在工作台和铃铛面板里，按业务 ID 生成会重复
+  protected readonly summaryId = `notification-item-${nextId++}`;
+  protected readonly titleId = `${this.summaryId}-title`;
+  protected readonly contentId = `${this.summaryId}-content`;
   //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif

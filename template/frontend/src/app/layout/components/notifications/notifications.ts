@@ -23,6 +23,7 @@ import { interval } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../core/feedback/confirm-service';
+import { AuthService } from '../../../core/services/auth-service';
 import {
   NOTIFICATION_ICONS,
   NotificationService,
@@ -69,6 +70,7 @@ import { resolveDisplayTimeZone } from '../../../shared/utils/zoned-time';
 })
 export class Notifications implements OnInit {
   private readonly router = inject(Router);
+  private readonly authService = inject(AuthService);
   // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间；设置里的时区当前运行时用不了时回落到浏览器时区。
   private readonly displayTimeZoneSetting = inject(SettingContextService).timeZone;
   protected readonly displayTimeZone = computed(() =>
@@ -114,24 +116,37 @@ export class Notifications implements OnInit {
     }
   }
 
+  /**
+   * 等待标已读期间用户已登出，或去了别处（点了别的链接、会话失效转到登录页），就不再跳转、也不动面板，
+   * 免得覆盖那次导航。
+   */
   async onNotificationClick(item: NotificationOutputDto): Promise<void> {
-    await this.markAsRead(item);
+    const navigation = this.router.lastSuccessfulNavigation();
+    if (!(await this.markAsRead(item))) return;
+    if (this.router.currentNavigation() || this.router.lastSuccessfulNavigation() !== navigation) {
+      return;
+    }
     if (item.link) {
       this.notificationOpen.set('closed');
       this.router.navigateByUrl(item.link);
     }
   }
 
-  /** 标记已读是附带动作：失败只提示，不阻断跳转或展开这些主动作。 */
-  private async markAsRead(item: NotificationOutputDto): Promise<void> {
+  /**
+   * 标记已读是附带动作：失败只提示，不阻断跳转或展开这些主动作。返回发起时的用户是否仍在登录；
+   * 等待期间已登出或换了人，失败也不再提示（那是上一个人的请求）。
+   */
+  private async markAsRead(item: NotificationOutputDto): Promise<boolean> {
     if (item.isRead) {
-      return;
+      return true;
     }
+    const userId = this.authService.currentUser()?.id;
     try {
       await this.notificationService.markAsRead(item.id);
     } catch (error: unknown) {
-      this.showRequestError(error);
+      if (this.authService.currentUser()?.id === userId) this.showRequestError(error);
     }
+    return this.authService.currentUser()?.id === userId;
   }
 
   async markAllNotificationsRead(): Promise<void> {
