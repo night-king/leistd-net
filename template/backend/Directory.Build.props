@@ -5,7 +5,7 @@
     升级框架只改这一处，随后按框架升级说明处理破坏性变更。
   -->
   <PropertyGroup>
-    <LeistdFrameworkVersion>0.12.0</LeistdFrameworkVersion>
+    <LeistdFrameworkVersion>1.0.0</LeistdFrameworkVersion>
   </PropertyGroup>
 
   <!--
