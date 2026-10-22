@@ -76,7 +76,8 @@ jobs:
           pwsh scripts/template-dev-workspace.ps1 -Scenario identity-all-features
           if ($LASTEXITCODE -ne 0) { throw '生成全功能项目失败' }
           $solution = @(Get-ChildItem .tmp/dev/identity-all-features/project/backend -Filter *.sln)[0].FullName
-          pwsh scripts/scan-nuget-vulnerabilities.ps1 -Path framework/Leistd.Framework.slnx, $solution
+          # 同进程调用：另起 pwsh 时逗号列表不会绑定成数组
+          & scripts/scan-nuget-vulnerabilities.ps1 -Path framework/Leistd.Framework.slnx, $solution
 
       - name: 推算升级闸门起点并打包候选模板
         id: tpl
