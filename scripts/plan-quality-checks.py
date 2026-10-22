@@ -131,8 +131,34 @@ TEMPLATE_RELEASE_TAG = re.compile(r'template-v(\d+)\.(\d+)\.(\d+)')
 # The stable framework release write-back commit (VERSION and the template's default LeistdFrameworkVersion).
 # Same rule as Test-ReleaseWriteBack in scripts/release-commits.ps1: a framework-only change never bumps the template.
 RELEASE_WRITE_BACK = re.compile(r'chore: 发布 v\d+\.\d+\.\d+ \[skip ci\]')
+# Inputs that can change the audited frontend dependency closure, or the audit itself: the four dependency files and any
+# other non-source file under a frontend root (frontend_source covers the rest), template.json conditions, and the
+# planner, plan contract, audit script and workflows.
+DEPENDENCY_AUDIT_INPUT = re.compile(
+    r'template/\.template\.config/template\.json|'
+    r'scripts/(?:plan-quality-checks\.py|quality-validation-plan\.ps1|audit-frontend-dependencies\.ps1)|'
+    r'\.github/workflows/(?:ci|release)\.yml')
+FRONTEND_ROOT = re.compile(r'template/(?:frontend|\.template\.config/localization/frontend)/.+')
 CONTAINER_INPUT = re.compile(r'template/(?:Dockerfile|\.dockerignore|deploy/.+|\.template\.config/template\.json|'
                              r'(?:frontend|\.template\.config/localization/frontend)/(?:package(?:-lock)?\.json|angular\.json))')
+
+
+def dependency_audit(channel: str, event: str, proven_paths: list[str] | None) -> bool:
+    """Whether this candidate audits the generated frontend lock files.
+
+    Stable publication and manual runs always do. Nightly previews publish framework packages only and never do:
+    the scheduled checks audit the full closure every day, which also catches new advisories against unchanged
+    dependencies. Every other candidate audits only when a proven input difference reaches the dependency closure
+    or the audit; without that proof (no valid baseline, dirty tree) it audits.
+    """
+    if channel == 'stable' or event == 'workflow_dispatch':
+        return True
+    if channel == 'nightly':
+        return False
+    if proven_paths is None:
+        return True
+    return any(DEPENDENCY_AUDIT_INPUT.fullmatch(path) or (FRONTEND_ROOT.fullmatch(path) and not frontend_source(path))
+               for path in proven_paths)
 
 
 def changed_paths(base: str, head: str) -> list[str]:
@@ -623,8 +649,11 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
                 Reason='Full: shared/unknown inputs, publication, explicit run or uncertain baseline',
                 FrameworkTestProjects=all_tests, FrameworkTestSelection='all', FrameworkTestReason='')
     complete = json.loads(json.dumps(plan))
+    # Changed paths of a clean checkout against a valid baseline; None until both are proven.
+    proof = dict(paths=None)
 
     def finish(value):
+        value['DependencyAudit'] = dependency_audit(release_channel, event, proof['paths'])
         value['Jobs']['test'] = value['FrameworkTests']
         value['Jobs']['template-slices'] = bool(value['Scenarios'])
         value['DocsOnly'] = not any(value['Jobs'].values())
@@ -686,6 +715,7 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             container_smoke = True
         if git('status', '--porcelain', '--untracked-files=normal'):
             return finish(dict(plan, Reason='Full: working tree differs from candidate HEAD'))
+        proof['paths'] = paths
         if publish or template['Required']:
             return finish(dict(plan, Reason='Full: publication requires all quality responsibilities'))
         if event == 'push' and release_channel and not publish:

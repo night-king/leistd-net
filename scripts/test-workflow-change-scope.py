@@ -333,9 +333,31 @@ def check_template_package_responsibilities():
 def check_quality_aggregation():
     workflow = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8'))
     jobs = workflow['jobs']
-    required = ['quality-plan', 'docs-sync', 'docs-sync-windows', 'frontend-gates', 'framework-pack', 'test',
+    required = ['quality-plan', 'docs-sync', 'docs-sync-windows', 'frontend-gates', 'dependency-audit', 'framework-pack', 'test',
                 'template-slices', 'template-generation', 'package-consumption', 'postgresql-e2e', 'oidc-e2e']
     assert set(jobs['template-matrix']['needs']) == set(required) and jobs['template-matrix']['if'] == 'always()'
+    # The audit reaches the external advisory database: it runs only when the plan requires it, the summary holds it
+    # to success or skipped by that field, and no scenario slice audits.
+    audit = jobs['dependency-audit']
+    assert audit['needs'] == 'quality-plan' and audit['if'] == 'fromJSON(needs.quality-plan.outputs.validation_plan).DependencyAudit', audit
+    assert audit['steps'][-1]['run'] == 'pwsh scripts/audit-frontend-dependencies.ps1', audit
+    summary = next(s for s in jobs['template-matrix']['steps'] if s.get('id') == 'quality')['run']
+    assert "$plan.DependencyAudit" in summary and "$jobs['dependency-audit'].result" in summary, summary
+    assert 'npm audit' not in (ROOT / 'scripts/test-template-matrix.ps1').read_text(encoding='utf-8')
+    scheduled = yaml.safe_load((ROOT / '.github/workflows/scheduled-checks.yml').read_text(encoding='utf-8'))
+    # PyYAML reads the "on" key as True.
+    assert set(scheduled[True]) == {'schedule', 'workflow_dispatch'} and scheduled['permissions'] == {'contents': 'read'}, scheduled[True]
+    scheduled_runs = '\n'.join(step.get('run', '') for job in scheduled['jobs'].values() for step in job['steps'])
+    for command in ('scripts/audit-frontend-dependencies.ps1', 'scripts/scan-nuget-vulnerabilities.ps1',
+                    'template-package/test-template-upgrade.ps1', '-Verify Fast'):
+        assert command in scheduled_runs, command
+    steps = {step.get('name'): step for step in scheduled['jobs']['candidate-checks']['steps']}
+    assert steps['推算升级闸门起点并打包候选模板']['if'] == "${{ !cancelled() && steps.feed.outcome == 'success' }}"
+    for name in ('安装 Chromium（升级闸门）', '模板升级闸门（verify Fast）'):
+        assert steps[name]['if'] == "${{ !cancelled() && steps.tpl.outputs.previous != '' }}", name
+    assert scheduled['env']['CHECK_REF'] == "${{ github.event_name == 'schedule' && 'develop' || github.ref }}"
+    assert all(job['steps'][0]['with']['ref'] == '${{ env.CHECK_REF }}' for job in scheduled['jobs'].values())
+    assert 'scheduled-checks' not in (ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8').split('scheduled-checks.yml 每个工作日')[0]
     assert jobs['quality-plan']['steps'][0]['with']['fetch-depth'] == 0
     assert workflow['permissions']['actions'] == 'read'
     for name in ['frontend-gates', 'framework-pack', 'test', 'template-slices', 'template-generation', 'package-consumption', 'postgresql-e2e', 'oidc-e2e']:
@@ -409,6 +431,9 @@ def check_quality_aggregation():
             candidate = plan['CandidateSha']
             normal = {name: dict(result='success', outputs={}) for name in required}
             for name, needed in plan['Jobs'].items(): normal[name]['result'] = 'success' if needed else 'skipped'
+            normal['dependency-audit']['result'] = 'success' if plan['DependencyAudit'] else 'skipped'
+            # A workflow change audits; documentation does not; a nightly preview leaves the audit to the scheduled checks.
+            assert plan['DependencyAudit'] is (mode == 'representative'), (mode, plan['DependencyAudit'])
             normal['quality-plan']['outputs']['validation_plan'] = json.dumps(plan)
             def check(state, success, variant=script):
                 code, output, error = evaluate(repo, variant, base, extra_env=dict(NEEDS_JSON=json.dumps(state), CANDIDATE_SHA=candidate, PLAN_SCOPE=scope))
@@ -425,7 +450,7 @@ def check_quality_aggregation():
                 check(state, False)
             for field, value in [('CandidateSha', 'b' * 40), ('Tier', 'full'), ('Tier', 'core'), ('Tier', 'pr'), ('FrameworkTests', 'false'),
                                  ('Mode', 'unknown'), ('Version', 9), ('DocsOnly', not plan['DocsOnly']),
-                                 ('FrameworkTestProjects', None), ('Jobs', {}), ('Slices', [])]:
+                                 ('FrameworkTestProjects', None), ('Jobs', {}), ('Slices', []), ('DependencyAudit', 'false')]:
                 invalid = dict(plan); invalid[field] = value
                 if invalid == plan: continue
                 state = json.loads(json.dumps(normal)); state['quality-plan']['outputs']['validation_plan'] = json.dumps(invalid)

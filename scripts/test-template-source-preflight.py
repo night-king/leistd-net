@@ -97,7 +97,7 @@ Invoke-SourcePreflight -Skip:$Skip
             subprocess.run(['git', 'add', path], cwd=repo, check=True)
             try:
                 run(name + '-original-checker', original, False, diagnostic)
-                # Actual default matrix must fail before audit, pack, generation or build.
+                # Actual default matrix must fail before pack, generation or build.
                 log = run(name + '-manual-matrix', ['pwsh', '-NoProfile', '-File', 'scripts/test-template-matrix.ps1',
                                                   '-Scenarios', 'identity', '-SkipPack', '-SkipFrontend', '-SkipRuntime'], False, diagnostic)
                 assert '> dotnet' not in log and '> npm' not in log, 'preflight did not fail before expensive work'

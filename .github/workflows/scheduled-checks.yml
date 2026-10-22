@@ -1,0 +1,116 @@
+name: Scheduled checks
+
+# 依赖外部可变状态、与单次改动无关的检查：每个工作日对 develop 跑一次，失败只让本运行变红，不阻塞任何 PR 或发布。
+#   - 前端生产依赖全量审计：PR 只在依赖闭包或审计本身有改动时审计，依赖未变但新出的公告在这里发现；
+#   - NuGet 依赖漏洞扫描：构建时的 NuGet 审计只告警（framework/common.props），公告在这里发现；
+#   - 模板升级闸门（verify Fast）：stable 发布时才是放行门槛（-Verify Full），这里提前暴露问题。
+# 定时任务使用默认分支（main）上的本文件；检出的是 develop。
+on:
+  schedule:
+    - cron: '0 20 * * 1-5'   # UTC 20:00（北京次日 04:00），在 nightly 预览之后
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-checks-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CHECK_REF: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+
+jobs:
+  frontend-audit:
+    name: 前端依赖全量审计
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECK_REF }}
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: 审计两套锁文件的最大依赖闭包
+        shell: pwsh
+        run: pwsh scripts/audit-frontend-dependencies.ps1
+
+  candidate-checks:
+    name: NuGet 漏洞扫描与模板升级闸门
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CHECK_REF }}
+          fetch-depth: 0
+      - name: 安装 .NET 10 SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      # 生成项目只能用候选包源还原：develop 的框架包没有正式版（同 release.yml 的说明）
+      - name: 打包候选 Framework
+        id: feed
+        shell: pwsh
+        run: |
+          pwsh framework/build/pack-local-feed.ps1 -VersionSuffix 'scheduled.${{ github.run_id }}.${{ github.run_attempt }}'
+          if ($LASTEXITCODE -ne 0) { throw '候选 Framework 包打包失败' }
+
+      - name: NuGet 漏洞扫描
+        shell: pwsh
+        run: |
+          dotnet restore framework/Leistd.Framework.slnx
+          if ($LASTEXITCODE -ne 0) { throw 'Framework 还原失败' }
+          # 模板自己的直接依赖加框架传递依赖：扫全功能生成项目实际消费的闭包
+          pwsh scripts/template-dev-workspace.ps1 -Scenario identity-all-features
+          if ($LASTEXITCODE -ne 0) { throw '生成全功能项目失败' }
+          $solution = @(Get-ChildItem .tmp/dev/identity-all-features/project/backend -Filter *.sln)[0].FullName
+          pwsh scripts/scan-nuget-vulnerabilities.ps1 -Path framework/Leistd.Framework.slnx, $solution
+
+      - name: 推算升级闸门起点并打包候选模板
+        id: tpl
+        if: ${{ !cancelled() && steps.feed.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+          $lastTag = @(git tag --merged HEAD | Where-Object { $_ -cmatch '^template-v\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]($_ -replace '^template-v', '') })
+          if ($lastTag.Count -eq 0) { "previous=" | Out-File $env:GITHUB_OUTPUT -Append; return }
+          # 与 release.yml 在 develop 上的候选同法：VERSION 加后缀（低于上一版也无妨，升级闸门不比较版本号）
+          $version = "$((Get-Content VERSION -Raw).Trim())-scheduled.${{ github.run_id }}.${{ github.run_attempt }}"
+          $out = Join-Path $env:RUNNER_TEMP 'template-package'
+          dotnet pack template-package/Leistd.Templates.csproj -c Release -o $out `
+            -p:TemplateVersion=$version -p:TemplateSourceSha=$(git rev-parse HEAD) -p:ContinuousIntegrationBuild=true
+          if ($LASTEXITCODE -ne 0) { throw '模板打包失败' }
+          "previous=$($lastTag[-1] -replace '^template-v', '')" | Out-File $env:GITHUB_OUTPUT -Append
+          "package=$out/Leistd.Templates.$version.nupkg" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: 安装 Chromium（升级闸门）
+        if: ${{ !cancelled() && steps.tpl.outputs.previous != '' }}
+        shell: pwsh
+        run: |
+          # 版本取模板锁文件（去掉条件指令行才是合法 JSON），与生成项目实际安装的一致
+          $lock = (Get-Content template/frontend/package-lock.json | Where-Object { $_ -notmatch '^\s*//#(?:if|endif)\b' }) -join "`n"
+          $version = ($lock | ConvertFrom-Json -AsHashTable).packages['node_modules/playwright'].version
+          if (-not $version) { throw '模板锁文件里没有 playwright' }
+          npx --yes "playwright@$version" install --with-deps chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Chromium 安装失败' }
+
+      - name: 模板升级闸门（verify Fast）
+        if: ${{ !cancelled() && steps.tpl.outputs.previous != '' }}
+        shell: pwsh
+        run: |
+          pwsh template-package/test-template-upgrade.ps1 -PreviousVersion '${{ steps.tpl.outputs.previous }}' `
+            -CandidatePackage '${{ steps.tpl.outputs.package }}' -LocalFeedPath .tmp/local-feed -Verify Fast
+          if ($LASTEXITCODE -ne 0) { throw '模板升级闸门失败' }
