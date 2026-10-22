@@ -935,7 +935,6 @@ describe('SettingSection long values', () => {
     TestBed.inject(HttpTestingController).expectOne('/api/v1/settings').flush(settings);
     await fixture.whenStable();
     fixture.detectChanges();
-    await document.fonts.ready;
     return fixture.nativeElement as HTMLElement;
   }
 

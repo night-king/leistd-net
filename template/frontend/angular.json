@@ -95,7 +95,7 @@
             "tsConfig": "tsconfig.spec.json",
             "runner": "vitest",
             "runnerConfig": "vitest-base.config.ts",
-            "setupFiles": ["src/storage-isolation.testing.ts"],
+            "setupFiles": ["src/storage-isolation.testing.ts", "src/web-fonts.testing.ts"],
             "browsers": ["chromiumHeadless"],
             "browserViewport": "1280x800",
             "isolate": true,
