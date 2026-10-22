@@ -71,8 +71,8 @@ BASELINE = {'backend-crud': 53365, 'fullstack-crud': 97875, 'ui-change': 63719,
 
 # 当前上限：调整后不得回升。只有新增必要规则且已删去重复后才按读数放宽，理由写在提交说明里，
 # 历次放宽由 Git 记录，不在此累积。
-LIMITS = {'backend-crud': 36990, 'fullstack-crud': 70520, 'ui-change': 52810,
-          'new-text': 19200, 'review-only': 41110}
+LIMITS = {'backend-crud': 36996, 'fullstack-crud': 70530, 'ui-change': 52822,
+          'new-text': 19200, 'review-only': 41127}
 
 
 def missing_companions(tasks: dict[str, tuple[str, list[str]]]) -> list[str]:

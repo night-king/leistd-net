@@ -7,6 +7,7 @@ import { SecretRevealDialog } from './secret-reveal-dialog';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
+import { parkPointer } from '../../../../../../shared/utils/pointer.testing';
 
 import type { Mock } from 'vitest';
 
@@ -35,7 +36,9 @@ describe('SecretRevealDialog', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // "打开时没有提示"与 Esc 用例要求提示只由焦点打开
+    await parkPointer();
     writeText = vi.fn().mockName('writeText').mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText },

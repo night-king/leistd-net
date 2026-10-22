@@ -21,6 +21,7 @@ import {
   setCoarsePointer,
   tapAt,
 } from '../../../../../../shared/utils/coarse-pointer.testing';
+import { parkPointer } from '../../../../../../shared/utils/pointer.testing';
 import { expectAriaSortOnSortedHeaderOnly } from '../../../../../../shared/utils/table-sorting.testing';
 import { UserManagementOutputDto } from '../../../../dtos/user-management.dto';
 
@@ -292,6 +293,8 @@ describe('UserTable', () => {
 
   // 内置超管的受保护操作只能由本人进行：他人查看其行时这些项置灰，原因在菜单首说一次（禁用项上的提示悬停不到）
   it('greys out the protected actions on the built-in super admin row for other admins and says why', async () => {
+    // 聚焦打开提示：先停车，残留指针悬停出的提示会被读成这一个
+    await parkPointer();
     await page.viewport(1280, 800);
     const menu = await openMenuAs('2', { ...user('1', 'admin'), ...superAdmin }, true);
 
