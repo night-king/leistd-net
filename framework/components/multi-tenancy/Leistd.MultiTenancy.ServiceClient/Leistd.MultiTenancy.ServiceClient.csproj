@@ -13,6 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 远端库目录的短时缓存 -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Leistd.MultiTenancy.Tests" />
   </ItemGroup>
 
