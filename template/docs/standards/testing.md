@@ -130,7 +130,7 @@ npm run lint
 npm run build
 ```
 
-单测由 Vitest 在 Playwright 驱动的真实 Chromium 里运行（无头）。新机器首次运行前安装一次浏览器：`npx playwright install chromium`。`angular.json` 的 test 目标开启 `isolate`（每个 spec 文件独占页面，避免全局桩跨文件串扰）并使用不做 Mock 替换的 `unit-test` 构建配置，不要关闭或改用开发配置。
+单测由 Vitest 在 Playwright 驱动的真实 Chromium 里运行（无头）。新机器首次运行前安装一次浏览器：`npx playwright install chromium`。`angular.json` 的 test 目标开启 `isolate`（每个 spec 文件独占页面，避免全局桩跨文件串扰）并使用不做 Mock 替换的 `unit-test` 构建配置，不要关闭或改用开发配置。单测 setup 已预载全局网页字体，量宽不必再等；用例另外登记的字体须先加载。
 
 保存状态最短时长与搜索防抖使用 Vitest 假计时器验证边界，不睡真实业务时长。先完成宿主／路由初始化，再伪造 Date、timeout 与 interval（RxJS 防抖使用 interval），保留原生 rAF、performance 和微任务；用 `vi.advanceTimersByTimeAsync` 推进，配合 fixture 稳定与 DOM 断言。边界期望独立于生产常量，teardown 清理业务计时器并恢复真实计时器；HTTP 验证与真实 Chromium 隔离保留。物理指针不会自动重置：需排除非本次操作的悬停时（提示由焦点打开、悬停后关闭、断言无提示），渲染或假计时器前调 `frontend/src/app/shared/utils/pointer.testing.ts` 的 `parkPointer()`；合成事件不能代替。
 
