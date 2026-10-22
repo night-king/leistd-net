@@ -17,6 +17,9 @@ public static class DependencyInjection
     /// 以相同参数重复调用不重复登记，返回同一命名客户端的构建器；换用另一 <paramref name="serviceName"/>
     /// 或 <paramref name="configSectionPath"/> 时抛出 <see cref="InvalidOperationException"/>。
     /// 解析、缓存与单飞另由 <c>AddRemoteTenantConnectionResolution()</c> 注册。</para>
+    /// <para>同一客户端兼作 <see cref="ITenantDatabaseDirectory"/>：按连接名与 <c>activeOnly</c> 在进程内缓存
+    /// <c>DatabaseDirectoryCacheLifetime</c>（默认 30 秒，大于 0、不超过 1 小时，越界启动失败），同键并发回源合并，失败不缓存；
+    /// 为此注册 <c>HybridCache</c>（只用进程内一级）。</para>
     /// <para>先绑定 <paramref name="configSectionPath"/>（默认 <c>Leistd:ServiceClients:{serviceName}</c>），再应用
     /// <paramref name="configure"/>；<c>BaseAddress</c> 缺失或不是绝对地址时启动失败并报出实际键名。</para>
     /// <para>返回的构建器上由宿主决定鉴权方式（如 client credentials）与弹性策略；控制面按名字下发已解密的连接串，
@@ -80,9 +83,10 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<RemoteTenantConnectionClientOptions>>(
             new RemoteTenantConnectionClientOptionsValidator(registration.ConfigSectionPath));
 
-        // 同一个客户端也服务逐库作业的库目录，不另建认证与 HTTP 管道。
-        services.TryAddTransient<ITenantDatabaseDirectory>(provider =>
-            (ITenantDatabaseDirectory)provider.GetRequiredService<ITenantConnectionConfigurationStore>());
+        // 同一个客户端也服务逐库作业的库目录，不另建认证与 HTTP 管道；外面套一层短时缓存，秒级轮询不必每轮回源。
+        // 官方 HybridCache 以 TryAdd 注册，宿主自己的 AddHybridCache 配置照常生效
+        services.AddHybridCache();
+        services.TryAddTransient<ITenantDatabaseDirectory, CachedTenantDatabaseDirectory>();
 
         return builder;
     }
