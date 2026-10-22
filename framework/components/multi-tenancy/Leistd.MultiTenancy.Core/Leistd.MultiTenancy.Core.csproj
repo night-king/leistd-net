@@ -33,6 +33,8 @@
     <InternalsVisibleTo Include="Leistd.MultiTenancy.EntityFrameworkCore" />
     <!-- 管理用例与运行时解析共用连接名白名单与路由目标判定 -->
     <InternalsVisibleTo Include="Leistd.MultiTenancy.Management" />
+    <!-- 远端库目录缓存按归一化连接名作键，与解析缓存同一口径 -->
+    <InternalsVisibleTo Include="Leistd.MultiTenancy.ServiceClient" />
     <InternalsVisibleTo Include="Leistd.MultiTenancy.Tests" />
   </ItemGroup>
 

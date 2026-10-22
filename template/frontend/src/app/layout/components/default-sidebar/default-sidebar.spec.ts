@@ -255,8 +255,6 @@ describe('DefaultSidebar pseudo locale', () => {
       fixture.autoDetectChanges();
       await fixture.whenStable();
       await Promise.all(document.getAnimations().map((animation) => animation.finished));
-      // 网页字体用到时才加载：不等它，量到的是后备字体的宽度（CI 的 Linux 后备字体更宽）
-      await document.fonts.ready;
       const host = fixture.nativeElement as HTMLElement;
 
       const sidebar = Array.from(

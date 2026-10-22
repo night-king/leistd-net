@@ -182,7 +182,7 @@ public sealed class RemoteTenantConnectionStoreTests
         }).Build();
         using var provider = new ServiceCollection().AddLogging().AddSingleton<IConfiguration>(configuration)
             .AddRemoteTenantConnectionStore("Identity").Services.BuildServiceProvider();
-        Assert.IsAssignableFrom<ITenantConnectionConfigurationStore>(provider.GetRequiredService<ITenantDatabaseDirectory>());
+        Assert.IsType<CachedTenantDatabaseDirectory>(provider.GetRequiredService<ITenantDatabaseDirectory>());
     }
 
     private RemoteTenantConnectionStore Store(string prefix = RemoteTenantConnectionClientOptions.DefaultRoutePrefix)

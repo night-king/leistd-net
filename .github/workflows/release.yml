@@ -655,7 +655,8 @@ jobs:
 
       # 升级闸门（从第二个模板版本起是发布前提）：上一个已发布版本生成两个代表场景、提交项目定制，用生成项目自带的
       # scripts/sync-template.ps1 同步到候选包；无冲突自动合并、同一处冲突退出 2、解决后 -Complete 三类验收，verify 用本次源码打的
-      # 候选 Framework 包。只在发布时运行：develop 上自上一个 tag 起每次 push 都算模板有变化，在那里跑等于每次多 20 多分钟；
+      # 候选 Framework 包。只在发布时作为门槛运行：develop 上自上一个 tag 起每次 push 都算模板有变化，在那里跑等于每次多 20 多分钟；
+      # develop 上改由 scheduled-checks.yml 每个工作日以 verify Fast 跑一次，提前暴露问题。
       # 合并逻辑本身由 test-template-sync.ps1 在本地覆盖。首个模板版本没有上一版，走 test-template-package.ps1 的首版自举验证。
       - name: 安装 Node.js（升级闸门）
         if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''

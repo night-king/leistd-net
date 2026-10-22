@@ -10,6 +10,7 @@ import { TenantTable } from './tenant-table';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
+import { parkPointer } from '../../../../../../shared/utils/pointer.testing';
 import { TenantOutputDto } from '../../../../dtos/tenant.dto';
 
 /**
@@ -101,6 +102,8 @@ describe('TenantTable', () => {
 
   // 列里只写到分钟；完整时刻（含秒）放进可聚焦的提示，键盘用户也拿得到
   it('puts the full creation time into a focusable tooltip on the short time cell', async () => {
+    // 聚焦打开提示：先停车，残留指针悬停出的提示会被读成这一个
+    await parkPointer();
     const [tableBlock] = await fixture.getDeferBlocks();
     await tableBlock.render(DeferBlockState.Complete);
     await fixture.whenStable();

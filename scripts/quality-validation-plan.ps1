@@ -11,6 +11,7 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
         $plan.Tier -cne $ExpectedTier -or $plan.Mode -cnotin @('full', 'frontend', 'backend', 'documentation') -or
         $plan.DocsOnly -isnot [bool] -or $plan.FrameworkTests -isnot [bool] -or $plan.ContainerSmoke -isnot [bool] -or
         $plan.ReleaseRequired -isnot [bool] -or $plan.GeneratedDocumentation -isnot [bool] -or $plan.PackageDocumentation -isnot [bool] -or
+        $plan.DependencyAudit -isnot [bool] -or
         $plan.Jobs -isnot [pscustomobject] -or
         (Compare-Object ($jobNames | Sort-Object) @($plan.Jobs.PSObject.Properties.Name | Sort-Object))) {
         throw 'Invalid quality plan: version, candidate, tier, mode or responsibilities differ.'
@@ -29,6 +30,8 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
         ($template.Changed -and $plan.ReleaseChannel -cnotin @('stable', 'beta'))) {
         throw 'Invalid template release responsibility.'
     }
+    # 前端依赖审计按输入触发，但 stable 是模板发布放行门槛，必须审计
+    if ($stable -and -not $plan.DependencyAudit) { throw 'Stable publication requires the frontend dependency audit.' }
     $core = $ExpectedTier -ceq 'core'
     $registered = @(Get-TierScenarios 'full')
     $selected = @($plan.Scenarios)

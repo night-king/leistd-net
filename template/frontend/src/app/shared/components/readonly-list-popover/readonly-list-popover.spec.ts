@@ -4,6 +4,7 @@ import { page, userEvent } from 'vitest/browser';
 
 import { ReadonlyListItem, ReadonlyListPopover } from './readonly-list-popover';
 import { expectTouchTarget, setCoarsePointer, tapAt } from '../../utils/coarse-pointer.testing';
+import { parkPointer } from '../../utils/pointer.testing';
 
 @Component({
   imports: [ReadonlyListPopover],
@@ -41,7 +42,9 @@ function roles(count: number): ReadonlyListItem[] {
 describe('ReadonlyListPopover', () => {
   let fixture: ComponentFixture<HostComponent>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // 规则矩阵用合成指针事件，不移动物理指针：提示若出现在残留指针下，会因悬停在提示上而关不掉
+    await parkPointer();
     fixture = TestBed.createComponent(HostComponent);
     onTestFinished(() => document.querySelector('.cdk-overlay-container')?.remove());
   });

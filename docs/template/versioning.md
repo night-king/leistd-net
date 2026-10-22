@@ -71,5 +71,5 @@
 - 同步脚本与升级闸门：`pwsh template-package/test-template-sync.ps1`（本地打包几个模板版本，覆盖三类验收、反例与存量接入）。
 - 发布接线：`python scripts/test-workflow-change-scope.py` 覆盖模板通道。
   - main 上任一侧有变化则两侧同号发布，都没有变化则都不发布；版本回写不算模板变化；develop 只验证不推送。
-  - nuget.org 还原只在发布时；升级闸门只在发布且有上一个 tag 时执行，先于全部发布写操作。
+  - nuget.org 还原只在发布时；升级闸门作为放行门槛只在发布且有上一个 tag 时执行，先于全部发布写操作（每个工作日的 `scheduled-checks.yml` 另以 verify Fast 运行，不阻塞发布）。
   - 版本与发布说明的实际步骤及反例：`!` 无脚注、基线或变化判定与计划不一致、develop 被要求发布、缺框架正式版本、默认框架版本不是本次正式版；只改框架时的"模板无变更"说明。

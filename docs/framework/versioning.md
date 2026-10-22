@@ -86,6 +86,8 @@ PR 描述写三项：
 
 > 框架三个通道由**单个** `release.yml` 内部按 `github.ref` / `github.event_name` 自动判定；template 通道是同一 workflow 的 `template-release` 作业。
 
+每个工作日另有 `scheduled-checks.yml` 对 develop 做与单次改动无关的检查（前端依赖全量审计、NuGet 漏洞扫描、模板升级闸门 verify Fast），不发布任何包，失败不阻塞 PR 与发布，见 [CI 与发布闸门](./ci-release-gates.md)。
+
 > 预发布后缀用**点分数字**（`-beta.12`、`-preview.20260623.123`），保证 NuGet 数值排序正确。
 
 beta 由下游试点项目验收，试点项目按上文引用确切的 `-beta.<N>` 全称。

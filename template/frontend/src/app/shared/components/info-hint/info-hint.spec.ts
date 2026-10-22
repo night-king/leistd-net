@@ -4,6 +4,7 @@ import { userEvent } from 'vitest/browser';
 
 import { InfoHint } from './info-hint';
 import { expectTouchTarget, setCoarsePointer } from '../../utils/coarse-pointer.testing';
+import { parkPointer } from '../../utils/pointer.testing';
 
 @Component({
   selector: 'app-test-info-hint-host',
@@ -82,7 +83,10 @@ describe('InfoHint', () => {
   });
 
   it('shows the hint on keyboard focus and hides it on Escape', async () => {
+    // 提示须由焦点打开：先停车并确认没有悬停出的提示
+    await parkPointer();
     const button = await render();
+    expect(tooltip()).toBeNull();
 
     button.focus();
     await vi.waitFor(() => expect(tooltip()?.textContent).toContain('Applies everywhere'));

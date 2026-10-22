@@ -268,8 +268,6 @@ describe('WorkspaceNav pseudo locale', () => {
     const fixture = TestBed.createComponent(TestHost);
     fixture.componentInstance.width.set(900);
     await fixture.whenStable();
-    // 网页字体用到时才加载：不等它，量到的是后备字体的宽度（CI 的 Linux 后备字体更宽）
-    await document.fonts.ready;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     await fixture.whenStable();
     const root: HTMLElement = fixture.nativeElement;

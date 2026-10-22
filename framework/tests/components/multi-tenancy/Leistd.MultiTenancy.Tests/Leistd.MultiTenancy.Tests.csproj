@@ -7,6 +7,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <!--
       使用关系型 Provider 而非 InMemory：只有它会真正强制（带过滤的）唯一索引并翻译
       全局查询过滤器表达式，InMemory 全内存求值会让隔离缺口静默通过。
