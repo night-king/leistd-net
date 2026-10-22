@@ -163,6 +163,32 @@ public sealed class RecurringJobSchedulerTests
         Assert.Equal(slot, await store.GetLastCompletedSlotAsync("switched"));
     }
 
+    // 计时器会比到期时刻早几毫秒触发（毫秒取整、粗粒度单调时钟）。提前进入执行会按上一时段判为已完成而跳过，
+    // 读水位期间越过时段边界后再按当前时刻排期，就整段漏掉本时段；调度循环必须补等到点
+    [Fact]
+    public async Task A_timer_firing_slightly_early_still_runs_the_due_slot()
+    {
+        var early = TimeSpan.FromMilliseconds(1);
+        await using var host = new SchedulerHost(services => services
+            .AddMemoryLocalLock()
+            .AddRecurringJob<ProbeJob>("early", Daily, RecurringJobScope.Cluster)
+            .AddSingleton<IRecurringJobStateStore>(provider =>
+                new SlowStateStore((ObservedTimeProvider)provider.GetRequiredService<TimeProvider>())));
+        host.Time.EarlyBy = early;
+        await host.StartAsync();
+
+        var slot = new DateTimeOffset(2026, 10, 3, 10, 0, 0, TimeSpan.Zero);
+        for (var day = 0; day < 2; day++)
+        {
+            host.Time.Advance(await host.Time.NextTimerAsync() - early);
+            Assert.Equal(early, await host.Time.NextTimerAsync());
+            Assert.Equal(day, host.Runs.All.Count);
+
+            host.Time.Advance(early);
+            Assert.Equal(slot.AddDays(day), (await host.Runs.NextAsync()).Slot);
+        }
+    }
+
     private static void AddJob(IServiceCollection services, string name)
         => services.AddRecurringJob<ProbeJob>(name, Daily, RecurringJobScope.EveryInstance);
 
@@ -207,6 +233,9 @@ public sealed class RecurringJobSchedulerTests
         private readonly Channel<TimeSpan> _timers = Channel.CreateUnbounded<TimeSpan>();
         private int _timerCount;
         public int TimerCount => Volatile.Read(ref _timerCount);
+
+        // 计时器比登记的到期时长提前触发的量，模拟真实计时器的提前唤醒；登记信号仍报原始时长
+        public TimeSpan EarlyBy { get; set; }
         public override DateTimeOffset GetUtcNow() => _inner.GetUtcNow();
         public override long GetTimestamp() => _inner.GetTimestamp();
         public override long TimestampFrequency => _inner.TimestampFrequency;
@@ -214,7 +243,7 @@ public sealed class RecurringJobSchedulerTests
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
-            var timer = _inner.CreateTimer(callback, state, dueTime, period);
+            var timer = _inner.CreateTimer(callback, state, dueTime > EarlyBy ? dueTime - EarlyBy : dueTime, period);
             Interlocked.Increment(ref _timerCount);
             _timers.Writer.TryWrite(dueTime);
             return timer;
@@ -222,6 +251,22 @@ public sealed class RecurringJobSchedulerTests
 
         public void Advance(TimeSpan duration) => _inner.Advance(duration);
         public Task<TimeSpan> NextTimerAsync() => _timers.Reader.ReadAsync().AsTask().WaitAsync(FailSafe);
+    }
+
+    // 读水位耗时 5 毫秒：提前唤醒的那一轮在读取期间越过时段边界
+    private sealed class SlowStateStore(ObservedTimeProvider time) : IRecurringJobStateStore
+    {
+        private readonly InMemoryRecurringJobStateStore _inner = new();
+
+        public async Task<DateTimeOffset?> GetLastCompletedSlotAsync(string jobName, CancellationToken cancellationToken = default)
+        {
+            var completed = await _inner.GetLastCompletedSlotAsync(jobName, cancellationToken);
+            time.Advance(TimeSpan.FromMilliseconds(5));
+            return completed;
+        }
+
+        public Task SetLastCompletedSlotAsync(string jobName, DateTimeOffset slot, CancellationToken cancellationToken = default)
+            => _inner.SetLastCompletedSlotAsync(jobName, slot, cancellationToken);
     }
 
     private sealed class RunSignals

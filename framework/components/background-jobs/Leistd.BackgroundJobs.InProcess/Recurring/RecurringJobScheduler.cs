@@ -97,10 +97,12 @@ internal sealed class RecurringJobScheduler(
 
             try
             {
-                var delay = due - now;
-                if (delay > TimeSpan.Zero)
+                // 计时器会比到期时刻早几毫秒触发（毫秒取整、粗粒度单调时钟），没到点就补等余下的时间。
+                // 提前进入执行会按上一时段判为已完成而跳过，读水位期间越过边界后再按当前时刻排期，就整段漏掉本时段。
+                // 余量向上取整到毫秒：不足 1 毫秒的等待会立即完成，变成空转
+                for (var delay = due - now; delay > TimeSpan.Zero; delay = due - timeProvider.GetUtcNow())
                 {
-                    await Task.Delay(delay, timeProvider, stoppingToken);
+                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(delay.TotalMilliseconds)), timeProvider, stoppingToken);
                 }
             }
             catch (OperationCanceledException)
