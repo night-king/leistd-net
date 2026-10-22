@@ -79,8 +79,8 @@ PR 墙钟中位 ≤ 510 秒、各路径总交付成本中位低于基线的目�
 
 | 输入 | Framework 测试 | 包内容/隔离消费 | 模板场景与阶段 | 形态生成 | 独立 PG/OIDC |
 | --- | --- | --- | --- | --- | --- |
-| 仅模板前端 src/public/_mock 的支持文件 | 不适用，输入未变 | 不适用，框架输入未变；同改随包文档时按文档责任执行 | 选择器给出的场景；生成/形态、audit、npm ci、healthcheck、lint、build、spec 发现与真实 Chromium | 执行 | 不适用 |
-| 仅模板 backend/src 或 tests 的 C# | 不适用，输入未变 | 不适用，框架输入未变；同改随包文档时按文档责任执行 | 选择器给出的场景；生成/形态、audit、restore/build、真实运行时、后端单元/集成 | 执行 | 命中登记路径才执行 |
+| 仅模板前端 src/public/_mock 的支持文件 | 不适用，输入未变 | 不适用，框架输入未变；同改随包文档时按文档责任执行 | 选择器给出的场景；生成/形态、npm ci、healthcheck、lint、build、spec 发现与真实 Chromium | 执行 | 不适用 |
+| 仅模板 backend/src 或 tests 的 C# | 不适用，输入未变 | 不适用，框架输入未变；同改随包文档时按文档责任执行 | 选择器给出的场景；生成/形态、restore/build、真实运行时、后端单元/集成 | 执行 | 命中登记路径才执行 |
 | 前后端同改 | 不适用 | 同上 | 选择器给出的场景，完整阶段 | 执行 | 命中登记路径才执行 |
 | Framework 组件/DDD/测试项目内的文件 | 改动项目反向依赖闭包内的测试项目 | 全部内容；该包与候选 nuspec 反向传递依赖的隔离消费 | `core` 全部场景完整阶段（下游冒烟） | 不执行 | 命中登记的框架家族才执行 |
 | `template.json`、共享配置/依赖、脚本/workflow、未知输入、无效基线 | 全量 | 全部内容与全部消费 | `core` 全部场景完整阶段，加可证明的条件分支补选；适用容器 | 执行 | 命中登记路径才执行；基线无法确定时执行 |
@@ -93,7 +93,7 @@ PostgreSQL/OIDC 的登记路径在计划器里，PR 只在命中时运行，否�
 
 包内容的输入闭包不含模板源码，已证明仅改模板前端或后端时不重复核对基线已验证的包内容；候选 Framework 仍重新打包，供场景与端到端从同一候选 feed 消费。随包文档同改时取责任并集，保留包内容验证。
 
-前后端各自省略的阶段要求实际生成输入保持不变。实际生成锁文件的生产依赖 audit 阈值、每片执行与网络重试保留（生成项目的 `verify` 不含审计，责任在矩阵）；同片内内容相同的锁文件（默认与本地化两套）只审计一次，不以场景重复，不以源码不变推断漏洞库不变。
+前后端各自省略的阶段要求实际生成输入保持不变。前端生产依赖审计不在场景片里，由独立的"前端依赖审计"作业执行（`scripts/audit-frontend-dependencies.ps1`）：两套锁文件各生成一次条件全开的最大闭包，核对它覆盖模板锁文件的全部依赖块，门槛 high/critical 为 0，只对网络类错误重试。计划字段 `DependencyAudit` 决定是否运行：stable 与手动运行恒执行（计划校验强制 stable 为真）；nightly 预览只发框架包，不执行；其余候选只在依赖闭包或审计本身的输入有改动（前端根下非源码文件、`template.json`、计划器、计划契约、审计脚本、`ci.yml`/`release.yml`）或无法证明输入差异时执行。依赖未变但漏洞库新增的公告不由 PR 承担，由 `scheduled-checks.yml` 每个工作日对 develop 全量审计发现；同一 workflow 扫描 NuGet 依赖（构建时 NU1900–NU1904 只告警，不阻断）并以 verify Fast 运行模板升级闸门。
 
 Framework 依赖闭包只裁剪各自含单一 PackageReference 的空 restore/build 消费项目；全包内容、源码包集、DLL/XML/文档、重复包、缺失候选依赖仍先核对。它不裁剪 Framework 用例、DI/反射/配置语义、模板或服务闭环；出现显式跨项目编译输入时回退全量。人工 `-PackageIds` 保持已有局部入口，CI 使用独立计划并仍要求完整候选 feed。
 
@@ -134,7 +134,7 @@ Framework 依赖闭包只裁剪各自含单一 PackageReference 的空 restore/b
 
 范围裁剪必须基于 PR base/merge-base 到 head 的完整差异及实际依赖，不用单一 `HEAD^` 代替多提交 PR。无法确定范围时，直接 PR 跑代表场景冒烟、框架测试与消费取全集，其他触发方式全量执行；随包文档、props、lock、脚本与 workflow 都是质量输入。只有接替责任和变异证据完整时才削减组合入口的重复工作。
 
-独立 `test-template-matrix.ps1` 默认先执行 symbols、using-guards、async-boundaries 三项源码预检，再打包、生成并审计实际生成的锁文件；预检职责不由生成编译替代。
+独立 `test-template-matrix.ps1` 默认先执行 symbols、using-guards、async-boundaries 三项源码预检，再打包、生成；矩阵不审计依赖，需要时单独运行 `pwsh scripts/audit-frontend-dependencies.ps1`。预检职责不由生成编译替代。
 
 - 同一 CI 候选的源码预检由 `docs-sync` 完整运行 `check-all.ps1` 承担，矩阵传入 `-SkipSourcePreflight` 省略重复扫描，并核对总入口仍登记了这三个预检入口。
 - 所有作业显式 checkout 相同候选 SHA；生成可与静态检查并行。

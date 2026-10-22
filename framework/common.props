@@ -13,6 +13,11 @@
     <VersionPrefix>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\VERSION').Trim())</VersionPrefix>
     <!-- Release 将告警视为错误；Debug 允许本地增量迭代。 -->
     <TreatWarningsAsErrors Condition="'$(Configuration)' == 'Release'">true</TreatWarningsAsErrors>
+    <!--
+      NuGet 漏洞公告（NU1900 拉取失败、NU1901–NU1904 各级公告）只告警：它随 nuget.org 的公告变化，
+      与改动无关，升为错误会让无关 PR 和发布打包失败。漏洞由定时检查（scheduled-checks.yml）发现。
+    -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1900;NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!--

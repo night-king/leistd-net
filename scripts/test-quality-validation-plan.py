@@ -59,6 +59,7 @@ def main():
         planner = importlib.util.module_from_spec(spec); spec.loader.exec_module(planner)
         scenarios = planner.coverage.load_scenarios()
         registered = set(scenarios)
+        prove_dependency_audit_inputs(planner)
         core = {name for name, info in scenarios.items() if 'core' in info['Slices']}
         front = 'template/frontend/src/app/core/services/notification-service.ts'
         back = 'template/backend/src/CompanyName.ProjectName.Api/Controllers/AuthController.cs'
@@ -94,6 +95,9 @@ def main():
             assert plan['ScenarioSelection'] == ('representative' if not narrowed else 'none' if expected_mode == 'documentation'
                                                  else 'selector'), (label, plan['ScenarioSelection'])
             assert plan['Version'] == 3 and (label != 'cross-layer' or plan['ContainerSmoke'])
+            # The frontend dependency audit follows proven inputs that reach the dependency closure or the audit itself.
+            audits = label in DEPENDENCY_AUDIT_CASES
+            assert plan['DependencyAudit'] is audits, (label, plan['DependencyAudit'])
             assigned = [name for group in plan['Slices'] for name in group['Scenarios']]
             assert len(assigned) == len(set(assigned)) and set(assigned) == set(plan['Scenarios'])
             if plan['Tier'] == 'core':
@@ -158,6 +162,9 @@ def main():
                     assert set(other['Scenarios']) == registered and all(other['Jobs'].values()) and other['ContainerSmoke'], (label, event, channel)
                     assert other['FrameworkTestSelection'] == 'all' and other['ConsumerProjects'] is None, (label, event, channel)
                     assert other['ReleaseRequired'] == bool(channel), (label, event, channel, other['ReleaseReason'])
+                    # Stable and manual runs always audit; nightly previews never do (the scheduled checks audit daily).
+                    expected_audit = channel == 'stable' or event == 'workflow_dispatch' or (channel != 'nightly' and audits)
+                    assert other['DependencyAudit'] is expected_audit, (label, event, channel, other['DependencyAudit'])
             for tier, event, baseline, candidate in [('full','pull_request',base,''), ('core','workflow_dispatch',base,'')]:
                 conservative = planner.create_plan(tier, baseline, event, candidate)
                 assert conservative['Tier'] == 'full' and conservative['Mode'] == 'full' and conservative['FrameworkTests'] and conservative['ConsumerProjects'] is None
@@ -169,6 +176,7 @@ def main():
                 assert uncertain['Tier'] == 'core' and uncertain['ScenarioSelection'] == 'representative' and uncertain['Mode'] == 'full'
                 assert set(uncertain['Scenarios']) == core and all(uncertain['Jobs'].values()) and uncertain['ContainerSmoke']
                 assert uncertain['FrameworkTestSelection'] == 'all' and uncertain['ConsumerProjects'] is None and 'proof unavailable' in uncertain['Reason']
+                assert uncertain['DependencyAudit'], 'An unproven input difference audits'
             (out / (label + '-plan.json')).write_text(json.dumps(plan, indent=2), encoding='utf-8')
             print('PASS complete-input plan:', label, flush=True)
             if label in ('frontend-feature', 'backend-api'):
@@ -198,6 +206,7 @@ def main():
         dirty = planner.create_plan('core', base, 'pull_request', '')
         assert dirty['Tier'] == 'full' and dirty['Mode'] == 'full' and dirty['FrameworkTests'] and dirty['ConsumerProjects'] is None and 'working tree' in dirty['Reason']
         assert dirty['FrameworkTestSelection'] == 'all' and dirty['FrameworkTestProjects'] == planner.all_framework_tests('HEAD')
+        assert dirty['DependencyAudit'], 'A dirty tree cannot prove the dependency closure unchanged'
         assert planner.local_scenarios(base)['Selection'] == 'full'
         git('reset', '--hard', base)
         (repo / 'untracked-input.ts').write_text('untracked', encoding='utf-8')
@@ -237,6 +246,28 @@ def main():
 
 
 EMAIL_TESTS = 'framework/tests/components/email/Leistd.Email.Tests/Leistd.Email.Tests.csproj'
+DEPENDENCY_AUDIT_CASES = {'frontend-lock', 'template-parameters', 'workflow'}
+
+
+def prove_dependency_audit_inputs(planner):
+    """Every path class that reaches the audited dependency closure or the audit itself; generation-free."""
+    audited = ['template/.template.config/localization/frontend/package-lock.json',
+               'template/.template.config/localization/frontend/package.json',
+               'template/frontend/package.json', 'template/frontend/.npmrc', 'template/frontend/angular.json',
+               'template/.template.config/template.json', 'scripts/audit-frontend-dependencies.ps1',
+               'scripts/plan-quality-checks.py', 'scripts/quality-validation-plan.ps1', '.github/workflows/release.yml']
+    unaudited = ['template/frontend/src/app/app.ts', 'template/.template.config/localization/frontend/src/app/app.spec.ts',
+                 'scripts/scan-nuget-vulnerabilities.ps1', '.github/workflows/scheduled-checks.yml',
+                 'template/backend/src/CompanyName.ProjectName.Api/Program.cs', 'docs/README.md']
+    for path in audited:
+        assert planner.dependency_audit('', 'pull_request', [path]) and planner.dependency_audit('beta', 'push', [path]), path
+        assert not planner.dependency_audit('nightly', 'schedule', [path]), path
+    for path in unaudited:
+        assert not planner.dependency_audit('', 'pull_request', [path]) and not planner.dependency_audit('beta', 'push', [path]), path
+        assert planner.dependency_audit('stable', 'push', [path]) and planner.dependency_audit('', 'workflow_dispatch', [path]), path
+    assert planner.dependency_audit('', 'pull_request', None) and planner.dependency_audit('beta', 'push', None)
+    assert not planner.dependency_audit('nightly', 'schedule', None)
+    print('PASS dependency audit inputs: closure, audit machinery, proof fallback and channel overrides', flush=True)
 
 
 def prove_framework_tests(repo, base, planner, out, run, git):
@@ -787,6 +818,7 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
     assert not ordinary['ReleaseRequired'] and not ordinary['ContainerSmoke'], ordinary
     plan = planner.create_plan('full', base, 'schedule', head, release_channel='nightly')
     assert plan['ReleaseRequired'] and plan['Mode'] == 'full' and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
+    assert not plan['DependencyAudit'], 'Nightly previews leave the dependency audit to the scheduled checks'
     core = [name for name, info in scenarios.items() if 'core' in info['Slices']]
     containers = [name for group in plan['Slices'] for name in group['Containers']]
     assert sorted(containers) == sorted(['standalone-external-login', 'resource-capabilities-03']), containers
@@ -809,6 +841,16 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
         tier = invalid['Tier']
         run('release-plan-reject-' + name, validator[:-1] + [validator[-1].replace('-ExpectedTier full', f'-ExpectedTier {tier}')], repo, False)
         assert 'Publication requires' in (out / ('release-plan-reject-' + name + '.log')).read_text(encoding='utf-8')
+    # Stable is the template release gate: a plan without the dependency audit, or without the field, is rejected.
+    stable = planner.create_plan('full', base, 'push', head, release_channel='stable')
+    assert stable['DependencyAudit'], stable
+    plan_file.write_text(json.dumps(stable), encoding='utf-8'); run('stable-plan-valid', validator, repo)
+    for name, mutate, message in [('stable-without-audit', lambda p: p.update(DependencyAudit=False), 'Stable publication requires the frontend dependency audit'),
+                                  ('missing-audit-field', lambda p: p.pop('DependencyAudit'), 'Invalid quality plan')]:
+        invalid = json.loads(json.dumps(stable)); mutate(invalid)
+        plan_file.write_text(json.dumps(invalid), encoding='utf-8')
+        run('stable-plan-reject-' + name, validator, repo, False)
+        assert message in (out / ('stable-plan-reject-' + name + '.log')).read_text(encoding='utf-8')
     plan_file.write_text(json.dumps(plan), encoding='utf-8')
     # Every registered full-tier scenario, both containers and the browser count, on full-tier execution groups.
     prove_receipts(repo, plan, scenarios, out, run, label='release')

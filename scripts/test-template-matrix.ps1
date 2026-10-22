@@ -775,30 +775,11 @@ foreach ($scenario in $ContainerSmokeScenarios) {
     if ($validationMode -cne 'full') { throw 'Container validation requires full stages.' }
 }
 
-# 独立入口先预检，避免错误源码仍先 audit/pack；CI 只核对接替清单，不重复扫描。
+# 独立入口先预检，避免错误源码仍先 pack；CI 只核对接替清单，不重复扫描。
 Invoke-SourcePreflight -Skip:$SkipSourcePreflight
 
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 [IO.File]::WriteAllText($lockFile, ("pid={0} started={1}" -f $PID, (Get-Date -Format "o")), [Text.UTF8Encoding]::new($false))
-
-# 锁文件包含模板条件，审计生成后实际消费的依赖闭包；相同内容只审计一次。
-$auditedLocks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-function Assert-FrontendDependencySecurity([string]$FrontendRoot) {
-    $digest = (Get-FileHash -LiteralPath (Join-Path $FrontendRoot 'package-lock.json') -Algorithm SHA256).Hash
-    if (-not $auditedLocks.Contains($digest)) {
-        for ($auditAttempt = 1; $auditAttempt -le 3; $auditAttempt++) {
-            try {
-                Invoke-External "npm" @("audit", "--omit=dev", "--audit-level=high", "--package-lock-only") $FrontendRoot
-                break
-            }
-            catch {
-                if ($auditAttempt -ge 3) { throw }
-                Start-Sleep -Seconds (5 * $auditAttempt)
-            }
-        }
-        [void]$auditedLocks.Add($digest)
-    }
-}
 
 # 清理陈旧 run 目录：仅删「非本 run」且「超过 $staleRunAgeHours 未活动」的目录，绝不删正在运行的 run——
 # 支持多 AI/终端并行执行。活动判据：目录里 .run.lock（无则回退目录本身）的最后写入时间。被锁清不掉也无妨（尽力而为）。
@@ -908,10 +889,6 @@ try {
             $Configuration -ceq 'Release' -and $FrontendBrowser -ceq 'chromiumHeadless'
         if ($definition.Verify -and -not $useVerify) {
             Write-Warning "Scenario '$scenario' runs matrix stages instead of scripts/verify.ps1 (mode, configuration, browser or frontend skip differs)."
-        }
-        # 生产依赖审计不在 verify 里：不论是否走 verify，矩阵都审计实际生成的锁文件，相同内容（默认与本地化两套）只审一次。
-        if (-not $SkipFrontend -and $definition.Frontend) {
-            Assert-FrontendDependencySecurity (Join-Path $projectRoot 'frontend')
         }
         if ($useVerify) {
             $env:HUSKY = "0"
