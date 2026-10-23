@@ -1,6 +1,6 @@
 # 周期任务执行观察
 
-状态：进行中（实施与本地验证完成，待提交与 PR） · 风险档：高（新增公共 API、调度器运行时语义） · 关联：—
+状态：已完成（PR #166） · 风险档：高（新增公共 API、调度器运行时语义） · 关联：https://github.com/zengqinglei/leistd-net/pull/166
 
 ## 1. 需求
 
@@ -263,7 +263,7 @@ PostgreSQL 与 Redis 按全局约定先探测 `windows` 上下文、回退 `orbs
 
 ### 实际交付
 
-分支 `zengqinglei/recurring-job-run-observer`（基于 `origin/develop` `fff81b68`），尚未提交。
+PR #166（分支 `zengqinglei/recurring-job-run-observer`，基于 `origin/develop` `fff81b68`）。
 
 - **Core**：新增 `IRecurringJobRunObserver`、`RecurringJobRun`、`RecurringJobRunResult`、`RecurringJobRunOutcome`；`IRecurringJob` 的 XML 补充失锁说明。
 - **InProcess**：
@@ -301,7 +301,7 @@ E1–E4 跑在 R1 修复之前。R1 只影响"取消信号与非取消异常同�
 
 ### 遗留项
 
-- 提交、PR、合入 develop（之后发布 `1.2.0-beta.<N>`）需要用户指示。正式版 1.2.0 需要单独授权。
+- PR #166 合入 develop 后发布 `1.2.0-beta.<N>`；正式版 1.2.0 需要单独授权。
 - 三仓迁移按 §3"业务项目迁移"执行，由业务侧负责。
 - 远端 CI、模板全量矩阵与前端测试未在本地执行，由 PR CI 承担。
 
