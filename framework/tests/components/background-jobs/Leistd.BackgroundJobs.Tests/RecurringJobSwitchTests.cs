@@ -62,7 +62,7 @@ public sealed class RecurringJobSwitchTests : IDisposable
 
     public void Dispose() => _provider.Dispose();
 
-    private Task<RecurringJobRunOutcome> RunAsync(string name)
+    private Task<RecurringJobRunnerResult> RunAsync(string name)
     {
         var definition = _provider.GetServices<RecurringJobDefinition>().Single(d => d.Name == name);
         return _provider.GetRequiredService<RecurringJobRunner>()
@@ -76,12 +76,12 @@ public sealed class RecurringJobSwitchTests : IDisposable
     public async Task A_switched_off_job_is_skipped_without_recording_the_slot_and_resumes_when_switched_on()
     {
         _switch = false;
-        Assert.Equal(RecurringJobRunOutcome.SkippedDisabled, await RunAsync("test.switched"));
+        Assert.Equal(RecurringJobRunnerResult.SkippedDisabled, await RunAsync("test.switched"));
         Assert.Empty(_log.Runs);
         Assert.Null(await CompletedAsync("test.switched"));
 
         _switch = true;
-        Assert.Equal(RecurringJobRunOutcome.Completed, await RunAsync("test.switched"));
+        Assert.Equal(RecurringJobRunnerResult.Completed, await RunAsync("test.switched"));
         Assert.Single(_log.Runs);
         Assert.Equal(new DateTimeOffset(2026, 9, 20, 10, 5, 0, TimeSpan.Zero), await CompletedAsync("test.switched"));
     }
@@ -90,7 +90,7 @@ public sealed class RecurringJobSwitchTests : IDisposable
     public async Task A_switched_off_every_instance_job_is_skipped_too()
     {
         _switch = false;
-        Assert.Equal(RecurringJobRunOutcome.SkippedDisabled, await RunAsync("test.switched-instance"));
+        Assert.Equal(RecurringJobRunnerResult.SkippedDisabled, await RunAsync("test.switched-instance"));
         Assert.Empty(_log.Runs);
     }
 
@@ -98,7 +98,7 @@ public sealed class RecurringJobSwitchTests : IDisposable
     [Fact]
     public async Task A_switch_that_throws_fails_the_round_instead_of_counting_as_off()
     {
-        Assert.Equal(RecurringJobRunOutcome.Failed, await RunAsync("test.throwing-switch"));
+        Assert.Equal(RecurringJobRunnerResult.Failed, await RunAsync("test.throwing-switch"));
         Assert.Empty(_log.Runs);
         Assert.Null(await CompletedAsync("test.throwing-switch"));
     }
@@ -107,13 +107,13 @@ public sealed class RecurringJobSwitchTests : IDisposable
     [Fact]
     public async Task A_round_admitted_as_on_keeps_its_configuration_when_the_setting_changes_mid_round()
     {
-        Assert.Equal(RecurringJobRunOutcome.Completed, await RunAsync("test.snapshot"));
+        Assert.Equal(RecurringJobRunnerResult.Completed, await RunAsync("test.snapshot"));
         Assert.Single(_log.Runs);
         Assert.Equal(90, SnapshotJob.LastDays);
 
         // 下一轮的新作用域读到关闭
         _time.Advance(TimeSpan.FromMinutes(5));
-        Assert.Equal(RecurringJobRunOutcome.SkippedDisabled, await RunAsync("test.snapshot"));
+        Assert.Equal(RecurringJobRunnerResult.SkippedDisabled, await RunAsync("test.snapshot"));
         Assert.Single(_log.Runs);
     }
 

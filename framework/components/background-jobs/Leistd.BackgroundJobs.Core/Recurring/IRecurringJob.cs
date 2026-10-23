@@ -10,6 +10,6 @@ public interface IRecurringJob
 {
     /// <summary>执行一次。</summary>
     /// <param name="context">本次执行的时段信息。</param>
-    /// <param name="cancellationToken">停机或失去集群锁时取消。</param>
+    /// <param name="cancellationToken">停机或失去集群锁时取消；失锁时观察者收到 <see cref="RecurringJobRunOutcome.LockLost"/>。</param>
     Task ExecuteAsync(RecurringJobContext context, CancellationToken cancellationToken);
 }

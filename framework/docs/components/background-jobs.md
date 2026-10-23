@@ -8,6 +8,7 @@
 | --- | --- |
 | 定期清理、归档、扫描共享数据，多副本只该跑一份 | `AddRecurringJob<TJob>(name, schedule, RecurringJobScope.Cluster)` |
 | 定期刷新本进程内状态（缓存、配置），每个副本都要跑 | `RecurringJobScope.EveryInstance` |
+| 记录每次执行的结果 | 注册 `IRecurringJobRunObserver`，由宿主决定存储与查询 |
 | 组件自带维护任务 | 组件在自己的 `Add*` 里登记，宿主只注册调度器；登记了任务而没有调度器时，宿主启动记一条 Warning |
 | 请求里触发、丢了也只是少做一次的工作（非关键通知、缓存预热） | 注入 `IBackgroundTaskQueue` 入队 |
 | 必须完成、失败要重试的作业 | 不用本组件的队列：与业务同事务写库，或引入持久化作业调度器 |
@@ -83,6 +84,38 @@ public sealed class LeadArchiveJob(IOptionsSnapshot<LeadOptions> options, LeadSe
 }
 ```
 
+记录每次真正开始的执行时，宿主提供存储并按 Scoped 登记观察者；组件内部登记的任务也会回调。下面的 IJobRunStore 代表宿主自己的执行记录存储，`InsertAsync` 返回记录 id，`SaveAsync` 在 id 为空时补建完整记录：
+
+```csharp
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
+builder.Services.TryAddEnumerable(ServiceDescriptor.Scoped<IRecurringJobRunObserver, JobRunRecorder>());
+```
+
+```csharp
+using System.Diagnostics;
+
+public sealed class JobRunRecorder(IServiceScopeFactory scopes) : IRecurringJobRunObserver
+{
+    private Guid? recordId;
+
+    public async Task OnRunStartedAsync(RecurringJobRun run, CancellationToken cancellationToken)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        recordId = await scope.ServiceProvider.GetRequiredService<IJobRunStore>()
+            .InsertAsync(run, Activity.Current?.TraceId.ToString(), cancellationToken);
+    }
+
+    public async Task OnRunCompletedAsync(RecurringJobRun run, RecurringJobRunResult result)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var scope = scopes.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IJobRunStore>()
+            .SaveAsync(recordId, run, result, timeout.Token);
+    }
+}
+```
+
 作业监控读取本进程每个任务的实际状态：
 
 ```csharp
@@ -115,6 +148,10 @@ if (!queue.TryQueue((services, ct) => services.GetRequiredService<WelcomeMailer>
 | `IRecurringJobStatusReader.GetStatusesAsync(ct)` | InProcess 包实现：按登记顺序返回本进程每个任务的 `RecurringJobStatus` |
 | `RecurringJobStatus` | `Name`、`Scope`、`State`、`Schedule`（实际生效的排期，未排期时为空）、`CurrentSlot`（读取时刻所在时段）、`LastCompletedSlot`（集群任务取共享水位，与本进程是否排期无关；每副本任务为空） |
 | `RecurringJobScheduleState` | `NotStarted` / `DisabledInProcess` / `DisabledByName` / `InvalidSchedule` / `SwitchedOff` / `Active`；只有 `Active` 会按排期执行 |
+| `IRecurringJobRunObserver` | 开始与结束回调；按登记顺序、同实例配对，在本次任务作用域中执行 |
+| `RecurringJobRun` | 任务名、范围、时段及开始时刻 |
+| `RecurringJobRunResult` | 固定终态、结束时刻、单调耗时及异常；耗时含 Started、任务和水位写入，不含准入及 Completed |
+| `RecurringJobRunOutcome` | `Succeeded` / `Failed` / `Canceled`（停机）/ `LockLost` |
 | `IRecurringJobStateStore` | 集群任务的完成水位 |
 | `IBackgroundTaskQueue.QueueAsync` / `TryQueue` | 入队；满时等待或返回 `false` |
 | `AddInProcessBackgroundJobs(configure?, configSectionPath?)` | InProcess 包：注册调度器、队列与进程内水位；绑定 `configSectionPath`（默认 `Leistd:BackgroundJobs`）及其 `InProcess` 子节，校验消息按实际路径报键；幂等，换用另一配置节时抛出 |
@@ -136,7 +173,11 @@ if (!queue.TryQueue((services, ct) => services.GetRequiredService<WelcomeMailer>
 - 集群任务零等待抢锁并比对水位：抢不到锁或本时段已完成即跳过，这两种跳过只记 Debug 日志（多副本下每轮都会出现）。锁丢失时取消传给任务的令牌。
 - 任务自身的开关每轮到点后、抢锁之前在本轮作用域里求值：关闭时本轮不执行、不记水位；只在开关切换时各记一条 Information 日志。重新打开后在下一次正常到点时恢复，不补跑关闭期间的时段，也不因打开而立即执行。已按开启放行的一轮照常做完，不被中途关闭取消。开关求值抛出按本轮失败处理，不当成关闭。
 - 总开关、停用名单与排期在调度器启动时定一次；状态读取用的是这同一份结果，任务自身的开关在读取时求值。读取时开关求值或水位读取失败，整次读取抛出；取消照常传播。
-- 失败不记水位：异常只记日志，本轮不重试，最迟在下一个调度时段重做。任务必须幂等，并按截止时间扫描历史积压；要分钟级恢复就排成短周期。
+- 失败不记水位：执行阶段的异常记日志并经观察者报告，本轮不重试，最迟在下一个调度时段重做。任务必须幂等，并按截止时间扫描历史积压；要分钟级恢复就排成短周期。
+- Started 在开关放行、抢锁成功且确认时段未完成后，任务实例解析前回调；Completed 在任务与水位写入的终态确定后回调。Started 抛出也会配对 Completed；Started 期间取消后，后续观察者与任务不再开始，未收到 Started 的实例不收到 Completed。
+- 停机优先判 `Canceled`，其次失锁判 `LockLost`；其他异常（含任务自己的超时取消）判 `Failed`，保留原异常。任务返回后、写水位前再检查取消，即使任务吞掉取消也不写完成；水位写入成功后终态固定。取消/失锁携带捕获的取消异常（若有），否则为空。
+- 抢锁失败、时段已完成、开关关闭以及开始前开关求值/读水位失败均不回调，基础设施故障仍记日志。观察者集合解析失败时记一条 Warning，本次无回调，任务继续；单个回调抛出时记带实现类型的 Warning，不影响任务、水位及其他回调。
+- 周期执行从开作用域至 Completed 结束拥有独立根 Activity，名称为 "Leistd.RecurringJob"，源为 `Leistd.BackgroundJobs`；带任务名、时段、终态标签，Failed/LockLost 标为 Error。结束后还原原 Activity；源返回 null（无监听者或采样拒绝）时手建 Activity，仅保证本地 TraceId 关联。跳过也有 Activity，但没有观察者回调。
 - 登记了集群任务却没有 `IDistributedLock` 时宿主启动失败。
 - 按间隔排期的任务启动后在不超过 30 秒（或一个间隔）的随机延迟内先执行一次；按每日时刻排期的只在排定时刻执行。
 - 队列入队时经 `IAmbientContext.Capture()` 捕获主体、租户与关联标识，执行时还原；工作单元与请求对象不随行。未注册环境上下文时工作项在空上下文里执行。
@@ -146,6 +187,10 @@ if (!queue.TryQueue((services, ct) => services.GetRequiredService<WelcomeMailer>
 ## 注意事项
 
 - 多副本部署要注册共享水位（`AddBackgroundJobsEfCore`）与 Redis 分布式锁；进程内水位与内存锁只对单副本成立。
+- 观察者推荐 Scoped，有状态的 Transient 在本次仅解析一次；Singleton 会被多个任务并发调用，须线程安全，不能捕获 Scoped 或用字段存“当前执行”。Completed 不接收执行令牌，实现应为 I/O 自设有限超时；慢回调会延长本轮执行与停机等待。
+- 观察者在宿主上下文回调，但任务可能已在共享作用域解析过租户库 DbContext。执行记录写入应像上例另建作用域并使用宿主库，不复用任务的 DbContext；共享的普通 Scoped 统计服务仍可在 Completed 读取。
+- 实例标识由宿主提供，执行记录与遥测的 `service.instance.id` 共用该值；部署保证唯一时可用 Pod/机器名，同机多进程用启动时生成的 GUID 或其他唯一组合。机器名加应用名不能区分同应用的多个进程。
+- 自研调度器如需支持观察者，应自行实现上述回调与隔离契约；Core 登记本身不触发回调。
 - 任务执行时没有请求主体与租户；逐个租户库处理时用多租户组件的 `ITenantDatabaseRunner`。
 - 队列不持久：进程退出时未执行的工作项丢失，`TryQueue` 的返回值必须处理。
 - 任务名同时是锁与水位的键，发布后改名会让旧水位作废。
