@@ -147,6 +147,13 @@ public class OrderService
         vars={'redisConnectionString': 'string', 'queue': 'IBackgroundTaskQueue', 'userId': 'string',
               'logger': 'global::Microsoft.Extensions.Logging.ILogger', 'statusReader': 'IRecurringJobStatusReader'},
         stubs=EF_CONTEXT + '''
+public interface IJobRunStore
+{
+    Task<Guid> InsertAsync(global::Leistd.BackgroundJobs.Recurring.RecurringJobRun run, string? traceId, CancellationToken cancellationToken);
+    Task SaveAsync(Guid? id, global::Leistd.BackgroundJobs.Recurring.RecurringJobRun run,
+        global::Leistd.BackgroundJobs.Recurring.RecurringJobRunResult result, CancellationToken cancellationToken);
+}
+
 public class LeadService
 {
     public Task RecycleStaleAsync(CancellationToken cancellationToken) => Task.CompletedTask;

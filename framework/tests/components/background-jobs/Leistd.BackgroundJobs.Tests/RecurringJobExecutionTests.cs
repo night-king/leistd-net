@@ -8,6 +8,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -23,6 +25,7 @@ public sealed class RecurringJobExecutionTests : IDisposable
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 20, 10, 7, 30, TimeSpan.Zero));
     private readonly ServiceProvider _provider;
     private readonly JobLog _log = new();
+    private readonly FakeLogger<RecurringJobRunner> _logs = new();
 
     public RecurringJobExecutionTests()
     {
@@ -35,13 +38,30 @@ public sealed class RecurringJobExecutionTests : IDisposable
             .AddRecurringJob<CountingJob>("test.instance", RecurringJobSchedule.Every(TimeSpan.FromMinutes(5)), RecurringJobScope.EveryInstance)
             .AddRecurringJob<FailingJob>("test.failing", RecurringJobSchedule.Every(TimeSpan.FromMinutes(5)), RecurringJobScope.Cluster);
         services.AddSingleton(_log);
+        services.AddSingleton<ILogger<RecurringJobRunner>>(_logs);
+        services.AddRecurringJob<TimeoutJob>("test.timeout.cluster", RecurringJobSchedule.Every(TimeSpan.FromMinutes(5)), RecurringJobScope.Cluster);
+        services.AddRecurringJob<TimeoutJob>("test.timeout.instance", RecurringJobSchedule.Every(TimeSpan.FromMinutes(5)), RecurringJobScope.EveryInstance);
         services.Replace(ServiceDescriptor.Singleton<TimeProvider>(_time));
         _provider = services.BuildServiceProvider();
     }
 
     public void Dispose() => _provider.Dispose();
 
-    private Task<RecurringJobRunOutcome> RunAsync(string name)
+    /// <summary>任务自己的超时属于执行失败，不能误报为失锁；每副本任务同样如此。</summary>
+    [Theory]
+    [InlineData("test.timeout.cluster")]
+    [InlineData("test.timeout.instance")]
+    public async Task An_unrelated_task_cancellation_is_logged_as_failure(string name)
+    {
+        Assert.Equal(RecurringJobRunnerResult.Failed, await RunAsync(name));
+        var record = Assert.Single(_logs.Collector.GetSnapshot());
+        Assert.Equal(LogLevel.Error, record.Level);
+        Assert.IsType<TaskCanceledException>(record.Exception);
+        Assert.DoesNotContain("lost its cluster lock", record.Message, StringComparison.Ordinal);
+        Assert.Null(await _provider.GetRequiredService<IRecurringJobStateStore>().GetLastCompletedSlotAsync(name));
+    }
+
+    private Task<RecurringJobRunnerResult> RunAsync(string name)
     {
         var definition = _provider.GetServices<RecurringJobDefinition>().Single(d => d.Name == name);
         return _provider.GetRequiredService<RecurringJobRunner>()
@@ -51,11 +71,11 @@ public sealed class RecurringJobExecutionTests : IDisposable
     [Fact]
     public async Task A_cluster_job_runs_once_per_slot_and_again_in_the_next_slot()
     {
-        Assert.Equal(RecurringJobRunOutcome.Completed, await RunAsync("test.cluster"));
-        Assert.Equal(RecurringJobRunOutcome.SkippedCompleted, await RunAsync("test.cluster"));
+        Assert.Equal(RecurringJobRunnerResult.Completed, await RunAsync("test.cluster"));
+        Assert.Equal(RecurringJobRunnerResult.SkippedCompleted, await RunAsync("test.cluster"));
 
         _time.Advance(TimeSpan.FromMinutes(5));
-        Assert.Equal(RecurringJobRunOutcome.Completed, await RunAsync("test.cluster"));
+        Assert.Equal(RecurringJobRunnerResult.Completed, await RunAsync("test.cluster"));
 
         Assert.Equal(
             [new DateTimeOffset(2026, 9, 20, 10, 5, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 20, 10, 10, 0, TimeSpan.Zero)],
@@ -68,7 +88,7 @@ public sealed class RecurringJobExecutionTests : IDisposable
         var distributedLock = _provider.GetRequiredService<IDistributedLock>();
         await using (await distributedLock.LockAsync(RecurringJobRunner.LockKey("test.cluster")))
         {
-            Assert.Equal(RecurringJobRunOutcome.SkippedLocked, await RunAsync("test.cluster"));
+            Assert.Equal(RecurringJobRunnerResult.SkippedLocked, await RunAsync("test.cluster"));
         }
 
         Assert.Empty(_log.Runs);
@@ -78,15 +98,15 @@ public sealed class RecurringJobExecutionTests : IDisposable
     [Fact]
     public async Task A_failed_run_leaves_the_slot_open()
     {
-        Assert.Equal(RecurringJobRunOutcome.Failed, await RunAsync("test.failing"));
+        Assert.Equal(RecurringJobRunnerResult.Failed, await RunAsync("test.failing"));
         Assert.Null(await _provider.GetRequiredService<IRecurringJobStateStore>().GetLastCompletedSlotAsync("test.failing"));
     }
 
     [Fact]
     public async Task An_every_instance_job_runs_each_time_without_a_watermark()
     {
-        Assert.Equal(RecurringJobRunOutcome.Completed, await RunAsync("test.instance"));
-        Assert.Equal(RecurringJobRunOutcome.Completed, await RunAsync("test.instance"));
+        Assert.Equal(RecurringJobRunnerResult.Completed, await RunAsync("test.instance"));
+        Assert.Equal(RecurringJobRunnerResult.Completed, await RunAsync("test.instance"));
 
         Assert.Equal(2, _log.Runs.Count);
     }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Leistd.AmbientContext;
 using Leistd.BackgroundJobs.InProcess;
+using Leistd.BackgroundJobs.InProcess.Diagnostics;
 using Leistd.BackgroundJobs.InProcess.Options;
 using Leistd.BackgroundJobs.InProcess.Queues;
 using Leistd.BackgroundJobs.Queues;
@@ -132,7 +133,7 @@ public sealed class BackgroundTaskQueueTests
             Assert.Equal(request.SpanId, seen.ParentSpanId);
         }
 
-        Assert.Equal(listened ? BackgroundTaskQueueWorker.ActivitySourceName : string.Empty, seen.Source.Name);
+        Assert.Equal(listened ? BackgroundJobDiagnostics.ActivitySourceName : string.Empty, seen.Source.Name);
     }
 
     /// <summary>失败日志记在工作项自己的链路里：按这条日志的 TraceId 能找到入队的那次请求。</summary>
@@ -281,7 +282,7 @@ public sealed class BackgroundTaskQueueTests
     {
         var listener = new ActivityListener
         {
-            ShouldListenTo = source => source.Name == BackgroundTaskQueueWorker.ActivitySourceName,
+            ShouldListenTo = source => source.Name == BackgroundJobDiagnostics.ActivitySourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData
         };
         ActivitySource.AddActivityListener(listener);

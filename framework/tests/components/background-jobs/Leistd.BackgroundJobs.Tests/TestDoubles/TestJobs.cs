@@ -19,6 +19,12 @@ internal sealed class FailingJob : IRecurringJob
         => throw new InvalidOperationException("boom");
 }
 
+internal sealed class TimeoutJob : IRecurringJob
+{
+    public Task ExecuteAsync(RecurringJobContext context, CancellationToken cancellationToken)
+        => throw new TaskCanceledException("The simulated HTTP request timed out.");
+}
+
 /// <summary>跨作用域共享的执行记录。</summary>
 internal sealed class JobLog
 {
