@@ -1,6 +1,6 @@
 # 登录第二步支持多种验证方式
 
-状态：已完成 · 风险档：高 · 关联：待开 PR
+状态：已完成 · 风险档：高 · 关联：[#163](https://github.com/zengqinglei/leistd-net/pull/163)
 
 ## 1. 需求
 
