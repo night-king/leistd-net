@@ -88,11 +88,11 @@
     "submit": "验证",
     "useRecovery": "无法使用身份验证器？改用恢复码",
     "useCode": "改用身份验证器验证码",
+    "emailLabel": "邮箱验证码",
 //#if (Email)
     "emailHint": "验证码已发送到 {{email}}，请输入邮件里的 6 位数字。",
     "emailSending": "正在把验证码发送到 {{email}}…",
     "emailPending": "验证码将发送到 {{email}}。",
-    "emailLabel": "邮箱验证码",
     "resend": "重新发送",
     "resendIn": "{{seconds}} 秒后可重新发送",
     "useEmail": "改用邮箱验证码",

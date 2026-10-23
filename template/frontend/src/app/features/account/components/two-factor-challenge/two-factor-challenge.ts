@@ -358,11 +358,12 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactorLogin.submit': 'Verify',
   'account.twoFactorLogin.useRecovery': "Can't use your authenticator? Use a recovery code",
   'account.twoFactorLogin.useCode': 'Use an authenticator code instead',
+  // 输入框标签的三元式在两种形态下都在：不随邮件能力裁剪
+  'account.twoFactorLogin.emailLabel': 'Email verification code',
   //#if (Email)
   'account.twoFactorLogin.emailHint': 'We sent a 6-digit code to {{email}}.',
   'account.twoFactorLogin.emailPending': 'A code will be sent to {{email}}.',
   'account.twoFactorLogin.emailSending': 'Sending a code to {{email}}…',
-  'account.twoFactorLogin.emailLabel': 'Email verification code',
   'account.twoFactorLogin.resend': 'Resend code',
   'account.twoFactorLogin.resendIn': 'Resend in {{seconds}}s',
   'account.twoFactorLogin.useEmail': 'Use a code sent to your email instead',

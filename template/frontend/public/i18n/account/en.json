@@ -88,11 +88,11 @@
     "submit": "Verify",
     "useRecovery": "Can't use your authenticator? Use a recovery code",
     "useCode": "Use an authenticator code instead",
+    "emailLabel": "Email verification code",
 //#if (Email)
     "emailHint": "We sent a 6-digit code to {{email}}.",
     "emailSending": "Sending a code to {{email}}…",
     "emailPending": "A code will be sent to {{email}}.",
-    "emailLabel": "Email verification code",
     "resend": "Resend code",
     "resendIn": "Resend in {{seconds}}s",
     "useEmail": "Use a code sent to your email instead",
