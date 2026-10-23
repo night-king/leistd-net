@@ -144,6 +144,7 @@ PR #167（分支 `zengqinglei/config-defaults-cleanup`，基于 develop `095037d
   - 发布预期定为会发框架 beta。
 - 空值探针两边结果不一致。Codex 的反射 Binder 探针：bool、TimeSpan 绑定失败，int? 得到 null。Claude 的文件式程序探针（Binder 10.0.0 与 10.0.13）：都回落到属性初值。原因未查清，规范只写两边一致的结论"会遮蔽下层值"。
 - 代码审查（Claude）一处：测试 `finally` 里的断言可能盖住原始失败，已改为只清理。
+- PR 首轮 CI 失败：仓库门禁 `scripts/test-template-generation.py` 断言生成的 appsettings 带 `Leistd:MultiTenancy:Routing`，删除后报 `KeyError: 'Leistd'`，四片有效形态生成全红。这是改配置键时漏搜的仓库内消费方。修正为按仍保留的 `Leistd:ServiceClients:Identity` 判定"租户路由客户端配置只在多租户资源服务形态出现"，本地四片（320 个形态与对照片）及 `--self-test` 通过。
 
 ### 验收记录（证据在 `.tmp/config-defaults/`，未提交）
 
