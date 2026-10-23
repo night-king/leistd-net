@@ -1,7 +1,6 @@
 #if (IncludeLocalization)
 using System.Globalization;
 #endif
-using System.Net;
 #if (IncludeLocalization)
 using CompanyName.ProjectName.Application.Settings.Provider;
 #endif
@@ -66,7 +65,7 @@ internal sealed class PasswordResetCodeMailer(
                 {
                     To = delivery.To,
                     Subject = text.Subject,
-                    Body = BuildBody(text, delivery.Code)
+                    Body = VerificationCodeMail.BuildBody(text, delivery.Code)
                 },
                 cancellationToken);
         }
@@ -81,11 +80,9 @@ internal sealed class PasswordResetCodeMailer(
         }
     }
 
-    private sealed record MailText(string Subject, string Intro, string Expiry, string Ignore);
-
 #if (IncludeLocalization)
     // 文案按收件人的界面语言渲染：本人设过语言就用它，否则用组织默认或部署基线
-    private async Task<MailText> RenderAsync(PasswordResetCodeDelivery delivery, CancellationToken cancellationToken)
+    private async Task<VerificationCodeMailText> RenderAsync(PasswordResetCodeDelivery delivery, CancellationToken cancellationToken)
     {
         var language = await settingProvider.GetOrNullForUserAsync(
             SettingConstant.Display.Language, delivery.UserId.ToString(), cancellationToken);
@@ -98,7 +95,7 @@ internal sealed class PasswordResetCodeMailer(
                 CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(language);
             }
 
-            return new MailText(
+            return new VerificationCodeMailText(
                 localizer["PasswordReset:Email:Subject"].Value,
                 localizer["PasswordReset:Email:Intro"].Value,
                 localizer["PasswordReset:Email:Expiry", delivery.ExpiryMinutes].Value,
@@ -110,26 +107,11 @@ internal sealed class PasswordResetCodeMailer(
         }
     }
 #else
-    private static Task<MailText> RenderAsync(PasswordResetCodeDelivery delivery, CancellationToken cancellationToken) =>
-        Task.FromResult(new MailText(
+    private static Task<VerificationCodeMailText> RenderAsync(PasswordResetCodeDelivery delivery, CancellationToken cancellationToken) =>
+        Task.FromResult(new VerificationCodeMailText(
             "Password Reset Verification Code",
             "You are resetting the password of your account. Your verification code is:",
             $"This code will expire in {delivery.ExpiryMinutes} minutes. Please do not share it with anyone.",
             "If you did not request this, you can ignore this email. Your password stays unchanged."));
 #endif
-
-    private static string BuildBody(MailText text, string code) => $@"
-<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
-    <div style='background-color: #0f172a; padding: 20px; text-align: center; color: white;'>
-        <h2 style='margin: 0;'>{WebUtility.HtmlEncode(text.Subject)}</h2>
-    </div>
-    <div style='padding: 30px; background-color: #f8fafc; color: #334155;'>
-        <p>{WebUtility.HtmlEncode(text.Intro)}</p>
-        <div style='margin: 20px 0; text-align: center;'>
-            <span style='font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #2563eb;'>{WebUtility.HtmlEncode(code)}</span>
-        </div>
-        <p style='font-size: 14px; color: #64748b;'>{WebUtility.HtmlEncode(text.Expiry)}</p>
-        <p style='font-size: 14px; color: #64748b; margin-top: 30px;'>{WebUtility.HtmlEncode(text.Ignore)}</p>
-    </div>
-</div>";
 }

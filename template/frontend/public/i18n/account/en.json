@@ -2,7 +2,6 @@
   "changePassword": {
     "header": "Change password",
     "subtitle": "Enter your current password and set a new sign-in password. Other devices will be signed out.",
-    "rules": "Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.",
     "currentPassword": "Current password",
     "newPassword": "New password",
     "confirmPassword": "Confirm new password",
@@ -27,6 +26,11 @@
     "loadFailed": "Couldn't load your devices."
   },
   "twoFactor": {
+//#if (Email)
+    "default": "Default",
+    "setDefault": "Set as default",
+    "defaultToast": "Saved. Sign-in will ask for this method first.",
+//#endif
     "header": "Two-factor authentication",
     "subtitleOff": "Besides your password, sign-in also asks for a code from an authenticator app on your phone.",
     "subtitleOn": "Sign-in asks for a code from your authenticator app after your password.",
@@ -84,8 +88,58 @@
     "submit": "Verify",
     "useRecovery": "Can't use your authenticator? Use a recovery code",
     "useCode": "Use an authenticator code instead",
+//#if (Email)
+    "emailHint": "We sent a 6-digit code to {{email}}.",
+    "emailSending": "Sending a code to {{email}}…",
+    "emailPending": "A code will be sent to {{email}}.",
+    "emailLabel": "Email verification code",
+    "resend": "Resend code",
+    "resendIn": "Resend in {{seconds}}s",
+    "useEmail": "Use a code sent to your email instead",
+    "otherMethods": "Try another way",
+    "otherMethodsLabel": "Other verification methods",
+    "methods": {
+      "authenticator": {
+        "name": "Authenticator app",
+        "hint": "Enter the 6-digit code from the app"
+      },
+      "email": {
+        "name": "Email verification code",
+        "hint": "Send a code to {{email}}"
+      },
+      "recoveryCode": {
+        "name": "Recovery code",
+        "hint": "Use one of the codes you saved"
+      }
+    },
+//#endif
     "back": "Back to sign in"
   },
+//#if (Email)
+  "twoFactorEmail": {
+    "header": "Email verification codes",
+    "subtitle": "Sign-in can also use a code sent to {{email}}. It adds to your authenticator but does not count as two-factor authentication where your organization requires it.",
+    "on": "On",
+    "turnOn": "Turn on",
+    "turnOff": "Turn off",
+    "turnOffConfirm": "Sign-in will no longer offer codes sent to your email. Other devices will be signed out.",
+    "loadFailed": "Couldn't load the email verification status.",
+    "confirmHint": "We sent a confirmation code to {{email}}. Enter it to turn on email verification codes.",
+    "codeLabel": "Confirmation code",
+    "confirm": "Turn on",
+    "resend": "Resend code",
+    "resendIn": "Resend in {{seconds}}s",
+    "unavailable": {
+      "notAllowed": "Your organization doesn't allow email codes for signing in.",
+      "emailNotVerified": "Verify your email address in your profile first.",
+      "deliveryUnavailable": "Codes can't be sent right now. Contact your administrator."
+    },
+    "unusedWhileUnavailable": "It is on, but sign-in will not use it until then.",
+    "enabledToast": "Email verification codes are on. Other devices were signed out.",
+    "disabledToast": "Email verification codes are off. Other devices were signed out.",
+    "reauthDescription": "Confirm it is you before changing how you sign in."
+  },
+//#endif
   "twoFactorRequired": {
     "title": "Turn on two-factor authentication",
     "description": "Your organization requires two-factor authentication. Set it up to continue.",
@@ -253,10 +307,6 @@
     "placeholder": "Enter the captcha on the right",
     "refresh": "Can't see clearly? Click to refresh",
     "alt": "Captcha"
-  },
-  "passwordLength": {
-    "progress": "At least {{min}} characters, {{remaining}} more to go",
-    "met": "Length requirement met"
   },
   "forgotPassword": {
     "title": "Reset your password",

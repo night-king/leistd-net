@@ -103,6 +103,12 @@
 
 账号密码与第二步验证走 `/api/v1/auth/session-login` 等现有会话接口。`GET /api/v1/auth/me` 读取已验证用户，退出撤销服务端会话。第二步完成前不签发最终会话，第二步凭据由 JSON 与前端导航状态传递。
 
+**登录第二步的方式**：第一步（口令或外部登录）通过后，`session-login` 与外部登录完成端点返回第二步凭据、本人此刻能用的方式（`twoFactorMethods`，按系统顺序，恢复码在最后）与默认方式（`defaultTwoFactorMethod`）。默认方式取本人在个人设置里指定的首选（仍能用时），否则按身份验证器在前的系统顺序；恢复码永不作默认。界面直接给出默认方式、不先让本人选；只有一种备选时写明"改用…"，两种以上时收成"换一种验证方式"列表。判定集中在 `TwoFactorMethodResolver`，登录、发码、校验与个人设置同读这一处。
+<!--#if (Email)-->
+
+邮箱验证码是可选的补充方式：本人在个人设置里开启（先确认是本人，再输入发到当前邮箱的确认码），要求邮箱已验证、所在组织打开 `Security.AllowEmailTwoFactor`（默认关闭）且部署能发码，任一项不满足时它就不是可用方式，只开了它的人回到单步登录、设置页写明原因。它不满足"要求两步验证"，只有身份验证器满足。第一步不发信：默认方式是邮箱或本人切换过来时，前端调 `POST /api/v1/auth/two-factor/email-code` 才发；码绑定这一次第二步与账号的安全版本，只认最近发出的一个，输错与身份验证器同样计入挑战次数与账号锁定，方式此刻不能用时返回 `Auth:TwoFactorMethodUnavailable`、不计数。
+<!--#endif-->
+
 **自助注册**按租户开关（`Registration.Enabled`，基线 `UserRegistration:Enabled`）。关闭时注册与注册验证码以 `Auth:RegistrationDisabled`（403）拒绝，前端读匿名的 `GET /api/v1/auth/security-config` 隐藏注册入口、注册页只给说明；界面隐藏不代替后端拒绝。管理员建号与外部登录首次登录自动建号不受它限制。
 
 #### 敏感变更的近期认证
@@ -115,6 +121,9 @@
 - 只经外部登录、没有口令的账号设置第一个口令（`POST /api/v1/auth/me/password`，只能出示验证码；已有口令时 `Security:PasswordAlreadySet`）；
 <!--#endif-->
 - 绑定、换绑两步验证（`setup` 的 `password`；换绑时现有验证器上的 `code` 同时算作确认，见后端 README）；
+<!--#if (Email)-->
+- 开启、关闭邮箱验证码（`me/two-factor/email/setup` 与 `me/two-factor/email/disable` 的 `password`）；
+<!--#endif-->
 - 管理员改他人邮箱或把邮箱标为已验证（`PUT /api/v1/users/{id}` 的 `password`）、重置他人口令（`reset-password` 的 `currentPassword`）、重置他人两步验证（`password`）。出示的是管理员自己的凭证；经用户管理改自己同样要求。
 
 受限会话（组织要求两步验证而本人未设置）是端点限制，与认证时间无关：它调不到资料与绑定接口，服务端以 `Auth:TwoFactorSetupRequired` 拒绝；它自己的首次设置照常按自己的认证时间判定。受限与否不写进会话，由每个请求的会话 Cookie 校验得出：按会话所属租户（或宿主）读“要求两步验证”这一个开关，开着时再按主键读本人是否已启用，两者都不进会话有效性缓存。所以打开或关闭要求、本人完成设置，提交之后的下一个请求即生效，不必重新登录、不换发 Cookie，没有共享缓存的多实例同样成立；打开要求的管理员自己没启用的话也立即受限。`GET /api/v1/auth/me` 的 `twoFactorSetupRequired` 与服务端拦截是同一个判定。模拟登录的会话不受限。限制只作用于会话 Cookie（含实时连接 `/hubs/**` 的新握手；已建立的连接不中途断开），Bearer 请求不受此约束。

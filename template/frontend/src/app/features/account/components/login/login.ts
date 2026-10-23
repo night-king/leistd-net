@@ -51,7 +51,11 @@ import { hostTenantProbe } from '../../utils/host-tenant-probe';
 import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
 //#endif
 import { AuthShell } from '../auth-shell/auth-shell';
-import { TwoFactorChallenge } from '../two-factor-challenge/two-factor-challenge';
+import {
+  TwoFactorChallenge,
+  TwoFactorPrompt,
+  twoFactorPromptOf,
+} from '../two-factor-challenge/two-factor-challenge';
 
 @Component({
   selector: 'app-login',
@@ -152,17 +156,19 @@ export class Login implements OnInit {
   });
 
   /**
-   * 第二步凭据：密码已通过、尚待验证码。有值时登录页换成验证码那一步。
+   * 第二步：密码已通过，尚待其中一种方式通过。有值时登录页换成第二步。
    *
-   * 外部登录回调遇到已启用两步验证的账号时，经导航状态把凭据带过来（不放进地址栏）。
+   * 外部登录回调遇到需要第二步的账号时，经导航状态把它带过来（不放进地址栏）。
    */
   private readonly callbackReturnUrl = (
     this.router.currentNavigation()?.extras.state as { returnUrl?: string } | undefined
   )?.returnUrl;
 
-  protected readonly twoFactorToken = signal<string | null>(
-    (this.router.currentNavigation()?.extras.state as { twoFactorToken?: string } | undefined)
-      ?.twoFactorToken ?? null,
+  protected readonly twoFactorPrompt = signal<TwoFactorPrompt | null>(
+    (
+      this.router.currentNavigation()?.extras.state as
+        { twoFactorPrompt?: TwoFactorPrompt } | undefined
+    )?.twoFactorPrompt ?? null,
   );
 
   constructor() {
@@ -200,8 +206,9 @@ export class Login implements OnInit {
       const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
 
       const result = await lastValueFrom(this.authService.login(loginInput));
-      if (result?.requiresTwoFactor && result.twoFactorToken) {
-        this.twoFactorToken.set(result.twoFactorToken);
+      const prompt = twoFactorPromptOf(result);
+      if (prompt) {
+        this.twoFactorPrompt.set(prompt);
         return;
       }
 

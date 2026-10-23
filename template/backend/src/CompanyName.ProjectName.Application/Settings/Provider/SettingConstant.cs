@@ -179,6 +179,11 @@ public static class SettingConstant
 
         /// <summary>是否要求所有人启用两步验证。</summary>
         public const string RequireTwoFactor = "Security.RequireTwoFactor";
+#if (Email)
+
+        /// <summary>是否允许本人把邮箱验证码作为登录第二步。</summary>
+        public const string AllowEmailTwoFactor = "Security.AllowEmailTwoFactor";
+#endif
 
         /// <summary>会话空闲多少天后失效。</summary>
         public const string SessionIdleTimeoutDays = "Security.SessionIdleTimeoutDays";

@@ -56,11 +56,25 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     /// <summary>最近一次成功登录；从未登录为 null。</summary>
     public LoginTrace? LastLogin { get; private set; }
 
-    /// <summary>两步验证凭据；未启用为 null。</summary>
+    /// <summary>身份验证器凭据；未启用为 null。</summary>
     public TwoFactorCredential? TwoFactor { get; private set; }
 
-    /// <summary>是否已启用两步验证。</summary>
+    /// <summary>是否已启用身份验证器。</summary>
+    /// <remarks>
+    /// 只有它满足组织"必须启用两步验证"的要求，确认身份时出示的验证码也只认它；
+    /// 登录是否要第二步还看邮箱方式，见 <see cref="HasSecondFactor"/>。
+    /// </remarks>
     public bool TwoFactorEnabled => TwoFactor is not null;
+
+    /// <summary>本人开启了邮箱验证码作为登录第二步。</summary>
+    /// <remarks>开启不等于可用：还要邮箱已验证、所在组织允许，由应用层按当时的设置判定。</remarks>
+    public bool EmailTwoFactorEnabled { get; private set; }
+
+    /// <summary>本人指定的首选第二步方式；为 null 时按系统顺序（身份验证器优先）。</summary>
+    public TwoFactorMethod? PreferredTwoFactorMethod { get; private set; }
+
+    /// <summary>设置了任意一种第二步方式（身份验证器或邮箱验证码）。</summary>
+    public bool HasSecondFactor => TwoFactorEnabled || EmailTwoFactorEnabled;
 
     /// <summary>设有本地口令（外部登录建的账号可以没有）。</summary>
     public bool HasLocalPassword => PasswordHash is not null;
@@ -426,11 +440,87 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
         RotateSecurityStamp();
     }
 
-    /// <summary>停用两步验证，并清掉密钥与恢复码。</summary>
+    /// <summary>停用身份验证器，并清掉密钥与恢复码；首选是它时回到系统顺序。</summary>
     public void DisableTwoFactor()
     {
         TwoFactor = null;
+        if (PreferredTwoFactorMethod == TwoFactorMethod.Authenticator)
+        {
+            PreferredTwoFactorMethod = null;
+        }
+
         RotateSecurityStamp();
+    }
+
+    /// <summary>清掉全部第二步方式（身份验证器、恢复码、邮箱验证码）与首选：管理员或部署命令重置两步验证时用。</summary>
+    public void ResetSecondFactors()
+    {
+        TwoFactor = null;
+        EmailTwoFactorEnabled = false;
+        PreferredTwoFactorMethod = null;
+        RotateSecurityStamp();
+    }
+#if (Email)
+
+    /// <summary>开启邮箱验证码作为登录第二步。</summary>
+    /// <remarks>验证码发往当前邮箱，所以邮箱必须已验证；调用方在此之前已用发到这个地址的码确认过本人能收到。</remarks>
+    /// <exception cref="BusinessException">
+    /// 已开启（<see cref="AuthErrorCodes.TwoFactorAlreadyEnabled"/>），或邮箱未验证（<see cref="AuthErrorCodes.TwoFactorMethodUnavailable"/>）。
+    /// </exception>
+    public void EnableEmailTwoFactor()
+    {
+        if (EmailTwoFactorEnabled)
+        {
+            throw new BusinessException(AuthErrorCodes.TwoFactorAlreadyEnabled, "Email verification codes are already turned on.");
+        }
+
+        EnsureEmailUsableForTwoFactor();
+        EmailTwoFactorEnabled = true;
+        RotateSecurityStamp();
+    }
+
+    /// <summary>邮箱已验证，可以作为第二步的收码地址；否则以 <see cref="AuthErrorCodes.TwoFactorMethodUnavailable"/> 拒绝。</summary>
+    public void EnsureEmailUsableForTwoFactor()
+    {
+        if (!EmailConfirmed)
+        {
+            throw new BusinessException(AuthErrorCodes.TwoFactorMethodUnavailable, "Verify your email address before using it for two-factor authentication.");
+        }
+    }
+
+    /// <summary>关闭邮箱验证码；首选是它时回到系统顺序。未开启时什么也不做。</summary>
+    public void DisableEmailTwoFactor()
+    {
+        if (!EmailTwoFactorEnabled)
+            return;
+
+        EmailTwoFactorEnabled = false;
+        if (PreferredTwoFactorMethod == TwoFactorMethod.Email)
+        {
+            PreferredTwoFactorMethod = null;
+        }
+
+        RotateSecurityStamp();
+    }
+#endif
+
+    /// <summary>指定首选第二步方式。</summary>
+    /// <remarks>只能是本人已设置的身份验证器或邮箱验证码；恢复码只作备选。不换安全版本：能用哪些方式没有变。</remarks>
+    /// <exception cref="BusinessException">该方式未设置或不能作首选（<see cref="AuthErrorCodes.TwoFactorMethodUnavailable"/>）。</exception>
+    public void SetPreferredTwoFactorMethod(TwoFactorMethod method)
+    {
+        var configured = method switch
+        {
+            TwoFactorMethod.Authenticator => TwoFactorEnabled,
+            TwoFactorMethod.Email => EmailTwoFactorEnabled,
+            _ => false
+        };
+        if (!configured)
+        {
+            throw new BusinessException(AuthErrorCodes.TwoFactorMethodUnavailable, "This verification method isn't set up for your account.");
+        }
+
+        PreferredTwoFactorMethod = method;
     }
 
     /// <summary>换一组恢复码，旧的全部作废。</summary>

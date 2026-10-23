@@ -46,6 +46,10 @@ public class EmailChallengeStore(
     // 找回口令：挑战另外绑定目标用户与签发时的安全版本，码对了也要在凭据锁内核对这两项
     private const string PasswordResetPurpose = "password-reset";
 
+    // 登录第二步与开启邮箱方式：与找回口令一样绑定账号与签发时的安全版本，各自一种用途，码不能互换
+    private const string TwoFactorSignInPurpose = "two-factor-sign-in";
+    private const string TwoFactorEmailSetupPurpose = "two-factor-email-setup";
+
     /// <summary>同一邮箱（按租户）找回口令发码的上限，按 <see cref="PasswordResetWindow"/> 的固定窗口计。</summary>
     /// <remarks>
     /// 发送间隔之外再加这一道：每个码可试的次数有限，但只靠间隔一天仍能换几千个码来猜。
@@ -89,7 +93,7 @@ public class EmailChallengeStore(
     /// <param name="cancellationToken">取消令牌。</param>
     public async Task<EmailVerificationChallengeOutputDto> IssuePasswordResetAsync(
         string email,
-        PasswordResetTarget? target,
+        EmailCodeRecipient? target,
         UserRegistrationPolicy policy,
         CancellationToken cancellationToken = default)
     {
@@ -171,16 +175,63 @@ public class EmailChallengeStore(
 
     /// <summary>校验找回口令的验证码；通过即作废，返回挑战绑定的账号与安全版本。</summary>
     /// <remarks>返回值只说明码对了：账号是否仍是这一版凭据、是否仍能找回，由调用方在凭据锁内核对。</remarks>
-    public async Task<PasswordResetProof?> ValidatePasswordResetAsync(
+    public async Task<EmailCodeProof?> ValidatePasswordResetAsync(
         string email,
         EmailVerificationInputDto input,
         CancellationToken cancellationToken = default)
     {
         var challenge = await ConsumeChallengeAsync(email, input, PasswordResetPurpose, cancellationToken);
-        return challenge is { UserId: { } userId, SecurityStamp: { } securityStamp }
-            ? new PasswordResetProof(userId, securityStamp)
-            : null;
+        return ToProof(challenge);
     }
+
+    /// <summary>为登录第二步签发验证码，发往账号当前的已验证邮箱；挑战绑定账号与签发时的安全版本。</summary>
+    /// <remarks>按邮箱的发送间隔与注册、找回口令共用；不设找回口令那样的窗口上限：每次发码都要先过口令那一步，
+    /// 输错计入账号的登录失败与锁定。</remarks>
+    /// <param name="recipient">收码的账号。</param>
+    /// <param name="compose">按验证码与有效期写出邮件。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task<EmailVerificationChallengeOutputDto> IssueTwoFactorSignInAsync(
+        EmailCodeRecipient recipient,
+        EmailCodeComposer compose,
+        CancellationToken cancellationToken = default)
+    {
+        var policy = await registrationPolicy.GetAsync(cancellationToken);
+        return await IssueChallengeAsync(
+            NormalizeEmail(recipient.Email), TwoFactorSignInPurpose, policy, cancellationToken, recipient, compose);
+    }
+
+    /// <summary>校验登录第二步的验证码；通过即作废，返回挑战绑定的账号与安全版本。</summary>
+    public async Task<EmailCodeProof?> ValidateTwoFactorSignInAsync(
+        string email,
+        EmailVerificationInputDto input,
+        CancellationToken cancellationToken = default)
+        => ToProof(await ConsumeChallengeAsync(email, input, TwoFactorSignInPurpose, cancellationToken));
+
+    /// <summary>为开启邮箱验证码签发确认码：证明本人此刻收得到这个地址的信。</summary>
+    /// <param name="recipient">收码的账号（当前用户）。</param>
+    /// <param name="compose">按验证码与有效期写出邮件。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    public async Task<EmailVerificationChallengeOutputDto> IssueTwoFactorEmailSetupAsync(
+        EmailCodeRecipient recipient,
+        EmailCodeComposer compose,
+        CancellationToken cancellationToken = default)
+    {
+        var policy = await registrationPolicy.GetAsync(cancellationToken);
+        return await IssueChallengeAsync(
+            NormalizeEmail(recipient.Email), TwoFactorEmailSetupPurpose, policy, cancellationToken, recipient, compose);
+    }
+
+    /// <summary>校验开启邮箱验证码的确认码；通过即作废，返回挑战绑定的账号与安全版本。</summary>
+    public async Task<EmailCodeProof?> ValidateTwoFactorEmailSetupAsync(
+        string email,
+        EmailVerificationInputDto input,
+        CancellationToken cancellationToken = default)
+        => ToProof(await ConsumeChallengeAsync(email, input, TwoFactorEmailSetupPurpose, cancellationToken));
+
+    private static EmailCodeProof? ToProof(EmailVerificationChallengeState? challenge) =>
+        challenge is { UserId: { } userId, SecurityStamp: { } securityStamp }
+            ? new EmailCodeProof(userId, securityStamp)
+            : null;
 
     private void EnsureKeyUsable()
     {
@@ -218,11 +269,14 @@ public class EmailChallengeStore(
         return window is not null && window.StartedAt + PasswordResetWindow > now ? window : null;
     }
 
+    // recipient 与 compose 只用于绑定账号的用途（登录第二步、开启邮箱方式）：挑战记下账号与安全版本，邮件由调用方写
     private async Task<EmailVerificationChallengeOutputDto> IssueChallengeAsync(
         string normalizedEmail,
         string purpose,
         UserRegistrationPolicy policy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        EmailCodeRecipient? recipient = null,
+        EmailCodeComposer? compose = null)
     {
         EnsureKeyUsable();
 
@@ -245,7 +299,9 @@ public class EmailChallengeStore(
             EmailDigest = emailDigest,
             CodeHash = codeDigest.Compute(code),
             ExpiresAt = clock.Now.Add(expiresIn),
-            RemainingAttempts = policy.EmailCodeMaxAttempts
+            RemainingAttempts = policy.EmailCodeMaxAttempts,
+            UserId = recipient?.UserId,
+            SecurityStamp = recipient?.SecurityStamp
         };
         var challengeKey = GetChallengeCacheKey(challengeId);
         var reservationId = challengeId.ToString("N");
@@ -266,16 +322,17 @@ public class EmailChallengeStore(
 
             // 锁只保护上面的预留与挑战：此刻已丢锁就不发；发送开始后丢锁不再中止它，只有请求取消能中止。
             operationToken.ThrowIfCancellationRequested();
-            await emailSender.SendAsync(
-                new EmailMessage
+            var message = compose is null
+                ? new EmailMessage
                 {
                     To = normalizedEmail,
                     Subject = purpose == AccountEmailPurpose
                         ? "Email Address Verification Code"
                         : "Account Registration Verification Code",
                     Body = BuildEmailBody(code, policy.EmailCodeExpiryMinutes, purpose),
-                },
-                cancellationToken);
+                }
+                : await compose(code, policy.EmailCodeExpiryMinutes, cancellationToken);
+            await emailSender.SendAsync(message, cancellationToken);
         }
         catch
         {
@@ -489,21 +546,24 @@ public class EmailChallengeStore(
 
         public required int RemainingAttempts { get; init; }
 
-        /// <summary>找回口令：码发给的账号；收不到码的挑战与其他用途为 null。</summary>
+        /// <summary>绑定账号的用途（找回口令、两步验证）：码发给的账号；收不到码的挑战与其他用途为 null。</summary>
         public Guid? UserId { get; init; }
 
-        /// <summary>找回口令：签发时账号的安全版本，此后凭据一变挑战即作废。</summary>
+        /// <summary>绑定账号的用途：签发时账号的安全版本，此后凭据一变挑战即作废。</summary>
         public string? SecurityStamp { get; init; }
     }
 }
 
-/// <summary>能收到找回口令验证码的账号。</summary>
+/// <summary>收验证码的账号（找回口令、两步验证这类绑定账号的用途）。</summary>
 /// <param name="UserId">账号 Id。</param>
 /// <param name="Email">账号当前的已验证邮箱，验证码发往这里。</param>
 /// <param name="SecurityStamp">发码时账号的安全版本。</param>
-public sealed record PasswordResetTarget(Guid UserId, string Email, string SecurityStamp);
+public sealed record EmailCodeRecipient(Guid UserId, string Email, string SecurityStamp);
 
-/// <summary>找回口令的验证码已通过：挑战签发给的账号与当时的安全版本。</summary>
+/// <summary>绑定账号的验证码已通过：挑战签发给的账号与当时的安全版本。</summary>
 /// <param name="UserId">账号 Id。</param>
 /// <param name="SecurityStamp">发码时账号的安全版本；与当前不一致说明凭据已经变过，证明作废。</param>
-public sealed record PasswordResetProof(Guid UserId, string SecurityStamp);
+public sealed record EmailCodeProof(Guid UserId, string SecurityStamp);
+
+/// <summary>按验证码与有效期（分钟）写出一封验证码邮件。</summary>
+public delegate Task<EmailMessage> EmailCodeComposer(string code, int expiryMinutes, CancellationToken cancellationToken);

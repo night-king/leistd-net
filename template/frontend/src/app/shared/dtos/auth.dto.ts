@@ -9,11 +9,20 @@ export interface LoginInputDto {
   password: string;
 }
 
+/** 登录第二步的验证方式；恢复码只作备选，不会是默认方式。 */
+export type TwoFactorMethod = 'authenticator' | 'email' | 'recoveryCode';
+
 /** 登录第一步（密码或外部登录）的结果。 */
 export interface SessionLoginOutputDto {
-  /** 还需要第二步：凭 twoFactorToken 提交验证码或恢复码后才下发会话。 */
+  /** 还需要第二步：凭 twoFactorToken 以其中一种方式通过后才下发会话。 */
   requiresTwoFactor?: boolean;
   twoFactorToken?: string | null;
+  /** 第二步能用的方式，按系统顺序，恢复码在最后。 */
+  twoFactorMethods?: TwoFactorMethod[] | null;
+  /** 第二步直接给出的方式（本人首选，否则按系统顺序）。 */
+  defaultTwoFactorMethod?: TwoFactorMethod | null;
+  /** 邮箱验证码能用时，收码地址的打码形式。 */
+  maskedEmail?: string | null;
   /** 外部登录的站内回跳地址，由服务端校验并随受保护票据保存。 */
   returnUrl?: string | null;
 }

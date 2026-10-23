@@ -3,25 +3,40 @@
 <!--#else-->
 <ng-container>
 <!--#endif-->
-  <div class="flex flex-col gap-6" data-testid="two-factor-challenge">
+  <div class="flex flex-col gap-6" data-testid="two-factor-challenge" [attr.data-method]="method()">
     <div class="flex flex-col gap-2">
       <h1 class="flex items-center gap-2 text-2xl font-semibold tracking-tight">
         <ng-icon name="lucideShieldCheck" class="text-primary" />
         {{ t('account.twoFactorLogin.title') }}
       </h1>
-      <p class="text-muted-foreground text-sm">
-        {{
-          useRecoveryCode()
-            ? t('account.twoFactorLogin.recoveryHint')
-            : t('account.twoFactorLogin.codeHint')
-        }}
+      <p class="text-muted-foreground text-sm" data-testid="two-factor-hint">
+        @switch (method()) {
+          @case ('recoveryCode') {
+            {{ t('account.twoFactorLogin.recoveryHint') }}
+          }
+          <!--#if (Email)-->
+          @case ('email') {
+            @if (sendingEmail()) {
+              {{ t('account.twoFactorLogin.emailSending', { email: prompt().maskedEmail }) }}
+            } @else if (emailSent()) {
+              {{ t('account.twoFactorLogin.emailHint', { email: prompt().maskedEmail }) }}
+            } @else {
+              <!-- 还没发出（发信失败）：不说"正在发送"，下方的"重新发送"可再试 -->
+              {{ t('account.twoFactorLogin.emailPending', { email: prompt().maskedEmail }) }}
+            }
+          }
+          <!--#endif-->
+          @default {
+            {{ t('account.twoFactorLogin.codeHint') }}
+          }
+        }
       </p>
     </div>
 
     <form class="flex flex-col gap-4" novalidate (submit)="$event.preventDefault(); submit()">
-      @if (useRecoveryCode()) {
+      @if (method() === 'recoveryCode') {
         <div hlmField>
-          <label hlmFieldLabel [for]="recoveryInputId">{{
+          <label hlmFieldLabel [for]="inputIds.recoveryCode">{{
             t('account.twoFactorLogin.recoveryLabel')
           }}</label>
           <input
@@ -32,7 +47,7 @@
             spellcheck="false"
             maxlength="64"
             data-testid="two-factor-recovery-input"
-            [id]="recoveryInputId"
+            [id]="inputIds.recoveryCode"
             [attr.aria-invalid]="error() ? 'true' : null"
             [value]="value()"
             (input)="onInput($event)"
@@ -45,13 +60,18 @@
         </div>
       } @else {
         <div hlmField>
+          <!-- 身份验证器与邮箱验证码都是 6 位：同一个输入组件，换方式时清空并换标签 -->
           <app-otp-code-input
             data-testid="two-factor-code-input"
-            [inputId]="codeInputId"
-            [label]="t('account.twoFactorLogin.codeLabel')"
+            [inputId]="inputIds[method()]"
+            [label]="
+              method() === 'email'
+                ? t('account.twoFactorLogin.emailLabel')
+                : t('account.twoFactorLogin.codeLabel')
+            "
             [autofocus]="true"
             [invalid]="!!error()"
-            [describedBy]="error() ? errorId + ' ' + reuseHintId : null"
+            [describedBy]="codeDescribedBy()"
             [value]="value()"
             (valueChange)="onValueChange($event)"
             (completed)="submit()"
@@ -60,11 +80,39 @@
             <hlm-field-error forceShow data-testid="two-factor-error" [id]="errorId">{{
               message
             }}</hlm-field-error>
-            <!-- 同一个码只能用一次：刚用过的码（如刚在别处确认身份）会被拒 -->
-            <hlm-field-description data-testid="two-factor-code-reuse-hint" [id]="reuseHintId">{{
-              t('common.twoFactorCodeReuseHint')
-            }}</hlm-field-description>
+            @if (showReuseHint()) {
+              <!-- 同一个码只能用一次：刚用过的码（如刚在别处确认身份）会被拒 -->
+              <hlm-field-description data-testid="two-factor-code-reuse-hint" [id]="reuseHintId">{{
+                t('common.twoFactorCodeReuseHint')
+              }}</hlm-field-description>
+            }
           }
+          <!--#if (Email)-->
+          @if (method() === 'email') {
+            <!-- 套一层：字段里的直接子元素会被拉满整行，按钮文字随之居中 -->
+            <div>
+              <button
+                hlmBtn
+                variant="link"
+                size="sm"
+                class="px-0"
+                type="button"
+                data-testid="two-factor-email-resend"
+                [disabled]="sendingEmail() || resend.remaining() > 0"
+                (click)="sendEmailCode()"
+              >
+                @if (sendingEmail()) {
+                  <hlm-spinner class="text-base" data-icon="inline-start" />
+                }
+                {{
+                  resend.remaining() > 0
+                    ? t('account.twoFactorLogin.resendIn', { seconds: resend.remaining() })
+                    : t('account.twoFactorLogin.resend')
+                }}
+              </button>
+            </div>
+          }
+          <!--#endif-->
         </div>
       }
       <button
@@ -82,21 +130,83 @@
     </form>
 
     <div class="flex flex-col items-start gap-2 text-sm">
-      <button
-        hlmBtn
-        variant="link"
-        size="sm"
-        class="px-0"
-        type="button"
-        data-testid="two-factor-toggle-mode"
-        (click)="toggleMode()"
-      >
-        {{
-          useRecoveryCode()
-            ? t('account.twoFactorLogin.useCode')
-            : t('account.twoFactorLogin.useRecovery')
-        }}
-      </button>
+      @if (alternatives().length === 1) {
+        <!-- 只有一种备选：直接写明换成什么 -->
+        @let alternative = alternatives()[0];
+        <button
+          hlmBtn
+          variant="link"
+          size="sm"
+          class="px-0"
+          type="button"
+          data-testid="two-factor-toggle-mode"
+          [attr.data-method]="alternative"
+          (click)="selectMethod(alternative)"
+        >
+          @switch (alternative) {
+            @case ('recoveryCode') {
+              {{ t('account.twoFactorLogin.useRecovery') }}
+            }
+            <!--#if (Email)-->
+            @case ('email') {
+              {{ t('account.twoFactorLogin.useEmail') }}
+            }
+            <!--#endif-->
+            @default {
+              {{ t('account.twoFactorLogin.useCode') }}
+            }
+          }
+        </button>
+      }
+      <!--#if (Email)-->
+      @if (alternatives().length > 1) {
+        <!-- 两种以上备选：收成一行，展开后列出其余方式，恢复码在最后 -->
+        @if (showAlternatives()) {
+          <div
+            class="flex w-full flex-col gap-2"
+            role="group"
+            data-testid="two-factor-methods"
+            [attr.aria-label]="t('account.twoFactorLogin.otherMethodsLabel')"
+          >
+            @for (alternative of alternatives(); track alternative) {
+              <button
+                hlmBtn
+                variant="outline"
+                class="h-auto w-full justify-start gap-3 py-2.5 text-start"
+                type="button"
+                [attr.data-testid]="'two-factor-method-' + alternative"
+                (click)="selectMethod(alternative)"
+              >
+                <ng-icon class="text-muted-foreground shrink-0" [name]="methodIcons[alternative]" />
+                <span class="flex min-w-0 flex-col">
+                  <span class="font-medium">{{
+                    t('account.twoFactorLogin.methods.' + alternative + '.name')
+                  }}</span>
+                  <span class="text-muted-foreground text-xs font-normal wrap-anywhere">{{
+                    t('account.twoFactorLogin.methods.' + alternative + '.hint', {
+                      email: prompt().maskedEmail,
+                    })
+                  }}</span>
+                </span>
+              </button>
+            }
+          </div>
+        } @else {
+          <button
+            hlmBtn
+            variant="link"
+            size="sm"
+            class="px-0"
+            type="button"
+            data-testid="two-factor-other-methods"
+            aria-expanded="false"
+            (click)="showAlternatives.set(true)"
+          >
+            {{ t('account.twoFactorLogin.otherMethods') }}
+          </button>
+        }
+      }
+      <!--#endif-->
       <button
         hlmBtn
         variant="link"

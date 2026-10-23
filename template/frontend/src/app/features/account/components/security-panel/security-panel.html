@@ -74,10 +74,6 @@
                     t('account.changePassword.newPassword')
                   }}</label>
                 </div>
-                <!-- 规则说明放在左侧标签下（列更宽），错误仍落在输入框下方 -->
-                <hlm-field-description>{{
-                  t('account.changePassword.rules')
-                }}</hlm-field-description>
               </div>
               <div
                 class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
@@ -103,6 +99,8 @@
                     <ng-icon [name]="showNewPassword() ? 'lucideEyeOff' : 'lucideEye'" />
                   </button>
                 </hlm-input-group>
+                <!-- 规则不另写说明：长度进度条在输入框下方，不满足时由校验错误说明 -->
+                <app-password-length-meter [password]="changeForm.newPassword().value()" />
                 @for (error of changeForm.newPassword().errors(); track error.kind) {
                   <hlm-field-error [validator]="error.kind">{{
                     t('validation.' + error.kind, error)
@@ -193,9 +191,6 @@
                     t('account.changePassword.newPassword')
                   }}</label>
                 </div>
-                <hlm-field-description>{{
-                  t('account.changePassword.rules')
-                }}</hlm-field-description>
               </div>
               <div
                 class="flex min-w-0 flex-col gap-2 @md/field-group:shrink-0 @md/field-group:basis-64"
@@ -221,6 +216,8 @@
                     <ng-icon [name]="showNewPassword() ? 'lucideEyeOff' : 'lucideEye'" />
                   </button>
                 </hlm-input-group>
+                <!-- 规则不另写说明：长度进度条在输入框下方，不满足时由校验错误说明 -->
+                <app-password-length-meter [password]="setForm.newPassword().value()" />
                 @for (error of setForm.newPassword().errors(); track error.kind) {
                   <hlm-field-error [validator]="error.kind">{{
                     t('validation.' + error.kind, error)
@@ -286,7 +283,20 @@
 <!--#endif-->
     }
 
+<!--#if (Email)-->
+    <app-two-factor-settings
+      (sessionsChanged)="loginDevices()?.reload(); emailTwoFactor()?.reload()"
+      (defaultChanged)="emailTwoFactor()?.reload()"
+    />
+
+    <!-- 邮箱启停会改变"两种方式都能用"与默认方式：身份验证器一节的"默认/设为默认"跟着刷新 -->
+    <app-two-factor-email-settings
+      (sessionsChanged)="loginDevices()?.reload(); twoFactor()?.reload()"
+      (defaultChanged)="twoFactor()?.reload()"
+    />
+<!--#else-->
     <app-two-factor-settings (sessionsChanged)="loginDevices()?.reload()" />
+<!--#endif-->
     <!--#if (ExternalLogin)-->
 
     <app-external-logins />

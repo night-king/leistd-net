@@ -79,6 +79,10 @@
       "signInAgainHint": "你的账号没有可用于确认的密码或身份验证器，请重新登录后再继续。",
       "signInAgain": "重新登录",
       "confirm": "确认"
+    },
+    "passwordLength": {
+      "progress": "至少 {{min}} 个字符，还差 {{remaining}} 个",
+      "met": "长度符合要求"
     }
   },
   "validation": {

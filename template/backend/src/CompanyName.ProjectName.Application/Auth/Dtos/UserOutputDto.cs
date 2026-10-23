@@ -13,7 +13,7 @@ public record UserOutputDto
     /// <summary>当前邮箱是否已验证；改过邮箱后回到未验证。</summary>
     public bool IsEmailVerified { get; init; }
 
-    /// <summary>是否已启用两步验证。</summary>
+    /// <summary>是否已启用身份验证器（确认身份时能出示验证码）；邮箱验证码不算。</summary>
     public bool IsTwoFactorEnabled { get; init; }
 
     /// <summary>是否设有本地口令；只经外部登录建立的账号没有。</summary>

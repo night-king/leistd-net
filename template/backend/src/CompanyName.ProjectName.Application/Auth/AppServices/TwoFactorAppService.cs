@@ -6,6 +6,11 @@ using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using CompanyName.ProjectName.Application.Auth.Sessions;
+using CompanyName.ProjectName.Application.Auth.TwoFactor;
+#if (Email)
+using CompanyName.ProjectName.Application.Auth.EmailVerification;
+using Leistd.Redaction;
+#endif
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
@@ -41,6 +46,11 @@ internal sealed class TwoFactorAppService(
     ICurrentUser currentUser,
     ICurrentTenant currentTenant,
     TwoFactorDomainService twoFactorDomainService,
+    TwoFactorMethodResolver twoFactorMethods,
+#if (Email)
+    EmailChallengeStore emailChallengeStore,
+    TwoFactorCodeMailComposer twoFactorMail,
+#endif
     UserDomainService userDomainService,
     UserSessionDomainService userSessionDomainService,
     ILoginSecurityPolicyProvider loginSecurityPolicy,
@@ -62,11 +72,19 @@ internal sealed class TwoFactorAppService(
     {
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         var policy = await loginSecurityPolicy.GetAsync(cancellationToken);
+        var methods = await twoFactorMethods.ResolveAsync(user, cancellationToken);
         return new TwoFactorStatusOutputDto
         {
             Enabled = user.TwoFactorEnabled,
             RecoveryCodesLeft = user.TwoFactorEnabled ? user.RecoveryCodesLeft : 0,
-            RequiredByPolicy = policy.RequireTwoFactor
+            RequiredByPolicy = policy.RequireTwoFactor,
+            PreferredMethod = user.PreferredTwoFactorMethod,
+            DefaultMethod = methods.DefaultMethod,
+#if (Email)
+            EmailEnabled = user.EmailTwoFactorEnabled,
+            EmailUnavailableReason = await twoFactorMethods.GetEmailUnavailableReasonAsync(user, cancellationToken),
+            MaskedEmail = TextRedactor.RedactEmail(user.Email)
+#endif
         };
     }
 
@@ -321,6 +339,147 @@ internal sealed class TwoFactorAppService(
 
         await unit.CompleteAsync(cancellationToken);
         return new TwoFactorRecoveryCodesOutputDto { RecoveryCodes = codes };
+    }
+
+#if (Email)
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>开启前先确认是本人，再把确认码发到当前邮箱：拿到会话的人不能悄悄给账号加一种自己收得到的第二步方式，
+    /// 也不能开在一个本人收不到信的地址上。已开启或此刻不能用时先于确认身份拒绝，不白白用掉验证码。</para>
+    /// <para>在本人的凭据锁内：确认身份独立提交（验证码用掉不退回），之后重读用户再发码。</para>
+    /// </remarks>
+    public async Task<EmailVerificationChallengeOutputDto> BeginEmailSetupAsync(
+        EmailTwoFactorChangeInputDto input,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+
+        await EnsureEmailCanBeEnabledAsync(await GetCurrentUserEntityAsync(cancellationToken), cancellationToken);
+        await reauthenticationGuard.EnsureRecentAsync(
+            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            OperationRecordActions.AuthTwoFactorEmailEnabled,
+            cancellationToken);
+
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
+        await EnsureEmailCanBeEnabledAsync(user, cancellationToken);
+        var recipient = new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp);
+        return await emailChallengeStore.IssueTwoFactorEmailSetupAsync(
+            recipient, twoFactorMail.ForSetup(recipient), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task EnableEmailAsync(EmailVerificationInputDto input, CancellationToken cancellationToken = default)
+    {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
+        await EnsureEmailCanBeEnabledAsync(user, cancellationToken);
+        // 确认码绑定发码时的账号、地址与安全版本：之后换过邮箱或凭据变过，这个码就不再算数
+        var proof = await emailChallengeStore.ValidateTwoFactorEmailSetupAsync(
+            user.Email,
+            input with { Code = input.Code.Trim() },
+            cancellationToken);
+        if (proof is null || proof.UserId != user.Id || !user.HasSecurityStamp(proof.SecurityStamp))
+        {
+            throw new BusinessException(AuthErrorCodes.EmailCodeInvalid, "The email verification code is incorrect or has expired.");
+        }
+
+        user.EnableEmailTwoFactor();
+        await userRepository.UpdateAsync(user, cancellationToken);
+        // 登录方式变了：与启用身份验证器同理，其他会话是在没有这道门时建立的
+        await userSessionDomainService.RevokeAllAsync(user.Id, currentUser.GetSessionId(), cancellationToken);
+
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.AuthTwoFactorEmailEnabled,
+            OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
+            OperationRecordAuthorizations.AuthenticatedSelf,
+            cancellationToken);
+        await localEventBus.PublishAsync(
+            new SecurityAlertRequestedEvent(user.Id, new SecurityAlert(SecurityAlertKind.TwoFactorEmailEnabled), clock.Now),
+            cancellationToken);
+
+        await unit.CompleteAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>关闭等于少一种第二步方式，同样先确认是本人；本人的其他会话随之退出。组织要求两步验证时也能关：邮箱验证码本就不算满足要求。</remarks>
+    public async Task DisableEmailAsync(EmailTwoFactorChangeInputDto input, CancellationToken cancellationToken = default)
+    {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+
+        if (!(await GetCurrentUserEntityAsync(cancellationToken)).EmailTwoFactorEnabled)
+            return;
+
+        await reauthenticationGuard.EnsureRecentAsync(
+            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            OperationRecordActions.AuthTwoFactorEmailDisabled,
+            cancellationToken);
+
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
+        user.DisableEmailTwoFactor();
+        await userRepository.UpdateAsync(user, cancellationToken);
+        await userSessionDomainService.RevokeAllAsync(user.Id, currentUser.GetSessionId(), cancellationToken);
+
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.AuthTwoFactorEmailDisabled,
+            OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
+            OperationRecordAuthorizations.AuthenticatedSelf,
+            cancellationToken);
+        await localEventBus.PublishAsync(
+            new SecurityAlertRequestedEvent(user.Id, new SecurityAlert(SecurityAlertKind.TwoFactorEmailDisabled), clock.Now),
+            cancellationToken);
+
+        await unit.CompleteAsync(cancellationToken);
+    }
+
+    // 能开启的前提与登录时能用的前提相同：组织允许、能发码、邮箱已验证；已开启时告诉本人"已经开着"
+    private async Task EnsureEmailCanBeEnabledAsync(User user, CancellationToken cancellationToken)
+    {
+        if (user.EmailTwoFactorEnabled)
+        {
+            throw new BusinessException(AuthErrorCodes.TwoFactorAlreadyEnabled, "Email verification codes are already turned on.");
+        }
+
+        switch (await twoFactorMethods.GetEmailUnavailableReasonAsync(user, cancellationToken))
+        {
+            case TwoFactorEmailUnavailableReason.NotAllowed:
+                throw new BusinessException(AuthErrorCodes.TwoFactorMethodUnavailable, "Your organization doesn't allow email verification codes for signing in.");
+            case TwoFactorEmailUnavailableReason.DeliveryUnavailable:
+                throw new BusinessException(AuthErrorCodes.EmailVerificationUnavailable, "Email verification is temporarily unavailable. Please contact your administrator.");
+            case TwoFactorEmailUnavailableReason.EmailNotVerified:
+                user.EnsureEmailUsableForTwoFactor();
+                break;
+        }
+    }
+#endif
+
+    /// <inheritdoc />
+    /// <remarks>只换登录时先给出哪一种，不增减方式，所以不要求确认身份，也不换安全版本。</remarks>
+    public async Task SetPreferredMethodAsync(
+        SetPreferredTwoFactorMethodInputDto input,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = currentUser.Id!.Value;
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
+        var user = await GetCurrentUserEntityAsync(cancellationToken);
+        user.SetPreferredTwoFactorMethod(input.Method!.Value);
+        await userRepository.UpdateAsync(user, cancellationToken);
+        await unit.CompleteAsync(cancellationToken);
     }
 
     private const string CodeInvalidMessage = "The verification code is incorrect.";

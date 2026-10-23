@@ -93,6 +93,7 @@ public static class DependencyInjection
 #if (Email)
         services.TryAddTransient<EmailChallengeStore>();
         services.TryAddTransient<PasswordResetCodeMailer>();
+        services.TryAddTransient<TwoFactorCodeMailComposer>();
         services.TryAddTransient<IEmailVerificationAppService, EmailVerificationAppService>();
         services.TryAddTransient<IPasswordResetAppService, PasswordResetAppService>();
 #endif
@@ -113,6 +114,7 @@ public static class DependencyInjection
         services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<EmailChangedEvent>, EmailChangedEventHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<TwoFactorSetupCompletedEvent>, TwoFactorSetupCompletedEventHandler>());
         services.TryAddTransient<TwoFactorChallengeStore>();
+        services.TryAddTransient<TwoFactorMethodResolver>();
         // 不再登录的用户没有"登录时顺手清理"的时机，过期会话与其中的原始 IP 由这个作业每天清掉
         services.AddRecurringJob<ExpiredUserSessionCleanupJob>(
             ExpiredUserSessionCleanupJob.Name,

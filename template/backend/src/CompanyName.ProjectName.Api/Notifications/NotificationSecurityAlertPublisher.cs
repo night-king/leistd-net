@@ -100,6 +100,8 @@ public sealed class NotificationSecurityAlertPublisher(
             SecurityAlertKind.EmailChanged => ("Your account email address was changed", "If you didn't do this, contact your administrator right away."),
 #if (Email)
             SecurityAlertKind.PasswordRecovered => ("Your password was reset with an email code", "All devices were signed out. If you didn't do this, contact your administrator right away."),
+            SecurityAlertKind.TwoFactorEmailEnabled => ("Email verification codes turned on", "Signing in can now use a code sent to your email. If you didn't do this, change your password right away."),
+            SecurityAlertKind.TwoFactorEmailDisabled => ("Email verification codes turned off", "Signing in no longer offers codes sent to your email. If you didn't do this, change your password."),
 #endif
             _ => (alert.Kind.ToString(), null)
         };

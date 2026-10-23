@@ -174,6 +174,14 @@ public static class OperationRecordActions
     /// <summary>用恢复码完成了登录第二步。</summary>
     /// <remarks>值得单独留痕：恢复码是手机不在身边时的后门，被别人用掉时本人和管理员都该看得到。</remarks>
     public const string AuthTwoFactorRecoveryCodeUsed = "auth.two-factor.recovery-code-used";
+#if (Email)
+
+    /// <summary>用户开启了邮箱验证码作为登录第二步。</summary>
+    public const string AuthTwoFactorEmailEnabled = "auth.two-factor.email-enabled";
+
+    /// <summary>用户关闭了邮箱验证码。</summary>
+    public const string AuthTwoFactorEmailDisabled = "auth.two-factor.email-disabled";
+#endif
 
 #if (ExternalLogin)
     /// <summary>用户绑定了一个外部账号（目标为"提供商: 外部用户名"）。</summary>

@@ -244,7 +244,7 @@ public sealed partial class EmailChallengeStoreTests
     public async Task A_password_reset_code_is_sent_in_the_background_and_proves_the_user_and_stamp()
     {
         const string email = "known@example.test";
-        var target = new PasswordResetTarget(Guid.NewGuid(), email, "stamp-1");
+        var target = new EmailCodeRecipient(Guid.NewGuid(), email, "stamp-1");
         var issued = await _store.IssuePasswordResetAsync(email, target, FixedRegistrationPolicy.Policy);
         Assert.Empty(_sender.Calls);
 
@@ -254,7 +254,7 @@ public sealed partial class EmailChallengeStoreTests
         // 用途隔离：找回码不能拿去注册
         Assert.False(await ValidateAsync(email, issued.ChallengeId, code));
         Assert.Equal(
-            new PasswordResetProof(target.UserId, target.SecurityStamp),
+            new EmailCodeProof(target.UserId, target.SecurityStamp),
             await ValidatePasswordResetAsync(email.ToUpperInvariant(), issued.ChallengeId, code));
         Assert.Null(await ValidatePasswordResetAsync(email, issued.ChallengeId, code));
     }
@@ -265,7 +265,7 @@ public sealed partial class EmailChallengeStoreTests
     {
         const string email = "late@example.test";
         await _store.IssuePasswordResetAsync(
-            email, new PasswordResetTarget(Guid.NewGuid(), email, "stamp"), FixedRegistrationPolicy.Policy);
+            email, new EmailCodeRecipient(Guid.NewGuid(), email, "stamp"), FixedRegistrationPolicy.Policy);
 
         _time.Advance(TimeSpan.FromMinutes(FixedRegistrationPolicy.Policy.EmailCodeExpiryMinutes));
         await _queue.RunAllAsync(_sender, _time);
@@ -280,7 +280,7 @@ public sealed partial class EmailChallengeStoreTests
         const string email = "smtp-down@example.test";
         _sender.Enqueue(_ => throw new InvalidOperationException("Simulated SMTP failure."));
         await _store.IssuePasswordResetAsync(
-            email, new PasswordResetTarget(Guid.NewGuid(), email, "stamp"), FixedRegistrationPolicy.Policy);
+            email, new EmailCodeRecipient(Guid.NewGuid(), email, "stamp"), FixedRegistrationPolicy.Policy);
 
         await _queue.RunAllAsync(_sender, _time);
 
@@ -295,7 +295,7 @@ public sealed partial class EmailChallengeStoreTests
     public async Task Only_a_stopping_consumer_lets_a_canceled_delivery_escape()
     {
         const string email = "canceled@example.test";
-        var target = new PasswordResetTarget(Guid.NewGuid(), email, "stamp");
+        var target = new EmailCodeRecipient(Guid.NewGuid(), email, "stamp");
         _sender.Enqueue(_ => throw new TaskCanceledException("SMTP timed out."));
         await _store.IssuePasswordResetAsync(email, target, FixedRegistrationPolicy.Policy);
 
@@ -345,10 +345,10 @@ public sealed partial class EmailChallengeStoreTests
         await _store.IssuePasswordResetAsync(email, target: null, FixedRegistrationPolicy.Policy);
     }
 
-    private Task<PasswordResetProof?> ValidatePasswordResetAsync(string email, Guid challengeId, string code)
+    private Task<EmailCodeProof?> ValidatePasswordResetAsync(string email, Guid challengeId, string code)
         => _store.ValidatePasswordResetAsync(email, new EmailVerificationInputDto { ChallengeId = challengeId, Code = code });
 
-    private async Task AssertPasswordResetTooFrequentAsync(string email, PasswordResetTarget? target)
+    private async Task AssertPasswordResetTooFrequentAsync(string email, EmailCodeRecipient? target)
     {
         var exception = await Assert.ThrowsAsync<BusinessException>(
             () => _store.IssuePasswordResetAsync(email, target, FixedRegistrationPolicy.Policy));

@@ -49,7 +49,7 @@ public sealed class AuthController(
         return await sessionCookieIssuer.CompleteLoginAsync(HttpContext, result, cancellationToken);
     }
 
-    /// <summary>登录第二步：提交验证码或恢复码。</summary>
+    /// <summary>登录第二步：提交其中一种方式的码（身份验证器、邮箱或恢复码）。</summary>
     [AllowAnonymous]
     [HttpPost("two-factor")]
     [IgnoreAntiforgeryToken]
@@ -58,6 +58,17 @@ public sealed class AuthController(
         var principal = await authService.CompleteTwoFactorLoginAsync(input, cancellationToken);
         await sessionCookieIssuer.SignInNewSessionAsync(HttpContext, principal, cancellationToken);
     }
+#if (Email)
+
+    /// <summary>登录第二步：把验证码发到本人的邮箱（本人用邮箱验证码这种方式时）。</summary>
+    [AllowAnonymous]
+    [HttpPost("two-factor/email-code")]
+    [IgnoreAntiforgeryToken]
+    public Task<TwoFactorEmailCodeOutputDto> SendTwoFactorEmailCodeAsync(
+        [FromBody] TwoFactorEmailCodeInputDto input,
+        CancellationToken cancellationToken)
+        => authService.SendTwoFactorEmailCodeAsync(input, cancellationToken);
+#endif
 
     /// <remarks>
     /// 允许匿名：登出是幂等的 Cookie 清理，不该要求先证明自己有效。挂 [Authorize] 时，
@@ -286,6 +297,36 @@ public sealed class AuthController(
         [FromBody] TwoFactorCodeInputDto input,
         CancellationToken cancellationToken)
         => twoFactorAppService.RegenerateRecoveryCodesAsync(input, cancellationToken);
+#if (Email)
+
+    /// <summary>开始开启邮箱验证码：确认是本人后把确认码发到当前邮箱。</summary>
+    [Authorize]
+    [HttpPost("me/two-factor/email/setup")]
+    public Task<EmailVerificationChallengeOutputDto> BeginEmailTwoFactorSetupAsync(
+        [FromBody] EmailTwoFactorChangeInputDto input,
+        CancellationToken cancellationToken)
+        => twoFactorAppService.BeginEmailSetupAsync(input, cancellationToken);
+
+    /// <summary>用发到邮箱的确认码开启邮箱验证码。</summary>
+    [Authorize]
+    [HttpPost("me/two-factor/email/enable")]
+    public Task EnableEmailTwoFactorAsync([FromBody] EmailVerificationInputDto input, CancellationToken cancellationToken)
+        => twoFactorAppService.EnableEmailAsync(input, cancellationToken);
+
+    /// <summary>关闭邮箱验证码。</summary>
+    [Authorize]
+    [HttpPost("me/two-factor/email/disable")]
+    public Task DisableEmailTwoFactorAsync([FromBody] EmailTwoFactorChangeInputDto input, CancellationToken cancellationToken)
+        => twoFactorAppService.DisableEmailAsync(input, cancellationToken);
+#endif
+
+    /// <summary>指定登录第二步的首选方式。</summary>
+    [Authorize]
+    [HttpPut("me/two-factor/preferred-method")]
+    public Task SetPreferredTwoFactorMethodAsync(
+        [FromBody] SetPreferredTwoFactorMethodInputDto input,
+        CancellationToken cancellationToken)
+        => twoFactorAppService.SetPreferredMethodAsync(input, cancellationToken);
 
     /// <summary>修改密码（其他设备随之退出登录）。</summary>
     [Authorize]

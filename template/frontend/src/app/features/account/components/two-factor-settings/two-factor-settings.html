@@ -15,6 +15,14 @@
               t('account.twoFactor.on')
             }}</span>
           }
+<!--#if (Email)-->
+          @if (bothMethodsUsable() && status()?.defaultMethod === 'authenticator') {
+            <!-- 两种方式都能用时标出登录先给哪一种；另一种的操作行里有"设为默认" -->
+            <span hlmBadge variant="outline" data-testid="two-factor-default">{{
+              t('account.twoFactor.default')
+            }}</span>
+          }
+<!--#endif-->
         </div>
         <p class="text-muted-foreground text-sm">
           {{
@@ -257,6 +265,20 @@
                 t('account.twoFactor.recoveryCodesLeft', { count: s.recoveryCodesLeft })
               }}</span>
               <div class="flex flex-wrap gap-2">
+<!--#if (Email)-->
+                @if (bothMethodsUsable() && s.defaultMethod !== 'authenticator') {
+                  <button
+                    hlmBtn
+                    variant="outline"
+                    size="sm"
+                    data-testid="two-factor-set-default"
+                    [disabled]="busy()"
+                    (click)="setAsDefault()"
+                  >
+                    {{ t('account.twoFactor.setDefault') }}
+                  </button>
+                }
+<!--#endif-->
                 <button
                   hlmBtn
                   variant="outline"

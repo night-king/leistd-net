@@ -21,12 +21,19 @@ public sealed class SessionCookieIssuer(IUserSessionAppService sessionAppService
         SessionLoginResult result,
         CancellationToken cancellationToken)
     {
-        if (result.Principal is null)
+        if (result.TwoFactor is { } prompt)
         {
-            return new SessionLoginOutputDto { RequiresTwoFactor = true, TwoFactorToken = result.TwoFactorToken };
+            return new SessionLoginOutputDto
+            {
+                RequiresTwoFactor = true,
+                TwoFactorToken = prompt.Token,
+                TwoFactorMethods = prompt.Methods,
+                DefaultTwoFactorMethod = prompt.DefaultMethod,
+                MaskedEmail = prompt.MaskedEmail
+            };
         }
 
-        await SignInNewSessionAsync(httpContext, result.Principal, cancellationToken);
+        await SignInNewSessionAsync(httpContext, result.Principal!, cancellationToken);
         return new SessionLoginOutputDto();
     }
 

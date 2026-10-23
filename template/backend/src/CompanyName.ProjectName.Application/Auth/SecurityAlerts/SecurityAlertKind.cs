@@ -34,6 +34,12 @@ public enum SecurityAlertKind
 
     /// <summary>本人凭邮箱验证码找回了口令（忘记口令）。</summary>
     PasswordRecovered,
+
+    /// <summary>开启了邮箱验证码作为登录第二步。</summary>
+    TwoFactorEmailEnabled,
+
+    /// <summary>关闭了邮箱验证码。</summary>
+    TwoFactorEmailDisabled,
 #endif
 }
 #endif

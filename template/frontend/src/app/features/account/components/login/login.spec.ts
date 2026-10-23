@@ -45,6 +45,7 @@ import { TenantByHostOutputDto } from '../../dtos/tenant-by-host.dto';
 //#if (ExternalLogin || IncludeMultiTenancy)
 import { AccountService } from '../../services/account-service';
 //#endif
+import { TwoFactorPrompt } from '../two-factor-challenge/two-factor-challenge';
 
 import type { Mock, MockedObject } from 'vitest';
 
@@ -52,6 +53,14 @@ import type { Mock, MockedObject } from 'vitest';
  * 登录提交路径。returnUrl 来自查询串，只接受本地绝对路径（`//host` 与含 `://` 的一律丢弃），
  * 防止登录后被送往外站。
  */
+/** 外部登录回调经导航状态带来的第二步。 */
+const PROMPT: TwoFactorPrompt = {
+  token: 'challenge',
+  methods: ['authenticator', 'recoveryCode'],
+  defaultMethod: 'authenticator',
+  maskedEmail: null,
+};
+
 describe('Login', () => {
   let fixture: ComponentFixture<Login>;
   let component: Login;
@@ -65,7 +74,7 @@ describe('Login', () => {
   } | null>;
   let authorization: AuthorizationService;
   let queryParams: Record<string, string>;
-  let navigationState: { twoFactorToken: string; returnUrl: string } | undefined;
+  let navigationState: { twoFactorPrompt: TwoFactorPrompt; returnUrl: string } | undefined;
   //#if (IncludeMultiTenancy)
   // 主机名探测的返回值。默认"域名不表态"，与本机开发一致；租户相关用例逐个覆盖它。
   let byHost: Observable<TenantByHostOutputDto>;
@@ -385,7 +394,7 @@ describe('Login', () => {
   });
 
   it('continues the external return address after completing the second step', async () => {
-    navigationState = { twoFactorToken: 'challenge', returnUrl: '/workspace/settings/security' };
+    navigationState = { twoFactorPrompt: PROMPT, returnUrl: '/workspace/settings/security' };
     await setUp();
     await (
       component as unknown as { onTwoFactorCompleted(): Promise<void> }
@@ -432,7 +441,7 @@ describe('Login', () => {
 
   // 第二步完成后才知道受限：外部登录带来的原目标同样随之带去设置页
   it('carries the return address from the second step to the setup page of a restricted session', async () => {
-    navigationState = { twoFactorToken: 'challenge', returnUrl: '/workspace/settings/security' };
+    navigationState = { twoFactorPrompt: PROMPT, returnUrl: '/workspace/settings/security' };
     await setUp();
     authService.loadUser.mockImplementation(() => {
       currentUser.set({ twoFactorSetupRequired: true });

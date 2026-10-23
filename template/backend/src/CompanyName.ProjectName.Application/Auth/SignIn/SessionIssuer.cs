@@ -32,6 +32,7 @@ internal sealed class SessionIssuer(
     IRepository<UserSession, Guid> userSessionRepository,
     IQueryableAsyncExecuter asyncExecuter,
     TwoFactorChallengeStore twoFactorChallengeStore,
+    TwoFactorMethodResolver twoFactorMethods,
     ILoginSecurityPolicyProvider loginSecurityPolicy,
     ISecurityAlertPublisher securityAlerts,
     IRequestClientInfo clientInfo,
@@ -57,7 +58,7 @@ internal sealed class SessionIssuer(
     /// <summary>登录第一步（密码或外部登录）通过之后决定去向。</summary>
     /// <remarks>
     /// <list type="bullet">
-    /// <item>已启用两步验证：不签发会话，只发第二步凭据。</item>
+    /// <item>有能用的第二步方式（见 <see cref="TwoFactorMethodResolver"/>）：不签发会话，只发第二步凭据与可用方式。</item>
     /// <item>否则直接签发会话。组织要求两步验证而本人未启用时会话是否受限不在这里决定、也不写进会话，
     /// 由每个请求的会话校验按当时的策略判定（见 <see cref="Sessions.IUserSessionValidator"/>）。</item>
     /// </list>
@@ -73,10 +74,12 @@ internal sealed class SessionIssuer(
     {
         EnsureAllowed(user, clock.Now);
 
-        if (user.TwoFactorEnabled)
+        var methods = await twoFactorMethods.ResolveAsync(user, cancellationToken);
+        if (methods.DefaultMethod is { } defaultMethod)
         {
+            var token = await twoFactorChallengeStore.CreateAsync(user.Id, user.TenantId, user.SecurityStamp, cancellationToken);
             return SessionLoginResult.TwoFactorRequired(
-                await twoFactorChallengeStore.CreateAsync(user.Id, user.TenantId, user.SecurityStamp, cancellationToken));
+                new TwoFactorPrompt(token, methods.Methods, defaultMethod, methods.MaskedEmail));
         }
 
         return SessionLoginResult.SignedIn(

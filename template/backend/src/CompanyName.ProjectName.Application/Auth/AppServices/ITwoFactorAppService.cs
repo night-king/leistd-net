@@ -4,7 +4,7 @@ using Leistd.Ddd.Application.Contracts.AppServices;
 
 namespace CompanyName.ProjectName.Application.Auth.AppServices;
 
-/// <summary>本人的两步验证：设置、启用、停用与恢复码。</summary>
+/// <summary>本人的两步验证：身份验证器的设置、启用、停用与恢复码，邮箱验证码的开关，以及首选方式。</summary>
 public interface ITwoFactorAppService : IAppService
 {
     /// <summary>当前状态。</summary>
@@ -29,5 +29,22 @@ public interface ITwoFactorAppService : IAppService
 
     /// <summary>重新生成恢复码（要验证码），旧的全部作废。</summary>
     Task<TwoFactorRecoveryCodesOutputDto> RegenerateRecoveryCodesAsync(TwoFactorCodeInputDto input, CancellationToken cancellationToken = default);
+#if (Email)
+
+    /// <summary>
+    /// 开始开启邮箱验证码：确认是本人后把确认码发到当前邮箱。会话不够新时要确认身份（同 <see cref="BeginSetupAsync"/>）。
+    /// 已开启时以 <c>Auth:TwoFactorAlreadyEnabled</c> 拒绝；组织不允许或邮箱未验证时以 <c>Auth:TwoFactorMethodUnavailable</c> 拒绝。
+    /// </summary>
+    Task<EmailVerificationChallengeOutputDto> BeginEmailSetupAsync(EmailTwoFactorChangeInputDto input, CancellationToken cancellationToken = default);
+
+    /// <summary>用发到邮箱的确认码开启邮箱验证码；本人的其他会话随之退出。码不对或已过期时以 <c>Auth:EmailCodeInvalid</c> 拒绝。</summary>
+    Task EnableEmailAsync(EmailVerificationInputDto input, CancellationToken cancellationToken = default);
+
+    /// <summary>关闭邮箱验证码（会话不够新时要确认身份）；本人的其他会话随之退出。首选是它时回到系统顺序。</summary>
+    Task DisableEmailAsync(EmailTwoFactorChangeInputDto input, CancellationToken cancellationToken = default);
+#endif
+
+    /// <summary>指定登录第二步的首选方式；该方式未设置时以 <c>Auth:TwoFactorMethodUnavailable</c> 拒绝。</summary>
+    Task SetPreferredMethodAsync(SetPreferredTwoFactorMethodInputDto input, CancellationToken cancellationToken = default);
 }
 #endif

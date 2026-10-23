@@ -61,6 +61,17 @@ internal sealed class TwoFactorChallengeStore(IDistributedCache cache, IClock cl
         return true;
     }
 
+#if (Email)
+    /// <summary>记下这次第二步最近发出的邮箱验证码挑战；之前发的码随之不再被认。</summary>
+    /// <remarks>沿用剩余有效期与已输错次数：重发不延长挑战，也不清零次数。</remarks>
+    public Task AttachEmailChallengeAsync(
+        string token,
+        TwoFactorChallenge challenge,
+        Guid emailChallengeId,
+        CancellationToken cancellationToken) =>
+        SaveAsync(token, challenge with { EmailChallengeId = emailChallengeId }, cancellationToken);
+
+#endif
     public Task RemoveAsync(string token, CancellationToken cancellationToken) =>
         cache.RemoveAsync(Key(token), cancellationToken);
 
@@ -94,5 +105,12 @@ internal sealed class TwoFactorChallengeStore(IDistributedCache cache, IClock cl
 /// <param name="SecurityStamp">签发时用户的安全版本；第二步时不一致说明凭据已变，挑战作废。</param>
 /// <param name="ExpiresAt">到期时刻（UTC），自签发起算，输错不延长。</param>
 /// <param name="Attempts">已输错的次数。</param>
-internal sealed record TwoFactorChallenge(Guid UserId, Guid? TenantId, string SecurityStamp, DateTime ExpiresAt, int Attempts);
+/// <param name="EmailChallengeId">最近一次发出的邮箱验证码挑战；没发过为 null。</param>
+internal sealed record TwoFactorChallenge(
+    Guid UserId,
+    Guid? TenantId,
+    string SecurityStamp,
+    DateTime ExpiresAt,
+    int Attempts,
+    Guid? EmailChallengeId = null);
 #endif

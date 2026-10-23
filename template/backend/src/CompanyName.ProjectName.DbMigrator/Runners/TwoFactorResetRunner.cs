@@ -79,14 +79,14 @@ internal sealed class TwoFactorResetRunner(
             ?? throw new InvalidOperationException($"User '{userId}' does not exist in {where}. Nothing changed.");
 
         var target = $"'{user.Username}' ({user.Id}) of {where}";
-        if (!user.TwoFactorEnabled)
+        if (!user.HasSecondFactor)
             return $"Two-factor authentication is not turned on for {target}; nothing to reset.";
 
         if (!apply)
-            return $"Dry run for {target}: would turn off two-factor authentication, clear its secret and recovery codes "
-                + "and sign out all of its sessions. No data or audit record changed.";
+            return $"Dry run for {target}: would turn off two-factor authentication (authenticator, recovery codes "
+                + "and email codes) and sign out all of its sessions. No data or audit record changed.";
 
-        user.DisableTwoFactor();
+        user.ResetSecondFactors();
         await userRepository.UpdateAsync(user, cancellationToken);
         await userSessionDomainService.RevokeAllAsync(user.Id, exceptSessionId: null, cancellationToken);
         await recorder.RecordSucceededAsync(OperationRecordActions.UserTwoFactorReset,

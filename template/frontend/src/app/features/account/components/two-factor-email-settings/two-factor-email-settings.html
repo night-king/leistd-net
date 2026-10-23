@@ -1,0 +1,160 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <section class="flex flex-col gap-5" data-testid="security-two-factor-email">
+    <header
+      class="flex flex-col gap-3 @md/panel:flex-row @md/panel:items-start @md/panel:justify-between border-b pb-3"
+    >
+      <div class="flex flex-col gap-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <h4 class="text-sm leading-none font-semibold">
+            {{ t('account.twoFactorEmail.header') }}
+          </h4>
+          @if (status()?.emailEnabled) {
+            <span hlmBadge appStatusDot variant="success" data-testid="two-factor-email-on">{{
+              t('account.twoFactorEmail.on')
+            }}</span>
+          }
+          @if (bothMethodsUsable() && status()?.defaultMethod === 'email') {
+            <!-- 两种方式都能用时标出登录先给哪一种；另一种的操作里有"设为默认" -->
+            <span hlmBadge variant="outline" data-testid="two-factor-email-default">{{
+              t('account.twoFactor.default')
+            }}</span>
+          }
+        </div>
+        <p class="text-muted-foreground text-sm">
+          {{ t('account.twoFactorEmail.subtitle', { email: status()?.maskedEmail }) }}
+        </p>
+      </div>
+      @if (status(); as s) {
+        @if (s.emailEnabled) {
+          <div class="flex shrink-0 flex-wrap gap-2 self-start">
+            @if (bothMethodsUsable() && s.defaultMethod !== 'email') {
+              <button
+                hlmBtn
+                variant="outline"
+                size="sm"
+                data-testid="two-factor-email-set-default"
+                [disabled]="busy()"
+                (click)="setAsDefault()"
+              >
+                {{ t('account.twoFactor.setDefault') }}
+              </button>
+            }
+            <button
+              hlmBtn
+              variant="outline"
+              size="sm"
+              data-testid="two-factor-email-turn-off"
+              [disabled]="busy()"
+              (click)="turnOff()"
+            >
+              {{ t('account.twoFactorEmail.turnOff') }}
+            </button>
+          </div>
+        } @else if (!s.emailUnavailableReason && !challengeId()) {
+          <button
+            hlmBtn
+            size="sm"
+            class="shrink-0 self-start"
+            data-testid="two-factor-email-turn-on"
+            [disabled]="busy()"
+            (click)="begin()"
+          >
+            @if (busy()) {
+              <hlm-spinner class="text-base" data-icon="inline-start" />
+            } @else {
+              <ng-icon name="lucideMail" data-icon="inline-start" />
+            }
+            {{ t('account.twoFactorEmail.turnOn') }}
+          </button>
+        }
+      }
+    </header>
+
+    @if (loadFailed()) {
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-muted-foreground">{{ t('account.twoFactorEmail.loadFailed') }}</span>
+        <button hlmBtn variant="link" size="sm" class="px-0" (click)="reload()">
+          {{ t('common.retry') }}
+        </button>
+      </div>
+    } @else if (status(); as s) {
+      @if (challengeId()) {
+        <form
+          class="flex flex-col gap-3"
+          novalidate
+          data-testid="two-factor-email-confirm-form"
+          (submit)="$event.preventDefault(); confirm()"
+        >
+          <p class="text-muted-foreground text-sm">
+            {{ t('account.twoFactorEmail.confirmHint', { email: s.maskedEmail }) }}
+          </p>
+          <div class="flex flex-wrap items-end gap-3">
+            <app-otp-code-input
+              [inputId]="codeInputId"
+              [label]="t('account.twoFactorEmail.codeLabel')"
+              [autofocus]="true"
+              [(value)]="code"
+              (completed)="confirm()"
+            />
+            <div class="flex gap-2">
+              <button hlmBtn type="submit" [disabled]="!codeValid() || busy()">
+                @if (busy()) {
+                  <hlm-spinner class="text-base" data-icon="inline-start" />
+                }
+                {{ t('account.twoFactorEmail.confirm') }}
+              </button>
+              <button hlmBtn variant="ghost" type="button" (click)="cancel()">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+          </div>
+          <button
+            hlmBtn
+            variant="link"
+            size="sm"
+            type="button"
+            class="self-start px-0"
+            data-testid="two-factor-email-setup-resend"
+            [disabled]="busy() || resend.remaining() > 0"
+            (click)="begin()"
+          >
+            {{
+              resend.remaining() > 0
+                ? t('account.twoFactorEmail.resendIn', { seconds: resend.remaining() })
+                : t('account.twoFactorEmail.resend')
+            }}
+          </button>
+        </form>
+      } @else if (s.emailUnavailableReason; as reason) {
+        <!-- 用不了时只说原因与该去哪里处理；已开启的也写明登录时暂不会用它 -->
+        <p class="text-muted-foreground text-sm" data-testid="two-factor-email-unavailable">
+          {{ t('account.twoFactorEmail.unavailable.' + reason) }}
+          @if (s.emailEnabled) {
+            {{ t('account.twoFactorEmail.unusedWhileUnavailable') }}
+          }
+        </p>
+      }
+    } @else {
+      <div class="flex justify-center py-6">
+        <hlm-spinner class="text-muted-foreground text-xl" />
+      </div>
+    }
+  </section>
+
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="reauth.setVisible($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.twoFactorEmail.reauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (signInAgain)="reauth.signInAgain()"
+  />
+</ng-container>
