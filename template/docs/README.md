@@ -1,10 +1,10 @@
 # MyProject 文档
 
-本目录保存需要长期复用的项目知识；源码、配置、测试、Git 和 CI 已能表达的不重复写成文档。
+只记录长期复用且源码、配置、测试、Git 和 CI 无法表达的知识。
 
 ## 按任务读取
 
-任务跨多类时取并集；表中已链接 `standards/` 的全部规范，未列出的任务按主题选读。
+跨类任务取并集；`standards/` 全部规范均在表中，其他按主题选读。
 
 | 任务 | 必读 | 按需 |
 | --- | --- | --- |
@@ -20,11 +20,11 @@
 <!--#endif-->
 <!--#endif-->
 | 只审查代码 | 改动所属任务行的必读文档（全栈改动按全栈功能行） | 改动触及的专题 |
-| 部署、迁移或回滚 | [部署](deploy/README.md) | [配置参考](deploy/configuration.md)、[技术栈](standards/tech-stack.md) |
+| 部署、迁移或回滚 | [部署](deploy/README.md) | [配置参考](deploy/configuration.md)、[配置差异](standards/settings.md#部署配置只写差异)、[技术栈](standards/tech-stack.md) |
 | 证书轮换、数据库升级等运维操作 | [运维手册](operations/runbooks/)中对应的一份 | |
 | 线上查询、客户问题排查、数据修正、事件复盘 | 项目 Skill 的运维操作流程 | [部署](deploy/README.md) |
 
-完整回归入口：`scripts/verify.ps1`。同步到新的模板版本：`scripts/sync-template.ps1`，按项目 Skill 的同步模板流程执行。
+回归：`scripts/verify.ps1`。模板同步：`scripts/sync-template.ps1`，按项目 Skill 执行。
 
 ## 规范归属
 
