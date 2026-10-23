@@ -49,7 +49,7 @@ public class UserMappings : IRegister
             .Map(dest => dest.LastLoginTime, src => src.LastLogin == null ? (DateTime?)null : src.LastLogin.Time)
             .Map(dest => dest.IsLockedOut, src => ResolveIsLockedOut(src))
             .Map(dest => dest.LockoutEnd, src => ResolveIsLockedOut(src) ? src.Lockout.End : null)
-            .Map(dest => dest.IsTwoFactorEnabled, src => src.TwoFactorEnabled)
+            .Map(dest => dest.IsTwoFactorEnabled, src => src.HasSecondFactor)
 #endif
             // 角色实体交给 Mapster 按同一份配置映射成 RoleBriefOutputDto（RoleMappings 登记的规则在这里生效）
             .Map(dest => dest.Roles, src => ResolveRoleEntities(src));

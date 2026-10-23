@@ -283,8 +283,11 @@ export function resetTwoFactor(id: string, value: MockReauthenticationProof = {}
     });
   }
   ensureOperatorReauthenticated(value);
+  // 与后端一致：身份验证器、恢复码、邮箱验证码与首选一并清掉
   user.twoFactorEnabled = false;
   user.recoveryCodes = [];
+  user.emailTwoFactorEnabled = false;
+  user.preferredTwoFactorMethod = undefined;
 }
 
 /**

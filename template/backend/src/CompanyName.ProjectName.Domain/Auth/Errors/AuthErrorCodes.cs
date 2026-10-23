@@ -21,6 +21,7 @@ public static class AuthErrorCodes
     public const string TwoFactorAlreadyEnabled = "Auth:TwoFactorAlreadyEnabled";
     public const string TwoFactorChallengeExpired = "Auth:TwoFactorChallengeExpired";
     public const string TwoFactorCodeInvalid = "Auth:TwoFactorCodeInvalid";
+    public const string TwoFactorMethodUnavailable = "Auth:TwoFactorMethodUnavailable";
     public const string TwoFactorNotEnabled = "Auth:TwoFactorNotEnabled";
     public const string TwoFactorRequiredByPolicy = "Auth:TwoFactorRequiredByPolicy";
     public const string TwoFactorSetupExpired = "Auth:TwoFactorSetupExpired";

@@ -55,6 +55,8 @@ internal sealed class AuthAppService(
     ICaptchaVerifier captchaVerifier,
 #if (Email)
     EmailChallengeStore emailChallengeStore,
+    TwoFactorCodeMailComposer twoFactorMail,
+    TwoFactorMethodResolver twoFactorMethods,
 #endif
     SessionIssuer sessionIssuer,
     UserSessionDomainService userSessionDomainService,
@@ -217,11 +219,17 @@ internal sealed class AuthAppService(
 
         bool verified;
         var usedRecoveryCode = false;
-        // 入参 DTO 已保证两者至少有一个；都给了时以恢复码为准
+        // 入参 DTO 已保证至少有一种；给了多种时依次以恢复码、邮箱验证码为准
         if (!string.IsNullOrWhiteSpace(input.RecoveryCode))
         {
             verified = usedRecoveryCode = twoFactorDomainService.UseRecoveryCode(user, input.RecoveryCode);
         }
+#if (Email)
+        else if (!string.IsNullOrWhiteSpace(input.EmailCode))
+        {
+            verified = await VerifyEmailCodeAsync(user, challenge, input.EmailCode, cancellationToken);
+        }
+#endif
         else
         {
             verified = twoFactorDomainService.VerifyCode(user, input.Code!, now);
@@ -263,6 +271,85 @@ internal sealed class AuthAppService(
         return await sessionIssuer.SignInAsync(user, cancellationToken: cancellationToken);
     }
 
+#if (Email)
+    /// <summary>登录第二步：把验证码发到本人的已验证邮箱。</summary>
+    /// <remarks>
+    /// <para>第一步本身不发信：只在本人用邮箱方式时才发（默认方式是它，或本人切换过来）。新码发出后，之前发的码不再被认。</para>
+    /// <para>与第二步的校验同在本人的凭据锁内：挑战里记下的邮件挑战与输错次数，不能被并发的校验覆盖。
+    /// 锁定中的账号、凭据已变的挑战都不发；这种方式此刻不能用时以 <see cref="AuthErrorCodes.TwoFactorMethodUnavailable"/> 拒绝。</para>
+    /// </remarks>
+    public async Task<TwoFactorEmailCodeOutputDto> SendTwoFactorEmailCodeAsync(
+        TwoFactorEmailCodeInputDto input,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await twoFactorChallengeStore.GetAsync(input.Token, cancellationToken);
+        if (challenge is null || challenge.TenantId != currentTenant.Id)
+        {
+            throw TwoFactorChallengeExpired();
+        }
+
+        await using var userLock = await distributedLock.LockAsync(
+            UserCredentialLock.Key(challenge.UserId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, userLock.LockLost);
+        cancellationToken = lockScope.Token;
+        challenge = await twoFactorChallengeStore.GetAsync(input.Token, cancellationToken);
+        var user = challenge is not null
+            ? await userRepository.GetByIdAsync(challenge.UserId, cancellationToken)
+            : null;
+        if (challenge is null || user is null || !user.HasSecurityStamp(challenge.SecurityStamp))
+        {
+            throw TwoFactorChallengeExpired();
+        }
+
+        var now = clock.Now;
+        SessionIssuer.EnsureAllowed(user, now);
+        if (!(await twoFactorMethods.ResolveAsync(user, cancellationToken)).Allows(TwoFactorMethod.Email))
+        {
+            throw TwoFactorMethodUnavailable();
+        }
+
+        var recipient = new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp);
+        var issued = await emailChallengeStore.IssueTwoFactorSignInAsync(
+            recipient, twoFactorMail.ForSignIn(recipient), cancellationToken);
+        await twoFactorChallengeStore.AttachEmailChallengeAsync(input.Token, challenge, issued.ChallengeId, cancellationToken);
+
+        // 码比这次第二步活得久时，以第二步的剩余时间为准：第二步过期后码也用不上
+        var remaining = (int)Math.Max(0, (challenge.ExpiresAt - now).TotalSeconds);
+        return new TwoFactorEmailCodeOutputDto
+        {
+            ExpiresInSeconds = Math.Min(issued.ExpiresInSeconds, remaining),
+            RetryAfterSeconds = issued.RetryAfterSeconds
+        };
+    }
+
+    // 方式此刻不能用（组织关了、邮箱改为未验证）不算猜错，不计入失败次数；码只认本次第二步最近发出的那一个
+    private async Task<bool> VerifyEmailCodeAsync(
+        User user,
+        TwoFactorChallenge challenge,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        if (!(await twoFactorMethods.ResolveAsync(user, cancellationToken)).Allows(TwoFactorMethod.Email))
+        {
+            throw TwoFactorMethodUnavailable();
+        }
+
+        if (challenge.EmailChallengeId is not { } emailChallengeId)
+        {
+            return false;
+        }
+
+        var proof = await emailChallengeStore.ValidateTwoFactorSignInAsync(
+            user.Email,
+            new EmailVerificationInputDto { ChallengeId = emailChallengeId, Code = code.Trim() },
+            cancellationToken);
+        return proof is not null && proof.UserId == user.Id && user.HasSecurityStamp(proof.SecurityStamp);
+    }
+
+    private static BusinessException TwoFactorMethodUnavailable() =>
+        new(AuthErrorCodes.TwoFactorMethodUnavailable, "This verification method isn't available for your account.");
+
+#endif
     // 登录成功的"什么人"由目标承载：SignInAsync 只往响应里种 Cookie，
     // 本次请求的主体仍是匿名，操作人字段为空是诚实的。
     private Task RecordLoginSucceededAsync(User user, CancellationToken cancellationToken) =>

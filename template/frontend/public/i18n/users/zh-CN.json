@@ -111,7 +111,6 @@
   "resetDialog": {
     "header": "重置用户密码",
     "warning": "重置后用户需要使用新密码登录。",
-    "ruleHint": "密码至少 12 位，最长 256 位。更长的口令短语比短而复杂的密码更安全。",
     "newPasswordLabel": "新密码",
     "newPasswordPlaceholder": "请输入新密码",
     "confirmButton": "确认重置"

@@ -2,7 +2,6 @@
   "changePassword": {
     "header": "修改密码",
     "subtitle": "请输入当前密码，并设置新的登录密码。修改后，其他设备上的登录会随之退出。",
-    "rules": "密码至少 12 位，最长 256 位。更长的口令短语比短而复杂的密码更安全。",
     "currentPassword": "当前密码",
     "newPassword": "新密码",
     "confirmPassword": "确认新密码",
@@ -27,6 +26,11 @@
     "loadFailed": "无法加载登录设备。"
   },
   "twoFactor": {
+//#if (Email)
+    "default": "默认",
+    "setDefault": "设为默认",
+    "defaultToast": "已保存，登录时会先使用这种方式。",
+//#endif
     "header": "两步验证",
     "subtitleOff": "登录时除了密码，还要输入手机上身份验证器应用生成的验证码。",
     "subtitleOn": "登录时在密码之后，还要输入身份验证器应用上的验证码。",
@@ -84,8 +88,58 @@
     "submit": "验证",
     "useRecovery": "无法使用身份验证器？改用恢复码",
     "useCode": "改用身份验证器验证码",
+//#if (Email)
+    "emailHint": "验证码已发送到 {{email}}，请输入邮件里的 6 位数字。",
+    "emailSending": "正在把验证码发送到 {{email}}…",
+    "emailPending": "验证码将发送到 {{email}}。",
+    "emailLabel": "邮箱验证码",
+    "resend": "重新发送",
+    "resendIn": "{{seconds}} 秒后可重新发送",
+    "useEmail": "改用邮箱验证码",
+    "otherMethods": "换一种验证方式",
+    "otherMethodsLabel": "其他验证方式",
+    "methods": {
+      "authenticator": {
+        "name": "身份验证器应用",
+        "hint": "输入应用上的 6 位验证码"
+      },
+      "email": {
+        "name": "邮箱验证码",
+        "hint": "发送验证码到 {{email}}"
+      },
+      "recoveryCode": {
+        "name": "恢复码",
+        "hint": "使用你保存的恢复码之一"
+      }
+    },
+//#endif
     "back": "返回登录"
   },
+//#if (Email)
+  "twoFactorEmail": {
+    "header": "邮箱验证码",
+    "subtitle": "登录第二步也可以用发到 {{email}} 的验证码。它只作补充，组织要求两步验证时不算满足。",
+    "on": "已启用",
+    "turnOn": "启用",
+    "turnOff": "停用",
+    "turnOffConfirm": "停用后，登录时不再提供邮箱验证码，其他设备上的登录会随之退出。",
+    "loadFailed": "无法加载邮箱验证码状态。",
+    "confirmHint": "确认码已发送到 {{email}}，输入后即可启用邮箱验证码。",
+    "codeLabel": "确认码",
+    "confirm": "启用",
+    "resend": "重新发送",
+    "resendIn": "{{seconds}} 秒后可重新发送",
+    "unavailable": {
+      "notAllowed": "所在组织未允许用邮箱验证码登录。",
+      "emailNotVerified": "请先在个人资料里验证邮箱。",
+      "deliveryUnavailable": "暂时无法发送验证码，请联系管理员。"
+    },
+    "unusedWhileUnavailable": "已启用，但在此之前登录时不会使用它。",
+    "enabledToast": "邮箱验证码已启用，其他设备上的登录已退出。",
+    "disabledToast": "邮箱验证码已停用，其他设备上的登录已退出。",
+    "reauthDescription": "更改登录方式前，请先确认是你本人。"
+  },
+//#endif
   "twoFactorRequired": {
     "title": "启用两步验证",
     "description": "你所在的组织要求启用两步验证，完成设置后才能继续使用。",
@@ -253,10 +307,6 @@
     "placeholder": "请输入右侧验证码",
     "refresh": "看不清？点击刷新",
     "alt": "验证码"
-  },
-  "passwordLength": {
-    "progress": "至少 {{min}} 个字符，还差 {{remaining}} 个",
-    "met": "长度符合要求"
   },
   "forgotPassword": {
     "title": "重置密码",

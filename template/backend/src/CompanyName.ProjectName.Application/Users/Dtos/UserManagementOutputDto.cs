@@ -27,7 +27,7 @@ public record UserManagementOutputDto
     /// <summary>锁定截止时间；未锁定或无期限（管理员锁定）时为 null。</summary>
     public DateTime? LockoutEnd { get; init; }
 
-    /// <summary>是否已启用两步验证。</summary>
+    /// <summary>是否设置了任意一种两步验证方式（身份验证器或邮箱验证码）；有时管理员可以重置。</summary>
     public bool IsTwoFactorEnabled { get; init; }
 #endif
 }

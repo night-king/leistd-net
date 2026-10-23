@@ -79,6 +79,10 @@
       "signInAgainHint": "Your account has no password or authenticator to confirm with. Sign in again to continue.",
       "signInAgain": "Sign in again",
       "confirm": "Confirm"
+    },
+    "passwordLength": {
+      "progress": "At least {{min}} characters, {{remaining}} more to go",
+      "met": "Length requirement met"
     }
   },
   "validation": {

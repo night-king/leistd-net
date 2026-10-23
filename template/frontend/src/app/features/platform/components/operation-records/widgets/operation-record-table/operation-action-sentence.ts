@@ -71,6 +71,10 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'auth.two-factor.disabled': () => 'Turned off two-factor authentication',
   'auth.two-factor.recovery-codes-regenerated': () => 'Regenerated recovery codes',
   'auth.two-factor.recovery-code-used': (t) => `Account ${t} signed in with a recovery code`,
+  //#if (Email)
+  'auth.two-factor.email-enabled': () => 'Turned on email verification codes',
+  'auth.two-factor.email-disabled': () => 'Turned off email verification codes',
+  //#endif
   //#if (ExternalLogin)
   'auth.external-login.linked': (t) => `Linked external account ${t}`,
   'auth.external-login.unlinked': (t) => `Unlinked external account ${t}`,

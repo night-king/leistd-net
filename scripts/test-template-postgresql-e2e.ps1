@@ -106,6 +106,18 @@ function Assert-Equal([string]$Expected, [string]$Actual, [string]$Message) {
     $script:passedAssertions++
 }
 
+# 生成项目里某个迁移目录下的迁移个数（不含 Designer 与模型快照）：模板发布后会追加增量迁移，
+# 迁移历史的行数按它断言，不能写死成基线的 1
+function Get-MigrationCount([string]$Project, [string]$Folder) {
+    $directory = Join-Path $generatedRoot "$Project/backend/src/E2E.$((Get-Culture).TextInfo.ToTitleCase($Project)).Infrastructure/Persistence/Migrations/$Folder"
+    $count = @(Get-ChildItem -Path $directory -Filter '*.cs' |
+        Where-Object { $_.Name -match '^\d{14}_' -and $_.Name -notlike '*.Designer.cs' }).Count
+    if ($count -lt 1) {
+        throw "No migrations found in $directory."
+    }
+    return [string]$count
+}
+
 function Invoke-Migrator([string]$Assembly, [hashtable]$Environment, [switch]$Apply) {
     $arguments = if ($Apply) { @($Assembly, "--apply") } else { @($Assembly) }
     Invoke-WithEnvironment $Environment {
@@ -237,10 +249,13 @@ try {
     # A dry run against an already-migrated target reports "up to date" and still changes nothing.
     Invoke-Migrator $identityMigrator @{ ConnectionStrings__Default = $adminShared }
 
-    Assert-Equal "1" (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory_Control";') "Identity Control migration is missing."
-    Assert-Equal "1" (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory";') "Identity business migration is missing."
-    Assert-Equal "1" (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-resource"."__EFMigrationsHistory";') "Resource migration is missing."
-    Assert-Equal "1" (Invoke-Postgres "leistd_dedicated" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory";') "Dedicated Identity migration is missing."
+    $identityControlMigrations = Get-MigrationCount "identity" "Control"
+    $identityMigrations = Get-MigrationCount "identity" "Identity"
+    $resourceMigrations = Get-MigrationCount "resource" "Resource"
+    Assert-Equal $identityControlMigrations (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory_Control";') "Identity Control migration is missing."
+    Assert-Equal $identityMigrations (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory";') "Identity business migration is missing."
+    Assert-Equal $resourceMigrations (Invoke-Postgres "leistd_shared" 'SELECT count(*) FROM "e2e-resource"."__EFMigrationsHistory";') "Resource migration is missing."
+    Assert-Equal $identityMigrations (Invoke-Postgres "leistd_dedicated" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory";') "Dedicated Identity migration is missing."
     Assert-Equal "" (Invoke-Postgres "leistd_dedicated" 'SELECT to_regclass(''"e2e-identity"."TenantRecord"'');') "Identity Control tables leaked into the dedicated business target."
 
     # Control plane pinned to its own database. DbMigrator must follow the SAME fallback chain as
@@ -277,7 +292,7 @@ try {
     Assert-Equal "1" (Invoke-Postgres "leistd_control" 'SELECT count(*) FROM pg_tables WHERE schemaname = ''e2e-identity'' AND tablename = ''__EFMigrationsHistory_Control'';') "Control migration did not go to the IdentityControl database."
     Assert-Equal "1" (Invoke-Postgres "leistd_control" 'SELECT count(*) FROM pg_tables WHERE schemaname = ''e2e-identity'' AND tablename = ''__EFMigrationsHistory_OpenIddict'';') "OpenIddict migration did not go to the IdentityControl database."
     Assert-Equal "1" (Invoke-Postgres "leistd_split_business" 'SELECT count(*) FROM pg_tables WHERE schemaname = ''e2e-identity'' AND tablename = ''__EFMigrationsHistory'';') "Business migration did not go to the Default database."
-    Assert-Equal "1" (Invoke-Postgres "leistd_control" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory_Control";') "The control migration history in the IdentityControl database is empty."
+    Assert-Equal $identityControlMigrations (Invoke-Postgres "leistd_control" 'SELECT count(*) FROM "e2e-identity"."__EFMigrationsHistory_Control";') "The control migration history in the IdentityControl database is empty."
     Assert-Equal "" (Invoke-Postgres "leistd_split_business" 'SELECT to_regclass(''"e2e-identity"."TenantRecord"'');') "Control tables leaked into the Default database when IdentityControl was configured separately."
 
     # A migrated control database whose tenant registry is missing is CORRUPTION, not a first

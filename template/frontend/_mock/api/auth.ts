@@ -29,6 +29,10 @@ import {
   ResetPasswordInputDto,
   //#endif
   SetAvatarInputDto,
+  //#if (Email)
+  EmailTwoFactorChangeInputDto,
+  TwoFactorEmailCodeOutputDto,
+  //#endif
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
   TwoFactorSetupOutputDto,
@@ -36,12 +40,20 @@ import {
   LogoutConfirmationOutputDto,
   //#endif
 } from '../../src/app/features/account/dtos/account.dto';
+// prettier-ignore
 import {
   SecurityConfigOutputDto,
+  //#if (Email)
+  TwoFactorEmailUnavailableReason,
+  //#endif
   TwoFactorStatusOutputDto,
   UserSessionOutputDto,
 } from '../../src/app/shared/dtos/account-security.dto';
-import { SessionLoginOutputDto, UserOutputDto } from '../../src/app/shared/dtos/auth.dto';
+import {
+  SessionLoginOutputDto,
+  TwoFactorMethod,
+  UserOutputDto,
+} from '../../src/app/shared/dtos/auth.dto';
 import { MockException, MockRequest } from '../core/models';
 import { ensureAcceptablePassword } from '../data/password-policy';
 //#if (ExternalLogin)
@@ -89,7 +101,12 @@ const EMAIL_CODE_MAX_ATTEMPTS = 5;
 
 interface EmailVerificationChallenge {
   scope: string;
-  purpose: 'registration-email' | 'account-email' | 'password-reset';
+  purpose:
+    | 'registration-email'
+    | 'account-email'
+    | 'password-reset'
+    | 'two-factor-sign-in'
+    | 'two-factor-email-setup';
   email: string;
   code: string;
   expiresAt: number;
@@ -144,8 +161,8 @@ function sessionLogin(
   const user = USERS.find((u) => u.username === usernameOrEmail || u.email === usernameOrEmail);
 
   if (user && user.password === password) {
-    // 与后端一致：启用了两步验证时密码对了也不下发会话，只给第二步凭据
-    if (user.twoFactorEnabled) {
+    // 与后端一致：有能用的第二步方式时密码对了也不下发会话，只给第二步凭据与可用方式
+    if (twoFactorOptions(user, tenantKey).defaultMethod) {
       return beginTwoFactorChallenge(user, tenantKey);
     }
     setMockSessionUserId(user.id);
@@ -398,9 +415,77 @@ interface TwoFactorChallenge {
   userId: string;
   tenantKey: string;
   remainingAttempts: number;
+  //#if (Email)
+  /** 最近一次发出的邮箱验证码挑战；只认它。 */
+  emailChallengeId?: string;
+  //#endif
 }
 
 const twoFactorChallengeStore = new Map<string, TwoFactorChallenge>();
+
+/** 本人此刻能用的第二步方式与默认方式，与后端 `TwoFactorMethodResolver` 同一规则。 */
+function twoFactorOptions(
+  user: MockUser,
+  tenantKey: string,
+): {
+  methods: TwoFactorMethod[];
+  defaultMethod: TwoFactorMethod | null;
+  maskedEmail: string | null;
+} {
+  const methods: TwoFactorMethod[] = [];
+  if (user.twoFactorEnabled) {
+    methods.push('authenticator');
+  }
+  //#if (Email)
+  const emailUsable =
+    user.emailTwoFactorEnabled === true && !emailTwoFactorUnavailableReason(user, tenantKey);
+  if (emailUsable) {
+    methods.push('email');
+  }
+  const maskedEmail = emailUsable ? maskEmail(user.email) : null;
+  //#else
+  // 不含邮件能力时只有身份验证器，与租户的设置无关
+  void tenantKey;
+  const maskedEmail = null;
+  //#endif
+  const preferred = user.preferredTwoFactorMethod;
+  const defaultMethod = preferred && methods.includes(preferred) ? preferred : (methods[0] ?? null);
+  if (user.twoFactorEnabled && (user.recoveryCodes?.length ?? 0) > 0) {
+    methods.push('recoveryCode');
+  }
+  return { methods, defaultMethod, maskedEmail };
+}
+//#if (Email)
+
+/** 邮箱验证码为什么用不了：组织未允许、邮箱未验证；能用时为 null。 */
+function emailTwoFactorUnavailableReason(
+  user: MockUser,
+  tenantKey: string,
+): TwoFactorEmailUnavailableReason | null {
+  if (TENANT_SETTING_VALUES.get(`${tenantKey}:Security.AllowEmailTwoFactor`) !== 'true') {
+    return 'notAllowed';
+  }
+  return user.isEmailVerified ? null : 'emailNotVerified';
+}
+
+/** 与后端 `TextRedactor.RedactEmail` 同一形态：本地部最多留前 3 位且不超过一半，域名完整保留。 */
+function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at <= 0) {
+    return '***';
+  }
+  const local = email.slice(0, at);
+  const keep = Math.min(3, Math.floor(local.length / 2));
+  return `${local.slice(0, keep)}***${email.slice(at)}`;
+}
+
+function twoFactorMethodUnavailable(): MockException {
+  return new MockException(400, {
+    code: 'Auth:TwoFactorMethodUnavailable',
+    message: "This verification method isn't available for your account.",
+  });
+}
+//#endif
 
 function beginTwoFactorChallenge(user: MockUser, tenantKey: string): SessionLoginOutputDto {
   const twoFactorToken = crypto.randomUUID();
@@ -409,8 +494,56 @@ function beginTwoFactorChallenge(user: MockUser, tenantKey: string): SessionLogi
     tenantKey,
     remainingAttempts: TWO_FACTOR_CHALLENGE_MAX_ATTEMPTS,
   });
-  return { requiresTwoFactor: true, twoFactorToken };
+  const options = twoFactorOptions(user, tenantKey);
+  return {
+    requiresTwoFactor: true,
+    twoFactorToken,
+    twoFactorMethods: options.methods,
+    defaultTwoFactorMethod: options.defaultMethod,
+    maskedEmail: options.maskedEmail,
+  };
 }
+//#if (Email)
+
+/** 登录第二步发邮箱验证码：Mock 下码固定为 EMAIL_CODE，按收件地址限制发送间隔。 */
+function sendTwoFactorEmailCode(req: MockRequest): TwoFactorEmailCodeOutputDto {
+  const token = (req.body as { token?: string } | undefined)?.token ?? '';
+  const challenge = twoFactorChallengeStore.get(token);
+  const user = challenge ? USERS.find((u) => u.id === challenge.userId) : undefined;
+  if (!challenge || !user || challenge.tenantKey !== getRequestScope(req)) {
+    throw twoFactorChallengeExpired();
+  }
+  if (!twoFactorOptions(user, challenge.tenantKey).methods.includes('email')) {
+    throw twoFactorMethodUnavailable();
+  }
+
+  const email = normalizeEmail(user.email);
+  const rateKey = `${challenge.tenantKey}:${email}`;
+  if ((emailRateLimitStore.get(rateKey) ?? 0) > Date.now()) {
+    throw new MockException(429, {
+      code: 'Auth:EmailCodeSendTooFrequent',
+      message: 'Verification codes are being sent too frequently. Please try again later.',
+    });
+  }
+  emailRateLimitStore.set(rateKey, Date.now() + EMAIL_CODE_RETRY_SECONDS * 1000);
+
+  const emailChallengeId = crypto.randomUUID();
+  emailChallengeStore.set(emailChallengeId, {
+    scope: challenge.tenantKey,
+    purpose: 'two-factor-sign-in',
+    email,
+    code: EMAIL_CODE,
+    expiresAt: Date.now() + EMAIL_CODE_EXPIRY_SECONDS * 1000,
+    remainingAttempts: EMAIL_CODE_MAX_ATTEMPTS,
+    userId: user.id,
+  });
+  challenge.emailChallengeId = emailChallengeId;
+  return {
+    expiresInSeconds: EMAIL_CODE_EXPIRY_SECONDS,
+    retryAfterSeconds: EMAIL_CODE_RETRY_SECONDS,
+  };
+}
+//#endif
 
 function twoFactorChallengeExpired(): MockException {
   return new MockException(401, {
@@ -429,7 +562,12 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
   if (!body.token?.trim()) {
     errors.push({ field: 'token', detail: 'Two-factor token is required.' });
   }
-  if (!body.code?.trim() && !body.recoveryCode?.trim()) {
+  //#if (Email)
+  const presented = body.code?.trim() || body.emailCode?.trim() || body.recoveryCode?.trim();
+  //#else
+  const presented = body.code?.trim() || body.recoveryCode?.trim();
+  //#endif
+  if (!presented) {
     errors.push({ field: 'code', detail: 'Enter the verification code or a recovery code.' });
   }
   if (errors.length > 0) {
@@ -442,11 +580,21 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
     throw twoFactorChallengeExpired();
   }
 
-  // 都给了时以恢复码为准，与后端同一取舍；恢复码用一次即作废
+  // 给了多种时依次以恢复码、邮箱验证码为准，与后端同一取舍；恢复码用一次即作废
   const recoveryCode = body.recoveryCode?.trim();
-  const verified = recoveryCode
-    ? (user.recoveryCodes ?? []).includes(recoveryCode)
-    : body.code?.replace(/\s/g, '') === MOCK_TWO_FACTOR_CODE;
+  let verified: boolean;
+  if (recoveryCode) {
+    verified = (user.recoveryCodes ?? []).includes(recoveryCode);
+  } else {
+    //#if (Email)
+    const emailCode = body.emailCode?.trim();
+    verified = emailCode
+      ? verifyTwoFactorEmailCode(user, challenge, emailCode)
+      : verifyAuthenticatorCode(user, body.code);
+    //#else
+    verified = verifyAuthenticatorCode(user, body.code);
+    //#endif
+  }
   if (!verified) {
     challenge.remainingAttempts--;
     if (challenge.remainingAttempts <= 0) {
@@ -466,6 +614,38 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
   setMockSessionUserId(user.id);
   setMockSessionTenantKey(challenge.tenantKey);
   return 'ok';
+}
+
+//#if (Email)
+// 方式此刻不能用不算猜错；码只认这次第二步最近发出的那一个
+function verifyTwoFactorEmailCode(
+  user: MockUser,
+  challenge: TwoFactorChallenge,
+  code: string,
+): boolean {
+  if (!twoFactorOptions(user, challenge.tenantKey).methods.includes('email')) {
+    throw twoFactorMethodUnavailable();
+  }
+  const emailChallenge = challenge.emailChallengeId
+    ? emailChallengeStore.get(challenge.emailChallengeId)
+    : undefined;
+  if (
+    !emailChallenge ||
+    emailChallenge.purpose !== 'two-factor-sign-in' ||
+    emailChallenge.userId !== user.id ||
+    emailChallenge.expiresAt <= Date.now() ||
+    emailChallenge.code !== code
+  ) {
+    return false;
+  }
+  emailChallengeStore.delete(challenge.emailChallengeId!);
+  return true;
+}
+
+//#endif
+// 与后端一致：没启用身份验证器的人（只开了邮箱验证码）交来的验证码一律不认
+function verifyAuthenticatorCode(user: MockUser, code: string | undefined): boolean {
+  return user.twoFactorEnabled === true && code?.replace(/\s/g, '') === MOCK_TWO_FACTOR_CODE;
 }
 
 function issueRecoveryCodes(user: MockUser): TwoFactorRecoveryCodesOutputDto {
@@ -489,12 +669,112 @@ function ensureMockTwoFactorCode(code: string | undefined): void {
 
 function getTwoFactorStatus(): TwoFactorStatusOutputDto {
   const user = requireCurrentMockUser();
+  const tenantKey = getMockSessionTenantKey();
   return {
     enabled: user.twoFactorEnabled === true,
     recoveryCodesLeft: user.recoveryCodes?.length ?? 0,
     requiredByPolicy: false,
+    preferredMethod: user.preferredTwoFactorMethod ?? null,
+    defaultMethod: twoFactorOptions(user, tenantKey).defaultMethod,
+    //#if (Email)
+    emailEnabled: user.emailTwoFactorEnabled === true,
+    emailUnavailableReason: emailTwoFactorUnavailableReason(user, tenantKey),
+    maskedEmail: maskEmail(user.email),
+    //#endif
   };
 }
+//#if (Email)
+
+/** 开始开启邮箱验证码：确认是本人后发确认码（Mock 下固定为 EMAIL_CODE）。 */
+function beginEmailTwoFactorSetup(req: MockRequest): EmailVerificationChallengeOutputDto {
+  const user = requireCurrentMockUser();
+  const body = (req.body ?? {}) as EmailTwoFactorChangeInputDto;
+  ensureEmailTwoFactorCanBeEnabled(user);
+  ensureMockReauthentication(user, { password: body.password, twoFactorCode: body.twoFactorCode });
+
+  const challengeId = crypto.randomUUID();
+  emailChallengeStore.set(challengeId, {
+    scope: getMockSessionTenantKey(),
+    purpose: 'two-factor-email-setup',
+    email: normalizeEmail(user.email),
+    code: EMAIL_CODE,
+    expiresAt: Date.now() + EMAIL_CODE_EXPIRY_SECONDS * 1000,
+    remainingAttempts: EMAIL_CODE_MAX_ATTEMPTS,
+    userId: user.id,
+  });
+  return {
+    challengeId,
+    expiresInSeconds: EMAIL_CODE_EXPIRY_SECONDS,
+    retryAfterSeconds: EMAIL_CODE_RETRY_SECONDS,
+  };
+}
+
+function enableEmailTwoFactor(req: MockRequest): 'ok' {
+  const user = requireCurrentMockUser();
+  const body = req.body as EmailVerificationInputDto;
+  ensureEmailTwoFactorCanBeEnabled(user);
+  const challenge = emailChallengeStore.get(body.challengeId);
+  if (challenge && challenge.expiresAt <= Date.now()) {
+    emailChallengeStore.delete(body.challengeId);
+  }
+  if (
+    !challenge ||
+    challenge.expiresAt <= Date.now() ||
+    challenge.purpose !== 'two-factor-email-setup' ||
+    challenge.userId !== user.id ||
+    challenge.email !== normalizeEmail(user.email) ||
+    challenge.code !== body.code.trim()
+  ) {
+    throw new MockException(400, {
+      code: 'Auth:EmailCodeInvalid',
+      message: 'The email verification code is incorrect or has expired.',
+    });
+  }
+  emailChallengeStore.delete(body.challengeId);
+  user.emailTwoFactorEnabled = true;
+  return 'ok';
+}
+
+function disableEmailTwoFactor(req: MockRequest): 'ok' {
+  const user = requireCurrentMockUser();
+  if (!user.emailTwoFactorEnabled) {
+    return 'ok';
+  }
+  const body = (req.body ?? {}) as EmailTwoFactorChangeInputDto;
+  ensureMockReauthentication(user, { password: body.password, twoFactorCode: body.twoFactorCode });
+  user.emailTwoFactorEnabled = false;
+  if (user.preferredTwoFactorMethod === 'email') {
+    user.preferredTwoFactorMethod = undefined;
+  }
+  return 'ok';
+}
+
+function ensureEmailTwoFactorCanBeEnabled(user: MockUser): void {
+  if (user.emailTwoFactorEnabled) {
+    throw new MockException(409, {
+      code: 'Auth:TwoFactorAlreadyEnabled',
+      message: 'Email verification codes are already turned on.',
+    });
+  }
+  if (emailTwoFactorUnavailableReason(user, getMockSessionTenantKey())) {
+    throw twoFactorMethodUnavailable();
+  }
+}
+
+/** 指定首选方式：只能是本人已设置的身份验证器或邮箱验证码。 */
+function setPreferredTwoFactorMethod(req: MockRequest): 'ok' {
+  const user = requireCurrentMockUser();
+  const method = (req.body as { method?: TwoFactorMethod } | undefined)?.method;
+  const configured =
+    (method === 'authenticator' && user.twoFactorEnabled) ||
+    (method === 'email' && user.emailTwoFactorEnabled);
+  if (!configured) {
+    throw twoFactorMethodUnavailable();
+  }
+  user.preferredTwoFactorMethod = method;
+  return 'ok';
+}
+//#endif
 
 /** 最近一次开始的设置：只认它，别处重新开始过就作废（同后端）。 */
 let mockPendingSetupId: string | null = null;
@@ -1006,7 +1286,7 @@ function externalLoginCallback(req: MockRequest): SessionLoginOutputDto {
   const user =
     (req.params.provider === 'google' ? USERS.find((u) => u.id === 'user_octo') : undefined) ??
     USERS[0];
-  if (user.twoFactorEnabled) {
+  if (twoFactorOptions(user, getRequestScope(req)).defaultMethod) {
     return beginTwoFactorChallenge(user, getRequestScope(req));
   }
   setMockSessionUserId(user.id);
@@ -1104,6 +1384,9 @@ export const AUTH_API = {
     return sessionLogin(req.body.usernameOrEmail, req.body.password, getRequestScope(req));
   },
   'POST /api/v1/auth/two-factor': (req: MockRequest) => completeTwoFactorLogin(req),
+  //#if (Email)
+  'POST /api/v1/auth/two-factor/email-code': (req: MockRequest) => sendTwoFactorEmailCode(req),
+  //#endif
   //#if (Impersonation)
   'GET /api/v1/auth/impersonation': () => getImpersonationStatus(),
   'POST /api/v1/auth/end-impersonation': () => endImpersonation(),
@@ -1124,6 +1407,14 @@ export const AUTH_API = {
   'POST /api/v1/auth/me/two-factor/disable': (req: MockRequest) => disableTwoFactor(req),
   'POST /api/v1/auth/me/two-factor/recovery-codes': (req: MockRequest) =>
     regenerateRecoveryCodes(req),
+  //#if (Email)
+  'POST /api/v1/auth/me/two-factor/email/setup': (req: MockRequest) =>
+    beginEmailTwoFactorSetup(req),
+  'POST /api/v1/auth/me/two-factor/email/enable': (req: MockRequest) => enableEmailTwoFactor(req),
+  'POST /api/v1/auth/me/two-factor/email/disable': (req: MockRequest) => disableEmailTwoFactor(req),
+  'PUT /api/v1/auth/me/two-factor/preferred-method': (req: MockRequest) =>
+    setPreferredTwoFactorMethod(req),
+  //#endif
   'GET /api/v1/auth/me/sessions': () => getSessions(),
   'DELETE /api/v1/auth/me/sessions/:id': (req: MockRequest) => revokeSession(req),
   'POST /api/v1/auth/me/sessions/revoke-others': () => revokeOtherSessions(),

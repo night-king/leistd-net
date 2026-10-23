@@ -30,5 +30,17 @@ export const API_ERROR_CODES = {
 
   /** 这一次两步验证设置已失效（过期、别处重新开始或凭据变过）：清掉二维码与密钥，请本人重新开始。 */
   twoFactorSetupExpired: 'Auth:TwoFactorSetupExpired',
+
+  /** 这次登录的第二步已失效（过期、次数用完）：回到密码那一步。 */
+  twoFactorChallengeExpired: 'Auth:TwoFactorChallengeExpired',
+
+  /** 账号被管理员锁定：登录无法继续。 */
+  userLockedOut: 'Auth:UserLockedOut',
+
+  /** 账号已停用：登录无法继续。 */
+  userDisabled: 'Auth:UserDisabled',
+
+  /** 这种第二步方式此刻不能用（组织关闭、邮箱改为未验证）：就地说明，改用其他方式。 */
+  twoFactorMethodUnavailable: 'Auth:TwoFactorMethodUnavailable',
   //#endif
 } as const;

@@ -57,7 +57,7 @@ internal sealed class PasswordResetAppService(
         var email = input.Email.Trim();
         var user = await userRepository.GetFirstAsync(u => u.Email == email, q => q.OrderBy(u => u.Id), cancellationToken);
         var target = user is { CanRecoverPasswordByEmail: true }
-            ? new PasswordResetTarget(user.Id, user.Email, user.SecurityStamp)
+            ? new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp)
             : null;
 
         return await emailChallengeStore.IssuePasswordResetAsync(email, target, policy, cancellationToken);

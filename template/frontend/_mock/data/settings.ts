@@ -152,6 +152,19 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     allowsUserScope: false,
     isBoolean: true,
   },
+  //#endif
+  //#if (Email)
+  {
+    name: 'Security.AllowEmailTwoFactor',
+    displayName: 'Allow email codes as a sign-in second step',
+    group: 'Security',
+    defaultValue: 'false',
+    allowsTenantScope: true,
+    allowsUserScope: false,
+    isBoolean: true,
+  },
+  //#endif
+  //#if (LocalIdentity)
   {
     name: 'Security.SessionIdleTimeoutDays',
     displayName: 'Sign out after this many idle days',
@@ -430,6 +443,11 @@ export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   //#endif
   //#if (LocalIdentity)
   'Setting:Security.RequireTwoFactor': '要求所有人启用两步验证',
+  //#endif
+  //#if (Email)
+  'Setting:Security.AllowEmailTwoFactor': '允许用邮箱验证码作为登录第二步',
+  //#endif
+  //#if (LocalIdentity)
   'Setting:Security.SessionIdleTimeoutDays': '会话空闲多少天后退出',
   //#endif
   //#if (Email)

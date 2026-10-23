@@ -10,12 +10,33 @@ export interface RegisterInputDto {
   displayName?: string;
 }
 
-/** 登录第二步：验证码与恢复码二选一。 */
+/** 登录第二步：提交其中一种方式的码。 */
 export interface TwoFactorLoginInputDto {
   token: string;
+  /** 身份验证器上的验证码。 */
   code?: string;
+  //#if (Email)
+  /** 发到邮箱的验证码。 */
+  emailCode?: string;
+  //#endif
   recoveryCode?: string;
 }
+//#if (Email)
+
+/** 登录第二步的邮箱验证码已发出。 */
+export interface TwoFactorEmailCodeOutputDto {
+  /** 验证码的有效期（秒）。 */
+  expiresInSeconds: number;
+  /** 多少秒后才能重发。 */
+  retryAfterSeconds: number;
+}
+
+/** 开启或关闭邮箱验证码：会话不够新时带上本人的当前口令或验证码（二选一）。 */
+export interface EmailTwoFactorChangeInputDto {
+  password?: string;
+  twoFactorCode?: string;
+}
+//#endif
 
 /**
  * 开始设置：会话不够新时带当前口令。换绑时带现有验证器的码（同时算确认身份，不再另带口令），
