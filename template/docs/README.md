@@ -26,12 +26,10 @@
 
 完整回归入口：`scripts/verify.ps1`。同步到新的模板版本：`scripts/sync-template.ps1`，按项目 Skill 的同步模板流程执行。
 
-业务开发、环境交付和运维操作由项目 Skill `leistd-project-workflow` 处理。
-
 ## 规范归属
 
 `standards/` 是项目模板提供的 .NET/Angular 工程规范基线，随模板版本整体更新，项目内不改写。项目自己的规则写入 `project/{topic}.md`，与 `standards/` 冲突时以它为准。
 
-业务规则、模块契约、运维手册与可复用查询分别写入 `requirements/`、`modules/`，以及 `operations/` 下的 `runbooks/`、`queries/`；除模板自带的手册外，这些常驻文档首次有内容时创建并登记到本索引，一个事实只维护一处。
+业务规则、模块契约、运维手册与可复用查询分别写入 `requirements/`、`modules/`，以及 `operations/` 下的 `runbooks/`、`queries/`；除模板自带的手册外，这些常驻文档首次有内容时创建，并登记到“按任务读取”表，让相关任务能读到；一个事实只维护一处。
 
 `specs/` 与 `operations/` 下的 `data-fixes/`、`incidents/` 是按日期命名的依据文档，记录某次变更或操作的原因与结果；AI 默认不读，需要追溯时再读，不登记到本索引。
