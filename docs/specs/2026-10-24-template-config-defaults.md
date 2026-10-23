@@ -1,6 +1,6 @@
 # 模板部署配置只写差异
 
-状态：已完成 · 风险档：中（模板配置与规范，影响所有生成项目的部署样例） · 关联：—
+状态：已完成 · 风险档：中（模板配置与规范，影响所有生成项目的部署样例） · 关联：https://github.com/zengqinglei/leistd-net/pull/167
 
 ## 1. 需求
 
@@ -125,7 +125,7 @@ CRM V2 三仓（crm、identity、foundation）在 2026-10-24 做了两轮配置�
 
 ### 实际交付
 
-分支 `zengqinglei/config-defaults-cleanup`（基于 develop `095037dd`）。
+PR #167（分支 `zengqinglei/config-defaults-cleanup`，基于 develop `095037dd`）。
 
 - **模板配置**：删除 T1–T13，保留列的项全部保留。
   - `appsettings.json`：条件逗号按删除后的结构重排；`Leistd` 节在没有任何子节的场景整体裁掉。
