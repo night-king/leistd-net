@@ -76,7 +76,7 @@ public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayD
 #if (LocalIdentity)
 
         // 注册策略按租户：同一套部署下，不同租户可以有不同的注册门槛。
-        // 默认值取自 appsettings 的 UserRegistration 段，配置仍是部署基线。
+        // 注册策略取绑定后的 Options，缺少部署键时沿用属性初值。
         var registration = registrationOptions.Value;
 
         context.Add(

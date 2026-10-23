@@ -137,9 +137,8 @@ public static class SettingConstant
 #if (LocalIdentity)
     /// <summary>注册与验证策略。</summary>
     /// <remarks>
-    /// 租户级：每个租户可以有自己的注册策略。代码默认值取自 <c>appsettings</c> 的
-    /// <c>UserRegistration</c> 段——配置仍是部署基线，设置只是租户级覆盖，
-    /// 不另立一份真相。
+    /// 租户级：每个租户可以有自己的注册策略。默认值取绑定后的 <c>UserRegistrationOptions</c>；
+    /// 部署配置覆盖属性初值，设置只做租户级覆盖。
     /// </remarks>
     public static class Registration
     {

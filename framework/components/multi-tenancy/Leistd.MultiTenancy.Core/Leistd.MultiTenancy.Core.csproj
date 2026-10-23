@@ -9,7 +9,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
-    <!-- 远端连接解析：路由缓存（HybridCache 只用进程内一级，带并发回源合并）与 TenantRouting 配置节绑定 -->
+    <!-- 远端连接解析：路由缓存（HybridCache 只用进程内一级，带并发回源合并）与 Leistd:MultiTenancy:Routing 配置节绑定 -->
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
   </ItemGroup>

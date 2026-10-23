@@ -674,7 +674,7 @@ def validate(output, values, config, verify=True, sdk=None):
     frontend = output / 'frontend'
     assert frontend.exists() == values['SpaFrontend'], 'Frontend applicability'
     settings = json.loads(re.sub(r'^\s*//.*$', '', (api / 'appsettings.json').read_text(encoding='utf-8'), flags=re.M))
-    assert ('Routing' in settings['Leistd'].get('MultiTenancy', {})) == (values['RemoteTokenAuth'] and values['IncludeMultiTenancy']), 'Tenant routing configuration applicability'
+    assert ('Identity' in settings.get('Leistd', {}).get('ServiceClients', {})) == (values['RemoteTokenAuth'] and values['IncludeMultiTenancy']), 'Tenant routing client configuration applicability'
     readme = (output / 'README.md').read_text(encoding='utf-8')
     testing = (output / 'docs/standards/testing.md').read_text(encoding='utf-8')
     deployment = (output / 'docs/deploy/README.md').read_text(encoding='utf-8')
