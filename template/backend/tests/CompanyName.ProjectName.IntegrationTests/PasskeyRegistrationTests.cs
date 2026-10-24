@@ -33,6 +33,8 @@ public sealed class PasskeyRegistrationTests(ProjectWebApplicationFactory factor
         Assert.Equal("My laptop", result.GetProperty("passkey").GetProperty("name").GetString());
         var status = await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor");
         Assert.True(status.GetProperty("passkeysAvailable").GetBoolean());
+        Assert.True((await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/security-config"))
+            .GetProperty("passkeysAvailable").GetBoolean());
         Assert.Equal(1, status.GetProperty("passkeys").GetArrayLength());
         Assert.Equal(10, status.GetProperty("recoveryCodesLeft").GetInt32());
         Assert.False(status.GetProperty("enabled").GetBoolean());
@@ -167,6 +169,8 @@ public sealed class PasskeyRegistrationTests(ProjectWebApplicationFactory factor
         using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
 
         Assert.False((await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor"))
+            .GetProperty("passkeysAvailable").GetBoolean());
+        Assert.False((await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/security-config"))
             .GetProperty("passkeysAvailable").GetBoolean());
         using var begin = await session.Client.PostAsJsonAsync("/api/v1/auth/me/two-factor/passkeys/options", new { });
         Assert.Equal("Auth:PasskeyUnavailable", await ErrorCodeAsync(begin));

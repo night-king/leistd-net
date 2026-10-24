@@ -610,6 +610,7 @@ internal sealed class AuthAppService(
         return new SecurityConfigOutputDto
         {
             RegistrationEnabled = policy.Enabled,
+            PasskeysAvailable = passkeyProtocol.IsAvailable,
 #if (Email)
             EnableEmailVerification = policy.EnableEmailVerification,
             EmailVerificationAvailable = verificationCodeOptions.Value.IsKeyUsable

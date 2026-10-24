@@ -464,6 +464,7 @@
             "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/PasswordHashingTests.cs",
             "backend/tests/CompanyName.ProjectName.UnitTests/Domain/TwoFactorDomainServiceTests.cs",
             "backend/tests/CompanyName.ProjectName.UnitTests/Domain/IndependentFactorTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/PasskeyOptionsValidatorTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/SoftwareAuthenticator.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/PasskeyRegistrationTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/PasskeySignInTests.cs",

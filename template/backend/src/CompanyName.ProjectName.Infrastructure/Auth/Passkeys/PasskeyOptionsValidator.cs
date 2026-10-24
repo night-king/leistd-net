@@ -10,13 +10,14 @@ internal sealed class PasskeyOptionsValidator : IValidateOptions<PasskeyOptions>
     public ValidateOptionsResult Validate(string? name, PasskeyOptions options)
     {
         var hasId = !string.IsNullOrWhiteSpace(options.RelyingPartyId);
-        if (!hasId && options.Origins.Length == 0)
+        var origins = options.ConfiguredOrigins.ToList();
+        if (!hasId && origins.Count == 0)
             return ValidateOptionsResult.Success;
 
         if (!hasId)
             return ValidateOptionsResult.Fail($"{PasskeyOptions.SectionName}:RelyingPartyId is required when {PasskeyOptions.SectionName}:Origins is set.");
 
-        if (options.Origins.Length == 0)
+        if (origins.Count == 0)
             return ValidateOptionsResult.Fail($"{PasskeyOptions.SectionName}:Origins is required when {PasskeyOptions.SectionName}:RelyingPartyId is set.");
 
         var rpId = options.RelyingPartyId!.Trim();
@@ -24,7 +25,7 @@ internal sealed class PasskeyOptionsValidator : IValidateOptions<PasskeyOptions>
             return ValidateOptionsResult.Fail($"{PasskeyOptions.SectionName}:RelyingPartyId must be a domain name without scheme or port.");
 
         var failures = new List<string>();
-        foreach (var origin in options.Origins)
+        foreach (var origin in origins)
         {
             if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.AbsolutePath != "/" || !string.IsNullOrEmpty(uri.Query))
             {

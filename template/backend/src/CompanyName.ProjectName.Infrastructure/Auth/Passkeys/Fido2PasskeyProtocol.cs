@@ -141,7 +141,7 @@ internal sealed class Fido2PasskeyProtocol(IOptions<PasskeyOptions> options) : I
             {
                 RPID = options.RelyingPartyId!.Trim(),
                 RPName = options.RelyingPartyName,
-                Origins = new HashSet<string>(options.Origins, StringComparer.OrdinalIgnoreCase)
+                Origins = new HashSet<string>(options.ConfiguredOrigins, StringComparer.OrdinalIgnoreCase)
             })
             : null;
 

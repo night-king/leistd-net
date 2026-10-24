@@ -87,6 +87,10 @@ services:
       # 由部署环境提供（.env 或 CI secret），只在库里还没有超级管理员时用于创建：
       # 首次部署缺失即启动失败并报出键名；已有管理员的部署可以不再提供
       - DefaultAdmin__Password=${DEFAULT_ADMIN_PASSWORD:-}
+      # 通行密钥：站点的可注册域名与页面来源（协议 + 域名 + 端口），都不填时通行密钥不可用、照常启动。
+      # 登记过的通行密钥绑定 RP ID，部署后不要再改；多租户按子域名部署时 RP ID 取共同的父域
+      - Passkeys__RelyingPartyId=${PASSKEY_RP_ID:-}
+      - Passkeys__Origins__0=${PASSKEY_ORIGIN:-}
 #endif
 #if (Email)
       # 发信（SMTP）：主机、端口与发件地址没有可用默认值，漏配时 compose 带着变量名失败；

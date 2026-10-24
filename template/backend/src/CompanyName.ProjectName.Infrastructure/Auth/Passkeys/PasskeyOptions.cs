@@ -20,7 +20,10 @@ public sealed class PasskeyOptions
     /// <summary>允许发起仪式的页面来源（协议 + 域名 + 端口），如 <c>https://app.example.com</c>；每个都须落在 RP ID 之下。</summary>
     public string[] Origins { get; set; } = [];
 
+    /// <summary>非空的来源；部署清单里没填的来源注入的是空串，不算配置。</summary>
+    public IEnumerable<string> ConfiguredOrigins => Origins.Where(origin => !string.IsNullOrWhiteSpace(origin)).Select(origin => origin.Trim());
+
     /// <summary>已配置，通行密钥可用。</summary>
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(RelyingPartyId) && Origins.Length > 0;
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(RelyingPartyId) && ConfiguredOrigins.Any();
 }
 #endif
