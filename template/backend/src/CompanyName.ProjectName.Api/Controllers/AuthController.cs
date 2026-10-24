@@ -382,7 +382,7 @@ public sealed class AuthController(
     /// <summary>删除通行密钥（会话不够新时带上本人的一种凭证）。</summary>
     [Authorize]
     [HttpPost("me/two-factor/passkeys/{id:guid}/remove")]
-    public Task RemovePasskeyAsync(Guid id, [FromBody] BeginPasskeyRegistrationInputDto input, CancellationToken cancellationToken)
+    public Task RemovePasskeyAsync(Guid id, [FromBody] RemovePasskeyInputDto input, CancellationToken cancellationToken)
         => passkeyAppService.RemoveAsync(id, input, cancellationToken);
 
     /// <summary>指定登录第二步的首选方式。</summary>

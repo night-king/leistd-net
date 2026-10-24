@@ -11,7 +11,7 @@ public sealed record CompletePasskeyRegistrationInputDto
     public JsonElement? Credential { get; init; }
 
     /// <summary>名称，便于在列表里区分；前端默认取设备与浏览器。</summary>
-    [Display(Name = "Name")]
+    [Display(Name = "Passkey name")]
     [Required(ErrorMessage = "{0} is required.")]
     [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
     public string Name { get; init; } = null!;

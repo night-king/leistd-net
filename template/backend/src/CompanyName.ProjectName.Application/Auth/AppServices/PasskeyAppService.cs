@@ -183,7 +183,7 @@ internal sealed class PasskeyAppService(
     /// <see cref="AuthErrorCodes.TwoFactorRequiredByPolicy"/> 拒绝。</para>
     /// <para>最后一个独立因子去掉时恢复码随之作废；本人的其他会话随之退出。</para>
     /// </remarks>
-    public async Task RemoveAsync(Guid id, BeginPasskeyRegistrationInputDto input, CancellationToken cancellationToken = default)
+    public async Task RemoveAsync(Guid id, RemovePasskeyInputDto input, CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
         await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(userId), cancellationToken);

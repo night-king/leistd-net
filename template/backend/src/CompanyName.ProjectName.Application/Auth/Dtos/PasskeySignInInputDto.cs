@@ -7,7 +7,7 @@ namespace CompanyName.ProjectName.Application.Auth.Dtos;
 public sealed record PasskeySignInInputDto
 {
     /// <summary>取选项时返回的仪式凭据。</summary>
-    [Display(Name = "Ceremony")]
+    [Display(Name = "Passkey ceremony")]
     [Required(ErrorMessage = "{0} is required.")]
     [StringLength(128, ErrorMessage = "{0} cannot exceed {1} characters.")]
     public string Ceremony { get; init; } = null!;

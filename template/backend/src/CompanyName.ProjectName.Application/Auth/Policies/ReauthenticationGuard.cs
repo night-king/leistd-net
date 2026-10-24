@@ -59,7 +59,7 @@ internal sealed record ReauthenticationProof(string? CurrentPassword, string? Tw
         if (presented > 1)
         {
             yield return new ValidationResult(
-                "Confirm with either your password or a verification code, not both.", [twoFactorCodeMember]);
+                "Confirm with only one of your password, a verification code, or a passkey.", [twoFactorCodeMember]);
         }
     }
 }

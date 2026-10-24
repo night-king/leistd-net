@@ -22,6 +22,6 @@ public interface IPasskeyAppService
     Task<PasskeyOutputDto> RenameAsync(Guid id, RenamePasskeyInputDto input, CancellationToken cancellationToken = default);
 
     /// <summary>删除：会话不够新时带上本人的一种凭证。</summary>
-    Task RemoveAsync(Guid id, BeginPasskeyRegistrationInputDto input, CancellationToken cancellationToken = default);
+    Task RemoveAsync(Guid id, RemovePasskeyInputDto input, CancellationToken cancellationToken = default);
 }
 #endif
