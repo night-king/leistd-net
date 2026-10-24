@@ -27,10 +27,12 @@ public static class AvatarUrls
         if (AvatarPolicy.IsExternalUrl(avatar))
             return avatar;
 
-        // 写入时已按 AvatarPolicy 校验，这里不再解码；版本号是内容摘要的前 12 位。
-        var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(avatar)));
-        return $"/api/v1/users/{userId}/avatar?v={digest[..12].ToLowerInvariant()}";
+        return $"/api/v1/users/{userId}/avatar?v={VersionOf(avatar)}";
     }
+
+    /// <summary>已校验的图片 data URL 的版本：完整存储值的 UTF-8 SHA-256 摘要前 12 位，小写十六进制。</summary>
+    public static string VersionOf(string avatar)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(avatar)))[..12].ToLowerInvariant();
 
     /// <summary>客户端提交的头像值：原样送回的对外地址表示"不变"，换回存储的原值；其余照收（仍须另行校验）。</summary>
     public static string? ResolveSubmitted(User user, string? submitted)

@@ -14,6 +14,8 @@ builder.Services.AddBillingClient().AddTokenExchange();
 
 机器调用只代表客户端，范围绑定在 Leistd:ServiceClients:{Name}:Scope。用户调用从 Resource 请求读取已验证的 Bearer；带浏览器会话时也可读取服务端保存的访问令牌并交换，不能通过设置 ICurrentUser、ICurrentTenant 或请求头制造用户凭据。Identity/Standalone 的 Cookie 和后台用户上下文不提供交换证明；用户委托需要已验证的用户访问令牌。
 
+用户委托默认用服务级 scope，表示允许代表用户访问该服务，默认与目标资源同名；实际以签发方登记的契约为准，Scope 可单独配置。被调服务仍校验用户本地权限（见[被其他服务调用](#被其他服务调用)）；需要更窄的应用委托能力时，显式设计对应的签发与校验契约。机器调用按能力分组细分 scope（如 invoices.read），保持最小权限，不按单个端点机械拆分，也不收敛成服务级。机器令牌没有用户权限兜底，scope 是主要的能力授权边界，资源与租户校验仍须保留。
+
 远端失败以 RemoteServiceException 携带业务码、远端 traceId 和错误字段；协议取令牌失败为 ServiceClientException。ServiceClientException 按本地观测的失败来源映射：本地配置或未分类故障默认 500，远端明确失败、响应无效或提前中断默认 502，连接失败 503、等待超时 504；不从远端状态推断本地状态，原始 URL 与响应片段只留服务端诊断，已知上游契约可由宿主覆盖。可预期业务失败由本服务明确翻译。
 
 ## 被其他服务调用
@@ -45,17 +47,34 @@ Identity 自身 API 的标识是 OAuth:Resource，同名登记为 scope，本服
 ```json
 {
 <!--#if (ResourceBrowserSession)-->
-  "Authentication": { "Issuer": "https://login.example.com/", "Audience": "orders-api", "ClientId": "orders-browser", "ClientSecret": "<from-secret-store>" },
+  "Authentication": {
+    "Issuer": "https://login.example.com/",
+    "Audience": "orders-api",
+    "ClientId": "orders-browser",
+    "ClientSecret": "<from-secret-store>"
+  },
 <!--#elseif (RemoteTokenAuth)-->
-  "Authentication": { "Issuer": "https://login.example.com/", "Audience": "orders-api" },
+  "Authentication": {
+    "Issuer": "https://login.example.com/",
+    "Audience": "orders-api"
+  },
 <!--#endif-->
   "Leistd": {
-    "ServiceAuth": { "Authority": "https://login.example.com/", "ClientId": "orders-api" },
+    "ServiceAuth": {
+      "Authority": "https://login.example.com/",
+      "ClientId": "orders-api"
+    },
     "ServiceClients": {
 <!--#if (RemoteTokenAuth && IncludeMultiTenancy)-->
-      "Identity": { "BaseAddress": "https://login.example.com/", "Scope": "tenant-routing.read" },
+      "Identity": {
+        "BaseAddress": "https://login.example.com/",
+        "Scope": "tenant-routing.read"
+      },
 <!--#endif-->
-      "Billing": { "BaseAddress": "https://billing.example.com/", "TokenExchange": { "Audience": "billing-api", "Scope": "billing-api" } }
+      "Billing": {
+        "BaseAddress": "https://billing.example.com/",
+        "TokenExchange": { "Audience": "billing-api", "Scope": "billing-api" }
+      }
     }
   }
 }
@@ -81,5 +100,7 @@ Resource 已注册用户访问令牌适配器。
 ## 发布本服务的 Client 包
 
 src/CompanyName.ProjectName.Client 只依赖 Refit 与服务客户端框架，不引用服务内部程序集；DTO 独立演进。新增接口经 Refit 特性声明，并由 AddRefitServiceClient 注册，以统一还原远端异常。Client 注册返回 IHttpClientBuilder，由消费宿主选择机器认证或用户交换，不自行猜测身份模式。以 NuGet 发布并按服务版本升级。
+
+服务同时提供机器端点与用户端点时，按认证方式拆分 Refit 接口与命名客户端，各给一个注册入口；框架要求每个命名客户端只挂一种认证，单模式服务不预建两套接口。
 
 认证变更需运行本项目已配置的认证与服务调用集成测试，并在部署环境验证跨服务 Token Exchange 正反例、租户成员关系与用户资料一致性。
