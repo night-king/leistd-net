@@ -109,6 +109,8 @@ CRM V2 三仓（abroker）在头像对接中发现了缓存问题，并整理了
 
 框架结论里对应的三处说法随后在反馈文件中更正。
 
+PR 首轮 CI 失败：生成门禁 `scripts/test-template-generation.py` 要求 `tenant-routing.read` 只出现在多租户形态的文档里，而新增的 scope 段落是无条件的，又拿它当了示例。示例改为中性的 `invoices.read`，本地跑通门禁四片与自检。
+
 ### 验收记录（证据在 `.tmp/avatar-cache/validation/`，未提交）
 
 | 项 | 结果 |
