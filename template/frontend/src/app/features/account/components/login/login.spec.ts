@@ -298,6 +298,36 @@ describe('Login', () => {
   });
   //#endif
 
+  // 注册是次要入口：排在登录与外部登录之后，提示语与链接之间不多出空白；关闭自助注册时不给入口
+  it('puts the sign-up prompt last and hides it when self sign-up is closed', async () => {
+    await setUp();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const prompt = host.querySelector('[data-testid="register-prompt"]')!;
+
+    //#if (IncludeLocalization)
+    // 测试不加载词条，显示的是键：两键直接相连即模板里没有多出的空白
+    expect(prompt.textContent!.trim()).toBe('account.login.noAccountaccount.login.registerNow');
+    //#else
+    expect(prompt.textContent!.trim()).toBe("Don't have an account? Sign up");
+    //#endif
+    expect(prompt.querySelector('a')!.getAttribute('href')).toBe('/auth/register');
+    expect(follows(host.querySelector('button[type="submit"]')!, prompt)).toBe(true);
+    //#if (ExternalLogin)
+    expect(follows(host.querySelector('[data-testid="external-login-github"]')!, prompt)).toBe(
+      true,
+    );
+    //#endif
+
+    TestBed.inject(HttpTestingController)
+      .match('/api/v1/auth/security-config')
+      .forEach((request) => request.flush({ registrationEnabled: false }));
+    fixture.detectChanges();
+
+    expect(host.querySelector('[data-testid="register-prompt"]')).toBeNull();
+  });
+
   /** 页面上显示出来的校验提示（未显示的 hlm-field-error 不渲染内容）。 */
   function shownErrors(): string[] {
     return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('hlm-field-error'))

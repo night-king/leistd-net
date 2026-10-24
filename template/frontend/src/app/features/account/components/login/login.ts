@@ -390,7 +390,7 @@ const ENGLISH: Record<string, string> = {
   'account.login.forgotPassword': 'Forgot password?',
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
-  'account.login.noAccount': "Don't have an account?",
+  'account.login.noAccount': "Don't have an account? ",
   'account.login.registerNow': 'Sign up',
   'account.login.submit': 'Sign in',
   //#if (ExternalLogin)

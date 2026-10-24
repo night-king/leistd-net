@@ -12,18 +12,7 @@
         (cancelled)="twoFactorPrompt.set(null)"
       />
     } @else {
-      <div class="flex flex-col gap-2">
-        <h1 class="text-2xl font-semibold tracking-tight">{{ t('account.login.title') }}</h1>
-        <!-- 租户关闭自助注册时不给注册入口；外部登录首次登录仍可建号，按钮照常在下方 -->
-        @if (registrationOpen()) {
-          <p class="text-muted-foreground text-sm">
-            {{ t('account.login.noAccount') }}
-            <a [routerLink]="['/auth/register']" class="text-primary font-medium hover:underline">{{
-              t('account.login.registerNow')
-            }}</a>
-          </p>
-        }
-      </div>
+      <h1 class="text-2xl font-semibold tracking-tight">{{ t('account.login.title') }}</h1>
 <!--#if (IncludeMultiTenancy)-->
       <!--
         租户在最前：它决定凭据在哪里校验，也决定下面的注册、外部登录与找回入口。
@@ -197,6 +186,19 @@
         [dividerLabel]="t('account.login.or')"
       />
       <!--#endif-->
+      <!--
+        注册是次要入口，排在登录与外部登录之后，居中一行（与 Spartan 登录 block 一致）。
+        租户关闭自助注册时不给入口；外部登录首次登录仍可建号。
+        提示语与链接之间不留空白：中文全角问号后不加空格，英文的空格写在译文里
+      -->
+      @if (registrationOpen()) {
+        <p class="text-muted-foreground text-center text-sm" data-testid="register-prompt">
+          {{ t('account.login.noAccount')
+          }}<a [routerLink]="['/auth/register']" class="text-primary font-medium hover:underline">{{
+            t('account.login.registerNow')
+          }}</a>
+        </p>
+      }
     }
 
     <!-- 开发环境的测试账号：表单下方一行淡色提示，与真正的登录表单分开 -->
