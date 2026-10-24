@@ -5,20 +5,9 @@
 <!--#endif-->
   <!-- 关闭自助注册时左栏不再宣传注册，换成登录的说法 -->
   <app-auth-shell [brand]="registrationOpen() ? 'register' : 'default'">
-    <div class="flex flex-col gap-2">
-      <h1 class="text-2xl font-semibold tracking-tight">
-        {{ t('account.register.title') }}
-      </h1>
-      <p class="text-muted-foreground text-sm">
-        {{ t('account.register.haveAccount') }}
-        <a
-          [routerLink]="['/auth/login']"
-          [queryParams]="returnUrl ? { returnUrl: returnUrl } : null"
-          class="text-primary font-medium hover:underline"
-          >{{ t('account.register.loginNow') }}</a
-        >
-      </p>
-    </div>
+    <h1 class="text-2xl font-semibold tracking-tight">
+      {{ t('account.register.title') }}
+    </h1>
     @if (!registrationOpen()) {
       <!-- 租户关闭了自助注册：不给表单（提交也会被后端拒绝），只说明去处 -->
       <p class="text-muted-foreground text-sm" role="status" data-testid="registration-closed">
@@ -170,5 +159,18 @@
       />
       <!--#endif-->
     }
+    <!--
+      去登录是次要入口，排在最后、居中一行（与 Spartan 注册 block 一致）；关闭自助注册时它就是唯一去处，两种状态都显示。
+      提示语与链接之间不留空白：中文全角问号后不加空格，英文的空格写在译文里
+    -->
+    <p class="text-muted-foreground text-center text-sm" data-testid="login-prompt">
+      {{ t('account.register.haveAccount')
+      }}<a
+        [routerLink]="['/auth/login']"
+        [queryParams]="returnUrl ? { returnUrl: returnUrl } : null"
+        class="text-primary font-medium hover:underline"
+        >{{ t('account.register.loginNow') }}</a
+      >
+    </p>
   </app-auth-shell>
 </ng-container>
