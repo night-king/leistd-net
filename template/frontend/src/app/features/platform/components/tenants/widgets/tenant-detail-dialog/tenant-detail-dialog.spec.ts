@@ -343,4 +343,28 @@ describe('TenantDetailDialog', () => {
     expect(labels).not.toContain(label('common.edit'));
     expect(labels).toContain(label('common.close'));
   });
+  it('locks connection deletion before confirmation and restores it on cancellation', async () => {
+    await setUp();
+    const target = tenant('t-a', 'a');
+    await open(target);
+    await resolve(target.id, [connectionOf(target.id, 'crm')]);
+    let answer!: (value: boolean) => void;
+    confirm.open.mockReturnValue(new Promise<boolean>((done) => (answer = done)));
+    const pending = component.removeConnection(connectionOf(target.id, 'crm'));
+    const duplicate = component.removeConnection(connectionOf(target.id, 'crm'));
+    fixture.detectChanges();
+    const button = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button'),
+    ).find((item) => /delete/i.test(item.textContent ?? ''))!;
+    try {
+      expect(confirm.open).toHaveBeenCalledOnce();
+      expect(button.disabled).toBe(true);
+      expect(button.querySelector('hlm-spinner')).not.toBeNull();
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+  });
 });

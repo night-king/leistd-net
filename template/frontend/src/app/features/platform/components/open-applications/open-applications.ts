@@ -32,7 +32,7 @@ import {
 } from '@spartan-ng/helm/input-group';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { PaginationState, SortingState } from '@tanstack/angular-table';
-import { combineLatest, defer, EMPTY, of, Subject } from 'rxjs';
+import { firstValueFrom, combineLatest, defer, EMPTY, of, Subject } from 'rxjs';
 import {
   catchError,
   debounceTime,
@@ -109,6 +109,9 @@ const DEFAULT_APPLICATION_SORTING: SortingState = [{ id: 'creationTime', desc: t
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OpenApplications {
+  readonly deletingId = signal<string | null>(null);
+  readonly resettingSecretId = signal<string | null>(null);
+
   private readonly service = inject(OpenApplicationService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly confirmService = inject(ConfirmService);
@@ -395,74 +398,85 @@ export class OpenApplications {
   }
 
   async handleDelete(id: string) {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('openApp.confirm.deleteMessage'),
-      header: this.transloco.translate('openApp.confirm.deleteHeader'),
-      confirmText: this.transloco.translate('common.ok'),
-      cancelText: this.transloco.translate('common.cancel'),
-      //#else
-      message:
-        'Are you sure you want to delete this open application? Clients using this Client ID will no longer be able to sign in.',
-      header: 'Confirm deletion',
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
+    if (this.deletingId() !== null) return;
+    this.deletingId.set(id);
 
-    this.service
-      .deleteOpenApplication(id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          //#if (IncludeLocalization)
-          toast.success(this.transloco.translate('common.success'), {
-            description: this.transloco.translate('openApp.toast.deleted'),
-          });
-          //#else
-          toast.success('Success', { description: 'Open application deleted' });
-          //#endif
-          this.reloadList();
-        },
-        error: (error) => this.showRequestError(error),
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('openApp.confirm.deleteMessage'),
+        header: this.transloco.translate('openApp.confirm.deleteHeader'),
+        confirmText: this.transloco.translate('common.ok'),
+        cancelText: this.transloco.translate('common.cancel'),
+        //#else
+        message:
+          'Are you sure you want to delete this open application? Clients using this Client ID will no longer be able to sign in.',
+        header: 'Confirm deletion',
+        //#endif
+        variant: 'destructive',
       });
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await firstValueFrom(this.service.deleteOpenApplication(id));
+
+        //#if (IncludeLocalization)
+        toast.success(this.transloco.translate('common.success'), {
+          description: this.transloco.translate('openApp.toast.deleted'),
+        });
+        //#else
+        toast.success('Success', { description: 'Open application deleted' });
+        //#endif
+        this.reloadList();
+      } catch (error: unknown) {
+        this.showRequestError(error);
+      }
+    } finally {
+      this.deletingId.set(null);
+    }
   }
 
   async handleResetSecret(id: string) {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('openApp.confirm.resetSecretMessage'),
-      header: this.transloco.translate('openApp.confirm.resetSecretHeader'),
-      confirmText: this.transloco.translate('common.ok'),
-      cancelText: this.transloco.translate('common.cancel'),
-      //#else
-      message:
-        "Are you sure you want to reset this open application's client secret? The old secret will be invalidated immediately.",
-      header: 'Confirm secret reset',
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
+    if (this.resettingSecretId() !== null) return;
+    this.resettingSecretId.set(id);
 
-    // 重置入口在列表行上，所属应用取自当前列表
-    const application = this.applications().find((item) => item.id === id) ?? null;
-    this.service
-      .resetSecret(id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (result) => {
-          this.secretValue.set(result.clientSecret);
-          this.secretKind.set('reset');
-          this.secretApplication.set(application);
-          this.secretDialogVisible.set(true);
-          this.reloadList();
-        },
-        error: (error) => this.showRequestError(error),
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('openApp.confirm.resetSecretMessage'),
+        header: this.transloco.translate('openApp.confirm.resetSecretHeader'),
+        confirmText: this.transloco.translate('common.ok'),
+        cancelText: this.transloco.translate('common.cancel'),
+        //#else
+        message:
+          "Are you sure you want to reset this open application's client secret? The old secret will be invalidated immediately.",
+        header: 'Confirm secret reset',
+        //#endif
+        variant: 'destructive',
       });
+      if (!confirmed) {
+        return;
+      }
+
+      // 重置入口在列表行上，所属应用取自当前列表
+      const application = this.applications().find((item) => item.id === id) ?? null;
+
+      try {
+        const result = await firstValueFrom(this.service.resetSecret(id));
+
+        this.secretValue.set(result.clientSecret);
+        this.secretKind.set('reset');
+        this.secretApplication.set(application);
+        this.secretDialogVisible.set(true);
+        this.reloadList();
+      } catch (error: unknown) {
+        this.showRequestError(error);
+      }
+    } finally {
+      this.resettingSecretId.set(null);
+    }
   }
 
   private queryFromParams(params: ParamMap): GetOpenApplicationsInputDto {

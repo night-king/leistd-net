@@ -154,6 +154,9 @@ describe('ExternalLogins', () => {
       twoFactorCode: undefined,
     });
     expect(reauthenticateForm()).not.toBeNull();
+    expect(
+      host.querySelector<HTMLButtonElement>('[data-testid="external-login-unlink"]')!.disabled,
+    ).toBe(true);
 
     await confirmWithPassword(fixture, 'wrong-password');
 
@@ -189,6 +192,9 @@ describe('ExternalLogins', () => {
     expect(await reauthenticateClosed(fixture)).toBe(true);
     expect(account.unlinkExternalLogin).toHaveBeenCalledOnce();
     expect(account.getExternalLogins).toHaveBeenCalledOnce();
+    expect(
+      host.querySelector<HTMLButtonElement>('[data-testid="external-login-unlink"]')!.disabled,
+    ).toBe(false);
   });
 
   function rejection(code: string, detail = code): ApplicationHttpError {
@@ -196,4 +202,47 @@ describe('ExternalLogins', () => {
       new HttpErrorResponse({ status: 400, error: { code, detail } }),
     );
   }
+  it('disables the trigger during confirmation and restores it on cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirmation = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const host = await render({ hasPassword: true, providers: [github] });
+    const button = host.querySelector<HTMLButtonElement>('[data-testid="external-login-unlink"]')!;
+    button.click();
+    button.click();
+    fixture.detectChanges();
+    try {
+      expect(confirmation).toHaveBeenCalledOnce();
+      expect(button.disabled).toBe(true);
+      expect(button.querySelector('hlm-spinner')).not.toBeNull();
+    } finally {
+      answer(false);
+      await fixture.whenStable();
+    }
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+  });
+
+  it('holds the unlink lock until the credential retry request completes', async () => {
+    const response = new Subject<void>();
+    account.unlinkExternalLogin
+      .mockReturnValueOnce(throwError(() => rejection('Auth:ReauthenticationRequired')))
+      .mockReturnValueOnce(response);
+    const host = await render({ hasPassword: true, providers: [github] });
+    const button = host.querySelector<HTMLButtonElement>('[data-testid="external-login-unlink"]')!;
+    button.click();
+    await fixture.whenStable();
+    expect(button.disabled).toBe(true);
+    await confirmWithPassword(fixture, 'test-proof');
+    expect(account.unlinkExternalLogin).toHaveBeenCalledTimes(2);
+    expect(button.disabled).toBe(true);
+    response.next();
+    response.complete();
+    await fixture.whenStable();
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+  });
 });

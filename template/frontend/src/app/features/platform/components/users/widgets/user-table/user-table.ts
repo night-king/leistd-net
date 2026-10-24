@@ -144,6 +144,10 @@ export class UserTable {
   protected readonly t = englishText(ENGLISH);
   //#endif
 
+  readonly deletingId = input<string | null>(null);
+  readonly activationId = input<string | null>(null);
+  readonly unlockingId = input<string | null>(null);
+  readonly resettingTwoFactorId = input<string | null>(null);
   readonly users = input<UserManagementOutputDto[]>([]);
   readonly totalCount = input(0);
   readonly pagination = input<PaginationState>({ pageIndex: 0, pageSize: 20 });

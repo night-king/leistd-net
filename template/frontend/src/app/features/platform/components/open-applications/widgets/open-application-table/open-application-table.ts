@@ -129,6 +129,8 @@ export class OpenApplicationTable {
   protected readonly t = englishText(ENGLISH);
   //#endif
 
+  readonly deletingId = input<string | null>(null);
+  readonly resettingSecretId = input<string | null>(null);
   readonly applications = input<OpenApplicationOutputDto[]>([]);
   readonly totalCount = input(0);
   readonly pagination = input<PaginationState>({ pageIndex: 0, pageSize: 20 });

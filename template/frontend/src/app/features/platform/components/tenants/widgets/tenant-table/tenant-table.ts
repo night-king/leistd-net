@@ -109,6 +109,9 @@ export class TenantTable {
   //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif
+  readonly deletingId = input<string | null>(null);
+  readonly activationId = input<string | null>(null);
+  readonly impersonatingId = input<string | null>(null);
   readonly tenants = input<TenantOutputDto[]>([]);
   readonly totalCount = input(0);
   readonly pagination = input<PaginationState>({ pageIndex: 0, pageSize: 20 });

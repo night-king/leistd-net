@@ -168,4 +168,28 @@ describe('TwoFactorEmailSettings', () => {
     expect(confirm.open).toHaveBeenCalledTimes(1);
     expect(account.disableEmailTwoFactor).toHaveBeenCalledTimes(1);
   });
+  it('disables the trigger during confirmation and restores it on cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirmation = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const host = await render({ ...OFF, emailEnabled: true });
+    const button = host.querySelector<HTMLButtonElement>(
+      '[data-testid="two-factor-email-turn-off"]',
+    )!;
+    button.click();
+    button.click();
+    fixture.detectChanges();
+    try {
+      expect(confirmation).toHaveBeenCalledOnce();
+      expect(button.disabled).toBe(true);
+      expect(button.querySelector('hlm-spinner')).not.toBeNull();
+    } finally {
+      answer(false);
+      await fixture.whenStable();
+    }
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+  });
 });

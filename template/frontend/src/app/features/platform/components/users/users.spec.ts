@@ -321,6 +321,9 @@ describe('Users page query round trip', () => {
     username: 'alice',
     email: 'alice@example.test',
     displayName: 'Alice',
+    //#if (LocalIdentity)
+    isEmailVerified: false,
+    //#endif
     isActive: true,
     isSuperAdmin: false,
     roles: [],
@@ -538,4 +541,125 @@ describe('Users page query round trip', () => {
       expect(component.rowSelection()).toEqual({});
     });
   });
+  it('locks toggle before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.handleToggleActive(loadedRow);
+    const duplicate = component.handleToggleActive(loadedRow);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.activationId()).toBeTruthy();
+      expect(table().activationId()).toBe(component.activationId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.activationId()).toBeFalsy();
+  });
+  //#if (LocalIdentity)
+
+  it('locks delete before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.handleDelete(loadedRow);
+    const duplicate = component.handleDelete(loadedRow);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.deletingId()).toBeTruthy();
+      expect(table().deletingId()).toBe(component.deletingId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.deletingId()).toBeFalsy();
+  });
+  //#endif
+  //#if (LocalIdentity)
+
+  it('locks unlock before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.handleUnlock(loadedRow);
+    const duplicate = component.handleUnlock(loadedRow);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.unlockingId()).toBeTruthy();
+      expect(table().unlockingId()).toBe(component.unlockingId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.unlockingId()).toBeFalsy();
+  });
+  //#endif
+  //#if (LocalIdentity)
+
+  it('locks reset two-factor before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.handleResetTwoFactor(loadedRow);
+    const duplicate = component.handleResetTwoFactor(loadedRow);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.resettingTwoFactorId()).toBeTruthy();
+      expect(table().resettingTwoFactorId()).toBe(component.resettingTwoFactorId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.resettingTwoFactorId()).toBeFalsy();
+  });
+  //#endif
+
+  it('locks batch disable before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.batchSetActive(false);
+    const duplicate = component.batchSetActive(false);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.batchBusy()).toBeTruthy();
+      expect(component.batchBusy()).toBe(component.batchBusy());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.batchBusy()).toBeFalsy();
+  });
+  //#if (LocalIdentity)
+
+  it('locks batch unlock before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.batchUnlock();
+    const duplicate = component.batchUnlock();
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.batchBusy()).toBeTruthy();
+      expect(component.batchBusy()).toBe(component.batchBusy());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.batchBusy()).toBeFalsy();
+  });
+  //#endif
 });

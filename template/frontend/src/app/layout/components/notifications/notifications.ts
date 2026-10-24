@@ -69,6 +69,8 @@ import { resolveDisplayTimeZone } from '../../../shared/utils/zoned-time';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Notifications implements OnInit {
+  readonly clearingAll = signal<boolean>(false);
+
   private readonly router = inject(Router);
   private readonly authService = inject(AuthService);
   // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间；设置里的时区当前运行时用不了时回落到浏览器时区。
@@ -150,6 +152,7 @@ export class Notifications implements OnInit {
   }
 
   async markAllNotificationsRead(): Promise<void> {
+    if (this.markingAllRead()) return;
     this.markingAllRead.set(true);
     try {
       await this.notificationService.markAllAsRead();
@@ -161,32 +164,39 @@ export class Notifications implements OnInit {
   }
 
   async clearAllNotifications(): Promise<void> {
-    // 清空不可撤销，先确认。
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('layout.notifications.clearAllConfirm'),
-      header: this.transloco.translate('layout.notifications.clearAll'),
-      confirmText: this.transloco.translate('common.ok'),
-      cancelText: this.transloco.translate('common.cancel'),
-      //#else
-      message: 'Clear all notifications? This cannot be undone.',
-      header: 'Clear all',
-      confirmText: 'OK',
-      cancelText: 'Cancel',
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
+    if (this.clearingAll()) return;
+    this.clearingAll.set(true);
+
     try {
-      await this.notificationService.clearAll();
-    } catch (error: unknown) {
-      // 删除失败：保持面板打开并提示，避免「看起来成功、重开还在」。
-      this.showRequestError(error);
-      return;
+      // 清空不可撤销，先确认。
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('layout.notifications.clearAllConfirm'),
+        header: this.transloco.translate('layout.notifications.clearAll'),
+        confirmText: this.transloco.translate('common.ok'),
+        cancelText: this.transloco.translate('common.cancel'),
+        //#else
+        message: 'Clear all notifications? This cannot be undone.',
+        header: 'Clear all',
+        confirmText: 'OK',
+        cancelText: 'Cancel',
+        //#endif
+        variant: 'destructive',
+      });
+      if (!confirmed) {
+        return;
+      }
+      try {
+        await this.notificationService.clearAll();
+      } catch (error: unknown) {
+        // 删除失败：保持面板打开并提示，避免「看起来成功、重开还在」。
+        this.showRequestError(error);
+        return;
+      }
+      this.notificationOpen.set('closed');
+    } finally {
+      this.clearingAll.set(false);
     }
-    this.notificationOpen.set('closed');
   }
 
   async clearOneNotification(id: string): Promise<void> {

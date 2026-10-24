@@ -1,6 +1,7 @@
 #if (LocalIdentity)
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace CompanyName.ProjectName.IntegrationTests;
@@ -28,22 +29,132 @@ public sealed class AvatarTests(ProjectWebApplicationFactory factory) : IClassFi
         Assert.NotNull(avatar);
         Assert.Matches(@"^/api/v1/users/[0-9a-f-]{36}/avatar\?v=", avatar);
         Assert.Contains("?v=", avatar);
+        Assert.EndsWith("?v=e7ea26c606a7", avatar);
 
         using var image = await user.Client.GetAsync(avatar);
         Assert.Equal(HttpStatusCode.OK, image.StatusCode);
         Assert.Equal("image/png", image.Content.Headers.ContentType?.MediaType);
         Assert.Equal(PngBytes, await image.Content.ReadAsByteArrayAsync());
+        Assert.Equal(CacheControlHeaderValue.Parse("private, max-age=31536000, immutable"), image.Headers.CacheControl);
+        Assert.NotNull(image.Headers.ETag);
 
         using var conditional = new HttpRequestMessage(HttpMethod.Get, avatar);
         conditional.Headers.IfNoneMatch.Add(image.Headers.ETag!);
         using var notModified = await user.Client.SendAsync(conditional);
         Assert.Equal(HttpStatusCode.NotModified, notModified.StatusCode);
+        Assert.Equal(image.Headers.CacheControl, notModified.Headers.CacheControl);
 
         // 换一张图，地址里的版本号随之变化，旧缓存不会被误用
         byte[] other = [.. PngBytes, 0x01];
         using var replace = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = DataUrl("image/png", other) });
         Assert.Equal(HttpStatusCode.OK, replace.StatusCode);
         Assert.NotEqual(avatar, await ReadAvatarAsync(user.Client));
+    }
+
+    [Fact]
+    public async Task An_old_version_url_revalidates_until_the_original_avatar_is_restored()
+    {
+        using var user = await CreateUserSessionAsync("avatar_restore");
+        var original = DataUrl("image/png", PngBytes);
+        using var upload = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = original });
+        Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
+        var originalUrl = await ReadAvatarAsync(user.Client);
+        Assert.NotNull(originalUrl);
+        using var originalImage = await user.Client.GetAsync(originalUrl);
+        Assert.Equal(HttpStatusCode.OK, originalImage.StatusCode);
+        Assert.NotNull(originalImage.Headers.ETag);
+
+        byte[] replacement = [.. PngBytes, 0x01];
+        using var replace = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = DataUrl("image/png", replacement) });
+        Assert.Equal(HttpStatusCode.OK, replace.StatusCode);
+        Assert.NotEqual(originalUrl, await ReadAvatarAsync(user.Client));
+
+        using var staleRequest = new HttpRequestMessage(HttpMethod.Get, originalUrl);
+        staleRequest.Headers.IfNoneMatch.Add(originalImage.Headers.ETag);
+        using var currentImage = await user.Client.SendAsync(staleRequest);
+        Assert.Equal(HttpStatusCode.OK, currentImage.StatusCode);
+        Assert.Equal(CacheControlHeaderValue.Parse("private, no-cache"), currentImage.Headers.CacheControl);
+        Assert.Equal(replacement, await currentImage.Content.ReadAsByteArrayAsync());
+        Assert.NotNull(currentImage.Headers.ETag);
+        Assert.NotEqual(originalImage.Headers.ETag, currentImage.Headers.ETag);
+
+        using var validation = new HttpRequestMessage(HttpMethod.Get, originalUrl);
+        validation.Headers.IfNoneMatch.Add(currentImage.Headers.ETag);
+        using var notModified = await user.Client.SendAsync(validation);
+        Assert.Equal(HttpStatusCode.NotModified, notModified.StatusCode);
+        Assert.Equal(CacheControlHeaderValue.Parse("private, no-cache"), notModified.Headers.CacheControl);
+
+        using var restore = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = original });
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
+        Assert.Equal(originalUrl, await ReadAvatarAsync(user.Client));
+        using var restoredImage = await user.Client.GetAsync(originalUrl);
+        Assert.Equal(HttpStatusCode.OK, restoredImage.StatusCode);
+        Assert.Equal(CacheControlHeaderValue.Parse("private, max-age=31536000, immutable"), restoredImage.Headers.CacheControl);
+        Assert.Equal(PngBytes, await restoredImage.Content.ReadAsByteArrayAsync());
+        Assert.Equal(originalImage.Headers.ETag, restoredImage.Headers.ETag);
+    }
+
+    [Fact]
+    public async Task A_cleared_avatar_response_is_not_stored_before_the_same_image_is_uploaded_again()
+    {
+        using var user = await CreateUserSessionAsync("avatar_reupload");
+        var original = DataUrl("image/png", PngBytes);
+        using var upload = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = original });
+        Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
+        var originalUrl = await ReadAvatarAsync(user.Client);
+        Assert.NotNull(originalUrl);
+
+        using var clear = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = (string?)null });
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        Assert.Null(await ReadAvatarAsync(user.Client));
+        using var missing = await user.Client.GetAsync(originalUrl);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal(CacheControlHeaderValue.Parse("private, no-store"), missing.Headers.CacheControl);
+        Assert.Equal("application/problem+json", missing.Content.Headers.ContentType?.MediaType);
+
+        using var reupload = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = original });
+        Assert.Equal(HttpStatusCode.OK, reupload.StatusCode);
+        Assert.Equal(originalUrl, await ReadAvatarAsync(user.Client));
+        using var restored = await user.Client.GetAsync(originalUrl);
+        Assert.Equal(HttpStatusCode.OK, restored.StatusCode);
+        Assert.Equal(CacheControlHeaderValue.Parse("private, max-age=31536000, immutable"), restored.Headers.CacheControl);
+        Assert.Equal(PngBytes, await restored.Content.ReadAsByteArrayAsync());
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("empty")]
+    [InlineData("outdated")]
+    [InlineData("uppercase")]
+    [InlineData("truncated")]
+    public async Task Requests_without_the_exact_current_version_revalidate(string versionKind)
+    {
+        using var user = await CreateUserSessionAsync("avatar_validate");
+        using var upload = await user.Client.PutAsJsonAsync("/api/v1/auth/me/avatar", new { Avatar = DataUrl("image/png", PngBytes) });
+        Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
+        var currentUrl = await ReadAvatarAsync(user.Client);
+        Assert.NotNull(currentUrl);
+        var path = currentUrl[..currentUrl.IndexOf('?')];
+        var requestUrl = versionKind switch
+        {
+            "missing" => path,
+            "empty" => $"{path}?v=",
+            "uppercase" => $"{path}?v={currentUrl[(currentUrl.IndexOf('=') + 1)..].ToUpperInvariant()}",
+            "truncated" => currentUrl[..^1],
+            _ => $"{path}?v=outdated"
+        };
+
+        using var image = await user.Client.GetAsync(requestUrl);
+        Assert.Equal(HttpStatusCode.OK, image.StatusCode);
+        Assert.Equal(CacheControlHeaderValue.Parse("private, no-cache"), image.Headers.CacheControl);
+        Assert.Equal(PngBytes, await image.Content.ReadAsByteArrayAsync());
+        Assert.NotNull(image.Headers.ETag);
+        using var conditional = new HttpRequestMessage(HttpMethod.Get, requestUrl);
+        conditional.Headers.IfNoneMatch.Add(image.Headers.ETag);
+        using var notModified = await user.Client.SendAsync(conditional);
+        Assert.Equal(HttpStatusCode.NotModified, notModified.StatusCode);
+        Assert.Equal(image.Headers.ETag, notModified.Headers.ETag);
+        Assert.Equal(CacheControlHeaderValue.Parse("private, no-cache"), notModified.Headers.CacheControl);
     }
 
     [Theory]

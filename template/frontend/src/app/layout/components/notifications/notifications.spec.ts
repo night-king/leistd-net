@@ -100,6 +100,63 @@ describe('Notifications', () => {
     );
   }
 
+  it('blocks reentry while confirmation and the clear request are pending', async () => {
+    let answer!: (value: boolean) => void;
+    let finish!: () => void;
+    confirmService.open.mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    service.clearAll.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+    service.notifications.set([
+      {
+        id: 'n-1',
+        title: 'Notice',
+        content: '',
+        isRead: true,
+        type: 'System',
+        creationTime: new Date().toISOString(),
+      } as NotificationOutputDto,
+    ]);
+    const fixture = TestBed.createComponent(Notifications);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    component.notificationOpen.set('open');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const button = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-container button'),
+    ).find((item) => /clear.?all/i.test(item.textContent ?? ''))!;
+    expect(button).toBeDefined();
+    const pending = component.clearAllNotifications();
+    const duplicate = component.clearAllNotifications();
+    try {
+      fixture.detectChanges();
+      expect(confirmService.open).toHaveBeenCalledTimes(1);
+      expect(button.disabled).toBe(true);
+      expect(button.querySelector('hlm-spinner')).not.toBeNull();
+      answer(true);
+      await Promise.resolve();
+      await component.clearAllNotifications();
+      expect(service.clearAll).toHaveBeenCalledTimes(1);
+      expect(button.disabled).toBe(true);
+    } finally {
+      answer(false);
+      finish();
+      await Promise.all([pending, duplicate]);
+    }
+  });
+
+  it('restores the clear trigger after cancelling and permits another confirmation', async () => {
+    let answer!: (value: boolean) => void;
+    confirmService.open.mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const component = createComponent();
+    const pending = component.clearAllNotifications();
+    answer(false);
+    await pending;
+    expect(service.clearAll).not.toHaveBeenCalled();
+    confirmService.open.mockResolvedValue(false);
+    await component.clearAllNotifications();
+    expect(confirmService.open).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps the panel open and surfaces an error when clearing all fails', async () => {
     service.clearAll.mockRejectedValue(httpError(500));
     const component = createComponent();
@@ -109,6 +166,8 @@ describe('Notifications', () => {
 
     expect(errorToast).toHaveBeenCalled();
     expect(component.notificationOpen(), 'a failed delete must not look successful').toBe('open');
+    await component.clearAllNotifications();
+    expect(service.clearAll).toHaveBeenCalledTimes(2);
   });
 
   it('closes the panel only after clearing all succeeds', async () => {

@@ -96,7 +96,11 @@
               [disabled]="batchBusy() || loading()"
               (click)="batchSetActive(true)"
             >
-              <ng-icon name="lucideCircleCheck" data-icon="inline-start" />
+              @if (batchBusy()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              } @else {
+                <ng-icon name="lucideCircleCheck" data-icon="inline-start" />
+              }
               {{ t('users.batch.enable') }}
             </button>
             <!--#if (LocalIdentity)-->
@@ -107,7 +111,11 @@
               [disabled]="batchBusy() || loading()"
               (click)="batchUnlock()"
             >
-              <ng-icon name="lucideLockOpen" data-icon="inline-start" />
+              @if (batchBusy()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              } @else {
+                <ng-icon name="lucideLockOpen" data-icon="inline-start" />
+              }
               {{ t('users.batch.unlock') }}
             </button>
             <!--#endif-->
@@ -133,7 +141,11 @@
               [disabled]="batchBusy() || loading()"
               (click)="batchSetActive(false)"
             >
-              <ng-icon name="lucideBan" data-icon="inline-start" />
+              @if (batchBusy()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              } @else {
+                <ng-icon name="lucideBan" data-icon="inline-start" />
+              }
               {{ t('users.batch.disable') }}
             </button>
           }
@@ -145,6 +157,10 @@
       }
 
       <app-user-table
+        [deletingId]="deletingId()"
+        [activationId]="activationId()"
+        [unlockingId]="unlockingId()"
+        [resettingTwoFactorId]="resettingTwoFactorId()"
         [users]="users()"
         [totalCount]="totalRecords()"
         [pagination]="pagination()"
@@ -213,7 +229,7 @@
   />
   <app-reauthenticate-dialog
     [visible]="reauth.visible()"
-    (visibleChange)="reauth.setVisible($event)"
+    (visibleChange)="onReauthenticationVisibleChange($event)"
     [saving]="reauth.saving()"
     [(error)]="reauth.error"
     [description]="
