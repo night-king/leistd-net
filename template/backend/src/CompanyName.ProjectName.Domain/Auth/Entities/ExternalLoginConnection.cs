@@ -33,6 +33,13 @@ public class ExternalLoginConnection : DeletionAuditedEntity<Guid>, IAggregateRo
     /// </remarks>
     public ExternalProfile Profile { get; private set; }
 
+    /// <summary>连接是按已验证邮箱自动关联到已有账号建立的，此后还没有经它用独立因子完成过第二步。</summary>
+    /// <remarks>
+    /// 自动关联凭的是邮箱：控制了邮箱的人可以在提供商那里建一个同邮箱的号连进来。为真时经这条连接登录，
+    /// 第二步只认独立因子；用独立因子完成一次后清除。本人在设置里主动绑定的连接不带这个标记。
+    /// </remarks>
+    public bool LinkedByEmail { get; private set; }
+
     private ExternalLoginConnection()
     {
         Provider = null!;
@@ -40,13 +47,20 @@ public class ExternalLoginConnection : DeletionAuditedEntity<Guid>, IAggregateRo
         Profile = null!;
     }
 
-    public ExternalLoginConnection(Guid userId, string provider, string providerUserId, ExternalProfile profile)
+    public ExternalLoginConnection(Guid userId, string provider, string providerUserId, ExternalProfile profile, bool linkedByEmail = false)
     {
         Id = Guid.CreateVersion7();
         UserId = userId;
         Provider = provider ?? throw new ArgumentNullException(nameof(provider));
         ProviderUserId = providerUserId ?? throw new ArgumentNullException(nameof(providerUserId));
         Profile = profile ?? throw new ArgumentNullException(nameof(profile));
+        LinkedByEmail = linkedByEmail;
+    }
+
+    /// <summary>本人经这条连接用独立因子完成了第二步：连接不再视为只凭邮箱建立。</summary>
+    public void ConfirmByIndependentFactor()
+    {
+        LinkedByEmail = false;
     }
 
     /// <summary>用提供商最新的资料替换快照。</summary>

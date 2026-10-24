@@ -345,6 +345,86 @@ public sealed partial class EmailChallengeStoreTests
         await _store.IssuePasswordResetAsync(email, target: null, FixedRegistrationPolicy.Policy);
     }
 
+    /// <summary>登录第二步的码在后台投递：签发时不发信，队列跑完才到；挑战绑定账号与安全版本。</summary>
+    [Fact]
+    public async Task A_sign_in_code_is_sent_in_the_background_and_proves_the_user_and_stamp()
+    {
+        var recipient = new EmailCodeRecipient(Guid.NewGuid(), "signin@example.test", "stamp-1");
+        var issued = await _store.IssueTwoFactorSignInAsync(recipient);
+        Assert.Empty(_sender.Calls);
+
+        await _queue.RunAllAsync(_sender, _time);
+        var code = Assert.Single(_sender.Calls).Code;
+
+        var check = await ValidateSignInAsync(recipient.Email, issued.ChallengeId, code);
+        Assert.Equal(EmailCodeOutcome.Valid, check.Outcome);
+        Assert.Equal(new EmailCodeProof(recipient.UserId, recipient.SecurityStamp), check.Proof);
+    }
+
+    /// <summary>发送间隔内再次发码沿用上一封：同一个挑战、回报剩余间隔、不另发信；别的账号或凭据变了之后不沿用。</summary>
+    [Fact]
+    public async Task A_sign_in_send_within_the_interval_reuses_the_previous_code()
+    {
+        var recipient = new EmailCodeRecipient(Guid.NewGuid(), "reuse@example.test", "stamp-1");
+        var first = await _store.IssueTwoFactorSignInAsync(recipient);
+        _time.Advance(TimeSpan.FromSeconds(20));
+
+        var again = await _store.IssueTwoFactorSignInAsync(recipient);
+
+        Assert.Equal(first.ChallengeId, again.ChallengeId);
+        Assert.Equal((int)(SendInterval - TimeSpan.FromSeconds(20)).TotalSeconds, again.RetryAfterSeconds);
+        Assert.Single(_queue.Items);
+
+        var exception = await Assert.ThrowsAsync<BusinessException>(
+            () => _store.IssueTwoFactorSignInAsync(recipient with { SecurityStamp = "stamp-2" }));
+        Assert.Equal(AuthErrorCodes.EmailCodeSendTooFrequent, exception.Code);
+    }
+
+    /// <summary>登录第二步的发送间隔单独一把键：找回口令往同一地址发码不挡它，它也不挡找回口令。</summary>
+    [Fact]
+    public async Task Sign_in_codes_have_their_own_send_interval()
+    {
+        var recipient = new EmailCodeRecipient(Guid.NewGuid(), "separate@example.test", "stamp-1");
+        await _store.IssuePasswordResetAsync(recipient.Email, target: null, FixedRegistrationPolicy.Policy);
+        await _store.IssueTwoFactorSignInAsync(recipient);
+
+        var other = recipient with { Email = "separate-2@example.test" };
+        await _store.IssueTwoFactorSignInAsync(other);
+        await _store.IssuePasswordResetAsync(other.Email, target: null, FixedRegistrationPolicy.Policy);
+    }
+
+    /// <summary>码失效与码不对分开报：挑战不存在或次数已用完是失效，这一次输错是码不对。</summary>
+    [Fact]
+    public async Task Validation_tells_an_expired_challenge_from_a_wrong_code()
+    {
+        var recipient = new EmailCodeRecipient(Guid.NewGuid(), "outcome@example.test", "stamp-1");
+        Assert.Equal(EmailCodeOutcome.Expired, (await ValidateSignInAsync(recipient.Email, Guid.NewGuid(), "000000")).Outcome);
+
+        var issued = await _store.IssueTwoFactorSignInAsync(recipient);
+        for (var attempt = 0; attempt < FixedRegistrationPolicy.Policy.EmailCodeMaxAttempts; attempt++)
+        {
+            Assert.Equal(EmailCodeOutcome.Wrong, (await ValidateSignInAsync(recipient.Email, issued.ChallengeId, "000000")).Outcome);
+        }
+
+        Assert.Equal(EmailCodeOutcome.Expired, (await ValidateSignInAsync(recipient.Email, issued.ChallengeId, "000000")).Outcome);
+    }
+
+    /// <summary>不能自助找回的账号收到一封不带码的告知信；挑战与没有账号时一样永远校验不过。</summary>
+    [Fact]
+    public async Task An_account_that_needs_an_administrator_gets_a_notice_instead_of_a_code()
+    {
+        const string email = "notice@example.test";
+        var notice = new EmailCodeRecipient(Guid.NewGuid(), email, "stamp-1");
+        var issued = await _store.IssuePasswordResetAsync(email, target: null, FixedRegistrationPolicy.Policy, notice);
+
+        await _queue.RunAllAsync(_sender, _time);
+        Assert.Empty(Assert.Single(_sender.Calls).Code);
+        Assert.Null(await ValidatePasswordResetAsync(email, issued.ChallengeId, "000000"));
+    }
+
+    private Task<EmailCodeCheck> ValidateSignInAsync(string email, Guid challengeId, string code)
+        => _store.ValidateTwoFactorSignInAsync(email, new EmailVerificationInputDto { ChallengeId = challengeId, Code = code });
+
     private Task<EmailCodeProof?> ValidatePasswordResetAsync(string email, Guid challengeId, string code)
         => _store.ValidatePasswordResetAsync(email, new EmailVerificationInputDto { ChallengeId = challengeId, Code = code });
 
@@ -578,7 +658,7 @@ public sealed partial class EmailChallengeStoreTests
                 .AddSingleton<ISettingProvider, NoSettings>()
                 .AddSingleton<IStringLocalizer, KeyLocalizer>()
 #endif
-                .AddTransient<PasswordResetCodeMailer>()
+                .AddTransient<AccountCodeMailer>()
                 .BuildServiceProvider();
             while (_items.TryDequeue(out var item))
             {

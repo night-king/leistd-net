@@ -59,8 +59,12 @@ internal sealed class PasswordResetAppService(
         var target = user is { CanRecoverPasswordByEmail: true }
             ? new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp)
             : null;
+        // 第二步只有邮箱验证码的账号不能自助找回：不发码，改发一封请它联系管理员的告知信，响应与别的邮箱一样
+        var notice = user is { NeedsAdministratorToRecoverPassword: true }
+            ? new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp)
+            : null;
 
-        return await emailChallengeStore.IssuePasswordResetAsync(email, target, policy, cancellationToken);
+        return await emailChallengeStore.IssuePasswordResetAsync(email, target, policy, notice, cancellationToken);
     }
 
     /// <remarks>

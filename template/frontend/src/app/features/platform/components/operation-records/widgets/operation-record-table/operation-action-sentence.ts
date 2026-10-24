@@ -71,6 +71,7 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'auth.two-factor.disabled': () => 'Turned off two-factor authentication',
   'auth.two-factor.recovery-codes-regenerated': () => 'Regenerated recovery codes',
   'auth.two-factor.recovery-code-used': (t) => `Account ${t} signed in with a recovery code`,
+  'auth.two-factor.preferred-method-changed': () => 'Changed the preferred verification method',
   //#if (Email)
   'auth.two-factor.email-enabled': () => 'Turned on email verification codes',
   'auth.two-factor.email-disabled': () => 'Turned off email verification codes',

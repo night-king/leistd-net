@@ -5,6 +5,7 @@ using System.Text.Json;
 using Leistd.Timing;
 using Microsoft.Extensions.Caching.Distributed;
 using System.Text;
+using CompanyName.ProjectName.Application.Auth.SignIn;
 
 namespace CompanyName.ProjectName.Application.Auth.TwoFactor;
 
@@ -30,11 +31,20 @@ internal sealed class TwoFactorChallengeStore(IDistributedCache cache, IClock cl
     /// <param name="userId">第一步认出的用户。</param>
     /// <param name="tenantId">第一步所在的租户。</param>
     /// <param name="securityStamp">用户此刻的安全版本；第二步时不一致即作废。</param>
+    /// <param name="firstStep">第一步是怎么通过的。</param>
     /// <param name="cancellationToken">取消令牌。</param>
-    public async Task<string> CreateAsync(Guid userId, Guid? tenantId, string securityStamp, CancellationToken cancellationToken)
+    public async Task<string> CreateAsync(
+        Guid userId,
+        Guid? tenantId,
+        string securityStamp,
+        SignInFirstStep firstStep,
+        CancellationToken cancellationToken)
     {
         var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
-        var challenge = new TwoFactorChallenge(userId, tenantId, securityStamp, clock.Now + Lifetime, 0);
+        var challenge = new TwoFactorChallenge(
+            userId, tenantId, securityStamp, clock.Now + Lifetime, 0,
+            FirstFactorViaEmail: firstStep.ViaEmail,
+            ExternalConnectionId: firstStep.ExternalConnectionId);
         await SaveAsync(token, challenge, cancellationToken);
         return token;
     }
@@ -106,11 +116,15 @@ internal sealed class TwoFactorChallengeStore(IDistributedCache cache, IClock cl
 /// <param name="ExpiresAt">到期时刻（UTC），自签发起算，输错不延长。</param>
 /// <param name="Attempts">已输错的次数。</param>
 /// <param name="EmailChallengeId">最近一次发出的邮箱验证码挑战；没发过为 null。</param>
+/// <param name="FirstFactorViaEmail">第一步经邮箱通道得来；为真时第二步只认独立因子（见 <see cref="SignInFirstStep"/>）。</param>
+/// <param name="ExternalConnectionId">第一步经外部登录时用到的连接；口令登录为 null。</param>
 internal sealed record TwoFactorChallenge(
     Guid UserId,
     Guid? TenantId,
     string SecurityStamp,
     DateTime ExpiresAt,
     int Attempts,
-    Guid? EmailChallengeId = null);
+    Guid? EmailChallengeId = null,
+    bool FirstFactorViaEmail = false,
+    Guid? ExternalConnectionId = null);
 #endif

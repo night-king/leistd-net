@@ -9,7 +9,8 @@
         <ng-icon name="lucideShieldCheck" class="text-primary" />
         {{ t('account.twoFactorLogin.title') }}
       </h1>
-      <p class="text-muted-foreground text-sm" data-testid="two-factor-hint">
+      <!-- 发码状态（正在发送、已发送、未发出）会就地变化：读屏随之播报 -->
+      <p class="text-muted-foreground text-sm" role="status" data-testid="two-factor-hint">
         @switch (method()) {
           @case ('recoveryCode') {
             {{ t('account.twoFactorLogin.recoveryHint') }}
@@ -199,8 +200,7 @@
             class="px-0"
             type="button"
             data-testid="two-factor-other-methods"
-            aria-expanded="false"
-            (click)="showAlternatives.set(true)"
+            (click)="expandAlternatives()"
           >
             {{ t('account.twoFactorLogin.otherMethods') }}
           </button>

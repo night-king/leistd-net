@@ -59,14 +59,15 @@ internal sealed class ExternalAuthAppService(
         if (existingUserId is null)
         {
             using var unit = unitOfWorkManager.Begin(requiresNew: true);
-            var (user, created) = await externalAuthDomainService.FindOrCreateUserAsync(provider, externalUserInfo, cancellationToken);
+            var (user, connection, created) = await externalAuthDomainService.FindOrCreateUserAsync(provider, externalUserInfo, cancellationToken);
             if (created)
             {
                 // 带出刚分配的角色名：成员关系在本工作单元内尚未落库，回查不到
                 var defaultRoles = await roleRepository.GetDefaultRolesAsync(cancellationToken);
                 user.AssignRoles(defaultRoles.Select(role => role.Id));
                 await userRepository.UpdateAsync(user, cancellationToken);
-                var started = await sessionIssuer.StartAsync(user, [.. defaultRoles.Select(role => role.Name)], cancellationToken);
+                var started = await sessionIssuer.StartAsync(
+                    user, FirstStepOf(connection), [.. defaultRoles.Select(role => role.Name)], cancellationToken);
                 await unit.CompleteAsync(cancellationToken);
                 return started;
             }
@@ -80,17 +81,21 @@ internal sealed class ExternalAuthAppService(
         cancellationToken = lockScope.Token;
         using var locked = unitOfWorkManager.Begin(requiresNew: true);
 
-        var (current, createdNow) = await externalAuthDomainService.FindOrCreateUserAsync(provider, externalUserInfo, cancellationToken);
+        var (current, currentConnection, createdNow) = await externalAuthDomainService.FindOrCreateUserAsync(provider, externalUserInfo, cancellationToken);
         if (createdNow || current.Id != existingUserId)
         {
             // 取锁之前关联依据已变（解绑、换了邮箱）：这次外部登录对应的已不是认出的那个账号
             throw new BusinessException(ExternalAuthErrorCodes.InvalidState, "Invalid or expired external authentication intent.");
         }
 
-        var result = await sessionIssuer.StartAsync(current, cancellationToken: cancellationToken);
+        var result = await sessionIssuer.StartAsync(current, FirstStepOf(currentConnection), cancellationToken: cancellationToken);
         await locked.CompleteAsync(cancellationToken);
         return result;
     }
+
+    // 按邮箱自动关联的连接凭的是邮箱：第二步只认独立因子，用它完成一次后连接不再带这个标记
+    private static SignInFirstStep FirstStepOf(ExternalLoginConnection connection) =>
+        new(connection.LinkedByEmail, connection.Id);
 
     /// <summary>本人的外部账号绑定：部署已配置的每个提供商，附带本人在其下的绑定。</summary>
     public async Task<ExternalLoginsOutputDto> GetCurrentUserExternalLoginsAsync(IEnumerable<string> availableProviders, CancellationToken cancellationToken = default)

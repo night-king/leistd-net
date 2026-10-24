@@ -9,6 +9,10 @@ using CompanyName.ProjectName.Application.Auth.EmailVerification;
 using Leistd.Security.OneTimeCodes.VerificationCodes;
 using Microsoft.Extensions.Options;
 #endif
+#if (Email && ExternalLogin)
+using CompanyName.ProjectName.Domain.Auth.Entities;
+using Leistd.Ddd.Domain.Repositories;
+#endif
 using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Application.Auth.TwoFactor;
 using Leistd.UnitOfWork;
@@ -55,8 +59,10 @@ internal sealed class AuthAppService(
     ICaptchaVerifier captchaVerifier,
 #if (Email)
     EmailChallengeStore emailChallengeStore,
-    TwoFactorCodeMailComposer twoFactorMail,
     TwoFactorMethodResolver twoFactorMethods,
+#endif
+#if (Email && ExternalLogin)
+    IRepository<ExternalLoginConnection, Guid> externalLoginConnectionRepository,
 #endif
     SessionIssuer sessionIssuer,
     UserSessionDomainService userSessionDomainService,
@@ -148,7 +154,7 @@ internal sealed class AuthAppService(
             throw new BusinessException(AuthErrorCodes.InvalidCredentials, "The username or password is incorrect.");
         }
 
-        var outcome = await sessionIssuer.StartAsync(user, cancellationToken: cancellationToken);
+        var outcome = await sessionIssuer.StartAsync(user, SignInFirstStep.Password(user), cancellationToken: cancellationToken);
         if (result.PasswordRehashNeeded)
         {
             userDomainService.RehashPassword(user, input.Password);
@@ -218,20 +224,23 @@ internal sealed class AuthAppService(
         }
 
         bool verified;
-        var usedRecoveryCode = false;
-        // 入参 DTO 已保证至少有一种；给了多种时依次以恢复码、邮箱验证码为准
+        TwoFactorMethod usedMethod;
+        // 入参 DTO 已保证恰好一种
         if (!string.IsNullOrWhiteSpace(input.RecoveryCode))
         {
-            verified = usedRecoveryCode = twoFactorDomainService.UseRecoveryCode(user, input.RecoveryCode);
+            usedMethod = TwoFactorMethod.RecoveryCode;
+            verified = twoFactorDomainService.UseRecoveryCode(user, input.RecoveryCode);
         }
 #if (Email)
         else if (!string.IsNullOrWhiteSpace(input.EmailCode))
         {
+            usedMethod = TwoFactorMethod.Email;
             verified = await VerifyEmailCodeAsync(user, challenge, input.EmailCode, cancellationToken);
         }
 #endif
         else
         {
+            usedMethod = TwoFactorMethod.Authenticator;
             verified = twoFactorDomainService.VerifyCode(user, input.Code!, now);
         }
 
@@ -255,10 +264,17 @@ internal sealed class AuthAppService(
         }
 
         await twoFactorChallengeStore.RemoveAsync(input.Token, cancellationToken);
+#if (Email)
+        if (usedMethod.IsIndependent())
+        {
+            await ConfirmFirstStepAsync(user, challenge, cancellationToken);
+        }
+
+#endif
         // 用掉的步与恢复码必须落库，否则同一个码还能再用一次
         await userRepository.UpdateAsync(user, cancellationToken);
 
-        if (usedRecoveryCode)
+        if (usedMethod == TwoFactorMethod.RecoveryCode)
         {
             await operationRecorder.RecordSucceededAsync(
                 OperationRecordActions.AuthTwoFactorRecoveryCodeUsed,
@@ -303,14 +319,13 @@ internal sealed class AuthAppService(
 
         var now = clock.Now;
         SessionIssuer.EnsureAllowed(user, now);
-        if (!(await twoFactorMethods.ResolveAsync(user, cancellationToken)).Allows(TwoFactorMethod.Email))
+        if (!(await twoFactorMethods.ResolveForSignInAsync(user, challenge.FirstFactorViaEmail, cancellationToken)).Allows(TwoFactorMethod.Email))
         {
             throw TwoFactorMethodUnavailable();
         }
 
-        var recipient = new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp);
         var issued = await emailChallengeStore.IssueTwoFactorSignInAsync(
-            recipient, twoFactorMail.ForSignIn(recipient), cancellationToken);
+            new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp), cancellationToken);
         await twoFactorChallengeStore.AttachEmailChallengeAsync(input.Token, challenge, issued.ChallengeId, cancellationToken);
 
         // 码比这次第二步活得久时，以第二步的剩余时间为准：第二步过期后码也用不上
@@ -322,28 +337,53 @@ internal sealed class AuthAppService(
         };
     }
 
-    // 方式此刻不能用（组织关了、邮箱改为未验证）不算猜错，不计入失败次数；码只认本次第二步最近发出的那一个
+    // 方式此刻不能用（组织关了、邮箱改为未验证、这次来路只认独立因子）不算猜错，不计入失败次数。
+    // 码只认本次第二步最近发出的那一个；没有仍有效的邮件挑战（没发过、已过期、次数用完）时也不计数，提示重新获取
     private async Task<bool> VerifyEmailCodeAsync(
         User user,
         TwoFactorChallenge challenge,
         string code,
         CancellationToken cancellationToken)
     {
-        if (!(await twoFactorMethods.ResolveAsync(user, cancellationToken)).Allows(TwoFactorMethod.Email))
+        if (!(await twoFactorMethods.ResolveForSignInAsync(user, challenge.FirstFactorViaEmail, cancellationToken)).Allows(TwoFactorMethod.Email))
         {
             throw TwoFactorMethodUnavailable();
         }
 
-        if (challenge.EmailChallengeId is not { } emailChallengeId)
+        var result = challenge.EmailChallengeId is { } emailChallengeId
+            ? await emailChallengeStore.ValidateTwoFactorSignInAsync(
+                user.Email,
+                new EmailVerificationInputDto { ChallengeId = emailChallengeId, Code = code.Trim() },
+                cancellationToken)
+            : EmailCodeCheck.Expired;
+        if (result.Outcome == EmailCodeOutcome.Expired)
         {
-            return false;
+            throw new BusinessException(AuthErrorCodes.EmailCodeExpired, "The email verification code has expired. Send a new one.");
         }
 
-        var proof = await emailChallengeStore.ValidateTwoFactorSignInAsync(
-            user.Email,
-            new EmailVerificationInputDto { ChallengeId = emailChallengeId, Code = code.Trim() },
-            cancellationToken);
-        return proof is not null && proof.UserId == user.Id && user.HasSecurityStamp(proof.SecurityStamp);
+        return result.Proof is { } proof && proof.UserId == user.Id && user.HasSecurityStamp(proof.SecurityStamp);
+    }
+
+    // 用独立因子完成了第二步：第一步经邮箱得来的那一项（邮件找回的口令、按邮箱关联的外部连接）不再只凭邮箱
+    private async Task ConfirmFirstStepAsync(User user, TwoFactorChallenge challenge, CancellationToken cancellationToken)
+    {
+        if (!challenge.FirstFactorViaEmail)
+            return;
+
+#if (ExternalLogin)
+        if (challenge.ExternalConnectionId is { } connectionId)
+        {
+            if (await externalLoginConnectionRepository.GetByIdAsync(connectionId, cancellationToken) is { } connection)
+            {
+                connection.ConfirmByIndependentFactor();
+                await externalLoginConnectionRepository.UpdateAsync(connection, cancellationToken);
+            }
+
+            return;
+        }
+
+#endif
+        user.ConfirmPasswordByIndependentFactor();
     }
 
     private static BusinessException TwoFactorMethodUnavailable() =>
@@ -562,6 +602,7 @@ internal sealed class AuthAppService(
         // 换掉之前的地址与验证状态取自库里的这一行：提醒发给被换掉的地址，不取请求里的任何值
         var previousEmail = user.Email;
         var previousEmailConfirmed = user.EmailConfirmed;
+        var hadEmailFactor = user.EmailTwoFactorEnabled;
 
         await userDomainService.UpdateProfileAsync(
             user,
@@ -572,6 +613,12 @@ internal sealed class AuthAppService(
             cancellationToken);
 
         await userRepository.UpdateAsync(user, cancellationToken);
+        if (hadEmailFactor && !user.EmailTwoFactorEnabled)
+        {
+            // 换地址关掉了邮箱验证码（见 User.UpdateProfile）：少了一种第二步，其他会话是在旧地址收码的前提下建立的
+            await userSessionDomainService.RevokeAllAsync(user.Id, currentUser.GetSessionId(), cancellationToken);
+        }
+
         if (emailChanged)
         {
             await localEventBus.PublishAsync(

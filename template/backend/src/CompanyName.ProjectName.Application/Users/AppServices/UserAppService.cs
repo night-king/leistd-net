@@ -313,6 +313,7 @@ internal sealed class UserAppService(
         // 换掉之前的地址与验证状态取自锁内读到的这一行：提醒发给被换掉的地址，不取请求里的任何值
         var previousEmail = user.Email;
         var previousEmailConfirmed = user.EmailConfirmed;
+        var hadEmailFactor = user.EmailTwoFactorEnabled;
 
         // 编辑表单会把读到的头像地址原样送回，那表示"没改"，换回存储的原值再校验。
         await userDomainService.UpdateManagementAsync(
@@ -342,6 +343,15 @@ internal sealed class UserAppService(
             OperationTarget.For(id, user.DisplayName ?? user.Username),
             PermissionConstant.Users.Update,
             cancellationToken);
+        // 撤销放在最后，时序见 UserAccessRevoker
+        if (hadEmailFactor && !user.EmailTwoFactorEnabled)
+        {
+            // 换地址关掉了该用户的邮箱验证码（见 User.UpdateManagement）：少了一种第二步，全部会话退出；
+            // 改的是自己时保留当前这台，与停用、重置两步验证同一口径
+            await accessRevoker.RevokeAllAsync(
+                user.Id, user.Id == currentUser.Id ? currentUser.GetSessionId() : null, cancellationToken);
+        }
+
         await unit.CompleteAsync(cancellationToken);
 
         return await MapToOutputAsync(user, cancellationToken);

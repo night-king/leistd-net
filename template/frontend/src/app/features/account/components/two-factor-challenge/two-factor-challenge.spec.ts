@@ -145,6 +145,34 @@ describe('TwoFactorChallenge', () => {
     expect(cancelled).toBe(1);
   });
 
+  // 网络错误与服务端故障不作废这次第二步：就地说明，同一个码可以原样再交一次
+  it('stays on a network or server failure and lets the same code be submitted again', async () => {
+    account.completeTwoFactorLogin.mockReturnValue(
+      throwError(() => rejection('Error:InternalServerError', 'Something went wrong.', 500)),
+    );
+    type('123456');
+    await submit();
+
+    expect(cancelled).toBe(0);
+    expect(byTestId('two-factor-error')?.textContent).toContain('Something went wrong.');
+    const failedCalls = account.completeTwoFactorLogin.mock.calls.length;
+
+    account.completeTwoFactorLogin.mockReturnValue(of(undefined));
+    await submit();
+
+    expect(account.completeTwoFactorLogin).toHaveBeenCalledTimes(failedCalls + 1);
+    expect(account.completeTwoFactorLogin).toHaveBeenLastCalledWith({
+      token: 'challenge-token',
+      code: '123456',
+    });
+    expect(completed).toBe(1);
+  });
+
+  // 发码状态与方式说明会就地变化：是读屏会播报的状态区
+  it('announces the hint as a status region', () => {
+    expect(byTestId('two-factor-hint')?.getAttribute('role')).toBe('status');
+  });
+
   function shownError(): HTMLElement | null {
     return (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
       '[data-testid="two-factor-error"]',
@@ -290,6 +318,34 @@ describe('TwoFactorChallenge', () => {
       expect(account.sendTwoFactorEmailCode).toHaveBeenCalledExactlyOnceWith('challenge-token');
       expect(byTestId('two-factor-challenge')?.dataset['method']).toBe('email');
       expect(byTestId('two-factor-methods')).toBeNull();
+    });
+
+    // 展开后按钮换成列表：焦点落到列表第一项，不掉到页面顶部
+    it('moves focus to the first alternative after expanding the list', async () => {
+      render(BOTH);
+      byTestId('two-factor-other-methods')!.click();
+      fixture.detectChanges();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+
+      expect(document.activeElement).toBe(byTestId('two-factor-method-email'));
+    });
+
+    // 邮箱码已失效不是输错：就地说明，不回到口令步，可以重新获取
+    it('keeps an expired email code in place instead of leaving the second step', async () => {
+      account.completeTwoFactorLogin.mockReturnValue(
+        throwError(() =>
+          rejection('Auth:EmailCodeExpired', 'The email verification code has expired.', 400),
+        ),
+      );
+      render({ ...BOTH, defaultMethod: 'email' });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      type('123456');
+      await submit();
+
+      expect(cancelled).toBe(0);
+      expect(byTestId('two-factor-error')?.textContent).toContain('has expired');
     });
 
     // 首选是邮箱：进来即发码，不用再点；提交的是邮箱验证码

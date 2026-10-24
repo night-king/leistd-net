@@ -170,6 +170,15 @@ export function updateUser(id: string, value: any) {
     ensureOperatorReauthenticated({ password: value.password, twoFactorCode: value.twoFactorCode });
   }
 
+  //#if (Email)
+  // 与后端 User.UpdateManagement 一致：换了地址，邮箱验证码随之关闭（即使同时标为已验证），指向它的首选清除
+  if (emailChanged && user.emailTwoFactorEnabled) {
+    user.emailTwoFactorEnabled = false;
+    if (user.preferredTwoFactorMethod === 'email') {
+      user.preferredTwoFactorMethod = undefined;
+    }
+  }
+  //#endif
   Object.assign(user, {
     email,
     displayName: value.displayName,

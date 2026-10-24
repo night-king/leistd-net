@@ -1,10 +1,9 @@
 #if (Email)
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using CompanyName.ProjectName.Application.Settings.Provider;
+using CompanyName.ProjectName.IntegrationTests.Fixtures;
 using Leistd.Email.Abstractions;
 using Leistd.Security.OneTimeCodes;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -25,7 +24,7 @@ namespace CompanyName.ProjectName.IntegrationTests;
 /// 时钟换成手动推进的：身份验证器同一步的码只认一次，发码有间隔，用例靠推进时钟跨过它们，不靠真实等待。
 /// 组织开关在宿主上默认打开，关闭它的用例在结束前恢复。
 /// </remarks>
-public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory factory)
+public sealed class TwoFactorMethodsTests(ProjectWebApplicationFactory factory)
     : IClassFixture<ProjectWebApplicationFactory>
 {
     private const string Password = "TwoFactorMethods!Passw0rd";
@@ -39,7 +38,7 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
         var user = await CreateUserAsync(host, "tfm_default");
         await EnableAuthenticatorAsync(host, user, clock);
         await EnableEmailAsync(host, user, clock);
-        var sentBefore = Mailbox(host).CountFor(user.Email);
+        var sentBefore = SentCount(host, user.Email);
 
         Step(clock);
         var prompt = await PasswordStepAsync(host, user);
@@ -48,7 +47,8 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
         Assert.Equal(["authenticator", "email", "recoveryCode"], prompt.Methods);
         Assert.StartsWith(user.Email[..1], prompt.MaskedEmail);
         Assert.NotEqual(user.Email, prompt.MaskedEmail);
-        Assert.Equal(sentBefore, Mailbox(host).CountFor(user.Email));
+        await SendEmailCodeAsync(host, prompt.Token, user.Email);
+        Assert.Equal(sentBefore + 1, SentCount(host, user.Email));
     }
 
     /// <summary>首选邮箱：默认即邮箱；发码后凭邮件里的码完成登录。</summary>
@@ -78,7 +78,10 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
         Assert.Equal(HttpStatusCode.OK, (await signedIn.GetAsync("/api/v1/auth/me")).StatusCode);
     }
 
-    /// <summary>码只认本次第二步最近发出的那一个：别的挑战发的不认，重发之后旧码不认，输错计入失败。</summary>
+    /// <summary>
+    /// 码只认本次第二步最近发出的那一个：没发过码的挑战交来的码按"已失效"拒绝；发送间隔内重发沿用上一封、不另发信；
+    /// 跨过间隔重发之后旧码不认。
+    /// </summary>
     [Fact]
     public async Task An_email_code_only_counts_for_the_latest_send_of_its_own_challenge()
     {
@@ -93,16 +96,22 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
         var firstCode = await SendEmailCodeAsync(host, first.Token, user.Email);
 
         var second = await PasswordStepAsync(host, user);
-        Assert.Equal("Auth:TwoFactorCodeInvalid", await SecondStepErrorAsync(host, new { second.Token, EmailCode = firstCode }));
+        Assert.Equal("Auth:EmailCodeExpired", await SecondStepErrorAsync(host, new { second.Token, EmailCode = firstCode }));
 
-        // 发送间隔之内重发被拒；跨过之后重发，前一个码作废
+        // 发送间隔之内重发：不另发信，回报剩余间隔
+        var sentBefore = SentCount(host, user.Email);
+        clock.Advance(TimeSpan.FromSeconds(20));
         using (var tooSoon = await PostEmailCodeAsync(host, first.Token))
         {
-            Assert.Equal("Auth:EmailCodeSendTooFrequent", await ErrorCodeAsync(tooSoon));
+            Assert.Equal(HttpStatusCode.OK, tooSoon.StatusCode);
+            var body = await tooSoon.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.InRange(body.GetProperty("retryAfterSeconds").GetInt32(), 1, 40);
         }
 
+        // 跨过之后重发，前一个码作废；间隔内的那次没有发信
         clock.Advance(TimeSpan.FromMinutes(1));
         var resent = await SendEmailCodeAsync(host, first.Token, user.Email);
+        Assert.Equal(sentBefore + 1, SentCount(host, user.Email));
         Assert.Equal("Auth:TwoFactorCodeInvalid", await SecondStepErrorAsync(host, new { first.Token, EmailCode = firstCode }));
 
         using var signedIn = await SecondStepAsync(host, new { first.Token, EmailCode = resent });
@@ -212,14 +221,13 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
         await EnableAuthenticatorAsync(host, user, clock);
         await EnableEmailAsync(host, user, clock);
         clock.Advance(TimeSpan.FromMinutes(1));
-        var sentBefore = Mailbox(host).CountFor(user.Email);
+        var sentBefore = SentCount(host, user.Email);
 
         Step(clock);
         var prompt = await PasswordStepAsync(host, user);
-        Assert.Equal(sentBefore, Mailbox(host).CountFor(user.Email));
 
         var code = await SendEmailCodeAsync(host, prompt.Token, user.Email);
-        Assert.Equal(sentBefore + 1, Mailbox(host).CountFor(user.Email));
+        Assert.Equal(sentBefore + 1, SentCount(host, user.Email));
         using var signedIn = await SecondStepAsync(host, new { prompt.Token, EmailCode = code });
         Assert.Equal(HttpStatusCode.OK, (await signedIn.GetAsync("/api/v1/auth/me")).StatusCode);
     }
@@ -336,7 +344,7 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
             Assert.Equal("Auth:EmailCodeInvalid", await ErrorCodeAsync(wrong));
         }
 
-        var code = await Mailbox(host).LastCodeAsync(user.Email);
+        var code = await Mailbox(host).NextCodeAsync(user.Email);
         using (var enable = await session.PostAsJsonAsync("/api/v1/auth/me/two-factor/email/enable", new { challengeId, code }))
         {
             Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
@@ -390,8 +398,8 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
             services.AddSingleton<TimeProvider>(clock);
             services.Configure<MemoryDistributedCacheOptions>(options => options.Clock = new CacheClock(clock));
             services.RemoveAll<IEmailSender>();
-            services.AddSingleton<CapturingMailbox>();
-            services.AddSingleton<IEmailSender>(provider => provider.GetRequiredService<CapturingMailbox>());
+            services.AddSingleton<CodeMailbox>();
+            services.AddSingleton<IEmailSender>(provider => provider.GetRequiredService<CodeMailbox>());
         }));
         await AllowEmailAsync(host, true);
         return (host, clock);
@@ -401,8 +409,12 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
         ProjectWebApplicationFactory.SetTenantSettingAsync(
             host, SettingConstant.Security.AllowEmailTwoFactor, allowed ? "true" : null);
 
-    private static CapturingMailbox Mailbox(WebApplicationFactory<Program> host) =>
-        host.Services.GetRequiredService<CapturingMailbox>();
+    private static CodeMailbox Mailbox(WebApplicationFactory<Program> host) =>
+        host.Services.GetRequiredService<CodeMailbox>();
+
+    // 信在后台投递：等到一封确定会到的信之后再数，它之前排队的信也都已到达
+    private static int SentCount(WebApplicationFactory<Program> host, string email) =>
+        Mailbox(host).CodeRecipients.Count(to => string.Equals(to, email, StringComparison.OrdinalIgnoreCase));
 
     private static async Task<TestUser> CreateUserAsync(WebApplicationFactory<Program> host, string prefix)
     {
@@ -444,7 +456,7 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
     {
         using var session = await SignInAsync(host, user, clock);
         var challengeId = await BeginEmailSetupAsync(session);
-        var code = await Mailbox(host).LastCodeAsync(user.Email);
+        var code = await Mailbox(host).NextCodeAsync(user.Email);
         using var enable = await session.PostAsJsonAsync(
             "/api/v1/auth/me/two-factor/email/enable", new { challengeId, code });
         Assert.Equal(HttpStatusCode.OK, enable.StatusCode);
@@ -499,7 +511,7 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(body.GetProperty("expiresInSeconds").GetInt32() > 0);
-        return await Mailbox(host).LastCodeAsync(email);
+        return await Mailbox(host).NextCodeAsync(email);
     }
 
     private static async Task<HttpClient> SecondStepAsync(WebApplicationFactory<Program> host, object input)
@@ -544,35 +556,6 @@ public sealed partial class TwoFactorMethodsTests(ProjectWebApplicationFactory f
     private sealed class CacheClock(TimeProvider time) : ISystemClock
     {
         public DateTimeOffset UtcNow => time.GetUtcNow();
-    }
-
-    /// <summary>收下每封验证码邮件里的码；这里的码都是同步发送，发码请求返回时信已到达。安全提醒等不带码的信不收。</summary>
-    private sealed partial class CapturingMailbox : IEmailSender
-    {
-        private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _inbox = new(StringComparer.OrdinalIgnoreCase);
-
-        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
-        {
-            var match = CodeRegex().Match(message.Body);
-            if (!match.Success)
-            {
-                return Task.CompletedTask;
-            }
-
-            _inbox.GetOrAdd(message.To, _ => new ConcurrentQueue<string>()).Enqueue(match.Groups[1].Value);
-            return Task.CompletedTask;
-        }
-
-        public int CountFor(string email) => _inbox.TryGetValue(email, out var codes) ? codes.Count : 0;
-
-        public Task<string> LastCodeAsync(string email)
-        {
-            Assert.True(_inbox.TryGetValue(email, out var codes) && !codes.IsEmpty, $"No email arrived for {email}.");
-            return Task.FromResult(codes.Last());
-        }
-
-        [GeneratedRegex(@">(\d{6})<", RegexOptions.CultureInvariant)]
-        private static partial Regex CodeRegex();
     }
 }
 #endif

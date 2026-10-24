@@ -82,16 +82,14 @@ const INPUT_IDS: Record<TwoFactorMethod, string> = {
   recoveryCode: 'two-factor-recovery-code',
 };
 const ERROR_ID = 'two-factor-error';
-//#if (Email)
 
-/** 这次第二步已经无法继续的错误：发码遇到它们时回到密码那一步，其余就地说明。 */
+/** 这次第二步已经无法继续的错误：遇到它们回到密码那一步，其余就地说明、可以重试。 */
 const SECOND_STEP_ENDED: ReadonlySet<string> = new Set([
   API_ERROR_CODES.twoFactorChallengeExpired,
   API_ERROR_CODES.userLockedOut,
   API_ERROR_CODES.userTemporarilyLockedOut,
   API_ERROR_CODES.userDisabled,
 ]);
-//#endif
 const REUSE_HINT_ID = 'two-factor-code-reuse-hint';
 
 /** 各方式在"换一种验证方式"列表里的图标。 */
@@ -214,6 +212,20 @@ export class TwoFactorChallenge {
   }
   //#endif
 
+  //#if (Email)
+  /** 展开其余方式：按钮随之换成列表，焦点落到列表第一项，读屏与键盘不会落到页面顶部。 */
+  protected expandAlternatives(): void {
+    this.showAlternatives.set(true);
+    afterNextRender(
+      () =>
+        this.document
+          .querySelector<HTMLElement>('[data-testid="two-factor-methods"] button')
+          ?.focus(),
+      { injector: this.injector },
+    );
+  }
+
+  //#endif
   /** 换到另一种方式：清掉输入与说明，收起列表，焦点落到新方式的输入框。 */
   protected selectMethod(method: TwoFactorMethod): void {
     this.method.set(method);
@@ -283,17 +295,24 @@ export class TwoFactorChallenge {
       this.completed.emit();
     } catch (error) {
       const code = error instanceof ApplicationHttpError ? error.code : undefined;
-      if (
-        code === API_ERROR_CODES.twoFactorCodeInvalid ||
-        code === API_ERROR_CODES.twoFactorMethodUnavailable
-      ) {
-        this.error.set(applicationErrorMessage(error));
-        this.codeRejected.set(code === API_ERROR_CODES.twoFactorCodeInvalid);
+      // 只有这次第二步已经无法继续（凭据过期、账号锁定或停用）才回到密码那一步
+      if (code !== undefined && SECOND_STEP_ENDED.has(code)) {
+        this.leave(error);
+        return;
+      }
+
+      this.error.set(applicationErrorMessage(error));
+      if (code === API_ERROR_CODES.twoFactorCodeInvalid) {
+        // 码不对：清空重输
+        this.codeRejected.set(true);
         this.setValue('');
         this.focusInput();
         return;
       }
-      this.leave(error);
+
+      // 方式此刻不能用、邮箱码已失效、网络错误或服务端故障：挑战仍有效，就地说明，同一个码也可以再提交一次
+      this.submittedValue = null;
+      this.focusInput();
     } finally {
       this.submitting.set(false);
     }

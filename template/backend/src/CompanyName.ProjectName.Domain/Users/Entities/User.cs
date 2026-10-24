@@ -76,6 +76,14 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     /// <summary>设置了任意一种第二步方式（身份验证器或邮箱验证码）。</summary>
     public bool HasSecondFactor => TwoFactorEnabled || EmailTwoFactorEnabled;
 
+    /// <summary>当前这一代口令是经邮件找回设置的，此后还没有用独立因子完成过第二步。</summary>
+    /// <remarks>
+    /// 为真时登录第二步只认独立因子（<see cref="TwoFactorMethods.IsIndependent"/>）：设口令用的是邮箱，
+    /// 再认邮箱码就等于只凭邮箱登录。本人或管理员换口令、用独立因子完成一次第二步、或本人在会话里开启一种第二步方式后清除。
+    /// 找回时还没有第二步的账号，找回之后单步登录，再开启邮箱验证码时随之清除，不会被此后的登录挡在门外。
+    /// </remarks>
+    public bool PasswordSetByEmailRecovery { get; private set; }
+
     /// <summary>设有本地口令（外部登录建的账号可以没有）。</summary>
     public bool HasLocalPassword => PasswordHash is not null;
 
@@ -148,10 +156,14 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
 #endif
 #if (LocalIdentity)
     /// <summary>管理员修改资料；启用状态只经 <see cref="Enable"/>/<see cref="Disable"/>，那里才有超管保护。</summary>
-    /// <remarks>邮箱唯一由 <c>UserDomainService.UpdateManagementAsync</c> 判定，因此不对领域层之外开放。</remarks>
+    /// <remarks>
+    /// 邮箱唯一由 <c>UserDomainService.UpdateManagementAsync</c> 判定，因此不对领域层之外开放。
+    /// 换了地址时邮箱验证码随之关闭（见 <see cref="ReleaseEmailFactorIfChanged"/>），即使同时标为已验证。
+    /// </remarks>
     internal void UpdateManagement(string email, string? displayName, string? avatar, bool emailConfirmed)
     {
         AvatarPolicy.EnsureValid(avatar);
+        ReleaseEmailFactorIfChanged(email);
         Email = email;
         DisplayName = displayName;
         Avatar = string.IsNullOrEmpty(avatar) ? null : avatar;
@@ -161,7 +173,10 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
 #endif
 
     /// <summary>本人修改资料。头像另有入口（<see cref="SetAvatar"/>），不随资料表单一起提交。</summary>
-    /// <remarks>换了邮箱即回到"未验证"：验证过的是旧地址，新地址是否属于本人还不知道。</remarks>
+    /// <remarks>
+    /// 换了邮箱即回到"未验证"：验证过的是旧地址，新地址是否属于本人还不知道。
+    /// 邮箱验证码随之关闭（见 <see cref="ReleaseEmailFactorIfChanged"/>）。
+    /// </remarks>
     public void UpdateProfile(string username, string email, string? displayName, string? phoneNumber)
     {
 #if (LocalIdentity)
@@ -170,6 +185,7 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
             EmailConfirmed = false;
         }
 
+        ReleaseEmailFactorIfChanged(email);
 #endif
         Username = username;
         Email = email;
@@ -311,7 +327,23 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     public void UpdatePasswordHash(string passwordHash)
     {
         PasswordHash = passwordHash;
+        PasswordSetByEmailRecovery = false;
         RotateSecurityStamp();
+    }
+#if (Email)
+
+    /// <summary>设置经邮件找回的口令：此后登录第二步只认独立因子，直到用它完成一次（见 <see cref="PasswordSetByEmailRecovery"/>）。</summary>
+    public void RecoverPasswordHash(string passwordHash)
+    {
+        UpdatePasswordHash(passwordHash);
+        PasswordSetByEmailRecovery = true;
+    }
+#endif
+
+    /// <summary>本人用独立因子完成了第二步：口令不再视为只凭邮箱得来。</summary>
+    public void ConfirmPasswordByIndependentFactor()
+    {
+        PasswordSetByEmailRecovery = false;
     }
 
     /// <summary>升级已验证口令的哈希参数，保留安全版本。</summary>
@@ -326,6 +358,23 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     public void RotateSecurityStamp()
     {
         SecurityStamp = NewSecurityStamp();
+    }
+
+    // 换了地址：邮箱验证码证明的是旧地址，关掉它、清掉指向它的首选并换安全版本（在途的第二步与发出的码随之作废）。
+    // 不跟着新地址自动恢复：验证新地址不等于本人重新开启了这种第二步，由本人在新地址上重新开启。
+    // 与领域判定"换了邮箱"同一口径：只改大小写不算换地址
+    private void ReleaseEmailFactorIfChanged(string email)
+    {
+        if (!EmailTwoFactorEnabled || string.Equals(Email, email, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        EmailTwoFactorEnabled = false;
+        if (PreferredTwoFactorMethod == TwoFactorMethod.Email)
+        {
+            PreferredTwoFactorMethod = null;
+        }
+
+        RotateSecurityStamp();
     }
 
     /// <summary>安全版本仍是 <paramref name="stamp"/>：签发后凭据没有变过。</summary>
@@ -362,12 +411,20 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     }
 #if (Email)
 
-    /// <summary>能凭邮箱验证码找回口令：邮箱已验证、账号启用、没有被管理员锁定。</summary>
+    /// <summary>能凭邮箱验证码找回口令：邮箱已验证、账号启用、没有被管理员锁定，且第二步不只有邮箱验证码。</summary>
     /// <remarks>
-    /// 未验证的邮箱没有证明属于本人（可能是填错的地址），把找回码发过去等于把账号交给那个地址的主人。
-    /// 临时锁定不挡找回，找回成功时一并解除；管理员锁定与停用是管理决定，不能靠找回绕过。
+    /// <para>未验证的邮箱没有证明属于本人（可能是填错的地址），把找回码发过去等于把账号交给那个地址的主人。
+    /// 临时锁定不挡找回，找回成功时一并解除；管理员锁定与停用是管理决定，不能靠找回绕过。</para>
+    /// <para>第二步只开了邮箱验证码的账号不能找回：找回后第二步只认独立因子，这类账号没有，只能由管理员重置。</para>
     /// </remarks>
-    public bool CanRecoverPasswordByEmail => EmailConfirmed && IsActive && !Lockout.IsAdministrative;
+    public bool CanRecoverPasswordByEmail => MayReceiveRecoveryMail && !SignsInWithEmailCodeOnly;
+
+    /// <summary>本可以收找回邮件，只因第二步只有邮箱验证码而不能自助找回：给它发一封告知信，请它联系管理员。</summary>
+    public bool NeedsAdministratorToRecoverPassword => MayReceiveRecoveryMail && SignsInWithEmailCodeOnly;
+
+    private bool MayReceiveRecoveryMail => EmailConfirmed && IsActive && !Lockout.IsAdministrative;
+
+    private bool SignsInWithEmailCodeOnly => EmailTwoFactorEnabled && !TwoFactorEnabled;
 
     /// <summary>解除登录失败触发的临时锁定并清零失败次数；管理员锁定保留。</summary>
     public void ReleaseTemporaryLockout()
@@ -425,6 +482,7 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     {
         EnsureTwoFactorDisabled();
         TwoFactor = TwoFactorCredential.Create(protectedSecret, recoveryCodeHashes, usedStep);
+        ConfirmPasswordByIndependentFactor();
         RotateSecurityStamp();
     }
 
@@ -476,6 +534,8 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
 
         EnsureEmailUsableForTwoFactor();
         EmailTwoFactorEnabled = true;
+        // 开启它的是已在会话里的本人，口令不再视为只凭邮箱得来；否则找回时还没有第二步、之后只开了邮箱的人每次登录都被拒，又不能再找回
+        PasswordSetByEmailRecovery = false;
         RotateSecurityStamp();
     }
 

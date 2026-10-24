@@ -161,9 +161,20 @@ function sessionLogin(
   const user = USERS.find((u) => u.username === usernameOrEmail || u.email === usernameOrEmail);
 
   if (user && user.password === password) {
-    // 与后端一致：有能用的第二步方式时密码对了也不下发会话，只给第二步凭据与可用方式
-    if (twoFactorOptions(user, tenantKey).defaultMethod) {
-      return beginTwoFactorChallenge(user, tenantKey);
+    // 与后端一致：有能用的第二步方式时密码对了也不下发会话，只给第二步凭据与可用方式；
+    // 口令经邮件找回时第二步只认独立因子
+    const firstFactorViaEmail = user.passwordSetByEmailRecovery === true;
+    const options = twoFactorOptions(user, tenantKey, firstFactorViaEmail);
+    if (options.refused) {
+      // 与后端一致：开着第二步、按这次的来路一种都用不了时拒绝，不退回单步
+      throw new MockException(400, {
+        code: 'Auth:TwoFactorIndependentFactorRequired',
+        message:
+          'This way of signing in needs your authenticator app or a recovery code. Sign in with your password instead.',
+      });
+    }
+    if (options.defaultMethod) {
+      return beginTwoFactorChallenge(user, tenantKey, firstFactorViaEmail);
     }
     setMockSessionUserId(user.id);
     // 租户在登录这一刻定案，之后由会话（真实环境是 cookie 里的租户声明）说话；
@@ -232,6 +243,16 @@ function updateCurrentUser(req: MockRequest): UserOutputDto {
       twoFactorCode: body.twoFactorCode,
     });
     user.isEmailVerified = false;
+    //#if (Email)
+    // 与后端 User.UpdateProfile 一致：邮箱验证码证明的是旧地址，关掉它；其他设备随之退出
+    if (user.emailTwoFactorEnabled) {
+      user.emailTwoFactorEnabled = false;
+      if (user.preferredTwoFactorMethod === 'email') {
+        user.preferredTwoFactorMethod = undefined;
+      }
+      mockSessions = mockSessions.filter((s) => s.isCurrent);
+    }
+    //#endif
   }
 
   user.username = username;
@@ -335,6 +356,7 @@ function changePassword(req: MockRequest): 'ok' {
   ensureAcceptablePassword(body.newPassword, 'New password');
 
   user.password = body.newPassword;
+  user.passwordSetByEmailRecovery = false;
   rotateSecurityVersion(user);
   // 与服务端一致：改密码后其他设备退出登录
   mockSessions = mockSessions.filter((s) => s.isCurrent);
@@ -415,6 +437,8 @@ interface TwoFactorChallenge {
   userId: string;
   tenantKey: string;
   remainingAttempts: number;
+  /** 第一步经邮箱通道得来（口令经邮件找回）：第二步只认独立因子。 */
+  firstFactorViaEmail: boolean;
   //#if (Email)
   /** 最近一次发出的邮箱验证码挑战；只认它。 */
   emailChallengeId?: string;
@@ -422,38 +446,61 @@ interface TwoFactorChallenge {
 }
 
 const twoFactorChallengeStore = new Map<string, TwoFactorChallenge>();
+//#if (Email)
+/** 登录第二步限频键 → 占着发送间隔的那封邮件挑战：间隔内再发时沿用它。 */
+const signInEmailChallenges = new Map<string, string>();
+//#endif
 
-/** 本人此刻能用的第二步方式与默认方式，与后端 `TwoFactorMethodResolver` 同一规则。 */
+/**
+ * 本人此刻能用的第二步方式与默认方式，与后端 `TwoFactorMethodResolver.ResolveForSignInAsync` 同一规则：
+ * 第一步经邮箱通道得来，或组织要求两步验证而本人有身份验证器时，不给邮箱验证码（它不是独立因子）。
+ */
 function twoFactorOptions(
   user: MockUser,
   tenantKey: string,
+  firstFactorViaEmail = false,
 ): {
   methods: TwoFactorMethod[];
   defaultMethod: TwoFactorMethod | null;
   maskedEmail: string | null;
+  /** 开着邮箱验证码、组织也允许，但这次只认独立因子而本人没有：拒绝登录。 */
+  refused: boolean;
 } {
   const methods: TwoFactorMethod[] = [];
   if (user.twoFactorEnabled) {
     methods.push('authenticator');
   }
   //#if (Email)
+  const independentOnly =
+    firstFactorViaEmail ||
+    (user.twoFactorEnabled === true &&
+      TENANT_SETTING_VALUES.get(`${tenantKey}:Security.RequireTwoFactor`) === 'true');
   const emailUsable =
-    user.emailTwoFactorEnabled === true && !emailTwoFactorUnavailableReason(user, tenantKey);
+    user.emailTwoFactorEnabled === true &&
+    !emailTwoFactorUnavailableReason(user, tenantKey) &&
+    !independentOnly;
   if (emailUsable) {
     methods.push('email');
   }
   const maskedEmail = emailUsable ? maskEmail(user.email) : null;
+  const refused =
+    independentOnly &&
+    user.twoFactorEnabled !== true &&
+    user.emailTwoFactorEnabled === true &&
+    !emailTwoFactorUnavailableReason(user, tenantKey);
   //#else
   // 不含邮件能力时只有身份验证器，与租户的设置无关
   void tenantKey;
+  void firstFactorViaEmail;
   const maskedEmail = null;
+  const refused = false;
   //#endif
   const preferred = user.preferredTwoFactorMethod;
   const defaultMethod = preferred && methods.includes(preferred) ? preferred : (methods[0] ?? null);
   if (user.twoFactorEnabled && (user.recoveryCodes?.length ?? 0) > 0) {
     methods.push('recoveryCode');
   }
-  return { methods, defaultMethod, maskedEmail };
+  return { methods, defaultMethod, maskedEmail, refused };
 }
 //#if (Email)
 
@@ -487,14 +534,19 @@ function twoFactorMethodUnavailable(): MockException {
 }
 //#endif
 
-function beginTwoFactorChallenge(user: MockUser, tenantKey: string): SessionLoginOutputDto {
+function beginTwoFactorChallenge(
+  user: MockUser,
+  tenantKey: string,
+  firstFactorViaEmail = false,
+): SessionLoginOutputDto {
   const twoFactorToken = crypto.randomUUID();
   twoFactorChallengeStore.set(twoFactorToken, {
     userId: user.id,
     tenantKey,
     remainingAttempts: TWO_FACTOR_CHALLENGE_MAX_ATTEMPTS,
+    firstFactorViaEmail,
   });
-  const options = twoFactorOptions(user, tenantKey);
+  const options = twoFactorOptions(user, tenantKey, firstFactorViaEmail);
   return {
     requiresTwoFactor: true,
     twoFactorToken,
@@ -513,13 +565,28 @@ function sendTwoFactorEmailCode(req: MockRequest): TwoFactorEmailCodeOutputDto {
   if (!challenge || !user || challenge.tenantKey !== getRequestScope(req)) {
     throw twoFactorChallengeExpired();
   }
-  if (!twoFactorOptions(user, challenge.tenantKey).methods.includes('email')) {
+  if (
+    !twoFactorOptions(user, challenge.tenantKey, challenge.firstFactorViaEmail).methods.includes(
+      'email',
+    )
+  ) {
     throw twoFactorMethodUnavailable();
   }
 
+  // 与后端一致：登录第二步单独一把限频键（找回口令不挡它）；间隔内再发沿用上一封，回报剩余间隔
   const email = normalizeEmail(user.email);
-  const rateKey = `${challenge.tenantKey}:${email}`;
-  if ((emailRateLimitStore.get(rateKey) ?? 0) > Date.now()) {
+  const rateKey = `${challenge.tenantKey}:sign-in:${email}`;
+  const retryUntil = emailRateLimitStore.get(rateKey) ?? 0;
+  const previous = signInEmailChallenges.get(rateKey);
+  const previousChallenge = previous ? emailChallengeStore.get(previous) : undefined;
+  if (retryUntil > Date.now()) {
+    if (previousChallenge?.userId === user.id && previousChallenge.expiresAt > Date.now()) {
+      challenge.emailChallengeId = previous;
+      return {
+        expiresInSeconds: Math.ceil((previousChallenge.expiresAt - Date.now()) / 1000),
+        retryAfterSeconds: Math.max(1, Math.ceil((retryUntil - Date.now()) / 1000)),
+      };
+    }
     throw new MockException(429, {
       code: 'Auth:EmailCodeSendTooFrequent',
       message: 'Verification codes are being sent too frequently. Please try again later.',
@@ -537,6 +604,7 @@ function sendTwoFactorEmailCode(req: MockRequest): TwoFactorEmailCodeOutputDto {
     remainingAttempts: EMAIL_CODE_MAX_ATTEMPTS,
     userId: user.id,
   });
+  signInEmailChallenges.set(rateKey, emailChallengeId);
   challenge.emailChallengeId = emailChallengeId;
   return {
     expiresInSeconds: EMAIL_CODE_EXPIRY_SECONDS,
@@ -563,12 +631,15 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
     errors.push({ field: 'token', detail: 'Two-factor token is required.' });
   }
   //#if (Email)
-  const presented = body.code?.trim() || body.emailCode?.trim() || body.recoveryCode?.trim();
+  const presented = [body.code, body.emailCode, body.recoveryCode].filter((v) => v?.trim()).length;
   //#else
-  const presented = body.code?.trim() || body.recoveryCode?.trim();
+  const presented = [body.code, body.recoveryCode].filter((v) => v?.trim()).length;
   //#endif
-  if (!presented) {
+  if (presented === 0) {
     errors.push({ field: 'code', detail: 'Enter the verification code or a recovery code.' });
+  } else if (presented > 1) {
+    // 与后端一致：恰好一种，多给不按优先级挑
+    errors.push({ field: 'code', detail: 'Enter only one kind of code.' });
   }
   if (errors.length > 0) {
     throw new MockException(400, { errors });
@@ -580,7 +651,7 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
     throw twoFactorChallengeExpired();
   }
 
-  // 给了多种时依次以恢复码、邮箱验证码为准，与后端同一取舍；恢复码用一次即作废
+  // 入参已保证恰好一种；恢复码用一次即作废
   const recoveryCode = body.recoveryCode?.trim();
   let verified: boolean;
   if (recoveryCode) {
@@ -610,6 +681,12 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
   if (recoveryCode) {
     user.recoveryCodes = (user.recoveryCodes ?? []).filter((code) => code !== recoveryCode);
   }
+  //#if (Email)
+  // 用独立因子（身份验证器、恢复码）完成了第二步：找回得来的口令不再只凭邮箱
+  if (!body.emailCode?.trim()) {
+    user.passwordSetByEmailRecovery = false;
+  }
+  //#endif
   twoFactorChallengeStore.delete(body.token);
   setMockSessionUserId(user.id);
   setMockSessionTenantKey(challenge.tenantKey);
@@ -623,19 +700,31 @@ function verifyTwoFactorEmailCode(
   challenge: TwoFactorChallenge,
   code: string,
 ): boolean {
-  if (!twoFactorOptions(user, challenge.tenantKey).methods.includes('email')) {
+  if (
+    !twoFactorOptions(user, challenge.tenantKey, challenge.firstFactorViaEmail).methods.includes(
+      'email',
+    )
+  ) {
     throw twoFactorMethodUnavailable();
   }
   const emailChallenge = challenge.emailChallengeId
     ? emailChallengeStore.get(challenge.emailChallengeId)
     : undefined;
+  // 没有仍有效的邮件挑战（没发过、已过期、次数用完）不算猜错，与后端一样提示重新获取
   if (
     !emailChallenge ||
     emailChallenge.purpose !== 'two-factor-sign-in' ||
     emailChallenge.userId !== user.id ||
     emailChallenge.expiresAt <= Date.now() ||
-    emailChallenge.code !== code
+    emailChallenge.remainingAttempts <= 0
   ) {
+    throw new MockException(400, {
+      code: 'Auth:EmailCodeExpired',
+      message: 'The email verification code has expired. Send a new one.',
+    });
+  }
+  if (emailChallenge.code !== code) {
+    emailChallenge.remainingAttempts--;
     return false;
   }
   emailChallengeStore.delete(challenge.emailChallengeId!);
@@ -732,6 +821,8 @@ function enableEmailTwoFactor(req: MockRequest): 'ok' {
   }
   emailChallengeStore.delete(body.challengeId);
   user.emailTwoFactorEnabled = true;
+  // 与后端一致：本人在会话里开启了第二步，口令不再视为只凭邮箱得来
+  user.passwordSetByEmailRecovery = false;
   return 'ok';
 }
 
@@ -827,6 +918,7 @@ function enableTwoFactor(req: MockRequest): TwoFactorRecoveryCodesOutputDto {
   ensureMockTwoFactorCode(req.body?.code);
   mockPendingSetupId = null;
   mockSessions = mockSessions.filter((s) => s.isCurrent);
+  user.passwordSetByEmailRecovery = false;
   return issueRecoveryCodes(user);
 }
 
@@ -1069,8 +1161,14 @@ function sendEmailCode(req: MockRequest): EmailVerificationChallengeOutputDto {
 
 /** 收得到找回码的账号：邮箱已验证、启用、没有被管理员锁定（管理员锁定没有截止时间）。 */
 function isPasswordResetDeliverable(user: MockUser): boolean {
-  // Mock 数据里 lockoutEnd 为 null 即管理员锁定，undefined 为未锁定
-  return user.isEmailVerified && user.isActive && user.lockoutEnd !== null;
+  // Mock 数据里 lockoutEnd 为 null 即管理员锁定，undefined 为未锁定；
+  // 与后端一致：第二步只开了邮箱验证码的账号不能自助找回（找回后第二步只认独立因子，它没有）
+  return (
+    user.isEmailVerified &&
+    user.isActive &&
+    user.lockoutEnd !== null &&
+    !(user.emailTwoFactorEnabled === true && user.twoFactorEnabled !== true)
+  );
 }
 
 /**
@@ -1160,6 +1258,8 @@ function resetPassword(req: MockRequest): 'ok' {
   }
 
   user.password = body.newPassword;
+  // 与后端一致：之后的登录第二步只认独立因子，直到用它完成一次
+  user.passwordSetByEmailRecovery = true;
   rotateSecurityVersion(user);
   // 与后端一致：解除登录失败触发的临时锁定（有截止时间的那种）；管理员锁定在前面已经拒绝
   if (user.lockoutEnd) {
