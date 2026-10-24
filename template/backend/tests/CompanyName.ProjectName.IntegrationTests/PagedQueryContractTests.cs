@@ -61,7 +61,7 @@ public sealed class PagedQueryContractTests(ProjectWebApplicationFactory factory
     [InlineData("/api/v1/users", "lastLogin.Time desc, USERNAME ASC", HttpStatusCode.OK)]
     [InlineData("/api/v1/users", "securityStamp", HttpStatusCode.BadRequest)]
     [InlineData("/api/v1/users", "username, TwoFactor.Secret", HttpStatusCode.BadRequest)]
-    [InlineData("/api/v1/users", "twofactor.recoverycodes", HttpStatusCode.BadRequest)]
+    [InlineData("/api/v1/users", "recoverycodes.hashes", HttpStatusCode.BadRequest)]
     [InlineData("/api/v1/users", "PasswordHash.Substring(0,1)", HttpStatusCode.BadRequest)]
     [InlineData("/api/v1/roles", "displayName desc", HttpStatusCode.OK)]
     [InlineData("/api/v1/roles", "sort asc", HttpStatusCode.OK)]

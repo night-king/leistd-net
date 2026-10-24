@@ -34,6 +34,7 @@ public class MyProjectDbContext(
     public DbSet<UserRole> UserRoles { get; set; } = null!;
 #if (LocalIdentity)
     public DbSet<UserSession> UserSessions { get; set; } = null!;
+    public DbSet<UserPasskey> UserPasskeys { get; set; } = null!;
 #endif
 #if (ExternalLogin)
     public DbSet<ExternalLoginConnection> ExternalLoginConnections { get; set; } = null!;

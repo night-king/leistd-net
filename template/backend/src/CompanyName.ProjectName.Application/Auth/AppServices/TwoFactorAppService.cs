@@ -75,7 +75,7 @@ internal sealed class TwoFactorAppService(
         return new TwoFactorStatusOutputDto
         {
             Enabled = user.TwoFactorEnabled,
-            RecoveryCodesLeft = user.TwoFactorEnabled ? user.RecoveryCodesLeft : 0,
+            RecoveryCodesLeft = user.RecoveryCodesLeft,
             RequiredByPolicy = policy.RequireTwoFactor,
             PreferredMethod = user.PreferredTwoFactorMethod,
             DefaultMethod = methods.DefaultMethod,
@@ -189,14 +189,15 @@ internal sealed class TwoFactorAppService(
             throw CodeInvalid();
         }
 
-        var codes = RecoveryCodes.Generate();
+        // 恢复码是账号级的：换绑时一并换新；首次启用且它是第一个独立因子时发放，已有通行密钥的人沿用原来的
+        IReadOnlyList<string> codes = setup.Replacing || user.NeedsRecoveryCodes ? RecoveryCodes.Generate() : [];
         if (setup.Replacing)
         {
             user.ReplaceTwoFactor(setup.ProtectedSecret, codes.Select(RecoveryCodes.Hash), step);
         }
         else
         {
-            user.EnableTwoFactor(setup.ProtectedSecret, codes.Select(RecoveryCodes.Hash), step);
+            user.EnableTwoFactor(setup.ProtectedSecret, codes.Count > 0 ? codes.Select(RecoveryCodes.Hash) : null, step);
         }
 
         await userRepository.UpdateAsync(user, cancellationToken);
@@ -236,7 +237,8 @@ internal sealed class TwoFactorAppService(
         if (!user.TwoFactorEnabled)
             return;
 
-        if ((await loginSecurityPolicy.GetAsync(cancellationToken)).RequireTwoFactor)
+        // 组织要求两步验证时不能拆掉最后一个独立因子；还有通行密钥就照常停用
+        if (user.PasskeyCount == 0 && (await loginSecurityPolicy.GetAsync(cancellationToken)).RequireTwoFactor)
         {
             throw new BusinessException(AuthErrorCodes.TwoFactorRequiredByPolicy, "Two-factor authentication is required here and cannot be turned off.");
         }

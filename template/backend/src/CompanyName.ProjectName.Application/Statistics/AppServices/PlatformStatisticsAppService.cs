@@ -315,7 +315,7 @@ public class PlatformStatisticsAppService(
         {
             LockedUsers = await asyncExecuter.CountAsync(users.Where(User.LockedOutAt(now)), cancellationToken),
             AdminsWithoutTwoFactor = await asyncExecuter.CountAsync(
-                users.Where(user => user.TwoFactor == null
+                users.Where(user => user.TwoFactor == null && user.PasskeyCount == 0
                     && user.Roles.Any(membership => adminRoleIds.Contains(membership.RoleId))),
                 cancellationToken),
             UnconfirmedEmailUsers = await asyncExecuter.CountAsync(

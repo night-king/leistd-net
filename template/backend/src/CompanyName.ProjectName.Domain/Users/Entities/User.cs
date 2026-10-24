@@ -61,10 +61,24 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>是否已启用身份验证器。</summary>
     /// <remarks>
-    /// 只有它满足组织"必须启用两步验证"的要求，确认身份时出示的验证码也只认它；
+    /// 确认身份时出示的验证码只认它。是否满足组织"必须启用两步验证"看 <see cref="HasIndependentFactor"/>，
     /// 登录是否要第二步还看邮箱方式，见 <see cref="HasSecondFactor"/>。
     /// </remarks>
     public bool TwoFactorEnabled => TwoFactor is not null;
+
+    /// <summary>已登记的通行密钥个数。</summary>
+    /// <remarks>
+    /// 通行密钥是独立的聚合（<c>UserPasskey</c>），这里只记个数：会话校验、找回资格这些逐请求的判定不必联表。
+    /// 只经 <c>PasskeyDomainService</c> 登记、删除时与凭据行同一工作单元增减。
+    /// </remarks>
+    public int PasskeyCount { get; private set; }
+
+    /// <summary>账号的恢复码；还没有独立因子时为 null。</summary>
+    public RecoveryCodeSet? RecoveryCodes { get; private set; }
+
+    /// <summary>有独立因子（身份验证器或至少一把通行密钥）：满足组织"必须启用两步验证"，并持有恢复码。</summary>
+    /// <remarks>独立因子的口径见 <see cref="TwoFactorMethods.IsIndependent"/>；邮箱验证码不算。</remarks>
+    public bool HasIndependentFactor => TwoFactorEnabled || PasskeyCount > 0;
 
     /// <summary>本人开启了邮箱验证码作为登录第二步。</summary>
     /// <remarks>开启不等于可用：还要邮箱已验证、所在组织允许，由应用层按当时的设置判定。</remarks>
@@ -73,8 +87,8 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     /// <summary>本人指定的首选第二步方式；为 null 时按系统顺序（身份验证器优先）。</summary>
     public TwoFactorMethod? PreferredTwoFactorMethod { get; private set; }
 
-    /// <summary>设置了任意一种第二步方式（身份验证器或邮箱验证码）。</summary>
-    public bool HasSecondFactor => TwoFactorEnabled || EmailTwoFactorEnabled;
+    /// <summary>设置了任意一种第二步方式（身份验证器、通行密钥或邮箱验证码）。</summary>
+    public bool HasSecondFactor => HasIndependentFactor || EmailTwoFactorEnabled;
 
     /// <summary>当前这一代口令是经邮件找回设置的，此后还没有用独立因子完成过第二步。</summary>
     /// <remarks>
@@ -424,7 +438,7 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
 
     private bool MayReceiveRecoveryMail => EmailConfirmed && IsActive && !Lockout.IsAdministrative;
 
-    private bool SignsInWithEmailCodeOnly => EmailTwoFactorEnabled && !TwoFactorEnabled;
+    private bool SignsInWithEmailCodeOnly => EmailTwoFactorEnabled && !HasIndependentFactor;
 
     /// <summary>解除登录失败触发的临时锁定并清零失败次数；管理员锁定保留。</summary>
     public void ReleaseTemporaryLockout()
@@ -470,23 +484,82 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
         Lockout = Lockout.ResetFailures();
     }
 
-    /// <summary>剩余可用的恢复码个数；未启用两步验证为 0。</summary>
-    public int RecoveryCodesLeft => TwoFactor?.RecoveryCodesLeft ?? 0;
+    /// <summary>剩余可用的恢复码个数；还没有独立因子时为 0。</summary>
+    public int RecoveryCodesLeft => RecoveryCodes?.Count ?? 0;
 
-    /// <summary>启用两步验证。</summary>
+    /// <summary>这次开启的是第一个独立因子，要随之发放恢复码。</summary>
+    public bool NeedsRecoveryCodes => !HasIndependentFactor;
+
+    /// <summary>启用身份验证器。</summary>
     /// <param name="protectedSecret">已加密的密钥。</param>
-    /// <param name="recoveryCodeHashes">恢复码摘要。</param>
+    /// <param name="recoveryCodeHashes">
+    /// 恢复码摘要：它是第一个独立因子（<see cref="NeedsRecoveryCodes"/>）时必须给，否则必须为 null，已有的恢复码不变。
+    /// </param>
     /// <param name="usedStep">启用时校验通过的那一步，随即记为已用：同一个码不能紧接着再拿去登录。</param>
     /// <exception cref="BusinessException">两步验证已启用（<see cref="AuthErrorCodes.TwoFactorAlreadyEnabled"/>）：重新启用会静默换掉正在使用的密钥。</exception>
-    public void EnableTwoFactor(string protectedSecret, IEnumerable<string> recoveryCodeHashes, long usedStep)
+    public void EnableTwoFactor(string protectedSecret, IEnumerable<string>? recoveryCodeHashes, long usedStep)
     {
         EnsureTwoFactorDisabled();
-        TwoFactor = TwoFactorCredential.Create(protectedSecret, recoveryCodeHashes, usedStep);
+        IssueRecoveryCodesForFirstFactor(recoveryCodeHashes);
+        TwoFactor = TwoFactorCredential.Create(protectedSecret, usedStep);
         ConfirmPasswordByIndependentFactor();
         RotateSecurityStamp();
     }
 
+    /// <summary>登记了一把通行密钥（凭据行由 <c>PasskeyDomainService</c> 在同一工作单元写入）。</summary>
+    /// <param name="recoveryCodeHashes">恢复码摘要：同 <see cref="EnableTwoFactor"/>。</param>
+    internal void RecordPasskeyRegistered(IEnumerable<string>? recoveryCodeHashes)
+    {
+        IssueRecoveryCodesForFirstFactor(recoveryCodeHashes);
+        PasskeyCount++;
+        ConfirmPasswordByIndependentFactor();
+        RotateSecurityStamp();
+    }
+
+    /// <summary>删除了一把通行密钥：最后一个独立因子去掉时恢复码作废；没有通行密钥了，指向它的首选回到系统顺序。</summary>
+    internal void RecordPasskeyRemoved()
+    {
+        if (PasskeyCount <= 0)
+            throw new InvalidOperationException("The user has no registered passkey to remove.");
+
+        PasskeyCount--;
+        if (PasskeyCount == 0 && PreferredTwoFactorMethod == TwoFactorMethod.Passkey)
+        {
+            PreferredTwoFactorMethod = null;
+        }
+
+        ReleaseRecoveryCodesWithoutIndependentFactor();
+        RotateSecurityStamp();
+    }
+
+    // 第一个独立因子带来恢复码；已有独立因子时恢复码不变，给了新的就是调用方算错了
+    private void IssueRecoveryCodesForFirstFactor(IEnumerable<string>? recoveryCodeHashes)
+    {
+        if (NeedsRecoveryCodes != recoveryCodeHashes is not null)
+        {
+            throw new ArgumentException(
+                NeedsRecoveryCodes
+                    ? "Recovery codes must be issued with the first independent factor."
+                    : "Recovery codes are already issued; they stay as they are.",
+                nameof(recoveryCodeHashes));
+        }
+
+        if (recoveryCodeHashes is not null)
+        {
+            RecoveryCodes = RecoveryCodeSet.Create(recoveryCodeHashes);
+        }
+    }
+
+    private void ReleaseRecoveryCodesWithoutIndependentFactor()
+    {
+        if (!HasIndependentFactor)
+        {
+            RecoveryCodes = null;
+        }
+    }
+
     /// <summary>换绑身份验证器：换成新的密钥与一组新的恢复码，旧验证器与旧恢复码随即作废。</summary>
+    /// <remarks>换绑多半是旧手机不在了，旧恢复码可能随它一起泄露，所以一并换掉。</remarks>
     /// <param name="protectedSecret">已加密的新密钥。</param>
     /// <param name="recoveryCodeHashes">新恢复码摘要。</param>
     /// <param name="usedStep">确认新密钥时校验通过的那一步，随即记为已用。</param>
@@ -494,11 +567,12 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     public void ReplaceTwoFactor(string protectedSecret, IEnumerable<string> recoveryCodeHashes, long usedStep)
     {
         EnsureTwoFactorEnabled();
-        TwoFactor = TwoFactorCredential.Create(protectedSecret, recoveryCodeHashes, usedStep);
+        TwoFactor = TwoFactorCredential.Create(protectedSecret, usedStep);
+        RecoveryCodes = RecoveryCodeSet.Create(recoveryCodeHashes);
         RotateSecurityStamp();
     }
 
-    /// <summary>停用身份验证器，并清掉密钥与恢复码；首选是它时回到系统顺序。</summary>
+    /// <summary>停用身份验证器并清掉密钥；首选是它时回到系统顺序。没有通行密钥了，恢复码一并作废。</summary>
     public void DisableTwoFactor()
     {
         TwoFactor = null;
@@ -507,13 +581,19 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
             PreferredTwoFactorMethod = null;
         }
 
+        ReleaseRecoveryCodesWithoutIndependentFactor();
         RotateSecurityStamp();
     }
 
-    /// <summary>清掉全部第二步方式（身份验证器、恢复码、邮箱验证码）与首选：管理员或部署命令重置两步验证时用。</summary>
-    public void ResetSecondFactors()
+    /// <summary>
+    /// 清掉全部第二步方式（身份验证器、通行密钥、恢复码、邮箱验证码）与首选：管理员或部署命令重置两步验证时用。
+    /// 通行密钥的凭据行由调用方（<c>PasskeyDomainService</c>）同一工作单元删除。
+    /// </summary>
+    internal void ResetSecondFactors()
     {
         TwoFactor = null;
+        PasskeyCount = 0;
+        RecoveryCodes = null;
         EmailTwoFactorEnabled = false;
         PreferredTwoFactorMethod = null;
         RotateSecurityStamp();
@@ -565,12 +645,13 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
 #endif
 
     /// <summary>指定首选第二步方式。</summary>
-    /// <remarks>只能是本人已设置的身份验证器或邮箱验证码；恢复码只作备选。不换安全版本：能用哪些方式没有变。</remarks>
+    /// <remarks>只能是本人已设置的通行密钥、身份验证器或邮箱验证码；恢复码只作备选。不换安全版本：能用哪些方式没有变。</remarks>
     /// <exception cref="BusinessException">该方式未设置或不能作首选（<see cref="AuthErrorCodes.TwoFactorMethodUnavailable"/>）。</exception>
     public void SetPreferredTwoFactorMethod(TwoFactorMethod method)
     {
         var configured = method switch
         {
+            TwoFactorMethod.Passkey => PasskeyCount > 0,
             TwoFactorMethod.Authenticator => TwoFactorEnabled,
             TwoFactorMethod.Email => EmailTwoFactorEnabled,
             _ => false
@@ -584,11 +665,15 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>换一组恢复码，旧的全部作废。</summary>
-    /// <exception cref="BusinessException">两步验证未启用（<see cref="AuthErrorCodes.TwoFactorNotEnabled"/>）。</exception>
+    /// <exception cref="BusinessException">还没有独立因子（<see cref="AuthErrorCodes.TwoFactorNotEnabled"/>）：恢复码只随独立因子存在。</exception>
     public void ReplaceRecoveryCodes(IEnumerable<string> recoveryCodeHashes)
     {
-        EnsureTwoFactorEnabled();
-        TwoFactor = TwoFactor!.WithRecoveryCodes(recoveryCodeHashes);
+        if (!HasIndependentFactor)
+        {
+            throw new BusinessException(AuthErrorCodes.TwoFactorNotEnabled, "Two-factor authentication is not turned on.");
+        }
+
+        RecoveryCodes = RecoveryCodeSet.Create(recoveryCodeHashes);
     }
 
     /// <summary>两步验证尚未启用；已启用时以 <see cref="AuthErrorCodes.TwoFactorAlreadyEnabled"/> 拒绝。</summary>
@@ -628,13 +713,13 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
         TwoFactor = TwoFactor!.WithLastUsedStep(step);
     }
 
-    /// <summary>用掉一个恢复码；未启用两步验证或摘要不在剩余列表里时返回 false。</summary>
+    /// <summary>用掉一个恢复码；没有恢复码或摘要不在剩余列表里时返回 false。</summary>
     public bool TryConsumeRecoveryCode(string hash)
     {
-        if (TwoFactor?.ConsumeRecoveryCode(hash) is not { } next)
+        if (RecoveryCodes?.Consume(hash) is not { } next)
             return false;
 
-        TwoFactor = next;
+        RecoveryCodes = next;
         return true;
     }
 

@@ -9,6 +9,7 @@ using Leistd.MultiTenancy.Context;
 #endif
 using Leistd.UnitOfWork;
 #if (LocalIdentity)
+using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.Sessions;
@@ -62,6 +63,7 @@ internal sealed class UserAppService(
 #if (LocalIdentity)
     UserSortingValidator userSortingValidator,
     UserAccessRevoker accessRevoker,
+    PasskeyDomainService passkeyDomainService,
     ILocalEventBus localEventBus,
     IDistributedLock distributedLock,
     IReauthenticationGuard reauthenticationGuard,
@@ -554,7 +556,7 @@ internal sealed class UserAppService(
             return;
         }
 
-        user.ResetSecondFactors();
+        await passkeyDomainService.ResetSecondFactorsAsync(user, cancellationToken);
         await userRepository.UpdateAsync(user, cancellationToken);
 
         await localEventBus.PublishAsync(

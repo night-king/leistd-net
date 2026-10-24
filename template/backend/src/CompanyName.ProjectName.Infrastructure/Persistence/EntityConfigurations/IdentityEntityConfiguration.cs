@@ -12,6 +12,7 @@ internal static class IdentityEntityConfiguration
         builder.ConfigureUserIdentity();
         builder.ConfigureRoles();
         builder.ConfigureUserSessions();
+        builder.ConfigureUserPasskeys();
 #if (ExternalLogin)
         builder.ConfigureExternalLoginConnections();
 #endif
@@ -25,12 +26,9 @@ internal static class IdentityEntityConfiguration
             b.Property(e => e.PhoneNumber).HasMaxLength(32);
             b.ComplexProperty(e => e.Lockout);
             b.ComplexProperty(e => e.LastLogin, login => login.Property(l => l.Ip).HasMaxLength(45));
-            b.ComplexProperty(e => e.TwoFactor, twoFactor =>
-            {
-                twoFactor.Property(t => t.Secret).HasMaxLength(512);
-                // 十个 SHA-256 十六进制摘要加分隔符
-                twoFactor.Property(t => t.RecoveryCodes).HasMaxLength(1024);
-            });
+            b.ComplexProperty(e => e.TwoFactor, twoFactor => twoFactor.Property(t => t.Secret).HasMaxLength(512));
+            // 十个 SHA-256 十六进制摘要加分隔符
+            b.ComplexProperty(e => e.RecoveryCodes, codes => codes.Property(c => c.Hashes).HasMaxLength(1024));
             // Guid 的 32 位十六进制
             b.Property(e => e.SecurityStamp).IsRequired().HasMaxLength(32);
         });
@@ -67,6 +65,32 @@ internal static class IdentityEntityConfiguration
             b.HasIndex(e => e.UserId);
 
             // 会话没有独立于用户的意义：用户行被物理删除时一并删除
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserPasskeys(this ModelBuilder builder)
+    {
+        builder.Entity<UserPasskey>(b =>
+        {
+            // WebAuthn 规定凭据 Id 不超过 1023 字节
+            b.Property(e => e.CredentialId).IsRequired().HasMaxLength(1023);
+            b.Property(e => e.PublicKey).IsRequired().HasMaxLength(2048);
+            b.Property(e => e.UserHandle).IsRequired().HasMaxLength(64);
+            b.Property(e => e.Transports).IsRequired().HasMaxLength(128);
+            b.Property(e => e.Name).IsRequired().HasMaxLength(UserPasskey.NameMaxLength);
+
+            // 租户内唯一：免口令登录按凭据 Id 定位用户。宿主行（TenantId 为 NULL）在 PostgreSQL 中 NULL 互不相等，
+            // 与外部登录连接一样用带过滤的成对索引分别约束
+            b.HasIndex(e => e.CredentialId)
+                .IsUnique()
+                .HasFilter($"\"{nameof(UserPasskey.TenantId)}\" IS NULL");
+            b.HasIndex(e => new { e.TenantId, e.CredentialId })
+                .IsUnique()
+                .HasFilter($"\"{nameof(UserPasskey.TenantId)}\" IS NOT NULL");
+            b.HasIndex(e => e.UserId);
+
+            // 通行密钥没有独立于用户的意义：用户行被物理删除时一并删除
             b.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
         });
     }

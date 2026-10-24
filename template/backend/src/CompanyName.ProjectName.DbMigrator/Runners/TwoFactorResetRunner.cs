@@ -44,6 +44,7 @@ internal sealed class TwoFactorResetRunner(
     IDistributedLock distributedLock,
     IUserRepository userRepository,
     UserSessionDomainService userSessionDomainService,
+    PasskeyDomainService passkeyDomainService,
     IOperationRecorder recorder)
 {
     /// <param name="userId">要重置的用户 Id。</param>
@@ -83,10 +84,10 @@ internal sealed class TwoFactorResetRunner(
             return $"Two-factor authentication is not turned on for {target}; nothing to reset.";
 
         if (!apply)
-            return $"Dry run for {target}: would turn off two-factor authentication (authenticator, recovery codes "
-                + "and email codes) and sign out all of its sessions. No data or audit record changed.";
+            return $"Dry run for {target}: would turn off two-factor authentication (authenticator, passkeys, "
+                + "recovery codes and email codes) and sign out all of its sessions. No data or audit record changed.";
 
-        user.ResetSecondFactors();
+        await passkeyDomainService.ResetSecondFactorsAsync(user, cancellationToken);
         await userRepository.UpdateAsync(user, cancellationToken);
         await userSessionDomainService.RevokeAllAsync(user.Id, exceptSessionId: null, cancellationToken);
         await recorder.RecordSucceededAsync(OperationRecordActions.UserTwoFactorReset,
