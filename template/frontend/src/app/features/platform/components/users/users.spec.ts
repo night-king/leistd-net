@@ -559,8 +559,8 @@ describe('Users page query round trip', () => {
     }
     expect(component.activationId()).toBeFalsy();
   });
-
   //#if (LocalIdentity)
+
   it('locks delete before confirmation and unlocks after cancellation', async () => {
     let answer!: (value: boolean) => void;
     const confirm = vi
@@ -580,8 +580,8 @@ describe('Users page query round trip', () => {
     expect(component.deletingId()).toBeFalsy();
   });
   //#endif
-
   //#if (LocalIdentity)
+
   it('locks unlock before confirmation and unlocks after cancellation', async () => {
     let answer!: (value: boolean) => void;
     const confirm = vi
@@ -601,8 +601,8 @@ describe('Users page query round trip', () => {
     expect(component.unlockingId()).toBeFalsy();
   });
   //#endif
-
   //#if (LocalIdentity)
+
   it('locks reset two-factor before confirmation and unlocks after cancellation', async () => {
     let answer!: (value: boolean) => void;
     const confirm = vi
@@ -641,8 +641,8 @@ describe('Users page query round trip', () => {
     }
     expect(component.batchBusy()).toBeFalsy();
   });
-
   //#if (LocalIdentity)
+
   it('locks batch unlock before confirmation and unlocks after cancellation', async () => {
     let answer!: (value: boolean) => void;
     const confirm = vi

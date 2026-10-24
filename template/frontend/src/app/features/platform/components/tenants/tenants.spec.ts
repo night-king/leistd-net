@@ -350,8 +350,8 @@ describe('Tenants page query and write flow', () => {
     }
     expect(component.deletingId()).toBeFalsy();
   });
-
   //#if (Impersonation)
+
   it('locks impersonate before confirmation and unlocks after cancellation', async () => {
     let answer!: (value: boolean) => void;
     const confirm = vi
