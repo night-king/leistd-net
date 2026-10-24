@@ -52,7 +52,8 @@ describe('mock matching rules', () => {
   });
 
   it('installs and matches mocks by the same rules in the development build providers', () => {
-    expect(development.mockInterceptors(true).length).toBe(1);
+    // 写回用户数据的拦截器在外层，Mock 拦截器在内层
+    expect(development.mockInterceptors(true).length).toBe(2);
     expect(development.mockInterceptors(false)).toEqual([]);
     expect(development.provideMock({ enable: false })).toEqual([]);
 

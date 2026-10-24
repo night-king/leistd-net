@@ -369,7 +369,7 @@ const ENGLISH: Record<string, string> = {
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
   'account.register.submit': 'Sign up',
-  'account.register.haveAccount': 'Already have an account?',
+  'account.register.haveAccount': 'Already have an account? ',
   'account.register.loginNow': 'Sign in',
   'account.register.closed': 'Self sign-up is not open here. Ask an administrator for an account.',
   //#if (ExternalLogin)

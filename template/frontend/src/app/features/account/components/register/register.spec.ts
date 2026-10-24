@@ -309,5 +309,37 @@ describe('Register', () => {
 
     expect(host.querySelector('[data-testid="registration-closed"]')).not.toBeNull();
     expect(host.querySelector('form')).toBeNull();
+    // 关闭时去登录是唯一去处
+    expect(host.querySelector('[data-testid="login-prompt"]')).not.toBeNull();
+  });
+
+  // 去登录是次要入口，排在注册按钮之后；提示语与链接之间不多出空白，并带上返回地址
+  it('puts the sign-in prompt after the form and carries the return address', async () => {
+    queryParams = { returnUrl: '/dashboard' };
+    await setUp();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const prompt = host.querySelector('[data-testid="login-prompt"]')!;
+    const following = (a: Element, b: Element) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    //#if (IncludeLocalization)
+    // 测试不加载词条，显示的是键：两键直接相连即模板里没有多出的空白
+    expect(prompt.textContent!.trim()).toBe(
+      'account.register.haveAccountaccount.register.loginNow',
+    );
+    //#else
+    expect(prompt.textContent!.trim()).toBe('Already have an account? Sign in');
+    //#endif
+    expect(prompt.querySelector('a')!.getAttribute('href')).toBe(
+      '/auth/login?returnUrl=%2Fdashboard',
+    );
+    expect(following(host.querySelector('button[type="submit"]')!, prompt)).toBe(true);
+    //#if (ExternalLogin)
+    expect(following(host.querySelector('[data-testid="external-login-github"]')!, prompt)).toBe(
+      true,
+    );
+    //#endif
   });
 });

@@ -7,7 +7,7 @@ import { MOCK_TWO_FACTOR_CODE, MockUser, USERS } from '../data/user';
 import { MockUser, USERS } from '../data/user';
 //#endif
 
-// Mock 会话状态存在当前页面的 sessionStorage，刷新保持登录；业务数据在页面内存里，重新加载即回到初始数据。
+// Mock 会话状态存在当前页面的 sessionStorage，刷新保持登录；用户数据同样存本页（见 data/user.ts），其余业务数据在页面内存里，重新加载即回到初始数据。
 // 新页面的初始存储取决于浏览器：独立新开的页面为空（未登录），保留 opener 打开的页面会复制来源页的存储，
 // 此后各页的会话互不影响（见 docs/standards/coding-frontend.md「Mock」）。每次都读存储、不在模块里缓存，存储是唯一来源。
 const MOCK_SESSION_STORAGE_KEY = 'mock_session_user_id';
