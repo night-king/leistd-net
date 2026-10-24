@@ -348,6 +348,8 @@ describe('mock email two-factor', () => {
     demo.recoveryCodes = [];
     demo.emailTwoFactorEnabled = false;
     demo.preferredTwoFactorMethod = undefined;
+    demo.passwordSetByEmailRecovery = false;
+    TENANT_SETTING_VALUES.delete('host:Security.RequireTwoFactor');
   });
 
   function firstStep(): {
@@ -362,6 +364,102 @@ describe('mock email two-factor', () => {
     }) as ReturnType<typeof firstStep>;
   }
 
+  // 口令经邮件找回：第二步只认独立因子；用身份验证器完成一次后邮箱方式恢复
+  it('offers only independent factors after an email recovery until one is used', () => {
+    demo.passwordSetByEmailRecovery = true;
+    const prompt = firstStep();
+    expect(prompt.twoFactorMethods).toEqual(['authenticator', 'recoveryCode']);
+    expect(
+      rejectionOf(() => sendEmailCode({ headers, body: { token: prompt.twoFactorToken } })).error
+        .code,
+    ).toBe('Auth:TwoFactorMethodUnavailable');
+
+    completeTwoFactor({ headers, body: { token: prompt.twoFactorToken, code: '123456' } });
+    expect(demo.passwordSetByEmailRecovery).toBe(false);
+    expect(firstStep().twoFactorMethods).toContain('email');
+  });
+
+  // 只开了邮箱验证码、这次只认独立因子：一种方式都不剩，拒绝登录而不是退回单步
+  it('refuses rather than signing in when no method is left for this sign-in', () => {
+    demo.twoFactorEnabled = false;
+    demo.recoveryCodes = [];
+    demo.passwordSetByEmailRecovery = true;
+
+    expect(
+      rejectionOf(() =>
+        sessionLogin({ headers, body: { usernameOrEmail: 'demo', password: demo.password } }),
+      ).error.code,
+    ).toBe('Auth:TwoFactorIndependentFactorRequired');
+    expect(getMockSessionUserId()).toBeNull();
+  });
+
+  // 组织要求两步验证时，有身份验证器的人第二步不给邮箱验证码
+  it('does not offer email codes under a requirement to holders of an authenticator', () => {
+    TENANT_SETTING_VALUES.set('host:Security.RequireTwoFactor', 'true');
+
+    expect(firstStep().twoFactorMethods).toEqual(['authenticator', 'recoveryCode']);
+  });
+
+  // 恰好一种：多给一种是校验错误，不按优先级挑
+  it('rejects a second step that presents more than one kind of code', () => {
+    const token = firstStep().twoFactorToken!;
+    const rejected = rejectionOf(() =>
+      completeTwoFactor({
+        headers,
+        body: { token, code: '123456', recoveryCode: 'mock-recovery-1' },
+      }),
+    );
+
+    expect(rejected.status).toBe(400);
+    expect(demo.recoveryCodes).toEqual(['mock-recovery-1']);
+  });
+
+  // 发送间隔内再发：沿用上一封，回报剩余间隔，重新进入第二步时原来的码照样能用
+  it('reuses the previous sign-in code within the send interval', () => {
+    // 发送间隔记在模块级状态里：时钟拨回过去，用例结束后间隔已过，不挡后面的用例
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 3_600_000);
+    try {
+      demo.preferredTwoFactorMethod = 'email';
+      const first = firstStep().twoFactorToken!;
+      sendEmailCode({ headers, body: { token: first } });
+
+      const again = firstStep().twoFactorToken!;
+      const reused = sendEmailCode({ headers, body: { token: again } }) as {
+        retryAfterSeconds: number;
+      };
+      expect(reused.retryAfterSeconds).toBeGreaterThan(0);
+
+      completeTwoFactor({ headers, body: { token: again, emailCode: '123456' } });
+      expect(getMockSessionUserId()).toBe(demo.id);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  // 换邮箱：邮箱验证码随之关闭，指向它的首选清除
+  it('turns email codes off when the email address changes', () => {
+    const profile = AUTH_API['PUT /api/v1/auth/me'] as Handler;
+    const original = demo.email;
+    demo.preferredTwoFactorMethod = 'email';
+    setMockSessionUserId(demo.id);
+    try {
+      profile({
+        headers,
+        body: {
+          username: demo.username,
+          email: `moved.${original}`,
+          currentPassword: demo.password,
+        },
+      });
+
+      expect(demo.emailTwoFactorEnabled).toBe(false);
+      expect(demo.preferredTwoFactorMethod).toBeUndefined();
+    } finally {
+      demo.email = original;
+      demo.isEmailVerified = true;
+    }
+  });
+
   it('offers the methods in system order with the authenticator as default', () => {
     const prompt = firstStep();
 
@@ -375,11 +473,11 @@ describe('mock email two-factor', () => {
     const token = firstStep().twoFactorToken!;
     expect(firstStep().defaultTwoFactorMethod).toBe('email');
 
-    // 没发过码时邮箱验证码不算数
+    // 没发过码时邮箱验证码不算数：按"已失效"拒绝，不算输错
     expect(
       rejectionOf(() => completeTwoFactor({ headers, body: { token, emailCode: '123456' } })).error
         .code,
-    ).toBe('Auth:TwoFactorCodeInvalid');
+    ).toBe('Auth:EmailCodeExpired');
 
     sendEmailCode({ headers, body: { token } });
     completeTwoFactor({ headers, body: { token, emailCode: '123456' } });

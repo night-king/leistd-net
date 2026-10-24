@@ -1,6 +1,6 @@
 # 登录第二步支持多种验证方式
 
-状态：已完成 · 风险档：高 · 关联：[#163](https://github.com/zengqinglei/leistd-net/pull/163)
+状态：已完成 · 风险档：高 · 关联：[#163](https://github.com/zengqinglei/leistd-net/pull/163) · 后续补充：[邮箱不是独立因子](2026-10-25-two-factor-email-factor-scenarios.md)（找回、外部登录关联、组织要求场景收口邮箱码；换邮箱作废邮箱方式）
 
 ## 1. 需求
 

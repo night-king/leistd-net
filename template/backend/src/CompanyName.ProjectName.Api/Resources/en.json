@@ -9,6 +9,7 @@
     "Auth:CannotRevokeCurrentSession": "Use sign-out to end the current session.",
     "Auth:CaptchaInvalid": "The image captcha is incorrect or has expired.",
     "Auth:EmailAlreadyVerified": "This email address has already been verified.",
+    "Auth:EmailCodeExpired": "The email verification code has expired. Send a new one.",
     "Auth:EmailCodeInvalid": "The email verification code is incorrect or has expired.",
     "Auth:EmailCodeRequired": "Please enter the email verification code.",
     "Auth:EmailCodeSendTooFrequent": "Verification codes are being sent too frequently. Please try again later.",
@@ -23,6 +24,7 @@
     "Auth:TwoFactorAlreadyEnabled": "Two-factor authentication is already turned on.",
     "Auth:TwoFactorChallengeExpired": "The sign-in attempt has expired. Sign in again.",
     "Auth:TwoFactorCodeInvalid": "The verification code is incorrect.",
+    "Auth:TwoFactorIndependentFactorRequired": "This way of signing in needs your authenticator app or a recovery code. Sign in with your password instead.",
     "Auth:TwoFactorMethodUnavailable": "This verification method isn't available for your account.",
     "Auth:TwoFactorNotEnabled": "Two-factor authentication is not turned on.",
     "Auth:TwoFactorRequiredByPolicy": "Two-factor authentication is required here and cannot be turned off.",
@@ -57,6 +59,7 @@
     "Email verification status": "Email verification status",
     "End date": "End date",
     "End time": "End time",
+    "Enter only one kind of code.": "Enter only one kind of code.",
     "Enter the verification code or a recovery code.": "Enter the verification code or a recovery code.",
     "Expected version": "Expected version",
     "ExternalAuth:AccessTokenEmpty": "Access token is empty.",
@@ -152,6 +155,8 @@
     "PasswordReset:Email:Expiry": "This code will expire in {0} minutes. Please do not share it with anyone.",
     "PasswordReset:Email:Ignore": "If you did not request this, you can ignore this email. Your password stays unchanged.",
     "PasswordReset:Email:Intro": "You are resetting the password of your account. Your verification code is:",
+    "PasswordReset:Email:NeedsAdministrator": "Your account signs in with an email verification code, so its password can't be reset by email. Ask your administrator to reset it.",
+    "PasswordReset:Email:NeedsAdministratorSubject": "About resetting your password",
     "PasswordReset:Email:Subject": "Password Reset Verification Code",
 //#endif
 //#if (Email)

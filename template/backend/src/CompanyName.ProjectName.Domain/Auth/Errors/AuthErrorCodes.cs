@@ -7,6 +7,7 @@ public static class AuthErrorCodes
     public const string CaptchaInvalid = "Auth:CaptchaInvalid";
 #if (Email)
     public const string EmailAlreadyVerified = "Auth:EmailAlreadyVerified";
+    public const string EmailCodeExpired = "Auth:EmailCodeExpired";
     public const string EmailCodeInvalid = "Auth:EmailCodeInvalid";
     public const string EmailCodeRequired = "Auth:EmailCodeRequired";
     public const string EmailCodeSendTooFrequent = "Auth:EmailCodeSendTooFrequent";
@@ -21,6 +22,7 @@ public static class AuthErrorCodes
     public const string TwoFactorAlreadyEnabled = "Auth:TwoFactorAlreadyEnabled";
     public const string TwoFactorChallengeExpired = "Auth:TwoFactorChallengeExpired";
     public const string TwoFactorCodeInvalid = "Auth:TwoFactorCodeInvalid";
+    public const string TwoFactorIndependentFactorRequired = "Auth:TwoFactorIndependentFactorRequired";
     public const string TwoFactorMethodUnavailable = "Auth:TwoFactorMethodUnavailable";
     public const string TwoFactorNotEnabled = "Auth:TwoFactorNotEnabled";
     public const string TwoFactorRequiredByPolicy = "Auth:TwoFactorRequiredByPolicy";

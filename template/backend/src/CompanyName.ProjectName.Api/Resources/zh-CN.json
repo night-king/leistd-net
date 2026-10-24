@@ -9,6 +9,7 @@
     "Auth:CannotRevokeCurrentSession": "当前设备请通过退出登录结束会话。",
     "Auth:CaptchaInvalid": "图形验证码不正确或已过期。",
     "Auth:EmailAlreadyVerified": "该邮箱已经验证过了。",
+    "Auth:EmailCodeExpired": "邮箱验证码已失效，请重新获取。",
     "Auth:EmailCodeInvalid": "邮箱验证码不正确或已过期。",
     "Auth:EmailCodeRequired": "请输入邮箱验证码。",
     "Auth:EmailCodeSendTooFrequent": "发送过于频繁，请稍后再试。",
@@ -23,6 +24,7 @@
     "Auth:TwoFactorAlreadyEnabled": "两步验证已经启用。",
     "Auth:TwoFactorChallengeExpired": "登录已过期，请重新登录。",
     "Auth:TwoFactorCodeInvalid": "验证码不正确。",
+    "Auth:TwoFactorIndependentFactorRequired": "这种登录方式需要身份验证器或恢复码完成第二步，请改用口令登录。",
     "Auth:TwoFactorMethodUnavailable": "你的账号当前不能使用这种验证方式。",
     "Auth:TwoFactorNotEnabled": "两步验证尚未启用。",
     "Auth:TwoFactorRequiredByPolicy": "所在组织要求启用两步验证，不能停用。",
@@ -57,6 +59,7 @@
     "Email verification status": "邮箱是否已验证",
     "End date": "结束日期",
     "End time": "结束时间",
+    "Enter only one kind of code.": "只需输入一种验证码",
     "Enter the verification code or a recovery code.": "请输入验证码或恢复码",
     "Expected version": "预期版本",
     "ExternalAuth:AccessTokenEmpty": "Access Token 为空。",
@@ -152,6 +155,8 @@
     "PasswordReset:Email:Expiry": "验证码 {0} 分钟内有效，请勿告诉他人。",
     "PasswordReset:Email:Ignore": "如果不是你本人申请，请忽略这封邮件，你的密码不会改变。",
     "PasswordReset:Email:Intro": "你正在重置账号的密码，验证码是：",
+    "PasswordReset:Email:NeedsAdministrator": "你的账号登录第二步使用邮箱验证码，不能再凭邮箱找回口令，请联系管理员重置。",
+    "PasswordReset:Email:NeedsAdministratorSubject": "关于重置密码",
     "PasswordReset:Email:Subject": "重置密码验证码",
 //#endif
 //#if (Email)

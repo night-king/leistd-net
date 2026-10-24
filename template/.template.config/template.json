@@ -784,6 +784,8 @@
             "backend/tests/CompanyName.ProjectName.IntegrationTests/EmailVerificationChallengeTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/PasswordResetTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/TwoFactorMethodsTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/TwoFactorEmailFactorTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/CodeMailbox.cs",
             "backend/tests/CompanyName.ProjectName.UnitTests/Application/EmailChallengeStoreTests.cs",
             "frontend/src/app/features/settings/components/setting-section/widgets/email-test/**",
             "frontend/src/app/features/account/utils/resend-countdown.ts",

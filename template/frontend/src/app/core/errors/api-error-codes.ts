@@ -40,7 +40,12 @@ export const API_ERROR_CODES = {
   /** 账号已停用：登录无法继续。 */
   userDisabled: 'Auth:UserDisabled',
 
-  /** 这种第二步方式此刻不能用（组织关闭、邮箱改为未验证）：就地说明，改用其他方式。 */
+  /** 这种第二步方式此刻不能用（组织关闭、邮箱改为未验证、这次登录只认独立因子）：就地说明，改用其他方式。 */
   twoFactorMethodUnavailable: 'Auth:TwoFactorMethodUnavailable',
+  //#if (Email)
+
+  /** 第二步的邮箱验证码已失效（没发过、已过期、次数用完）：就地说明，重新获取，不算输错。 */
+  emailCodeExpired: 'Auth:EmailCodeExpired',
+  //#endif
   //#endif
 } as const;

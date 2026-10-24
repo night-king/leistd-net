@@ -242,12 +242,13 @@ public class UserDomainService(
 
     /// <summary>本人凭邮箱验证码找回口令：按口令策略设置新口令（轮换安全版本），并解除登录失败触发的临时锁定。</summary>
     /// <remarks>
-    /// 只有外部登录、还没有口令的账号，这一步等于设置第一个口令。能否找回（<see cref="User.CanRecoverPasswordByEmail"/>）
-    /// 与验证码是否属于这个账号的这一版凭据，由应用层在凭据锁内判定。
+    /// <para>只有外部登录、还没有口令的账号，这一步等于设置第一个口令。能否找回（<see cref="User.CanRecoverPasswordByEmail"/>）
+    /// 与验证码是否属于这个账号的这一版凭据，由应用层在凭据锁内判定。</para>
+    /// <para>新口令记为经邮件找回（<see cref="User.PasswordSetByEmailRecovery"/>）：此后登录第二步只认独立因子。</para>
     /// </remarks>
     public void RecoverPassword(User user, string? newPassword)
     {
-        user.UpdatePasswordHash(HashWithPolicy(newPassword));
+        user.RecoverPasswordHash(HashWithPolicy(newPassword));
         user.ReleaseTemporaryLockout();
     }
 #endif

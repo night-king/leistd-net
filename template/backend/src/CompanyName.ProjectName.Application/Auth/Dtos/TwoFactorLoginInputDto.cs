@@ -2,7 +2,8 @@ using System.ComponentModel.DataAnnotations;
 
 namespace CompanyName.ProjectName.Application.Auth.Dtos;
 
-/// <summary>登录第二步：提交其中一种方式的码（身份验证器验证码、邮箱验证码或恢复码）；给了多个时以恢复码、邮箱验证码、验证码的顺序取第一个。</summary>
+/// <summary>登录第二步：恰好提交一种方式的码（身份验证器验证码、邮箱验证码或恢复码）。</summary>
+/// <remarks>多给一种是校验错误：按优先级挑一个会悄悄用掉本人没打算用的恢复码，也让判定依赖字段顺序。</remarks>
 public sealed record TwoFactorLoginInputDto : IValidatableObject
 {
     /// <summary>第一步返回的凭据。</summary>
@@ -29,14 +30,20 @@ public sealed record TwoFactorLoginInputDto : IValidatableObject
     public string? RecoveryCode { get; init; }
 
     /// <inheritdoc />
-    /// <remarks>"至少给一种"没有对应的内置特性；文案与特性文案一样是本地化键。</remarks>
+    /// <remarks>"恰好给一种"没有对应的内置特性；文案与特性文案一样是本地化键。</remarks>
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        var presented = !string.IsNullOrWhiteSpace(Code) || !string.IsNullOrWhiteSpace(RecoveryCode);
+        var presented = new[]
+        {
+            Code,
 #if (Email)
-        presented |= !string.IsNullOrWhiteSpace(EmailCode);
+            EmailCode,
 #endif
-        if (!presented)
+            RecoveryCode
+        }.Count(value => !string.IsNullOrWhiteSpace(value));
+        if (presented == 0)
             yield return new ValidationResult("Enter the verification code or a recovery code.", [nameof(Code)]);
+        else if (presented > 1)
+            yield return new ValidationResult("Enter only one kind of code.", [nameof(Code)]);
     }
 }

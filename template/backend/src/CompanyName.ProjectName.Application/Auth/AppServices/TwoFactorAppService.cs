@@ -49,7 +49,6 @@ internal sealed class TwoFactorAppService(
     TwoFactorMethodResolver twoFactorMethods,
 #if (Email)
     EmailChallengeStore emailChallengeStore,
-    TwoFactorCodeMailComposer twoFactorMail,
 #endif
     UserDomainService userDomainService,
     UserSessionDomainService userSessionDomainService,
@@ -365,9 +364,8 @@ internal sealed class TwoFactorAppService(
 
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         await EnsureEmailCanBeEnabledAsync(user, cancellationToken);
-        var recipient = new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp);
         return await emailChallengeStore.IssueTwoFactorEmailSetupAsync(
-            recipient, twoFactorMail.ForSetup(recipient), cancellationToken);
+            new EmailCodeRecipient(user.Id, user.Email, user.SecurityStamp), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -465,7 +463,7 @@ internal sealed class TwoFactorAppService(
 #endif
 
     /// <inheritdoc />
-    /// <remarks>只换登录时先给出哪一种，不增减方式，所以不要求确认身份，也不换安全版本。</remarks>
+    /// <remarks>只换登录时先给出哪一种，不增减方式，所以不要求确认身份，也不换安全版本；照样留操作记录，本人能查到自己改过。</remarks>
     public async Task SetPreferredMethodAsync(
         SetPreferredTwoFactorMethodInputDto input,
         CancellationToken cancellationToken = default)
@@ -479,6 +477,11 @@ internal sealed class TwoFactorAppService(
         var user = await GetCurrentUserEntityAsync(cancellationToken);
         user.SetPreferredTwoFactorMethod(input.Method!.Value);
         await userRepository.UpdateAsync(user, cancellationToken);
+        await operationRecorder.RecordSucceededAsync(
+            OperationRecordActions.AuthTwoFactorPreferredMethodChanged,
+            OperationTarget.For(user.Id, user.DisplayName ?? user.Username),
+            OperationRecordAuthorizations.AuthenticatedSelf,
+            cancellationToken);
         await unit.CompleteAsync(cancellationToken);
     }
 

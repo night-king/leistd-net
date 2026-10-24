@@ -272,6 +272,10 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
             OperationRecordCategories.Authentication,
             OperationVisibility.Tenant,
             OperationSeverity.Notice);
+        context.Add(
+            OperationRecordActions.AuthTwoFactorPreferredMethodChanged,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor);
 #if (Email)
         context.Add(
             OperationRecordActions.AuthTwoFactorEmailEnabled,

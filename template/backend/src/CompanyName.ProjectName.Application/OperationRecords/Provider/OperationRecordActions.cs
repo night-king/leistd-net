@@ -174,6 +174,9 @@ public static class OperationRecordActions
     /// <summary>用恢复码完成了登录第二步。</summary>
     /// <remarks>值得单独留痕：恢复码是手机不在身边时的后门，被别人用掉时本人和管理员都该看得到。</remarks>
     public const string AuthTwoFactorRecoveryCodeUsed = "auth.two-factor.recovery-code-used";
+
+    /// <summary>用户指定了首选第二步方式。</summary>
+    public const string AuthTwoFactorPreferredMethodChanged = "auth.two-factor.preferred-method-changed";
 #if (Email)
 
     /// <summary>用户开启了邮箱验证码作为登录第二步。</summary>

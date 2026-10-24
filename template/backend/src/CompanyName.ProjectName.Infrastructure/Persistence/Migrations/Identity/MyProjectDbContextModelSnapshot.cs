@@ -55,6 +55,9 @@ namespace CompanyName.ProjectName.Infrastructure.Persistence.Migrations.Identity
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<bool>("LinkedByEmail")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -274,6 +277,9 @@ namespace CompanyName.ProjectName.Infrastructure.Persistence.Migrations.Identity
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("PasswordSetByEmailRecovery")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("PhoneNumber")
                         .HasMaxLength(32)

@@ -30,7 +30,8 @@ public class ExternalAuthDomainService(
 {
     /// <summary>查找或创建外部登录用户。</summary>
     /// <returns>
-    /// 用户；以及本次是否新建了用户。新建的用户还没有任何角色：默认角色属于入口相关的分配，由应用层完成。
+    /// 用户、这次登录经过的外部连接，以及本次是否新建了用户。新建的用户还没有任何角色：默认角色属于入口相关的分配，由应用层完成。
+    /// 按邮箱关联已有用户时新建的连接带 <see cref="ExternalLoginConnection.LinkedByEmail"/>。
     /// </returns>
     /// <remarks>
     /// <para>
@@ -40,7 +41,7 @@ public class ExternalAuthDomainService(
     /// 新建账号只采用已验证的邮箱（并记为已确认），未验证的换成占位地址。
     /// </para>
     /// </remarks>
-    public async Task<(User User, bool Created)> FindOrCreateUserAsync(
+    public async Task<(User User, ExternalLoginConnection Connection, bool Created)> FindOrCreateUserAsync(
         string provider,
         ExternalUserInfo externalUserInfo,
         CancellationToken cancellationToken = default)
@@ -58,7 +59,7 @@ public class ExternalAuthDomainService(
             }
 
             logger.LogInformation("User {Username} signed in via {Provider}", existingUser.Username, provider);
-            return (existingUser, false);
+            return (existingUser, connection, false);
         }
 
         var created = false;
@@ -92,12 +93,13 @@ public class ExternalAuthDomainService(
             userId: user.Id,
             provider: provider,
             providerUserId: externalUserInfo.ProviderId,
-            profile: ProfileOf(externalUserInfo));
+            profile: ProfileOf(externalUserInfo),
+            linkedByEmail: !created);
         await externalLoginConnectionRepository.InsertAsync(newConnection, cancellationToken);
 
         logger.LogInformation("Linked user {Username} to a {Provider} login connection", user.Username, provider);
 
-        return (user, created);
+        return (user, newConnection, created);
     }
 
     /// <summary>只读地找出这次外部登录对应的已有用户：已绑定的连接，或两边都已验证的同一邮箱；都没有时返回 null。</summary>

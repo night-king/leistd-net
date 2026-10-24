@@ -22,4 +22,16 @@ internal static class VerificationCodeMail
         <p style='font-size: 14px; color: #64748b; margin-top: 30px;'>{WebUtility.HtmlEncode(text.Ignore)}</p>
     </div>
 </div>";
+
+    /// <summary>不带码的告知信：同一版式，去掉验证码与有效期。</summary>
+    public static string BuildNotice(VerificationCodeMailText text) => $@"
+<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
+    <div style='background-color: #0f172a; padding: 20px; text-align: center; color: white;'>
+        <h2 style='margin: 0;'>{WebUtility.HtmlEncode(text.Subject)}</h2>
+    </div>
+    <div style='padding: 30px; background-color: #f8fafc; color: #334155;'>
+        <p>{WebUtility.HtmlEncode(text.Intro)}</p>
+        <p style='font-size: 14px; color: #64748b; margin-top: 30px;'>{WebUtility.HtmlEncode(text.Ignore)}</p>
+    </div>
+</div>";
 }

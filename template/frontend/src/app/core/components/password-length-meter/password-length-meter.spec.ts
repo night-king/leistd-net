@@ -48,4 +48,12 @@ describe('PasswordLengthMeter', () => {
     expect(host.textContent).toContain('Length requirement met');
     //#endif
   });
+
+  // 它是输入框的描述，不是播报区：逐字播报会与输入的回显叠在一起
+  it('does not announce every keystroke', () => {
+    const host = render('abc');
+
+    expect(host.querySelector('[aria-live]')).toBeNull();
+    expect(host.querySelector('[role="status"]')).toBeNull();
+  });
 });

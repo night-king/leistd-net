@@ -31,6 +31,8 @@ export interface MockUser {
   emailTwoFactorEnabled?: boolean;
   /** 本人指定的首选第二步方式。 */
   preferredTwoFactorMethod?: 'authenticator' | 'email';
+  /** 当前口令经邮件找回设置、还没用独立因子完成过第二步：登录第二步只认身份验证器与恢复码。 */
+  passwordSetByEmailRecovery?: boolean;
   //#endif
   roles: string[];
 }

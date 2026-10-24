@@ -92,8 +92,7 @@ public static class DependencyInjection
         services.TryAddTransient<ICaptchaAppService, CaptchaAppService>();
 #if (Email)
         services.TryAddTransient<EmailChallengeStore>();
-        services.TryAddTransient<PasswordResetCodeMailer>();
-        services.TryAddTransient<TwoFactorCodeMailComposer>();
+        services.TryAddTransient<AccountCodeMailer>();
         services.TryAddTransient<IEmailVerificationAppService, EmailVerificationAppService>();
         services.TryAddTransient<IPasswordResetAppService, PasswordResetAppService>();
 #endif
