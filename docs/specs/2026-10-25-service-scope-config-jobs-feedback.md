@@ -1,6 +1,6 @@
 # 机器 scope 接收侧入口、部署配置分层与周期任务观察者契约
 
-状态：已完成（本地提交，未推送） · 风险档：中（模板授权入口公开化、规范与随包文档澄清，运行时行为不变） · 关联：待开 PR
+状态：已完成 · 风险档：中（模板授权入口公开化、规范与随包文档澄清，运行时行为不变） · 关联：[#182](https://github.com/zengqinglei/leistd-net/pull/182)
 
 ## 1. 需求
 
@@ -23,7 +23,7 @@ CRM V2 三仓在适配模板 develop `0a3e7399` 时提交了一份反馈（机�
 | 4、D | compose 的 `${X:-}` 会遮蔽 Production 档；“占位”与“不置空”两条规则有张力；`:-false` 与代码默认值重复 | 规范写明分层：compose 最高层，它列出的键只由 `.env` 提供；“不置空”限定为覆盖层，基础档 `""` 占位是例外。`SMTP_ENABLE_SSL:-true` 保留并注释为有意的生产默认。**`:-false` 不删**，见下方偏差 | `settings.md`、`docker-compose.yml` |
 | 5 | Started 也在持锁期间执行，随包文档只要求 Completed 自设超时，示例 Started 没有超时；模板规范没有指向随包文档的登记约束 | 随包文档与 XML 注释写明两个回调都在持锁期间、都要自设有限超时；框架仍不加超时选项（2026-10-23 规格的决定）。模板规范补放置命名与契约指引 | `framework/docs/components/background-jobs.md`、`IRecurringJobRunObserver`、模板 `background-jobs.md` |
 | A | 随包示例 Started 插入后保存返回 id，Started 被取消或结果未知时 Completed 会补建一行重复记录 | 示例改为预先生成 Id，Started 插入、Completed 按 Id upsert | 随包文档 |
-| 6 | 项目 Skill 描述含“框架用法咨询”，路由表和 `docs/README.md` 没有对应行 | 两处各加一行，指向 `backend/README.md` 的“Leistd 框架 API”一节 | 项目 Skill、`template/docs/README.md` |
+| 6 | 项目 Skill 描述含“框架用法咨询”，路由表和 `docs/README.md` 没有对应行 | Skill 路由表加一行，指向 `backend/README.md` 的“Leistd 框架 API”一节；`docs/README.md` 是按任务读文档的索引，不重复这条意图路由 | 项目 Skill |
 
 ### 验收标准
 
@@ -46,7 +46,7 @@ CRM V2 三仓在适配模板 develop `0a3e7399` 时提交了一份反馈（机�
 | 服务间调用规范 | `template/docs/standards/service-invocation.md` | 源码与生成模式引用、锚点检查 |
 | 配置注释、compose 与设置规范 | `appsettings.json`、`deploy/docker-compose.yml`、`template/docs/standards/settings.md` | 生成闸门四片 |
 | 观察者契约 | 随包 `background-jobs.md`、`IRecurringJobRunObserver.cs`、模板 `background-jobs.md` | 构建 Core；引用检查 |
-| Skill 与索引路由 | 项目 Skill 路由表、`template/docs/README.md` | Skill 校验、锚点检查 |
+| Skill 路由 | 项目 Skill 路由表 | Skill 校验、锚点检查、模板规范读取成本 |
 
 不做：签发侧配置项（已撤回）；框架超时选项；compose 闸门（一行规则能说清）。
 
@@ -67,4 +67,5 @@ CRM V2 三仓在适配模板 develop `0a3e7399` 时提交了一份反馈（机�
 - 遗留：
   - 需要 PostgreSQL 容器的集成测试（Identity 多租户的租户控制面判定矩阵与完整 HTTP 用例）本地未运行，按约束不起容器，由 PR CI 验证。
   - 框架随包文档改动按版本规范会触发框架 beta；未打包核对包内文档。
-- 常驻文档：`template/docs/standards/service-invocation.md`、`settings.md`、`background-jobs.md`、`template/docs/README.md`、项目 Skill 路由表、`framework/docs/components/background-jobs.md` 已同步。
+- 常驻文档：`template/docs/standards/service-invocation.md`、`settings.md`、`background-jobs.md`、项目 Skill 路由表、`framework/docs/components/background-jobs.md` 已同步。
+- CI 首轮补正：随包示例的 `IJobRunStore` 方法名与代码块编译桩对齐（`InsertAsync`/`SaveAsync` 按给定 Id）；`docs/README.md` 的重复路由行删去，Skill 新行使模板规范读取成本上限按读数放宽 33–70 字符（`scripts/measure-template-read-cost.py`）。
