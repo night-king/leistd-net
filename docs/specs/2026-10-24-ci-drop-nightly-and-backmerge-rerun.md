@@ -1,6 +1,6 @@
 # 删除 nightly 渠道，发布回合并不再重复验证与发布
 
-状态：进行中 · 风险档：高（CI 与发布流程、发布渠道删除） · 关联：—
+状态：进行中 · 风险档：高（CI 与发布流程、发布渠道删除） · 关联：https://github.com/zengqinglei/leistd-net/pull/175
 
 ## 1. 需求
 
