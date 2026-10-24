@@ -25,6 +25,7 @@ import { SessionContextService } from '../../../../core/services/session-context
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 import { AccountService } from '../../services/account-service';
+import { twoFactorPromptOf } from '../two-factor-challenge/two-factor-challenge';
 
 /**
  * 外部登录回调：从路由取 provider（`/auth/external-callback/{provider}`）并读取完成意图，
@@ -119,10 +120,11 @@ export class ExternalAuthCallback implements OnInit {
       // 后端验证并消费外部票据，决定最终会话或第二步凭据。
       const result = await lastValueFrom(this.accountService.externalLoginCallback(provider));
 
-      // 已启用两步验证：会话还没下发，回登录页做第二步（凭据走导航状态，不进地址栏）
-      if (result?.requiresTwoFactor && result.twoFactorToken) {
+      // 需要第二步：会话还没下发，回登录页做第二步（凭据与可用方式走导航状态，不进地址栏）
+      const twoFactorPrompt = twoFactorPromptOf(result);
+      if (twoFactorPrompt) {
         await this.router.navigate(['/auth/login'], {
-          state: { twoFactorToken: result.twoFactorToken, returnUrl: result.returnUrl },
+          state: { twoFactorPrompt, returnUrl: result.returnUrl },
         });
         return;
       }

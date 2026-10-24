@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Leistd.AmbientContext;
+using Leistd.BackgroundJobs.InProcess.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -33,7 +34,7 @@ internal sealed class BackgroundTaskQueueWorker(
         // 不继承消费循环里偶然残留的上下文。结束后还原消费者原来的 Activity。
         var previous = Activity.Current;
         Activity.Current = null;
-        var activity = StartActivity(item.Parent);
+        var activity = BackgroundJobDiagnostics.StartActivity("Leistd.BackgroundWorkItem", item.Parent);
         try
         {
             await using var scope = scopeFactory.CreateAsyncScope();
@@ -64,33 +65,6 @@ internal sealed class BackgroundTaskQueueWorker(
             Activity.Current = previous;
         }
     }
-
-    // 有监听者（如 OpenTelemetry）时经 ActivitySource 创建，工作项进入采样与导出；
-    // 没有监听者时 StartActivity 返回 null，仍手动建一个 Activity，让日志里的 TraceId 延续入队时的链路。
-    private static Activity StartActivity(ActivityContext? parent)
-    {
-        if (parent is { } context)
-        {
-            if (Source.StartActivity(ActivityName, ActivityKind.Internal, context) is { } listened)
-            {
-                return listened;
-            }
-
-            var activity = new Activity(ActivityName).SetParentId(context.TraceId, context.SpanId, context.TraceFlags);
-            activity.TraceStateString = context.TraceState;
-            return activity.Start();
-        }
-
-        return Source.StartActivity(ActivityName, ActivityKind.Internal, default(ActivityContext))
-            ?? new Activity(ActivityName).Start();
-    }
-
-    // 后台工作项的 ActivitySource 名；OpenTelemetry 按它订阅（组件文档写明）
-    internal const string ActivitySourceName = "Leistd.BackgroundJobs";
-
-    private const string ActivityName = "Leistd.BackgroundWorkItem";
-
-    private static readonly ActivitySource Source = new(ActivitySourceName);
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {

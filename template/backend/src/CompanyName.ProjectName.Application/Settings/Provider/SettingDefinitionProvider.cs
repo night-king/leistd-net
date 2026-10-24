@@ -76,7 +76,7 @@ public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayD
 #if (LocalIdentity)
 
         // 注册策略按租户：同一套部署下，不同租户可以有不同的注册门槛。
-        // 默认值取自 appsettings 的 UserRegistration 段，配置仍是部署基线。
+        // 注册策略取绑定后的 Options，缺少部署键时沿用属性初值。
         var registration = registrationOptions.Value;
 
         context.Add(
@@ -168,6 +168,19 @@ public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayD
             group: SettingConstant.Groups.Security)
             .AsBoolean()
             .IsVisibleToClients = true;
+#if (Email)
+
+        // 邮箱只作补充的第二步：能进邮箱往往只凭一个密码，所以它不满足上面的"要求所有人启用"，
+        // 也默认关闭，由管理员有意打开。关闭后只开了邮箱方式的人回到单步登录，个人设置里写明原因
+        context.Add(
+            SettingConstant.Security.AllowEmailTwoFactor,
+            defaultValue: "false",
+            scopes: SettingScopes.Tenant,
+            displayName: "Allow email codes as a sign-in second step",
+            group: SettingConstant.Groups.Security)
+            .AsBoolean()
+            .IsVisibleToClients = true;
+#endif
 
         // 会话空闲多久失效：租户各自的安全策略。基线取自部署的会话 Cookie 有效期；
         // 调短后在途会话下一次实际校验（最多隔一个校验缓存周期）按新时长判定，调长后续发的 Cookie 跟上新时长

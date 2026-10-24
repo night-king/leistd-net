@@ -23,6 +23,7 @@
     "Auth:TwoFactorAlreadyEnabled": "两步验证已经启用。",
     "Auth:TwoFactorChallengeExpired": "登录已过期，请重新登录。",
     "Auth:TwoFactorCodeInvalid": "验证码不正确。",
+    "Auth:TwoFactorMethodUnavailable": "你的账号当前不能使用这种验证方式。",
     "Auth:TwoFactorNotEnabled": "两步验证尚未启用。",
     "Auth:TwoFactorRequiredByPolicy": "所在组织要求启用两步验证，不能停用。",
     "Auth:TwoFactorSetupExpired": "设置已失效（已过期或在别处重新开始），请重新开始。",
@@ -153,6 +154,15 @@
     "PasswordReset:Email:Intro": "你正在重置账号的密码，验证码是：",
     "PasswordReset:Email:Subject": "重置密码验证码",
 //#endif
+//#if (Email)
+    "TwoFactor:Email:Expiry": "验证码 {0} 分钟内有效，请勿告诉他人。",
+    "TwoFactor:Email:SetupIgnore": "如果不是你本人操作，忽略这封邮件即可，不会有任何变化。",
+    "TwoFactor:Email:SetupIntro": "你正在启用登录时的邮箱验证码，确认码是：",
+    "TwoFactor:Email:SetupSubject": "确认启用邮箱验证码",
+    "TwoFactor:Email:SignInIgnore": "如果不是你本人在登录，请检查账号的登录方式并联系管理员。",
+    "TwoFactor:Email:SignInIntro": "有人正在登录你的账号，本次的验证码是：",
+    "TwoFactor:Email:SignInSubject": "登录验证码",
+//#endif
     "Security:CurrentPasswordIncorrect": "当前密码不正确。",
     "Security:HashedPasswordRequired": "哈希密码不能为空。",
     "Security:LocalPasswordNotSet": "当前账号未设置本地密码，无法修改密码。",
@@ -183,6 +193,12 @@
     "SecurityAlert:TwoFactorDisabled:Title": "两步验证已停用",
     "SecurityAlert:TwoFactorEnabled:Content": "今后登录除了密码，还要输入身份验证器应用上的验证码。",
     "SecurityAlert:TwoFactorEnabled:Title": "两步验证已启用",
+//#if (Email)
+    "SecurityAlert:TwoFactorEmailDisabled:Content": "今后登录不再提供邮箱验证码。如果不是你本人操作，请修改密码。",
+    "SecurityAlert:TwoFactorEmailDisabled:Title": "邮箱验证码已停用",
+    "SecurityAlert:TwoFactorEmailEnabled:Content": "今后登录可以用发到邮箱的验证码完成第二步。如果不是你本人操作，请立即修改密码。",
+    "SecurityAlert:TwoFactorEmailEnabled:Title": "邮箱验证码已启用",
+//#endif
     "SecurityAlert:TwoFactorReset:Content": "请在账户与安全设置里重新设置。",
     "SecurityAlert:TwoFactorReset:Title": "管理员重置了你的两步验证",
     "Session bound": "会话绑定",
@@ -219,6 +235,9 @@
     "Setting:Registration.EmailCodeSendIntervalSeconds": "验证码发送间隔（秒）",
     "Setting:Registration.EnableEmailVerification": "要求邮箱验证",
     "Setting:Registration.Enabled": "开放自助注册",
+//#if (Email)
+    "Setting:Security.AllowEmailTwoFactor": "允许用邮箱验证码作为登录第二步",
+//#endif
     "Setting:Security.LockoutDurationMinutes": "锁定时长（分钟）",
     "Setting:Security.LockoutMaxFailedAttempts": "连续登录失败多少次后锁定（0 为不锁定）",
     "Setting:Security.RequireTwoFactor": "要求所有人启用两步验证",
@@ -301,6 +320,7 @@
     "Username": "用户名",
     "Username or email": "用户名或邮箱",
     "Verification code": "验证码",
+    "Verification method": "验证方式",
     "Version": "版本",
     "Version token": "版本令牌",
     "{0} can contain only letters, numbers, and underscores.": "{0}只能包含字母、数字和下划线",

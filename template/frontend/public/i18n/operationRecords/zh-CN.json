@@ -64,6 +64,8 @@
     "auth.two-factor.disabled": "停用了两步验证",
     "auth.two-factor.recovery-codes-regenerated": "重新生成了恢复码",
     "auth.two-factor.recovery-code-used": "账号 {{target}} 用恢复码完成了登录",
+    "auth.two-factor.email-enabled": "启用了邮箱验证码",
+    "auth.two-factor.email-disabled": "停用了邮箱验证码",
     "auth.external-login.linked": "绑定了外部账号 {{target}}",
     "auth.external-login.unlinked": "解绑了外部账号 {{target}}",
     "auth.password.set": "设置了自己的密码",

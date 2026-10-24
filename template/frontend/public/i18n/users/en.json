@@ -111,7 +111,6 @@
   "resetDialog": {
     "header": "Reset user password",
     "warning": "After the reset, the user must sign in with the new password.",
-    "ruleHint": "Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.",
     "newPasswordLabel": "New password",
     "newPasswordPlaceholder": "Enter a new password",
     "confirmButton": "Confirm reset"

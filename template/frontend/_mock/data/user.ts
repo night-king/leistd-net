@@ -27,6 +27,10 @@ export interface MockUser {
   twoFactorEnabled?: boolean;
   /** 尚未用过的恢复码，个数即"剩余恢复码"。 */
   recoveryCodes?: string[];
+  /** 开启了邮箱验证码作为登录第二步（能否使用还看邮箱已验证与组织开关）。 */
+  emailTwoFactorEnabled?: boolean;
+  /** 本人指定的首选第二步方式。 */
+  preferredTwoFactorMethod?: 'authenticator' | 'email';
   //#endif
   roles: string[];
 }
@@ -235,7 +239,8 @@ export function toUserManagementOutput(user: MockUser): UserManagementOutputDto 
       user.lockoutEnd === null ||
       (user.lockoutEnd !== undefined && new Date(user.lockoutEnd).getTime() > Date.now()),
     lockoutEnd: user.lockoutEnd ?? null,
-    isTwoFactorEnabled: user.twoFactorEnabled === true,
+    // 与后端一致：任一种第二步方式（身份验证器或邮箱验证码）都算，有就能重置
+    isTwoFactorEnabled: user.twoFactorEnabled === true || user.emailTwoFactorEnabled === true,
     //#endif
   };
 }

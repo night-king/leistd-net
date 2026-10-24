@@ -23,6 +23,7 @@
     "Auth:TwoFactorAlreadyEnabled": "Two-factor authentication is already turned on.",
     "Auth:TwoFactorChallengeExpired": "The sign-in attempt has expired. Sign in again.",
     "Auth:TwoFactorCodeInvalid": "The verification code is incorrect.",
+    "Auth:TwoFactorMethodUnavailable": "This verification method isn't available for your account.",
     "Auth:TwoFactorNotEnabled": "Two-factor authentication is not turned on.",
     "Auth:TwoFactorRequiredByPolicy": "Two-factor authentication is required here and cannot be turned off.",
     "Auth:TwoFactorSetupExpired": "This setup is no longer valid (it expired or was restarted elsewhere). Start again.",
@@ -153,6 +154,15 @@
     "PasswordReset:Email:Intro": "You are resetting the password of your account. Your verification code is:",
     "PasswordReset:Email:Subject": "Password Reset Verification Code",
 //#endif
+//#if (Email)
+    "TwoFactor:Email:Expiry": "This code will expire in {0} minutes. Please do not share it with anyone.",
+    "TwoFactor:Email:SetupIgnore": "If you did not request this, you can ignore this email. Nothing changes.",
+    "TwoFactor:Email:SetupIntro": "You are turning on email verification codes for signing in. Your confirmation code is:",
+    "TwoFactor:Email:SetupSubject": "Confirm Email Verification Codes",
+    "TwoFactor:Email:SignInIgnore": "If this wasn't you, check how your account signs in and contact your administrator.",
+    "TwoFactor:Email:SignInIntro": "Someone is signing in to your account. Your verification code is:",
+    "TwoFactor:Email:SignInSubject": "Sign-in Verification Code",
+//#endif
     "Security:CurrentPasswordIncorrect": "The current password is incorrect.",
     "Security:HashedPasswordRequired": "Hashed password cannot be empty.",
     "Security:LocalPasswordNotSet": "The current account has no local password set and cannot change the password.",
@@ -183,6 +193,12 @@
     "SecurityAlert:TwoFactorDisabled:Title": "Two-factor authentication turned off",
     "SecurityAlert:TwoFactorEnabled:Content": "Signing in now also needs a code from your authenticator app.",
     "SecurityAlert:TwoFactorEnabled:Title": "Two-factor authentication turned on",
+//#if (Email)
+    "SecurityAlert:TwoFactorEmailDisabled:Content": "Signing in no longer offers codes sent to your email. If you didn't do this, change your password.",
+    "SecurityAlert:TwoFactorEmailDisabled:Title": "Email verification codes turned off",
+    "SecurityAlert:TwoFactorEmailEnabled:Content": "Signing in can now use a code sent to your email. If you didn't do this, change your password right away.",
+    "SecurityAlert:TwoFactorEmailEnabled:Title": "Email verification codes turned on",
+//#endif
     "SecurityAlert:TwoFactorReset:Content": "Set it up again from your security settings.",
     "SecurityAlert:TwoFactorReset:Title": "Two-factor authentication was reset by an administrator",
     "Session bound": "Session bound",
@@ -219,6 +235,9 @@
     "Setting:Registration.EmailCodeSendIntervalSeconds": "Email code send interval (seconds)",
     "Setting:Registration.EnableEmailVerification": "Require email verification",
     "Setting:Registration.Enabled": "Allow self sign-up",
+//#if (Email)
+    "Setting:Security.AllowEmailTwoFactor": "Allow email codes as a sign-in second step",
+//#endif
     "Setting:Security.LockoutDurationMinutes": "Lockout duration (minutes)",
     "Setting:Security.LockoutMaxFailedAttempts": "Lock the account after this many failed sign-ins (0 = never)",
     "Setting:Security.RequireTwoFactor": "Require two-factor authentication for everyone",
@@ -301,6 +320,7 @@
     "Username": "Username",
     "Username or email": "Username or email",
     "Verification code": "Verification code",
+    "Verification method": "Verification method",
     "Version": "Version",
     "Version token": "Version token",
     "{0} can contain only letters, numbers, and underscores.": "{0} can contain only letters, numbers, and underscores.",

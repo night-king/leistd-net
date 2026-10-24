@@ -137,9 +137,8 @@ public static class SettingConstant
 #if (LocalIdentity)
     /// <summary>注册与验证策略。</summary>
     /// <remarks>
-    /// 租户级：每个租户可以有自己的注册策略。代码默认值取自 <c>appsettings</c> 的
-    /// <c>UserRegistration</c> 段——配置仍是部署基线，设置只是租户级覆盖，
-    /// 不另立一份真相。
+    /// 租户级：每个租户可以有自己的注册策略。默认值取绑定后的 <c>UserRegistrationOptions</c>；
+    /// 部署配置覆盖属性初值，设置只做租户级覆盖。
     /// </remarks>
     public static class Registration
     {
@@ -179,6 +178,11 @@ public static class SettingConstant
 
         /// <summary>是否要求所有人启用两步验证。</summary>
         public const string RequireTwoFactor = "Security.RequireTwoFactor";
+#if (Email)
+
+        /// <summary>是否允许本人把邮箱验证码作为登录第二步。</summary>
+        public const string AllowEmailTwoFactor = "Security.AllowEmailTwoFactor";
+#endif
 
         /// <summary>会话空闲多少天后失效。</summary>
         public const string SessionIdleTimeoutDays = "Security.SessionIdleTimeoutDays";

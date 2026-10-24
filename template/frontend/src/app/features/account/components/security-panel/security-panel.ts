@@ -31,6 +31,7 @@ import {
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { finalize } from 'rxjs/operators';
 
+import { PasswordLengthMeter } from '../../../../core/components/password-length-meter/password-length-meter';
 //#if (ExternalLogin)
 import {
   ReauthenticateDialog,
@@ -52,6 +53,9 @@ import { AccountService } from '../../services/account-service';
 import { ExternalLogins } from '../external-logins/external-logins';
 //#endif
 import { LoginDevices } from '../login-devices/login-devices';
+//#if (Email)
+import { TwoFactorEmailSettings } from '../two-factor-email-settings/two-factor-email-settings';
+//#endif
 import { TwoFactorSettings } from '../two-factor-settings/two-factor-settings';
 
 /**
@@ -66,12 +70,16 @@ import { TwoFactorSettings } from '../two-factor-settings/two-factor-settings';
     NgIcon,
     LoginDevices,
     TwoFactorSettings,
+    //#if (Email)
+    TwoFactorEmailSettings,
+    //#endif
     //#if (ExternalLogin)
     ExternalLogins,
     ReauthenticateDialog,
     //#endif
     HlmButton,
     HlmSpinner,
+    PasswordLengthMeter,
     HlmInputGroup,
     HlmInputGroupInput,
     HlmInputGroupButton,
@@ -104,6 +112,10 @@ export class SecurityPanel {
   //#endif
 
   protected readonly loginDevices = viewChild(LoginDevices);
+  //#if (Email)
+  protected readonly twoFactor = viewChild(TwoFactorSettings);
+  protected readonly emailTwoFactor = viewChild(TwoFactorEmailSettings);
+  //#endif
   //#if (ExternalLogin)
   protected readonly externalLogins = viewChild(ExternalLogins);
   //#endif
@@ -279,8 +291,6 @@ const ENGLISH: Record<string, string> = {
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
   'account.changePassword.newPassword': 'New password',
-  'account.changePassword.rules':
-    'Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.',
   'account.changePassword.confirmPassword': 'Confirm new password',
   'account.changePassword.submit': 'Update password',
   //#if (ExternalLogin)

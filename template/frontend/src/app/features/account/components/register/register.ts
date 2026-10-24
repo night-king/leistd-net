@@ -35,6 +35,7 @@ import {
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
+import { PasswordLengthMeter } from '../../../../core/components/password-length-meter/password-length-meter';
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { SecurityConfigService } from '../../../../core/services/security-config-service';
 import {
@@ -52,7 +53,6 @@ import { CaptchaImage } from '../../widgets/captcha-image/captcha-image';
 //#if (ExternalLogin)
 import { ExternalLoginButtons } from '../../widgets/external-login-buttons/external-login-buttons';
 //#endif
-import { PasswordLengthMeter } from '../../widgets/password-length-meter/password-length-meter';
 import { AuthShell } from '../auth-shell/auth-shell';
 
 @Component({

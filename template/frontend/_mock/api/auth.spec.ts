@@ -323,6 +323,121 @@ describe('mock two-factor sign-in', () => {
   });
 });
 
+//#if (Email)
+/** 邮箱验证码作为第二步：组织允许才可用；默认按首选与系统顺序给出，码只在用到时发、只认本次最近发出的一个。 */
+describe('mock email two-factor', () => {
+  const sessionLogin = AUTH_API['POST /api/v1/auth/session-login'] as Handler;
+  const sendEmailCode = AUTH_API['POST /api/v1/auth/two-factor/email-code'] as Handler;
+  const completeTwoFactor = AUTH_API['POST /api/v1/auth/two-factor'] as Handler;
+  const demo = USERS.find((u) => u.username === 'demo')!;
+  const headers = new HttpHeaders();
+
+  beforeEach(() => {
+    setMockSessionUserId(null);
+    TENANT_SETTING_VALUES.set('host:Security.AllowEmailTwoFactor', 'true');
+    demo.twoFactorEnabled = true;
+    demo.recoveryCodes = ['mock-recovery-1'];
+    demo.emailTwoFactorEnabled = true;
+    demo.preferredTwoFactorMethod = undefined;
+  });
+
+  afterEach(() => {
+    setMockSessionUserId(null);
+    TENANT_SETTING_VALUES.delete('host:Security.AllowEmailTwoFactor');
+    demo.twoFactorEnabled = false;
+    demo.recoveryCodes = [];
+    demo.emailTwoFactorEnabled = false;
+    demo.preferredTwoFactorMethod = undefined;
+  });
+
+  function firstStep(): {
+    twoFactorToken?: string;
+    twoFactorMethods?: string[];
+    defaultTwoFactorMethod?: string;
+    maskedEmail?: string;
+  } {
+    return sessionLogin({
+      headers,
+      body: { usernameOrEmail: 'demo', password: demo.password },
+    }) as ReturnType<typeof firstStep>;
+  }
+
+  it('offers the methods in system order with the authenticator as default', () => {
+    const prompt = firstStep();
+
+    expect(prompt.twoFactorMethods).toEqual(['authenticator', 'email', 'recoveryCode']);
+    expect(prompt.defaultTwoFactorMethod).toBe('authenticator');
+    expect(prompt.maskedEmail).toContain('***@');
+  });
+
+  it('defaults to email when preferred and signs in with the sent code', () => {
+    demo.preferredTwoFactorMethod = 'email';
+    const token = firstStep().twoFactorToken!;
+    expect(firstStep().defaultTwoFactorMethod).toBe('email');
+
+    // 没发过码时邮箱验证码不算数
+    expect(
+      rejectionOf(() => completeTwoFactor({ headers, body: { token, emailCode: '123456' } })).error
+        .code,
+    ).toBe('Auth:TwoFactorCodeInvalid');
+
+    sendEmailCode({ headers, body: { token } });
+    completeTwoFactor({ headers, body: { token, emailCode: '123456' } });
+    expect(getMockSessionUserId()).toBe(demo.id);
+  });
+
+  // 与后端一致：只开了邮箱验证码的人交来的身份验证器验证码不认
+  it('rejects an authenticator code from an account with only email codes', () => {
+    demo.twoFactorEnabled = false;
+    demo.recoveryCodes = [];
+    const prompt = firstStep();
+    expect(prompt.twoFactorMethods).toEqual(['email']);
+
+    expect(
+      rejectionOf(() =>
+        completeTwoFactor({ headers, body: { token: prompt.twoFactorToken, code: '123456' } }),
+      ).error.code,
+    ).toBe('Auth:TwoFactorCodeInvalid');
+    expect(getMockSessionUserId()).toBeNull();
+  });
+
+  // 启用邮箱验证码的确认码过期后不再算数，与后端同样是 Auth:EmailCodeInvalid
+  it('rejects an expired confirmation code when turning email codes on', () => {
+    const beginSetup = AUTH_API['POST /api/v1/auth/me/two-factor/email/setup'] as Handler;
+    const enable = AUTH_API['POST /api/v1/auth/me/two-factor/email/enable'] as Handler;
+    demo.emailTwoFactorEnabled = false;
+    setMockSessionUserId(demo.id);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const { challengeId, expiresInSeconds } = beginSetup({
+        headers,
+        body: { password: demo.password },
+      }) as { challengeId: string; expiresInSeconds: number };
+
+      clock.mockReturnValue(now + expiresInSeconds * 1000);
+      expect(
+        rejectionOf(() => enable({ headers, body: { challengeId, code: '123456' } })).error.code,
+      ).toBe('Auth:EmailCodeInvalid');
+      expect(demo.emailTwoFactorEnabled).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('stops offering email once the organization disallows it', () => {
+    TENANT_SETTING_VALUES.delete('host:Security.AllowEmailTwoFactor');
+    const prompt = firstStep();
+
+    expect(prompt.twoFactorMethods).toEqual(['authenticator', 'recoveryCode']);
+    expect(
+      rejectionOf(() => sendEmailCode({ headers, body: { token: prompt.twoFactorToken } })).error
+        .code,
+    ).toBe('Auth:TwoFactorMethodUnavailable');
+  });
+});
+
+//#endif
 /**
  * 确认身份与后端同一组可观察规则：刚认证过放行；出示了凭证只按它判定（方式不具备、口令或验证码不对各有错误码，
  * 两种同时出示是字段错误）；会话不够新时既无口令又没开两步验证要求重新登录，其余要求确认身份。

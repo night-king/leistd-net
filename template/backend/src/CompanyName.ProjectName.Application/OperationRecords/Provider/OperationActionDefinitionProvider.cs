@@ -272,6 +272,18 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
             OperationRecordCategories.Authentication,
             OperationVisibility.Tenant,
             OperationSeverity.Notice);
+#if (Email)
+        context.Add(
+            OperationRecordActions.AuthTwoFactorEmailEnabled,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor,
+            OperationSeverity.Notice);
+        context.Add(
+            OperationRecordActions.AuthTwoFactorEmailDisabled,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor,
+            OperationSeverity.Notice);
+#endif
 #if (ExternalLogin)
         // 登录方式的增减：绑定一个外部账号等于多开一扇门
         context.Add(

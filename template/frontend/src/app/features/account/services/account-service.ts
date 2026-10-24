@@ -9,11 +9,16 @@ import {
   TwoFactorStatusOutputDto,
   UserSessionOutputDto,
 } from '../../../shared/dtos/account-security.dto';
-//#if (ExternalLogin)
-import { SessionLoginOutputDto, UserOutputDto } from '../../../shared/dtos/auth.dto';
-//#else
-import { UserOutputDto } from '../../../shared/dtos/auth.dto';
-//#endif
+// prettier-ignore
+import {
+  //#if (ExternalLogin)
+  SessionLoginOutputDto,
+  //#endif
+  //#if (Email)
+  TwoFactorMethod,
+  //#endif
+  UserOutputDto,
+} from '../../../shared/dtos/auth.dto';
 import {
   ChangePasswordInputDto,
   //#if (ExternalLogin)
@@ -41,6 +46,10 @@ import {
 //#endif
   BeginTwoFactorSetupInputDto,
   DisableTwoFactorInputDto,
+  //#if (Email)
+  EmailTwoFactorChangeInputDto,
+  TwoFactorEmailCodeOutputDto,
+  //#endif
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
   TwoFactorSetupOutputDto,
@@ -146,11 +155,20 @@ export class AccountService {
   }
   //#endif
 
-  /** 登录第二步：提交验证码或恢复码，通过后下发会话。 */
+  /** 登录第二步：提交其中一种方式的码，通过后下发会话。 */
   completeTwoFactorLogin(data: TwoFactorLoginInputDto): Observable<void> {
     return this.http.post('/api/v1/auth/two-factor', data).pipe(map(() => undefined));
   }
 
+  //#if (Email)
+  /** 登录第二步：把验证码发到本人的邮箱。 */
+  sendTwoFactorEmailCode(token: string): Observable<TwoFactorEmailCodeOutputDto> {
+    return this.http.post<TwoFactorEmailCodeOutputDto>('/api/v1/auth/two-factor/email-code', {
+      token,
+    });
+  }
+
+  //#endif
   getTwoFactorStatus(): Observable<TwoFactorStatusOutputDto> {
     return this.http.get<TwoFactorStatusOutputDto>('/api/v1/auth/me/two-factor');
   }
@@ -181,6 +199,39 @@ export class AccountService {
     );
   }
 
+  //#if (Email)
+  /** 开始开启邮箱验证码：确认是本人后把确认码发到当前邮箱。 */
+  beginEmailTwoFactorSetup(
+    input: EmailTwoFactorChangeInputDto = {},
+  ): Observable<EmailVerificationChallengeOutputDto> {
+    return this.http.post<EmailVerificationChallengeOutputDto>(
+      '/api/v1/auth/me/two-factor/email/setup',
+      input,
+    );
+  }
+
+  /** 用发到邮箱的确认码开启邮箱验证码。 */
+  enableEmailTwoFactor(data: EmailVerificationInputDto): Observable<void> {
+    return this.http
+      .post('/api/v1/auth/me/two-factor/email/enable', data)
+      .pipe(map(() => undefined));
+  }
+
+  /** 关闭邮箱验证码。 */
+  disableEmailTwoFactor(input: EmailTwoFactorChangeInputDto = {}): Observable<void> {
+    return this.http
+      .post('/api/v1/auth/me/two-factor/email/disable', input)
+      .pipe(map(() => undefined));
+  }
+
+  /** 指定登录第二步的首选方式。 */
+  setPreferredTwoFactorMethod(method: TwoFactorMethod): Observable<void> {
+    return this.http
+      .put('/api/v1/auth/me/two-factor/preferred-method', { method })
+      .pipe(map(() => undefined));
+  }
+
+  //#endif
   /** 自己仍然有效的登录会话，当前设备在前。 */
   getSessions(): Observable<UserSessionOutputDto[]> {
     return this.http.get<UserSessionOutputDto[]>('/api/v1/auth/me/sessions');

@@ -71,10 +71,6 @@ services:
       - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:?IDENTITY_AUTHORITY is required for a Resource service}
       - Leistd__ServiceAuth__ClientId=${RESOURCE_CLIENT_ID:?RESOURCE_CLIENT_ID is required for a Resource service}
       - Leistd__ServiceAuth__ClientSecret=${RESOURCE_CLIENT_SECRET:?RESOURCE_CLIENT_SECRET is required for a Resource service}
-      # 运行时身份只查路由，不给迁移元数据 scope
-      - Leistd__ServiceClients__Identity__Scope=tenant-routing.read
-      # 路由缓存 TTL：改租户数据落点前的排空等待取 max(令牌有效期, 本值)
-      - Leistd__MultiTenancy__Routing__CacheLifetime=${TENANT_ROUTE_CACHE_TTL:-00:10:00}
 #endif
 #endif
 
@@ -88,12 +84,9 @@ services:
 
 #if (LocalIdentity)
       # 首次启动创建本地身份管理员；Resource 用户来自远端身份投影。
-      - DefaultAdmin__Username=admin # optional
       # 由部署环境提供（.env 或 CI secret），只在库里还没有超级管理员时用于创建：
       # 首次部署缺失即启动失败并报出键名；已有管理员的部署可以不再提供
       - DefaultAdmin__Password=${DEFAULT_ADMIN_PASSWORD:-}
-      - DefaultAdmin__Email=admin@companyname-projectname.com # optional
-      - DefaultAdmin__DisplayName=System Administrator # optional
 #endif
 #if (Email)
       # 发信（SMTP）：主机、端口与发件地址没有可用默认值，漏配时 compose 带着变量名失败；
@@ -142,11 +135,6 @@ services:
       - ExternalAuth__Google__ClientId=${GOOGLE_CLIENT_ID:-}
       - ExternalAuth__Google__ClientSecret=${GOOGLE_CLIENT_SECRET:-}
 #endif
-
-      # Logging (optional)
-      - Serilog__MinimumLevel__Default=Information
-      - Serilog__MinimumLevel__Override__Microsoft.AspNetCore=Warning
-      - Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore=Warning
 
 #if (OpenIddictServer)
     secrets:

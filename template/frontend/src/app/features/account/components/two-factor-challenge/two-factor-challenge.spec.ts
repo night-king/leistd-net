@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { toast } from '@spartan-ng/brain/sonner';
 import { of, Subject, throwError } from 'rxjs';
 
-import { TwoFactorChallenge } from './two-factor-challenge';
+import { TwoFactorChallenge, TwoFactorPrompt } from './two-factor-challenge';
 import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
@@ -18,9 +18,24 @@ function rejection(code: string, detail = code, status = 401): ApplicationHttpEr
   );
 }
 
+/** 只开了身份验证器：默认它，唯一的备选是恢复码。 */
+const AUTHENTICATOR_ONLY: TwoFactorPrompt = {
+  token: 'challenge-token',
+  methods: ['authenticator', 'recoveryCode'],
+  defaultMethod: 'authenticator',
+  maskedEmail: null,
+};
+
 describe('TwoFactorChallenge', () => {
   let fixture: ComponentFixture<TwoFactorChallenge>;
-  let account: Pick<MockedObject<AccountService>, 'completeTwoFactorLogin'>;
+  // prettier-ignore
+  let account: Pick<
+    MockedObject<AccountService>,
+    | 'completeTwoFactorLogin'
+    //#if (Email)
+    | 'sendTwoFactorEmailCode'
+    //#endif
+  >;
   let completed: number;
   let cancelled: number;
 
@@ -42,6 +57,12 @@ describe('TwoFactorChallenge', () => {
   beforeEach(() => {
     account = {
       completeTwoFactorLogin: vi.fn().mockName('AccountService.completeTwoFactorLogin'),
+      //#if (Email)
+      sendTwoFactorEmailCode: vi
+        .fn()
+        .mockName('AccountService.sendTwoFactorEmailCode')
+        .mockReturnValue(of({ expiresInSeconds: 300, retryAfterSeconds: 60 })),
+      //#endif
     };
     TestBed.configureTestingModule({
       imports: [TwoFactorChallenge],
@@ -53,14 +74,25 @@ describe('TwoFactorChallenge', () => {
                 //#endif
             ],
     });
+    render(AUTHENTICATOR_ONLY);
+  });
+
+  function render(prompt: TwoFactorPrompt): void {
+    fixture?.destroy();
     fixture = TestBed.createComponent(TwoFactorChallenge);
-    fixture.componentRef.setInput('token', 'challenge-token');
+    fixture.componentRef.setInput('prompt', prompt);
     completed = 0;
     cancelled = 0;
     fixture.componentInstance.completed.subscribe(() => completed++);
     fixture.componentInstance.cancelled.subscribe(() => cancelled++);
     fixture.detectChanges();
-  });
+  }
+
+  function byTestId(id: string): HTMLElement | null {
+    return (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      `[data-testid="${id}"]`,
+    );
+  }
 
   it('submits the code and notifies the login page on success', async () => {
     account.completeTwoFactorLogin.mockReturnValue(of(undefined));
@@ -171,11 +203,7 @@ describe('TwoFactorChallenge', () => {
         rejection('Auth:TwoFactorCodeInvalid', 'The verification code is incorrect.', 400),
       ),
     );
-    Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
-        'button[variant="link"]',
-      ),
-    )[0].click();
+    byTestId('two-factor-toggle-mode')!.click();
     await fixture.whenStable();
 
     type('ABCD-EFGH-1234');
@@ -207,11 +235,7 @@ describe('TwoFactorChallenge', () => {
   // 改用恢复码：可见标签，切换后焦点落在恢复码输入框
   it('labels the recovery code input and focuses it after switching', async () => {
     const host = fixture.nativeElement as HTMLElement;
-    const toggle = Array.from(
-      host.querySelectorAll<HTMLButtonElement>('button[variant="link"]'),
-    )[0];
-
-    toggle.click();
+    byTestId('two-factor-toggle-mode')!.click();
     await fixture.whenStable();
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
@@ -219,4 +243,160 @@ describe('TwoFactorChallenge', () => {
     expect(host.querySelector('label[for="two-factor-recovery-code"]')).not.toBeNull();
     expect(document.activeElement).toBe(input);
   });
+
+  // 只有一种备选：直接写明换成什么，不折叠成"换一种验证方式"
+  it('names the only alternative directly', () => {
+    //#if (IncludeLocalization)
+    expect(byTestId('two-factor-toggle-mode')?.textContent?.trim()).toBe(
+      'account.twoFactorLogin.useRecovery',
+    );
+    //#else
+    expect(byTestId('two-factor-toggle-mode')?.textContent?.trim()).toBe(
+      "Can't use your authenticator? Use a recovery code",
+    );
+    //#endif
+    expect(byTestId('two-factor-other-methods')).toBeNull();
+  });
+  //#if (Email)
+
+  describe('with email verification codes', () => {
+    const BOTH: TwoFactorPrompt = {
+      token: 'challenge-token',
+      methods: ['authenticator', 'email', 'recoveryCode'],
+      defaultMethod: 'authenticator',
+      maskedEmail: 'ali***@example.com',
+    };
+
+    // 默认是身份验证器时不发信；两种以上备选收成一行，展开后按系统顺序列出，恢复码在最后
+    it('folds two or more alternatives into one entry and sends no email until chosen', async () => {
+      render(BOTH);
+
+      expect(account.sendTwoFactorEmailCode).not.toHaveBeenCalled();
+      expect(byTestId('two-factor-toggle-mode')).toBeNull();
+      byTestId('two-factor-other-methods')!.click();
+      fixture.detectChanges();
+
+      const listed = Array.from(
+        byTestId('two-factor-methods')!.querySelectorAll<HTMLElement>(
+          '[data-testid^="two-factor-method-"]',
+        ),
+      ).map((button) => button.dataset['testid']);
+      expect(listed).toEqual(['two-factor-method-email', 'two-factor-method-recoveryCode']);
+
+      byTestId('two-factor-method-email')!.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(account.sendTwoFactorEmailCode).toHaveBeenCalledExactlyOnceWith('challenge-token');
+      expect(byTestId('two-factor-challenge')?.dataset['method']).toBe('email');
+      expect(byTestId('two-factor-methods')).toBeNull();
+    });
+
+    // 首选是邮箱：进来即发码，不用再点；提交的是邮箱验证码
+    it('sends the email code on arrival when email is the default and submits it', async () => {
+      account.completeTwoFactorLogin.mockReturnValue(of(undefined));
+      render({ ...BOTH, defaultMethod: 'email' });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(account.sendTwoFactorEmailCode).toHaveBeenCalledExactlyOnceWith('challenge-token');
+      //#if (IncludeLocalization)
+      const hint = 'account.twoFactorLogin.emailHint';
+      //#else
+      const hint = 'ali***@example.com';
+      //#endif
+      expect(byTestId('two-factor-hint')?.textContent).toContain(hint);
+      expect((byTestId('two-factor-email-resend') as HTMLButtonElement).disabled).toBe(true);
+
+      type('654321');
+      await submit();
+
+      expect(account.completeTwoFactorLogin).toHaveBeenCalledWith({
+        token: 'challenge-token',
+        emailCode: '654321',
+      });
+      expect(completed).toBe(1);
+    });
+
+    // 发得太频繁或方式不能用：就地说明，不退回密码那一步
+    it('explains a refused send in place', async () => {
+      account.sendTwoFactorEmailCode.mockReturnValue(
+        throwError(() =>
+          rejection('Auth:TwoFactorMethodUnavailable', 'Not available right now.', 400),
+        ),
+      );
+      render({ ...BOTH, defaultMethod: 'email' });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(shownError()?.textContent?.trim()).toBe('Not available right now.');
+      expect(cancelled).toBe(0);
+    });
+
+    // 发信失败不作废这次第二步：就地说明，不再说"正在发送"，仍可换成身份验证器完成登录
+    it('keeps the second step when the email cannot be sent and lets the person switch', async () => {
+      account.sendTwoFactorEmailCode.mockReturnValue(
+        throwError(() => rejection('Smtp:Unavailable', 'The email could not be sent.', 500)),
+      );
+      account.completeTwoFactorLogin.mockReturnValue(of(undefined));
+      render({ ...BOTH, defaultMethod: 'email' });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(cancelled).toBe(0);
+      expect(shownError()?.textContent?.trim()).toBe('The email could not be sent.');
+      //#if (IncludeLocalization)
+      expect(byTestId('two-factor-hint')?.textContent).toContain(
+        'account.twoFactorLogin.emailPending',
+      );
+      //#else
+      expect(byTestId('two-factor-hint')?.textContent).toContain('A code will be sent to');
+      //#endif
+      expect((byTestId('two-factor-email-resend') as HTMLButtonElement).disabled).toBe(false);
+
+      byTestId('two-factor-other-methods')!.click();
+      fixture.detectChanges();
+      byTestId('two-factor-method-authenticator')!.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      type('123456');
+      await submit();
+
+      expect(account.completeTwoFactorLogin).toHaveBeenCalledWith({
+        token: 'challenge-token',
+        code: '123456',
+      });
+      expect(completed).toBe(1);
+    });
+
+    // 这次第二步已经失效（过期、锁定）时才回到密码那一步
+    it('returns to the password step when sending finds the attempt expired', async () => {
+      vi.spyOn(toast, 'error').mockImplementation(() => '');
+      account.sendTwoFactorEmailCode.mockReturnValue(
+        throwError(() => rejection('Auth:TwoFactorChallengeExpired')),
+      );
+      render({ ...BOTH, defaultMethod: 'email' });
+      await fixture.whenStable();
+
+      expect(cancelled).toBe(1);
+    });
+
+    // 邮箱验证码被拒不提示"刚用过的码要等新码"：那只适用于身份验证器
+    it('does not suggest waiting for a new code when an email code is rejected', async () => {
+      account.completeTwoFactorLogin.mockReturnValue(
+        throwError(() =>
+          rejection('Auth:TwoFactorCodeInvalid', 'The verification code is incorrect.', 400),
+        ),
+      );
+      render({ ...BOTH, defaultMethod: 'email' });
+      await fixture.whenStable();
+
+      type('000000');
+      await submit();
+
+      expect(shownError()?.textContent?.trim()).toBe('The verification code is incorrect.');
+      expect(reuseHint()).toBeNull();
+    });
+  });
+  //#endif
 });

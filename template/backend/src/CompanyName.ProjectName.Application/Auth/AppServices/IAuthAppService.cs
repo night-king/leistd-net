@@ -8,15 +8,22 @@ namespace CompanyName.ProjectName.Application.Auth.AppServices;
 /// <summary>认证服务接口。</summary>
 public interface IAuthAppService : IAppService
 {
-    /// <summary>验证本地账号：直接得到会话主体，或（已启用两步验证时）得到第二步凭据。</summary>
+    /// <summary>验证本地账号：直接得到会话主体，或（有能用的第二步方式时）得到第二步凭据与可用方式。</summary>
     Task<SessionLoginResult> AuthenticateSessionAsync(
         LoginInputDto input,
         CancellationToken cancellationToken = default);
 
-    /// <summary>登录第二步：校验验证码或恢复码并创建会话主体。</summary>
+    /// <summary>登录第二步：校验其中一种方式的码（身份验证器、邮箱或恢复码）并创建会话主体。</summary>
     Task<ClaimsPrincipal> CompleteTwoFactorLoginAsync(
         TwoFactorLoginInputDto input,
         CancellationToken cancellationToken = default);
+#if (Email)
+
+    /// <summary>登录第二步：把验证码发到本人的已验证邮箱；邮箱方式此刻不能用时以 <c>Auth:TwoFactorMethodUnavailable</c> 拒绝。</summary>
+    Task<TwoFactorEmailCodeOutputDto> SendTwoFactorEmailCodeAsync(
+        TwoFactorEmailCodeInputDto input,
+        CancellationToken cancellationToken = default);
+#endif
 
     /// <summary>当前租户的注册摘要：是否开放自助注册、注册时是否要求邮箱验证、部署能否发出验证码。匿名可读。</summary>
     Task<SecurityConfigOutputDto> GetSecurityConfigAsync(CancellationToken cancellationToken = default);

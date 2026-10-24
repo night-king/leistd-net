@@ -130,6 +130,37 @@ public sealed class SettingsContractTests(ProjectWebApplicationFactory factory)
         Assert.Equal(LogEventLevel.Warning, EffectiveMinimumLevel(host));
     }
 
+    /// <summary>基础档保留最小级别订阅键，运行期覆盖与清除才能改变真实日志级别。</summary>
+    [Fact]
+    public async Task Template_log_level_follows_the_setting_and_clearing_restores_the_baseline()
+    {
+        // 不注入最小级别键：本用例保护 appsettings.json 提供的订阅锚点。
+        var host = HostWith();
+        using var admin = await ProjectWebApplicationFactory.LoginAsync(
+            host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
+
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            (await WriteAsync(admin.Client, SettingConstant.Logging.MinimumLevel, null)).StatusCode);
+        try
+        {
+            Assert.Equal(LogEventLevel.Information, EffectiveMinimumLevel(host));
+            Assert.Equal(
+                HttpStatusCode.NoContent,
+                (await WriteAsync(admin.Client, SettingConstant.Logging.MinimumLevel, "Debug")).StatusCode);
+            Assert.Equal(LogEventLevel.Debug, EffectiveMinimumLevel(host));
+
+            Assert.Equal(
+                HttpStatusCode.NoContent,
+                (await WriteAsync(admin.Client, SettingConstant.Logging.MinimumLevel, null)).StatusCode);
+            Assert.Equal(LogEventLevel.Information, EffectiveMinimumLevel(host));
+        }
+        finally
+        {
+            await WriteAsync(admin.Client, SettingConstant.Logging.MinimumLevel, null);
+        }
+    }
+
     // 请求日志级别同样经配置源进 Options：写入即生效，清除回到类型默认值
     [Fact]
     public async Task Request_log_level_follows_the_setting_and_resets_to_default()

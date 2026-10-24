@@ -1,10 +1,10 @@
 # MyProject 文档
 
-本目录保存需要长期复用的项目知识；源码、配置、测试、Git 和 CI 已能表达的不重复写成文档。
+只记录长期复用且源码、配置、测试、Git 和 CI 无法表达的知识。
 
 ## 按任务读取
 
-任务跨多类时取并集；表中已链接 `standards/` 的全部规范，未列出的任务按主题选读。
+跨类任务取并集；`standards/` 全部规范均在表中，其他按主题选读。
 
 | 任务 | 必读 | 按需 |
 | --- | --- | --- |
@@ -20,18 +20,16 @@
 <!--#endif-->
 <!--#endif-->
 | 只审查代码 | 改动所属任务行的必读文档（全栈改动按全栈功能行） | 改动触及的专题 |
-| 部署、迁移或回滚 | [部署](deploy/README.md) | [配置参考](deploy/configuration.md)、[技术栈](standards/tech-stack.md) |
+| 部署、迁移或回滚 | [部署](deploy/README.md) | [配置参考](deploy/configuration.md)、[配置差异](standards/settings.md#部署配置只写差异)、[技术栈](standards/tech-stack.md) |
 | 证书轮换、数据库升级等运维操作 | [运维手册](operations/runbooks/)中对应的一份 | |
 | 线上查询、客户问题排查、数据修正、事件复盘 | 项目 Skill 的运维操作流程 | [部署](deploy/README.md) |
 
-完整回归入口：`scripts/verify.ps1`。同步到新的模板版本：`scripts/sync-template.ps1`，按项目 Skill 的同步模板流程执行。
-
-业务开发、环境交付和运维操作由项目 Skill `leistd-project-workflow` 处理。
+回归：`scripts/verify.ps1`。模板同步：`scripts/sync-template.ps1`，按项目 Skill 执行。
 
 ## 规范归属
 
 `standards/` 是项目模板提供的 .NET/Angular 工程规范基线，随模板版本整体更新，项目内不改写。项目自己的规则写入 `project/{topic}.md`，与 `standards/` 冲突时以它为准。
 
-业务规则、模块契约、运维手册与可复用查询分别写入 `requirements/`、`modules/`，以及 `operations/` 下的 `runbooks/`、`queries/`；除模板自带的手册外，这些常驻文档首次有内容时创建并登记到本索引，一个事实只维护一处。
+业务规则、模块契约、运维手册与可复用查询分别写入 `requirements/`、`modules/`，以及 `operations/` 下的 `runbooks/`、`queries/`；除模板自带的手册外，这些常驻文档首次有内容时创建，并登记到“按任务读取”表，让相关任务能读到；一个事实只维护一处。
 
 `specs/` 与 `operations/` 下的 `data-fixes/`、`incidents/` 是按日期命名的依据文档，记录某次变更或操作的原因与结果；AI 默认不读，需要追溯时再读，不登记到本索引。

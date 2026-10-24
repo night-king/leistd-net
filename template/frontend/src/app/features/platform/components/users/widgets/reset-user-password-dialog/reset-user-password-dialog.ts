@@ -16,6 +16,7 @@ import {
 } from '@spartan-ng/helm/input-group';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 
+import { PasswordLengthMeter } from '../../../../../../core/components/password-length-meter/password-length-meter';
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -35,6 +36,7 @@ import { ResetUserPasswordInputDto } from '../../../../dtos/user-management.dto'
     HlmInputGroupInput,
     HlmInputGroupButton,
     HlmSpinner,
+    PasswordLengthMeter,
     ...HlmDialogImports,
     ...HlmFieldImports,
     //#if (IncludeLocalization)
@@ -95,8 +97,6 @@ const ENGLISH: Record<string, string> = {
   'users.resetDialog.newPasswordPlaceholder': 'Enter a new password',
   'common.hidePassword': 'Hide password',
   'common.showPassword': 'Show password',
-  'users.resetDialog.ruleHint':
-    'Password must be at least 12 characters (up to 256). A longer passphrase is stronger than a short complex one.',
   'common.cancel': 'Cancel',
   'users.resetDialog.confirmButton': 'Confirm reset',
 };

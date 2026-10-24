@@ -108,13 +108,23 @@ describe('ExternalAuthCallback', () => {
       of({
         requiresTwoFactor: true,
         twoFactorToken: 'challenge',
+        twoFactorMethods: ['authenticator', 'recoveryCode'],
+        defaultTwoFactorMethod: 'authenticator',
         returnUrl: '/connect/authorize?state=original',
       }),
     );
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve));
     expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith(['/auth/login'], {
-      state: { twoFactorToken: 'challenge', returnUrl: '/connect/authorize?state=original' },
+      state: {
+        twoFactorPrompt: {
+          token: 'challenge',
+          methods: ['authenticator', 'recoveryCode'],
+          defaultMethod: 'authenticator',
+          maskedEmail: null,
+        },
+        returnUrl: '/connect/authorize?state=original',
+      },
     });
     expect(calls).not.toContain('establish');
   });

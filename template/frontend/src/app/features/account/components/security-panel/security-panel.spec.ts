@@ -1,6 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+//#if (Email)
+import { By } from '@angular/platform-browser';
+//#endif
 import { toast } from '@spartan-ng/brain/sonner';
 import { EMPTY, Observable, of, Subject, throwError } from 'rxjs';
 
@@ -19,6 +22,7 @@ import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing
 import { AuthService } from '../../../../core/services/auth-service';
 import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PASSWORD_MIN_LENGTH } from '../../../../core/validation/password-rule';
+import { TwoFactorStatusOutputDto } from '../../../../shared/dtos/account-security.dto';
 // prettier-ignore
 import {
   ChangePasswordInputDto,
@@ -27,6 +31,9 @@ import {
   //#endif
 } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
+//#if (Email)
+import { TwoFactorEmailSettings } from '../two-factor-email-settings/two-factor-email-settings';
+//#endif
 
 import type { Mock } from 'vitest';
 
@@ -42,7 +49,7 @@ describe('SecurityPanel', () => {
   let account: {
     changePassword: Mock<(input: ChangePasswordInputDto) => Observable<unknown>>;
     getSessions: Mock<() => Observable<unknown[]>>;
-    getTwoFactorStatus: Mock<() => Observable<never>>;
+    getTwoFactorStatus: Mock<() => Observable<TwoFactorStatusOutputDto>>;
     //#if (ExternalLogin)
     getExternalLogins: Mock<() => Observable<never>>;
     setPassword: Mock<(input: SetPasswordInputDto) => Observable<unknown>>;
@@ -132,6 +139,37 @@ describe('SecurityPanel', () => {
   });
 
   afterEach(() => fixture.destroy());
+  //#if (Email)
+
+  // 邮箱启停会改变"两种方式都能用"：身份验证器一节的"默认 / 设为默认"随之刷新，不必离开再进
+  it('refreshes the authenticator default mark when email codes are turned on', async () => {
+    const status = (emailEnabled: boolean): TwoFactorStatusOutputDto => ({
+      enabled: true,
+      recoveryCodesLeft: 8,
+      requiredByPolicy: false,
+      emailEnabled,
+      defaultMethod: 'authenticator',
+    });
+    account.getTwoFactorStatus.mockReturnValue(of(status(false)));
+    fixture.destroy();
+    fixture = TestBed.createComponent(SecurityPanel);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="two-factor-default"]')).toBeNull();
+
+    account.getTwoFactorStatus.mockReturnValue(of(status(true)));
+    (
+      fixture.debugElement.query(By.directive(TwoFactorEmailSettings))
+        .componentInstance as TwoFactorEmailSettings
+    ).sessionsChanged.emit();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(host.querySelector('[data-testid="two-factor-default"]')).not.toBeNull();
+  });
+  //#endif
 
   it('associates every password label with its input', () => {
     for (const id of ['current-password', 'new-password', 'confirm-password']) {
@@ -142,10 +180,13 @@ describe('SecurityPanel', () => {
     }
   });
 
-  // 横排时规则说明在左侧标签下、错误在输入框下：二者仍归同一个 Field，输入框的描述关联同时指向它们
-  it('describes the new password by its rules and, while shown, by its error', async () => {
+  // 规则不另写可见说明：输入框下方的长度进度条带一段只给读屏的进度描述，错误也在输入框下；
+  // 二者归同一个 Field，输入框的描述关联同时指向它们
+  it('describes the new password by its length progress and, while shown, by its error', async () => {
     const field = input('new-password').closest('[data-slot="field"]')!;
     const rules = field.querySelector<HTMLElement>('[data-slot="field-description"]')!;
+    expect(rules.closest('app-password-length-meter')).not.toBeNull();
+    expect(rules.querySelector('.sr-only')).not.toBeNull();
     const describedBy = () =>
       (input('new-password').getAttribute('aria-describedby') ?? '').split(/\s+/);
     expect(describedBy()).toContain(rules.id);

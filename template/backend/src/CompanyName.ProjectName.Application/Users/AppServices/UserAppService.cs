@@ -539,12 +539,12 @@ internal sealed class UserAppService(
 
         var user = await GetUserOrThrowAsync(id, cancellationToken);
         EnsureTwoFactorResettable(user, actorId);
-        if (!user.TwoFactorEnabled)
+        if (!user.HasSecondFactor)
         {
             return;
         }
 
-        user.DisableTwoFactor();
+        user.ResetSecondFactors();
         await userRepository.UpdateAsync(user, cancellationToken);
 
         await localEventBus.PublishAsync(

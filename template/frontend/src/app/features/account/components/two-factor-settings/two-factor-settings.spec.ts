@@ -17,9 +17,15 @@ import type { MockedObject } from 'vitest';
 
 describe('TwoFactorSettings', () => {
   let fixture: ComponentFixture<TwoFactorSettings>;
+  // prettier-ignore
   let account: Pick<
     MockedObject<AccountService>,
-    'getTwoFactorStatus' | 'beginTwoFactorSetup' | 'disableTwoFactor'
+    | 'getTwoFactorStatus'
+    | 'beginTwoFactorSetup'
+    | 'disableTwoFactor'
+    //#if (Email)
+    | 'setPreferredTwoFactorMethod'
+    //#endif
   >;
   /** 是否设有口令取自当前用户：没有口令的账号停用时只填验证码。 */
   const currentUser = signal<unknown>({ hasPassword: true, isTwoFactorEnabled: true });
@@ -38,6 +44,9 @@ describe('TwoFactorSettings', () => {
       getTwoFactorStatus: vi.fn().mockName('AccountService.getTwoFactorStatus'),
       beginTwoFactorSetup: vi.fn().mockName('AccountService.beginTwoFactorSetup'),
       disableTwoFactor: vi.fn().mockName('AccountService.disableTwoFactor'),
+      //#if (Email)
+      setPreferredTwoFactorMethod: vi.fn().mockName('AccountService.setPreferredTwoFactorMethod'),
+      //#endif
     };
     TestBed.configureTestingModule({
       imports: [TwoFactorSettings],
@@ -138,6 +147,37 @@ describe('TwoFactorSettings', () => {
     expect(document.activeElement).toBe(input);
   });
 
+  //#if (Email)
+  // 两种方式都能用时才有"默认"：身份验证器是默认时标出来；不是时给"设为默认"，点了即保存并通知面板
+  it('marks the authenticator as default or offers making it the default when both methods work', async () => {
+    const both: TwoFactorStatusOutputDto = {
+      enabled: true,
+      recoveryCodesLeft: 8,
+      requiredByPolicy: false,
+      emailEnabled: true,
+      defaultMethod: 'authenticator',
+    };
+    let host = await render({ ...both, emailEnabled: false });
+    expect(host.querySelector('[data-testid="two-factor-default"]')).toBeNull();
+    expect(host.querySelector('[data-testid="two-factor-set-default"]')).toBeNull();
+
+    host = await render(both);
+    expect(host.querySelector('[data-testid="two-factor-default"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="two-factor-set-default"]')).toBeNull();
+
+    host = await render({ ...both, defaultMethod: 'email' });
+    let defaultChanged = 0;
+    fixture.componentInstance.defaultChanged.subscribe(() => defaultChanged++);
+    vi.spyOn(toast, 'success').mockImplementation(() => '');
+    account.setPreferredTwoFactorMethod.mockReturnValue(of(undefined));
+    host.querySelector<HTMLButtonElement>('[data-testid="two-factor-set-default"]')!.click();
+    await fixture.whenStable();
+
+    expect(account.setPreferredTwoFactorMethod).toHaveBeenCalledExactlyOnceWith('authenticator');
+    expect(defaultChanged).toBe(1);
+  });
+
+  //#endif
   describe('turning it off', () => {
     afterEach(() => currentUser.set({ hasPassword: true, isTwoFactorEnabled: true }));
 

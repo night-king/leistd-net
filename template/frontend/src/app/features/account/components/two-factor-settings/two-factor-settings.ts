@@ -87,6 +87,10 @@ export class TwoFactorSettings {
 
   /** 本人的其他会话被服务端撤销了（启用、停用两步验证时）。 */
   readonly sessionsChanged = output<void>();
+  //#if (Email)
+  /** 登录默认方式变了（这一节里"设为默认"）：面板据此刷新邮箱验证码一节。 */
+  readonly defaultChanged = output<void>();
+  //#endif
 
   protected readonly status = signal<TwoFactorStatusOutputDto | null>(null);
   protected readonly loadFailed = signal(false);
@@ -109,6 +113,13 @@ export class TwoFactorSettings {
   protected readonly canDisable = computed(
     () => (!this.hasPassword() || !!this.password()) && this.codeValid() && !this.busy(),
   );
+  //#if (Email)
+  /** 身份验证器与邮箱验证码都能用：才有"默认"可言。 */
+  protected readonly bothMethodsUsable = computed(() => {
+    const status = this.status();
+    return !!status?.enabled && !!status.emailEnabled && !status.emailUnavailableReason;
+  });
+  //#endif
   /** 剩余恢复码不多：提醒里带"重新生成"，操作行里就不再重复这个按钮。 */
   protected readonly recoveryCodesLow = computed(() => {
     const status = this.status();
@@ -119,7 +130,8 @@ export class TwoFactorSettings {
     this.reload();
   }
 
-  protected reload(): void {
+  /** 重新读取状态；邮箱验证码一节改了默认方式后由面板调用。 */
+  reload(): void {
     this.loadFailed.set(false);
     this.accountService.getTwoFactorStatus().subscribe({
       next: (status) => this.status.set(status),
@@ -244,6 +256,32 @@ export class TwoFactorSettings {
       });
   }
 
+  //#if (Email)
+  /** 登录时默认先给身份验证器；不增减方式，不要求确认身份。 */
+  protected setAsDefault(): void {
+    if (this.busy()) {
+      return;
+    }
+
+    this.busy.set(true);
+    this.accountService
+      .setPreferredTwoFactorMethod('authenticator')
+      .pipe(finalize(() => this.busy.set(false)))
+      .subscribe({
+        next: () => {
+          this.reload();
+          this.defaultChanged.emit();
+          //#if (IncludeLocalization)
+          toast.success(this.transloco.translate('account.twoFactor.defaultToast'));
+          //#else
+          toast.success(this.t('account.twoFactor.defaultToast'));
+          //#endif
+        },
+        error: (error) => this.showError(error),
+      });
+  }
+
+  //#endif
   // 顶栏等处读的是当前用户上的 isTwoFactorEnabled，跟着刷新
   private refreshCurrentUser(): void {
     this.authService.loadUser().subscribe({ error: () => undefined });
@@ -314,6 +352,11 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactor.useCode': 'Use an authenticator code instead',
   'account.twoFactor.recoveryCodeLabel': 'Recovery code',
   'account.twoFactor.continue': 'Continue',
+  //#if (Email)
+  'account.twoFactor.default': 'Default',
+  'account.twoFactor.setDefault': 'Set as default',
+  'account.twoFactor.defaultToast': 'Saved. Sign-in will ask for this method first.',
+  //#endif
   'account.twoFactor.replacedToast':
     'Authenticator replaced. The old one and its recovery codes no longer work, and other devices were signed out.',
 };

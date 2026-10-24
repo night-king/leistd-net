@@ -9,6 +9,7 @@ internal sealed class OAuthServerOptions
     public const string SectionName = "OAuth";
 
     /// <summary>使用本机开发证书，默认关闭；多副本部署使用共享文件证书。</summary>
+    /// <remarks>开发证书只在开发环境打开；否则必须由部署提供 PKCS#12 文件路径与口令，缺失即启动失败。</remarks>
     public bool UseDevelopmentCertificates { get; set; }
 
     /// <summary>签名证书；新旧证书可重叠登记，选用顺序由 OpenIddict 决定。</summary>
@@ -18,6 +19,7 @@ internal sealed class OAuthServerOptions
     public OAuthCertificate[] EncryptionCertificates { get; set; } = [];
 
     /// <summary>访问令牌寿命，默认10分钟；整秒且长于 <see cref="AccessTokenRenewal.Lead"/>。</summary>
+    /// <remarks>撤销与会话退出传到依赖方的最长时延；提前刷新窗口为 1 分钟。</remarks>
     public TimeSpan AccessTokenLifetime { get; set; } = TimeSpan.FromMinutes(10);
 
     /// <summary>关闭 HTTPS 要求，仅供本机或测试调试。</summary>
