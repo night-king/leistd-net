@@ -362,7 +362,7 @@ def check_quality_aggregation():
     assert workflow['permissions']['actions'] == 'read'
     for name in ['frontend-gates', 'framework-pack', 'test', 'template-slices', 'template-generation', 'package-consumption', 'postgresql-e2e', 'oidc-e2e']:
         assert 'quality-plan' in jobs[name]['needs']
-        assert jobs[name]['if'] == ('fromJSON(needs.quality-plan.outputs.validation_plan).Jobs.test' if name == 'test' else f"fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['{name}']"), name
+        assert jobs[name]['if'] == ('fromJSON(needs.quality-plan.outputs.validation_plan).Jobs.test' if name == 'test' else f"fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['{name}']") + " && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'", name
         if name in ['template-slices', 'package-consumption', 'postgresql-e2e', 'oidc-e2e']:
             assert 'framework-pack' in jobs[name]['needs']
     for job in jobs.values():
@@ -382,7 +382,7 @@ def check_quality_aggregation():
     for kind, job in [('package', 'package-consumption'), ('generation', 'template-generation'),
                       ('postgresql', 'postgresql-e2e'), ('oidc', 'oidc-e2e')]:
         step = next(s for s in summary_steps if f'-Kind {kind} ' in s.get('run', ''))
-        assert step['if'] == f"fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['{job}']", (kind, step)
+        assert step['if'] == f"fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['{job}'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'", (kind, step)
         download = summary_steps[summary_steps.index(step) - 1]
         assert download['uses'].startswith('actions/download-artifact@') and download['if'] == step['if'], (kind, download)
         assert download['with']['path'] in step['run'], (kind, download)
@@ -464,7 +464,7 @@ def check_quality_aggregation():
                     state = json.loads(json.dumps(normal)); state['quality-plan']['outputs']['validation_plan'] = json.dumps(invalid)
                     if name in state: state[name]['result'] = 'skipped'
                     check(state, False)
-            mutated = script.replace("'quality-plan', 'docs-sync', ", "'quality-plan', ")
+            mutated = script.replace("@('docs-sync', 'docs-sync-windows')", "@('docs-sync-windows')")
             assert mutated != script
             state = json.loads(json.dumps(normal)); state['docs-sync']['result'] = 'failure'
             check(state, True, mutated)
@@ -593,7 +593,9 @@ def run_pwsh(repo, script, env=None):
     path = repo.parent / f'{repo.name}-step.ps1'
     path.write_text(script, encoding='utf-8')
     result = subprocess.run(['pwsh', '-NoProfile', '-File', str(path)], cwd=repo,
-                            env={**os.environ, 'GITHUB_OUTPUT': str(output), **(env or {})},
+                            env={**os.environ, 'GITHUB_OUTPUT': str(output),
+                                 'VALIDATION_PLAN': json.dumps(dict(QualityExecution='current', QualityValidated=True)),
+                                 **(env or {})},
                             capture_output=True, text=True, encoding='utf-8', errors='replace')
     return result.returncode, output.read_text(encoding='utf-8') if output.exists() else '', result.stdout + result.stderr
 
@@ -689,6 +691,16 @@ def check_release_links():
                 assert code == 0, (channel, has_guide, 'notes', log)
                 body = parse_outputs(output)['content']
                 assert ('## 升级指南' in body) == has_guide and (guide_url in body) == has_guide, (channel, has_guide, body)
+                if channel == 'stable':
+                    evidence = dict(QualityExecution='reuse', QualityValidated=True,
+                                    QualityReuse=dict(Verified=True, RunId=41, Attempt=2, HeadSha='d' * 40, Tree='e' * 40))
+                    code, output, log = run_pwsh(repo, substitute(notes['run'], values), {'VALIDATION_PLAN': json.dumps(evidence)})
+                    reused_body = parse_outputs(output)['content']
+                    assert code == 0 and '/actions/runs/41/attempts/2' in reused_body and 'd' * 40 in reused_body and 'e' * 40 in reused_body, log
+                    assert '本次依赖审计与最终产物验证另行执行' in reused_body
+                    evidence['QualityReuse']['Verified'] = False
+                    code, _, _ = run_pwsh(repo, substitute(notes['run'], values), {'VALIDATION_PLAN': json.dumps(evidence)})
+                    assert code != 0, 'Unverified evidence must not appear in release notes'
 
                 values['steps.links.outputs.packageReleaseNotes'] = outputs['packageReleaseNotes']
                 env = {name: substitute(value, values) for name, value in pack.get('env', {}).items()}
@@ -826,7 +838,7 @@ def check_release_notes_scopes():
     with tempfile.TemporaryDirectory(prefix='leistd-release-notes-') as directory:
         repo, _ = version_fixture(directory, 'notes', commits)
         values = {'steps.ver.outputs.lastStableTag': 'v0.12.0', 'steps.ver.outputs.version': '0.13.0-beta.8',
-                  'steps.ver.outputs.tag': 'v0.13.0-beta.8', 'steps.ver.outputs.baseVersion': '0.13.0',
+                  'steps.ver.outputs.tag': 'v0.13.0-beta.8', 'steps.ver.outputs.baseVersion': '0.13.0', 'github.repository': 'owner/repo',
                   'steps.links.outputs.guideUrl': '', 'steps.ch.outputs.channel': 'beta'}
         code, output, log = run_pwsh(repo, substitute(step['run'], values))
         assert code == 0, log
@@ -1078,6 +1090,12 @@ def check_template_release_notes():
                               '## 新功能', '', '### template', '', '- 模板新能力', '',
                               '## 修复', '', '### frontend', '', '- 前端修复', ''])
         assert body.startswith(expected) and '框架能力' not in body and '发布 v0.13.0' not in body and '升级说明' not in body, body
+        evidence = dict(QualityExecution='reuse', QualityValidated=True,
+                        QualityReuse=dict(Verified=True, RunId=41, Attempt=2, HeadSha='d' * 40, Tree='e' * 40))
+        code, output, log = run_pwsh(repo, substitute(step['run'], values), {'VALIDATION_PLAN': json.dumps(evidence)})
+        reused_body = parse_outputs(output)['content']
+        assert code == 0 and reused_body.startswith(expected) and '/actions/runs/41/attempts/2' in reused_body, log
+        assert 'd' * 40 in reused_body and 'e' * 40 in reused_body and '本次依赖审计与最终产物验证另行执行' in reused_body
         guide = repo / 'docs/template/upgrades/0.2.0.md'
         guide.parent.mkdir(parents=True)
         guide.write_text('# 升级\n', encoding='utf-8')
@@ -1101,6 +1119,10 @@ def check_template_release_wiring():
     steps = job['steps']
     ids = [s.get('id') or s.get('name') for s in steps]
     assert job['needs'] == ['candidate', 'quality', 'release'], job['needs']
+    for name in ('release', 'template-release'):
+        predicate = data['jobs'][name]['if']
+        for fragment in ('.QualityValidated', ".QualityExecution == 'current'", ".QualityExecution == 'reuse'", '.QualityReuse.Verified'):
+            assert fragment in predicate, (name, predicate)
     for fragment in ("needs.quality.result == 'success'", "needs.release.result == 'success' || needs.release.result == 'skipped'",
                      '.TemplateRelease.Changed || ', '.TemplateRelease.Required)', ".Mode == 'full'", '.CandidateSha == needs.candidate.outputs.sha'):
         assert fragment in job['if'], (fragment, job['if'])
@@ -1548,6 +1570,63 @@ def check_release_publish():
     check_release_main_stage_rehearsal()
 
 
+def check_reuse_plan_wiring():
+    workflow = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text())
+    jobs = workflow['jobs']
+    upload = [s for s in jobs['quality-plan']['steps'] if s.get('uses', '').startswith('actions/upload-artifact@')]
+    assert len(upload) == 1
+    assert upload[0]['with'] == dict(name='quality-plan-${{ github.run_id }}-${{ github.run_attempt }}',
+                                     path='.tmp/quality-plan.json', **{'if-no-files-found': 'error'})
+    assert "'--output', '.tmp/quality-plan.json'" in scope_step('ci.yml', 'quality-plan', 'plan')
+    for name in ('docs-sync', 'docs-sync-windows'):
+        assert jobs[name]['needs'] == 'quality-plan'
+        assert jobs[name]['if'] == "fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'"
+    assert jobs['template-matrix']['steps'][0]['with']['fetch-depth'] == 0
+    for step in jobs['template-matrix']['steps']:
+        if step.get('uses', '').startswith('actions/download-artifact@') or 'check-quality-proof.ps1' in step.get('run', ''):
+            condition = step['if']
+            assert condition in ("steps.quality.outputs.dynamic == 'true'", "steps.quality.outputs.framework_tests == 'true'") or \
+                condition.endswith(".QualityExecution != 'reuse'"), step
+    assert 'QualityExecution' not in jobs['dependency-audit']['if'], 'Fresh audit must never be reused'
+    assert workflow[True]['workflow_call']['outputs']['validation_plan']['value'] == '${{ jobs.template-matrix.outputs.validation_plan }}'
+    assert jobs['template-matrix']['outputs']['validation_plan'] == '${{ steps.complete.outputs.validation_plan }}'
+    print('PASS reuse wiring: original plan artifact, history, static skips, fresh audit and no absent-feed downloads', flush=True)
+
+
+def check_reuse_release_predicates():
+    """Evaluate the actual two publication predicates with missing and contradictory evidence."""
+    workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+    base = dict(ReleaseRequired=True, Mode='full', CandidateSha='c' * 40, QualityValidated=True,
+                QualityExecution='current', QualityReuse=dict(Verified=False),
+                TemplateRelease=dict(Required=True, Changed=True))
+    def allowed(job, plan, overrides=None):
+        values = {'needs.candidate.outputs.needed': 'true', 'needs.candidate.outputs.sha': 'c' * 40,
+                  'needs.candidate.result': 'success', 'needs.quality.result': 'success', 'needs.release.result': 'success'}
+        values.update(overrides or {})
+        expression = workflow['jobs'][job]['if'].replace('!cancelled()', 'True')
+        def field(match):
+            value = plan
+            for key in match[1].split('.'): value = value.get(key, False) if isinstance(value, dict) else False
+            return repr(value)
+        expression = re.sub(r'fromJSON\(needs\.quality\.outputs\.validation_plan\)\.([A-Za-z.]+)', field, expression)
+        for key in sorted(values, key=len, reverse=True): expression = expression.replace(key, repr(values[key]))
+        return bool(eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}}, {}))
+    for job in ('release', 'template-release'):
+        assert allowed(job, base)
+        reused = {**base, 'QualityExecution': 'reuse', 'QualityReuse': dict(Verified=True)}
+        assert allowed(job, reused)
+        for field, value in [('QualityValidated', False), ('QualityExecution', 'unknown'), ('CandidateSha', 'd' * 40), ('Mode', 'backend')]:
+            assert not allowed(job, {**reused, field: value}), (job, field)
+        assert not allowed(job, {**reused, 'QualityReuse': dict(Verified=False)})
+        assert not allowed(job, {k: v for k, v in reused.items() if k != 'QualityValidated'})
+        for result in ('failure', 'cancelled', 'skipped'):
+            assert not allowed(job, reused, {'needs.quality.result': result})
+    assert not allowed('release', base, {'needs.candidate.outputs.needed': 'false'})
+    assert not allowed('release', {**base, 'ReleaseRequired': False})
+    assert not allowed('template-release', base, {'needs.release.result': 'failure'})
+    print('PASS publication predicates: validated current/reuse only; missing evidence and original failures rejected', flush=True)
+
+
 def check_plan_output():
     """The emitted plan drops path lists for counts and stays within one environment string."""
     spec = importlib.util.spec_from_file_location('planner_output', ROOT / 'scripts/plan-quality-checks.py')
@@ -1556,7 +1635,7 @@ def check_plan_output():
     # A develop -> main merge: thousands of paths, listed again under their input classes.
     paths = [f'template/frontend/src/app/features/feature-{index:04}/components/feature-{index:04}-panel.ts'
              for index in range(3000)]
-    plan = dict(Version=3, CandidateSha='c' * 40, BaseSha='b' * 40, Tier='core', Mode='full', ReleaseRequired=True,
+    plan = dict(Version=4, CandidateSha='c' * 40, BaseSha='b' * 40, Tier='core', Mode='full', ReleaseRequired=True,
                 ReleaseChannel='stable', ReleaseBaseTag='v0.12.0', ReleaseBaseSha='a' * 40, DocsOnly=False,
                 TemplateRelease=dict(Changed=True, Required=True, Reason='Template changes'),
                 Jobs={'test': True, 'template-slices': True}, Slices=[dict(Key='core-0', Scenarios=['identity'])],
@@ -1606,6 +1685,7 @@ def main():
         check_plan_output()
         return
     check_plan_output()
+    check_reuse_plan_wiring()
     check_existing_scopes()
     check_docs_scope()
     check_template_package_responsibilities()
@@ -1620,6 +1700,7 @@ def main():
     check_template_existing_tag()
     check_template_release_notes()
     check_template_release_wiring()
+    check_reuse_release_predicates()
     check_release_publish()
 
 

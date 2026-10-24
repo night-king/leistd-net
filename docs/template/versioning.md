@@ -30,6 +30,7 @@
 质量计划在 `main` 上的 `TemplateRelease.Required` 恒等于框架的 `ReleaseRequired`，模板有变化时两者都为真；计划不得收窄，适用与框架发布相同的全部[放行责任](../framework/ci-release-gates.md#放行责任)。
 
 - `template-release` 作业还要求同一候选 SHA 的质量汇总成功，且框架通道已成功（develop 上可为跳过）。
+- stable 可按[同树质量证据规则](../framework/ci-release-gates.md#正式发布复用同树质量证据)承接完整代码质量责任；本次实时审计、最终模板包验证与升级闸门不跳过，Release 正文列出来源。本次计划仍绑定 main 候选，模板基线独立重算。
 - 作业从计划冻结的基线 tag 用 `scripts/release-commits.ps1` 独立重算"有无模板变化"，与计划不一致即失败。规划之后新增的 `template-v*`（相邻发布的上一轮、本版本重跑）不影响这一判定；发布说明与升级闸门从低于本版本的最高 `template-v*` 起算。
 - 发布时版本取框架通道输出的正式版，模板默认的框架版本不等于它即失败。
 

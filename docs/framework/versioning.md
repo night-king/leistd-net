@@ -108,7 +108,9 @@ beta 由下游试点项目验收，试点项目按上文引用确切的 `-beta.<
 
 框架生产源码与真实 Pack 文档（含 `framework/NuGet.md`）触发发布。明确共享发布输入包括 `VERSION`、`framework/common.props`、根 `Directory.Build.props`、`Directory.Packages.props`、`global.json` 与 `NuGet.config`；脚本、workflow、未知输入/打包规则保守发布。内部说明、仓库配置（`.github/dependabot.yml`、根 `.mcp.json`）、框架测试、模板与模板打包项目（`template/`、`template-package/`）的变化不触发框架 beta；`main` 上模板有变化时框架正式版与模板同号发布（见[模板版本与发布](../template/versioning.md#版本与发布时机)）。其余分类 stable/beta 相同。
 
-candidate 与 CI 固定相同 SHA，显式传递质量和发布基线，CI 据此计算计划。发布必须取得成功汇总输出的 full 计划、全部发布责任和相同候选身份。非发布 push 也执行适用质量验证；轻量文档 push 的前次成功条件见[CI 质量计划与放行](./ci-release-gates.md#pr-的内部文档例外)。
+stable 的 main push 可按[同树质量证据规则](./ci-release-gates.md#正式发布复用同树质量证据)复用第二父提交的完整 develop 验证；缺证据照常 full。本次实时依赖审计和最终发布物验证仍执行，框架与模板 Release 正文记录来源 run、attempt、SHA 与 tree。
+
+candidate 与 CI 固定相同 SHA，显式传递质量和发布基线，CI 据此计算计划。发布必须取得成功汇总输出的 full 计划、`QualityValidated=true`、合法的 current/reuse 执行来源、全部发布责任和相同候选身份。非发布 push 也执行适用质量验证；轻量文档 push 的前次成功条件见[CI 质量计划与放行](./ci-release-gates.md#pr-的内部文档例外)。
 - 回写提交带 `[skip ci]` 且过滤 `github-actions[bot]`，避免死循环。
 - ⚠️ NuGet 包不可删（只能 unlist）。框架或模板每次有效变更都会产出一个正式版，请把控合入 main 的节奏。
 

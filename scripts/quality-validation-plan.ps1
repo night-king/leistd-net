@@ -7,7 +7,7 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
     $plan = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $head = git rev-parse HEAD
     $jobNames = @('frontend-gates', 'framework-pack', 'package-consumption', 'template-generation', 'template-slices', 'test', 'postgresql-e2e', 'oidc-e2e')
-    if ($LASTEXITCODE -ne 0 -or $plan.Version -ne 3 -or $plan.CandidateSha -cne $head -or $ExpectedTier -cnotin $MatrixTiers -or
+    if ($LASTEXITCODE -ne 0 -or $plan.Version -ne 4 -or $plan.CandidateSha -cne $head -or $ExpectedTier -cnotin $MatrixTiers -or
         $plan.Tier -cne $ExpectedTier -or $plan.Mode -cnotin @('full', 'frontend', 'backend', 'documentation') -or
         $plan.DocsOnly -isnot [bool] -or $plan.FrameworkTests -isnot [bool] -or $plan.ContainerSmoke -isnot [bool] -or
         $plan.ReleaseRequired -isnot [bool] -or $plan.GeneratedDocumentation -isnot [bool] -or $plan.PackageDocumentation -isnot [bool] -or
@@ -15,6 +15,32 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
         $plan.Jobs -isnot [pscustomobject] -or
         (Compare-Object ($jobNames | Sort-Object) @($plan.Jobs.PSObject.Properties.Name | Sort-Object))) {
         throw 'Invalid quality plan: version, candidate, tier, mode or responsibilities differ.'
+    }
+    $reuse = $plan.QualityReuse
+    $reuseFields = @('Verified', 'RunId', 'Attempt', 'HeadSha', 'Tree', 'PlanArtifactId')
+    if ($plan.QualityExecution -cnotin @('current', 'reuse') -or $plan.QualityValidated -isnot [bool] -or
+        $reuse -isnot [pscustomobject] -or $reuse.Verified -isnot [bool] -or
+        (Compare-Object $reuseFields @($reuse.PSObject.Properties.Name)) -or
+        $reuse.RunId -isnot [long] -or $reuse.Attempt -isnot [long] -or $reuse.PlanArtifactId -isnot [long] -or
+        $reuse.HeadSha -isnot [string] -or $reuse.Tree -isnot [string]) {
+        throw 'Invalid quality execution evidence.'
+    }
+    if ($plan.QualityExecution -ceq 'current') {
+        if ($reuse.Verified -or $reuse.RunId -ne 0 -or $reuse.Attempt -ne 0 -or $reuse.PlanArtifactId -ne 0 -or
+            $reuse.HeadSha -cne '' -or $reuse.Tree -cne '') { throw 'Current execution cannot claim reused evidence.' }
+    } else {
+        if (-not $reuse.Verified -or $reuse.RunId -le 0 -or $reuse.Attempt -le 0 -or $reuse.PlanArtifactId -le 0 -or
+            $reuse.HeadSha -cnotmatch '^[0-9a-f]{40}$' -or $reuse.Tree -cnotmatch '^[0-9a-f]{40}$' -or
+            $plan.ReleaseChannel -cne 'stable' -or $plan.Event -cne 'push' -or -not $plan.ReleaseRequired -or
+            $plan.Mode -cne 'full' -or $plan.Tier -cne 'full') { throw 'Invalid stable reuse evidence.' }
+        $parents = (git show -s --format=%P $head) -split ' '
+        if ($LASTEXITCODE -ne 0 -or $parents.Count -ne 2 -or $parents[1] -cne $reuse.HeadSha) {
+            throw 'Reused evidence is not from the candidate second parent.'
+        }
+        $tree = git rev-parse "$head^{tree}"
+        if ($LASTEXITCODE -ne 0 -or $tree -cne $reuse.Tree) { throw 'Reused evidence tree differs from the candidate.' }
+        $sourceTree = git rev-parse "$($reuse.HeadSha)^{tree}"
+        if ($LASTEXITCODE -ne 0 -or $sourceTree -cne $tree) { throw 'Reused source tree differs from the candidate.' }
     }
     foreach ($name in $jobNames) {
         if ($plan.Jobs.$name -isnot [bool]) { throw "Invalid job responsibility: $name" }
