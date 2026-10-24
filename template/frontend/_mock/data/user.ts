@@ -189,6 +189,37 @@ export function isEmailTaken(email: string, excludeUserId?: string): boolean {
 }
 //#endif
 
+// 用户与设置一样存本页 sessionStorage：Mock 启动时恢复（provideMock），每个请求处理完写回（Mock 拦截器）。
+// 否则刷新或整页跳转（退出登录）后用户回到初始数据，而设置还在——例如开着"要求两步验证"却忘了已绑定的验证器。
+// 单测直接调处理器、不经 provideMock，不读这份存储，结果不随文件执行顺序变化。
+const USERS_STORAGE_KEY = 'mock_users';
+//#if (LocalIdentity)
+const DELETED_USERS_STORAGE_KEY = 'mock_deleted_users';
+//#endif
+
+/** 用本页 sessionStorage 里上次的用户数据替换初始数据；没有存过时保持初始数据。 */
+export function restoreMockUsers(): void {
+  restoreInto(USERS, USERS_STORAGE_KEY);
+  //#if (LocalIdentity)
+  restoreInto(DELETED_USERS, DELETED_USERS_STORAGE_KEY);
+  //#endif
+}
+
+/** 把当前用户数据写回本页 sessionStorage。 */
+export function persistMockUsers(): void {
+  sessionStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(USERS));
+  //#if (LocalIdentity)
+  sessionStorage.setItem(DELETED_USERS_STORAGE_KEY, JSON.stringify(DELETED_USERS));
+  //#endif
+}
+
+function restoreInto(target: MockUser[], storageKey: string): void {
+  const raw = sessionStorage.getItem(storageKey);
+  if (raw) {
+    target.splice(0, target.length, ...(JSON.parse(raw) as MockUser[]));
+  }
+}
+
 export function toUserOutput(user: MockUser): UserOutputDto {
   return {
     id: user.id,
