@@ -18,8 +18,8 @@ using Leistd.Lock.Abstractions;
 #endif
 using CompanyName.ProjectName.Application.Permissions.Provider;
 using CompanyName.ProjectName.Application.Roles.Dtos;
-#if (LocalIdentity)
 using CompanyName.ProjectName.Application.Users.Avatars;
+#if (LocalIdentity)
 using CompanyName.ProjectName.Application.Users.Validators;
 #endif
 using CompanyName.ProjectName.Application.Users.Dtos;
@@ -632,9 +632,9 @@ internal sealed class UserAppService(
     /// <inheritdoc />
     public async Task<UserAvatarOutputDto?> GetAvatarAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var user = await userRepository.GetByIdAsync(id, cancellationToken);
-        return user is not null && AvatarPolicy.TryReadImage(user.Avatar, out var image)
-            ? new UserAvatarOutputDto(image.ContentType, image.Bytes)
+        var avatar = (await userRepository.GetByIdAsync(id, cancellationToken))?.Avatar;
+        return avatar is not null && AvatarPolicy.TryReadImage(avatar, out var image)
+            ? new UserAvatarOutputDto(image.ContentType, image.Bytes, AvatarUrls.VersionOf(avatar))
             : null;
     }
 

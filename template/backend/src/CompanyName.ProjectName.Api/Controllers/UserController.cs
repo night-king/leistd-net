@@ -127,21 +127,25 @@ public sealed class UserController(IUserAppService userAppService) : BaseControl
     /// <summary>取用户上传的头像图片（已登录即可）。</summary>
     /// <remarks>
     /// <para>DTO 里的头像地址指向这里（带内容摘要作版本号，见 <c>AvatarUrls</c>），图片本身不进 DTO。
-    /// 地址随内容变化，所以按不可变资源长期缓存；ETag 让地址没带版本号的请求也能走 304。</para>
+    /// 请求版本匹配当前内容时按不可变资源长期缓存，其他地址每次重新验证；ETag 用于条件请求。</para>
     /// <para>不要求用户管理权限：头像随用户名出现在各处，查询仍受租户过滤器约束。
     /// 外部地址的头像不经过这里，DTO 直接给出原地址。</para>
     /// </remarks>
     [HttpGet("{id}/avatar")]
-    public async Task<IActionResult> GetAvatarAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAvatarAsync(Guid id, [FromQuery] string? v, CancellationToken cancellationToken)
     {
         var avatar = await userAppService.GetAvatarAsync(id, cancellationToken);
         if (avatar is null)
         {
+            // 清除后再上传同一图片会复用地址，不让 404 进入缓存。
+            Response.Headers.CacheControl = "private, no-store";
             return NotFound();
         }
 
         var entityTag = new EntityTagHeaderValue($"\"{Convert.ToHexString(SHA256.HashData(avatar.Content))[..16]}\"");
-        Response.Headers.CacheControl = "private, max-age=31536000, immutable";
+        Response.Headers.CacheControl = string.Equals(v, avatar.Version, StringComparison.Ordinal)
+            ? "private, max-age=31536000, immutable"
+            : "private, no-cache";
         return File(avatar.Content, avatar.ContentType, lastModified: null, entityTag: entityTag);
     }
 
