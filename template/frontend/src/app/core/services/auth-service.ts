@@ -11,6 +11,7 @@ import { TenantContextService } from './tenant-context-service';
 //#endif
 //#endif
 //#if (LocalIdentity)
+import { PasskeyOptionsOutputDto } from '../../shared/dtos/account-security.dto';
 import { LoginInputDto, SessionLoginOutputDto, UserOutputDto } from '../../shared/dtos/auth.dto';
 //#else
 import { UserOutputDto } from '../../shared/dtos/auth.dto';
@@ -29,9 +30,9 @@ export class AuthService {
   //#endif
   private readonly http = inject(HttpClient);
   //#if (RemoteTokenAuth)
-//#if (IncludeMultiTenancy)
+  //#if (IncludeMultiTenancy)
   private readonly tenantContext = inject(TenantContextService);
-//#endif
+  //#endif
   //#endif
   //#if (IncludeNotifications || IncludeRealTime)
   private readonly signalR = inject(SignalRService);
@@ -73,9 +74,9 @@ export class AuthService {
   setCurrentUser(user: UserOutputDto): void {
     this._currentUser.set(new User(user));
     //#if (RemoteTokenAuth)
-//#if (IncludeMultiTenancy)
+    //#if (IncludeMultiTenancy)
     this.tenantContext.setAuthenticatedTenant(user.tenantId ?? null);
-//#endif
+    //#endif
     //#endif
   }
 
@@ -86,9 +87,9 @@ export class AuthService {
   clearAuthData(): void {
     this._currentUser.set(null);
     //#if (RemoteTokenAuth)
-//#if (IncludeMultiTenancy)
+    //#if (IncludeMultiTenancy)
     this.tenantContext.clear();
-//#endif
+    //#endif
     //#endif
     //#if (IncludeNotifications || IncludeRealTime)
     // 不等待：状态与连接引用在 reset() 内部同步清掉，真正的 stop() 是网络动作，
@@ -125,6 +126,17 @@ export class AuthService {
   signInAgain(returnUrl: string): void {
     this.clearAuthData();
     this.endSessionAndGo(`/auth/login?returnUrl=${encodeURIComponent(returnUrl)}`);
+  }
+
+  /**
+   * 确认身份：取用通行密钥确认的断言选项。断言不单独提交，随要求确认的那个请求一起重放（`passkey` 字段）；
+   * 本人没有通行密钥或部署没配时以 `Auth:ReauthenticationMethodUnavailable` / `Auth:PasskeyUnavailable` 拒绝。
+   */
+  beginPasskeyReauthentication(): Observable<PasskeyOptionsOutputDto> {
+    return this.http.post<PasskeyOptionsOutputDto>(
+      '/api/v1/auth/me/reauthentication/passkey-options',
+      {},
+    );
   }
 
   // 退出请求失败也要离开：本地主体已清空，留在原页面只会看到一个没有用户的界面

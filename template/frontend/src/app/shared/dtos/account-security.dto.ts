@@ -6,6 +6,8 @@ import { TwoFactorMethod } from './auth.dto';
 export interface SecurityConfigOutputDto {
   /** 是否开放自助注册；关闭时隐藏注册入口，注册页给出说明。 */
   registrationEnabled: boolean;
+  /** 部署配置了通行密钥的依赖方：为 false 时登录页不给"用通行密钥登录"与条件式自动填充。 */
+  passkeysAvailable: boolean;
   //#if (Email)
   /** 注册时是否要求邮箱验证。 */
   enableEmailVerification: boolean;
@@ -17,8 +19,13 @@ export interface SecurityConfigOutputDto {
 export interface TwoFactorStatusOutputDto {
   /** 是否已启用身份验证器。 */
   enabled: boolean;
+  /** 本人登记的通行密钥，按登记先后。 */
+  passkeys: PasskeyOutputDto[];
+  /** 部署配置了通行密钥的依赖方：为 false 时不能添加，已登记的也不能用于登录。 */
+  passkeysAvailable: boolean;
+  /** 剩余可用的恢复码个数；恢复码挂在账号上，有任一独立因子（身份验证器或通行密钥）就有。 */
   recoveryCodesLeft: number;
-  /** 所在租户要求两步验证（此时不能停用身份验证器；邮箱验证码不算满足）。 */
+  /** 所在租户要求两步验证（此时不能去掉最后一个独立因子；邮箱验证码不算满足）。 */
   requiredByPolicy: boolean;
   /** 本人指定的首选方式；未指定时没有这一项。 */
   preferredMethod?: TwoFactorMethod | null;
@@ -32,6 +39,33 @@ export interface TwoFactorStatusOutputDto {
   /** 收码地址的打码形式。 */
   maskedEmail?: string | null;
   //#endif
+}
+
+/**
+ * WebAuthn 的 JSON 形式（选项或凭据）：二进制字段是 base64url 字符串。服务端按协议库的规则生成与解析，
+ * 前端只在 `core/webauthn` 里与浏览器的二进制形式互转，其余地方原样传递。
+ */
+export type WebAuthnJson = Record<string, unknown>;
+
+/** 交给浏览器的 WebAuthn 选项（创建或断言）。 */
+export interface PasskeyOptionsOutputDto {
+  options: WebAuthnJson;
+  /** 免口令登录的仪式凭据，完成时原样交回；其他仪式没有这一项。 */
+  ceremony?: string | null;
+}
+
+/** 本人登记的一把通行密钥。 */
+export interface PasskeyOutputDto {
+  id: string;
+  name: string;
+  /** 登记时刻（UTC）。 */
+  creationTime: string;
+  /** 最近一次使用（UTC）；从未使用时没有这一项。 */
+  lastUsedTime?: string | null;
+  /** 凭据可以被同步备份（多设备通行密钥）。 */
+  isBackupEligible: boolean;
+  /** 凭据当前已备份。 */
+  isBackedUp: boolean;
 }
 //#if (Email)
 

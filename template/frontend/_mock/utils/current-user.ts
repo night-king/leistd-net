@@ -1,8 +1,17 @@
+//#if (LocalIdentity)
+import { fromBase64Url, toBase64Url } from '../../src/app/core/webauthn/webauthn';
+//#endif
 //#if (LocalIdentity || !IncludeMultiTenancy)
 import { MockException } from '../core/models';
 //#endif
 //#if (LocalIdentity)
-import { MOCK_TWO_FACTOR_CODE, MockUser, USERS } from '../data/user';
+import {
+  MOCK_PASSKEYS_AVAILABLE,
+  MOCK_TWO_FACTOR_CODE,
+  MockPasskey,
+  MockUser,
+  USERS,
+} from '../data/user';
 //#else
 import { MockUser, USERS } from '../data/user';
 //#endif
@@ -134,18 +143,125 @@ export function expireMockSessionAuthentication(): void {
   }
 }
 
-/** 确认身份时出示的凭证，一次只能一种；各接口的字段名不同，由调用处换成这两个名字。 */
+/** 确认身份时出示的凭证，一次只能一种；各接口的字段名不同，由调用处换成这三个名字。 */
 export interface MockReauthenticationProof {
   password?: string;
   twoFactorCode?: string;
+  /** 通行密钥断言（浏览器交回的凭据 JSON），先经 `me/reauthentication/passkey-options` 取选项。 */
+  passkey?: unknown;
+}
+
+/** 仪式的有效期，与后端一致：5 分钟。 */
+const MOCK_PASSKEY_CEREMONY_MS = 5 * 60_000;
+
+interface MockPasskeyCeremony {
+  challenge: string;
+  expiresAt: number;
+}
+
+/**
+ * 进行中的通行密钥仪式（挑战），按"用途:本人"或免口令登录的仪式凭据存放；取出即作废，只认一次。
+ * 与其他业务数据一样只在本页内存里。
+ */
+const passkeyCeremonies = new Map<string, MockPasskeyCeremony>();
+
+/** 生成一个新挑战并记下；同一键再取一次即替换，之前给的不再被认。 */
+export function beginMockPasskeyCeremony(key: string): string {
+  const challenge = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+  passkeyCeremonies.set(key, { challenge, expiresAt: Date.now() + MOCK_PASSKEY_CEREMONY_MS });
+  return challenge;
+}
+
+/** 取出仪式的挑战并作废；没有或已过期时为 null。 */
+export function takeMockPasskeyCeremony(key: string): string | null {
+  const ceremony = passkeyCeremonies.get(key);
+  passkeyCeremonies.delete(key);
+  return ceremony && ceremony.expiresAt > Date.now() ? ceremony.challenge : null;
+}
+
+/** 断言选项（`PublicKeyCredentialRequestOptions` 的 JSON 形式）；不给 `rpId` 即取当前页面的域名。 */
+export function mockPasskeyRequestOptions(
+  challenge: string,
+  allowed: readonly MockPasskey[] = [],
+): Record<string, unknown> {
+  return {
+    challenge,
+    timeout: MOCK_PASSKEY_CEREMONY_MS,
+    userVerification: 'required',
+    allowCredentials: allowed.map((passkey) => ({ type: 'public-key', id: passkey.credentialId })),
+  };
+}
+
+/** 浏览器交回的凭据里 Mock 要看的部分：凭据 Id 与客户端数据（类型、挑战）。 */
+export interface MockWebAuthnClientData {
+  credentialId: string;
+  type: string;
+  challenge: string;
+}
+
+/** 解出凭据 Id 与 `clientDataJSON`；形状不对时为 null。Mock 不校验签名与证明。 */
+export function readMockWebAuthnCredential(credential: unknown): MockWebAuthnClientData | null {
+  const value = credential as
+    { id?: unknown; response?: { clientDataJSON?: unknown } } | null | undefined;
+  if (typeof value?.id !== 'string' || typeof value.response?.clientDataJSON !== 'string') {
+    return null;
+  }
+  try {
+    const clientData = JSON.parse(
+      new TextDecoder().decode(fromBase64Url(value.response.clientDataJSON)),
+    ) as { type?: unknown; challenge?: unknown };
+    return typeof clientData.type === 'string' && typeof clientData.challenge === 'string'
+      ? { credentialId: value.id, type: clientData.type, challenge: clientData.challenge }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 核对断言：客户端数据是这一次挑战的 `webauthn.get`，凭据 Id 已登记，且（给了 `owner` 时）属于这个人。
+ * 认出来时记下最近使用并返回凭据与主人，认不出为 null。
+ */
+export function verifyMockPasskeyAssertion(
+  credential: unknown,
+  challenge: string,
+  owner?: MockUser,
+): { user: MockUser; passkey: MockPasskey } | null {
+  const data = readMockWebAuthnCredential(credential);
+  if (!data || data.type !== 'webauthn.get' || data.challenge !== challenge) {
+    return null;
+  }
+  for (const user of owner ? [owner] : USERS) {
+    const passkey = user.passkeys?.find((item) => item.credentialId === data.credentialId);
+    if (passkey) {
+      passkey.lastUsedTime = new Date().toISOString();
+      return { user, passkey };
+    }
+  }
+  return null;
+}
+
+export function passkeyCeremonyExpired(): MockException {
+  return new MockException(400, {
+    code: 'Auth:PasskeyCeremonyExpired',
+    message: 'This passkey request has expired. Try again.',
+  });
+}
+
+export function passkeyVerificationFailed(): MockException {
+  return new MockException(400, {
+    code: 'Auth:PasskeyVerificationFailed',
+    message: "The passkey couldn't be verified. Try again.",
+  });
 }
 
 /**
  * 复刻后端确认身份的可观察规则（见 `ReauthenticationGuard`）：
- * - 两种凭证同时出示：400 字段错误，不带业务码；
+ * - 出示了不止一种凭证：400 字段错误，不带业务码；
  * - 出示了凭证就只按它判定，不回落到"刚认证过"：本账号不具备这种方式时
- *   `Auth:ReauthenticationMethodUnavailable`，口令或验证码不对时各自的错误码；
- * - 没有出示凭证：刚认证过即放行；否则既无口令又没开两步验证时 `Auth:SignInAgainRequired`，
+ *   `Auth:ReauthenticationMethodUnavailable`，口令或验证码不对时各自的错误码；通行密钥只认这次确认身份的挑战
+ *   （没取过或已过期 `Auth:PasskeyCeremonyExpired`），凭据不是本人登记的 `Auth:PasskeyVerificationFailed`；
+ * - 没有出示凭证：刚认证过即放行；否则口令、身份验证器与通行密钥都没有时 `Auth:SignInAgainRequired`，
  *   其余 `Auth:ReauthenticationRequired`。
  *
  * 管理员操作他人时传入的是操作者本人。
@@ -153,8 +269,13 @@ export interface MockReauthenticationProof {
 export function ensureMockReauthentication(user: MockUser, proof: MockReauthenticationProof): void {
   const password = proof.password || undefined;
   const twoFactorCode = proof.twoFactorCode?.replace(/\s/g, '') || undefined;
+  const passkey =
+    typeof proof.passkey === 'object' && proof.passkey !== null ? proof.passkey : undefined;
+  const presented = [password, twoFactorCode, passkey].filter(
+    (value) => value !== undefined,
+  ).length;
 
-  if (password !== undefined && twoFactorCode !== undefined) {
+  if (presented > 1) {
     throw new MockException(400, {
       errors: [
         {
@@ -163,6 +284,23 @@ export function ensureMockReauthentication(user: MockUser, proof: MockReauthenti
         },
       ],
     });
+  }
+
+  if (passkey !== undefined) {
+    if (!MOCK_PASSKEYS_AVAILABLE || (user.passkeys?.length ?? 0) === 0) {
+      throw new MockException(400, {
+        code: 'Auth:ReauthenticationMethodUnavailable',
+        message: 'This way of confirming your identity is not available for your account.',
+      });
+    }
+    const challenge = takeMockPasskeyCeremony(`reauthentication:${user.id}`);
+    if (!challenge) {
+      throw passkeyCeremonyExpired();
+    }
+    if (!verifyMockPasskeyAssertion(passkey, challenge, user)) {
+      throw passkeyVerificationFailed();
+    }
+    return;
   }
 
   if (password !== undefined || twoFactorCode !== undefined) {
@@ -193,7 +331,7 @@ export function ensureMockReauthentication(user: MockUser, proof: MockReauthenti
     return;
   }
 
-  throw !user.password && user.twoFactorEnabled !== true
+  throw !user.password && user.twoFactorEnabled !== true && (user.passkeys?.length ?? 0) === 0
     ? new MockException(400, {
         code: 'Auth:SignInAgainRequired',
         message: 'Sign in again to continue.',

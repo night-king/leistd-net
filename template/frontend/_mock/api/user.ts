@@ -167,7 +167,11 @@ export function updateUser(id: string, value: any) {
   const emailChanged = email.toLowerCase() !== String(user.email ?? '').toLowerCase();
   const markedVerified = value.isEmailVerified === true && !user.isEmailVerified;
   if (emailChanged || markedVerified) {
-    ensureOperatorReauthenticated({ password: value.password, twoFactorCode: value.twoFactorCode });
+    ensureOperatorReauthenticated({
+      password: value.password,
+      twoFactorCode: value.twoFactorCode,
+      passkey: value.passkey,
+    });
   }
 
   //#if (Email)
@@ -249,6 +253,7 @@ export function resetPassword(id: string, value: any) {
   ensureOperatorReauthenticated({
     password: value.currentPassword,
     twoFactorCode: value.twoFactorCode,
+    passkey: value.passkey,
   });
   user.password = value.password;
   rotateSecurityVersion(user);
@@ -292,8 +297,9 @@ export function resetTwoFactor(id: string, value: MockReauthenticationProof = {}
     });
   }
   ensureOperatorReauthenticated(value);
-  // 与后端一致：身份验证器、恢复码、邮箱验证码与首选一并清掉
+  // 与后端一致：身份验证器、通行密钥、恢复码、邮箱验证码与首选一并清掉
   user.twoFactorEnabled = false;
+  user.passkeys = [];
   user.recoveryCodes = [];
   user.emailTwoFactorEnabled = false;
   user.preferredTwoFactorMethod = undefined;

@@ -429,6 +429,7 @@
             "frontend/src/app/features/workspace/services/**",
             "frontend/src/app/features/platform/components/users/widgets/reset-user-password-dialog/**",
             "frontend/src/app/core/components/reauthenticate-dialog/**",
+            "frontend/src/app/core/webauthn/**",
             "frontend/src/app/core/routing/return-url-service.ts",
             "frontend/src/app/core/routing/return-url-service.spec.ts",
             "frontend/src/app/shared/components/otp-code-input/**",

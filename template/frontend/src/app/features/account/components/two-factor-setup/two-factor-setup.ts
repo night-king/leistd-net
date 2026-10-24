@@ -176,7 +176,7 @@ export class TwoFactorSetup implements OnInit {
     if (reauthProof?.twoFactorCode !== undefined) {
       return { code: reauthProof.twoFactorCode };
     }
-    return { ...this.proof(), password: reauthProof?.password };
+    return { ...this.proof(), password: reauthProof?.password, passkey: reauthProof?.passkey };
   }
 
   /** 本人关掉了确认身份的对话框：个人设置里视同取消；强制设置页没有退路，留下重新打开的入口。 */

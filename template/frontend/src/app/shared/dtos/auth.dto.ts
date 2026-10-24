@@ -9,8 +9,11 @@ export interface LoginInputDto {
   password: string;
 }
 
-/** 登录第二步的验证方式；恢复码只作备选，不会是默认方式。 */
-export type TwoFactorMethod = 'authenticator' | 'email' | 'recoveryCode';
+/**
+ * 登录第二步的验证方式。默认顺序 通行密钥 → 身份验证器 → 邮箱验证码；恢复码只作备选，
+ * 只有其余方式都用不了（部署没配通行密钥、本人又只有通行密钥）时才是默认方式。
+ */
+export type TwoFactorMethod = 'passkey' | 'authenticator' | 'email' | 'recoveryCode';
 
 /** 登录第一步（密码或外部登录）的结果。 */
 export interface SessionLoginOutputDto {
@@ -46,10 +49,12 @@ export interface UserOutputDto {
   isTwoFactorEnabled?: boolean;
   //#if (LocalIdentity)
   /**
-   * 是否设有本地口令；只经外部登录建立的账号没有。与 `isTwoFactorEnabled` 一起决定确认身份时能出示哪种凭证，
-   * 是否需要确认仍由服务端判定。
+   * 是否设有本地口令；只经外部登录建立的账号没有。与 `isTwoFactorEnabled`、`hasPasskeys` 一起决定确认身份时
+   * 能出示哪种凭证，是否需要确认仍由服务端判定。
    */
   hasPassword: boolean;
+  /** 是否登记了通行密钥（确认身份时能用它）。 */
+  hasPasskeys: boolean;
   //#endif
   /**
    * 受限会话：所在租户要求两步验证而本人尚未启用，必须先完成设置。服务端每个请求按当时的策略与本人状态判定，

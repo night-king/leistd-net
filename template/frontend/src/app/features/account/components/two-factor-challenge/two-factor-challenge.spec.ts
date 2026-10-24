@@ -8,6 +8,11 @@ import { ApplicationHttpError } from '../../../../core/errors/application-http-e
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import {
+  fakeAssertion,
+  REQUEST_OPTIONS,
+  webAuthnError,
+} from '../../../../core/webauthn/webauthn.testing';
 import { AccountService } from '../../services/account-service';
 
 import type { MockedObject } from 'vitest';
@@ -32,6 +37,7 @@ describe('TwoFactorChallenge', () => {
   let account: Pick<
     MockedObject<AccountService>,
     | 'completeTwoFactorLogin'
+    | 'beginTwoFactorPasskey'
     //#if (Email)
     | 'sendTwoFactorEmailCode'
     //#endif
@@ -57,6 +63,10 @@ describe('TwoFactorChallenge', () => {
   beforeEach(() => {
     account = {
       completeTwoFactorLogin: vi.fn().mockName('AccountService.completeTwoFactorLogin'),
+      beginTwoFactorPasskey: vi
+        .fn()
+        .mockName('AccountService.beginTwoFactorPasskey')
+        .mockReturnValue(of({ options: REQUEST_OPTIONS })),
       //#if (Email)
       sendTwoFactorEmailCode: vi
         .fn()
@@ -455,4 +465,121 @@ describe('TwoFactorChallenge', () => {
     });
   });
   //#endif
+
+  describe('passkey', () => {
+    /** 有通行密钥：默认它，备选是身份验证器与恢复码。 */
+    const PASSKEY_DEFAULT: TwoFactorPrompt = {
+      token: 'challenge-token',
+      methods: ['passkey', 'authenticator', 'recoveryCode'],
+      defaultMethod: 'passkey',
+      maskedEmail: null,
+    };
+
+    afterEach(() => vi.restoreAllMocks());
+
+    async function clickPasskey(): Promise<void> {
+      byTestId('two-factor-passkey-submit')!.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    it('shows a single button and starts the browser only after a click', async () => {
+      const get = vi.spyOn(navigator.credentials, 'get').mockResolvedValue(fakeAssertion('cred-1'));
+      account.completeTwoFactorLogin.mockReturnValue(of(undefined));
+      render(PASSKEY_DEFAULT);
+      await fixture.whenStable();
+
+      expect(byTestId('two-factor-passkey-submit')).not.toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('form')).toBeNull();
+      expect(get).not.toHaveBeenCalled();
+      expect(account.beginTwoFactorPasskey).not.toHaveBeenCalled();
+
+      await clickPasskey();
+
+      expect(account.beginTwoFactorPasskey).toHaveBeenCalledExactlyOnceWith('challenge-token');
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(account.completeTwoFactorLogin).toHaveBeenCalledExactlyOnceWith({
+        token: 'challenge-token',
+        passkey: expect.objectContaining({ id: 'cred-1', type: 'public-key' }),
+      });
+      expect(completed).toBe(1);
+    });
+
+    it('explains a rejected passkey in place and lets the user try again', async () => {
+      vi.spyOn(navigator.credentials, 'get').mockResolvedValue(fakeAssertion());
+      account.completeTwoFactorLogin.mockReturnValue(
+        throwError(() =>
+          rejection('Auth:PasskeyVerificationFailed', "The passkey couldn't be verified.", 400),
+        ),
+      );
+      render(PASSKEY_DEFAULT);
+
+      await clickPasskey();
+
+      expect(byTestId('two-factor-error')!.textContent).toContain(
+        "The passkey couldn't be verified.",
+      );
+      expect(cancelled).toBe(0);
+      expect((byTestId('two-factor-passkey-submit') as HTMLButtonElement).disabled).toBe(false);
+
+      account.completeTwoFactorLogin.mockReturnValue(of(undefined));
+      await clickPasskey();
+
+      // 每次点击都重新取一份断言选项
+      expect(account.beginTwoFactorPasskey).toHaveBeenCalledTimes(2);
+      expect(completed).toBe(1);
+    });
+
+    it('treats a cancelled browser prompt as a neutral note without the browser text', async () => {
+      vi.spyOn(navigator.credentials, 'get').mockRejectedValue(webAuthnError('NotAllowedError'));
+      render(PASSKEY_DEFAULT);
+
+      await clickPasskey();
+
+      expect(byTestId('two-factor-passkey-cancelled')).not.toBeNull();
+      expect(byTestId('two-factor-error')).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('browser text');
+      expect(account.completeTwoFactorLogin).not.toHaveBeenCalled();
+    });
+
+    it('returns to the password step when the sign-in attempt has expired', async () => {
+      account.beginTwoFactorPasskey.mockReturnValue(
+        throwError(() => rejection('Auth:TwoFactorChallengeExpired')),
+      );
+      vi.spyOn(toast, 'error').mockReturnValue('toast');
+      render(PASSKEY_DEFAULT);
+
+      await clickPasskey();
+
+      expect(cancelled).toBe(1);
+    });
+
+    it('lists the other methods and switches to the authenticator code', async () => {
+      render(PASSKEY_DEFAULT);
+
+      byTestId('two-factor-other-methods')!.click();
+      fixture.detectChanges();
+      byTestId('two-factor-method-authenticator')!.click();
+      fixture.detectChanges();
+
+      expect(byTestId('two-factor-passkey')).toBeNull();
+      expect(byTestId('two-factor-challenge')!.getAttribute('data-method')).toBe('authenticator');
+    });
+
+    it('offers the passkey as the only alternative with its own wording', () => {
+      render({
+        token: 'challenge-token',
+        methods: ['passkey', 'authenticator'],
+        defaultMethod: 'authenticator',
+        maskedEmail: null,
+      });
+
+      const toggle = byTestId('two-factor-toggle-mode')!;
+      expect(toggle.getAttribute('data-method')).toBe('passkey');
+      toggle.click();
+      fixture.detectChanges();
+
+      expect(byTestId('two-factor-passkey-submit')).not.toBeNull();
+    });
+  });
 });

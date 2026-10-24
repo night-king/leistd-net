@@ -26,11 +26,9 @@
     "loadFailed": "无法加载登录设备。"
   },
   "twoFactor": {
-//#if (Email)
     "default": "默认",
     "setDefault": "设为默认",
     "defaultToast": "已保存，登录时会先使用这种方式。",
-//#endif
     "header": "两步验证",
     "subtitleOff": "登录时除了密码，还要输入手机上身份验证器应用生成的验证码。",
     "subtitleOn": "登录时在密码之后，还要输入身份验证器应用上的验证码。",
@@ -88,6 +86,35 @@
     "submit": "验证",
     "useRecovery": "无法使用身份验证器？改用恢复码",
     "useCode": "改用身份验证器验证码",
+    "usePasskey": "改用通行密钥",
+    "useRecoveryForPasskey": "无法使用通行密钥？改用恢复码",
+    "passkeyHint": "使用通行密钥完成登录。",
+    "passkeySubmit": "使用通行密钥",
+    "passkeyCancelled": "已取消通行密钥验证，准备好后可以再试一次。",
+    "passkeyFailed": "无法使用这把通行密钥。请再试一次，或换一种验证方式。",
+    "passkeyUnsupported": "这个浏览器在此无法使用通行密钥，请换一种验证方式。",
+    "otherMethods": "换一种验证方式",
+    "otherMethodsLabel": "其他验证方式",
+    "methods": {
+      "passkey": {
+        "name": "通行密钥",
+        "hint": "使用指纹、面容或屏幕锁"
+      },
+      "authenticator": {
+        "name": "身份验证器应用",
+        "hint": "输入应用上的 6 位验证码"
+      },
+//#if (Email)
+      "email": {
+        "name": "邮箱验证码",
+        "hint": "发送验证码到 {{email}}"
+      },
+//#endif
+      "recoveryCode": {
+        "name": "恢复码",
+        "hint": "使用你保存的恢复码之一"
+      }
+    },
     "emailLabel": "邮箱验证码",
 //#if (Email)
     "emailHint": "验证码已发送到 {{email}}，请输入邮件里的 6 位数字。",
@@ -96,22 +123,6 @@
     "resend": "重新发送",
     "resendIn": "{{seconds}} 秒后可重新发送",
     "useEmail": "改用邮箱验证码",
-    "otherMethods": "换一种验证方式",
-    "otherMethodsLabel": "其他验证方式",
-    "methods": {
-      "authenticator": {
-        "name": "身份验证器应用",
-        "hint": "输入应用上的 6 位验证码"
-      },
-      "email": {
-        "name": "邮箱验证码",
-        "hint": "发送验证码到 {{email}}"
-      },
-      "recoveryCode": {
-        "name": "恢复码",
-        "hint": "使用你保存的恢复码之一"
-      }
-    },
 //#endif
     "back": "返回登录"
   },
@@ -140,10 +151,53 @@
     "reauthDescription": "更改登录方式前，请先确认是你本人。"
   },
 //#endif
+  "passkeys": {
+    "header": "通行密钥",
+    "subtitle": "用指纹、面容或屏幕锁代替密码登录。通行密钥不会被钓鱼网站骗走。",
+    "on": "已开启",
+    "add": "添加通行密钥",
+    "continueHint": "已确认是你本人。在这台设备上创建通行密钥即可完成添加。",
+    "continue": "创建通行密钥",
+    "unavailable": {
+      "notConfigured": "本站暂未开放通行密钥，请联系管理员。",
+      "unsupported": "这个浏览器不支持通行密钥。",
+      "insecureContext": "通行密钥需要通过安全连接（HTTPS）访问本站。"
+    },
+    "onlyPasskeysHint": "再添加一把通行密钥或身份验证器应用，这台设备丢了也还能登录。",
+    "empty": "还没有通行密钥。",
+    "addedAt": "添加于 {{time}}",
+    "lastUsed": "最近使用 {{time}}",
+    "neverUsed": "从未使用",
+    "synced": "已同步",
+    "notSynced": "尚未同步",
+    "deviceBound": "仅限本设备",
+    "rename": "重命名",
+    "remove": "删除",
+    "nameLabel": "通行密钥名称",
+    "removeConfirm": "删除通行密钥“{{name}}”？之后不能再用它登录，其他设备也会退出登录。",
+    "removalBlocked": "你所在的组织要求两步验证。请先再添加一把通行密钥或身份验证器，再删除这一把。",
+    "recoveryCodesLow": "只剩 {{count}} 个恢复码。用完之后，通行密钥都丢了就无法登录。",
+    "addedToast": "已添加通行密钥，其他设备已退出登录。",
+    "removedToast": "已删除通行密钥，其他设备已退出登录。",
+    "renamedToast": "已重命名通行密钥。",
+    "cancelled": "已取消通行密钥操作。",
+    "alreadyRegistered": "这台设备上已有你账号的通行密钥。",
+    "failed": "通行密钥操作没有完成，请再试一次。",
+    "currentDevice": "当前设备",
+    "loadFailed": "无法加载你的通行密钥。",
+    "reauthDescription": "修改通行密钥之前，请先确认是你本人。",
+    "actions": "{{name}} 的操作"
+  },
   "twoFactorRequired": {
     "title": "启用两步验证",
     "description": "你所在的组织要求启用两步验证，完成设置后才能继续使用。",
-    "signOut": "退出登录"
+    "signOut": "退出登录",
+    "passkeyHint": "使用指纹、面容或屏幕锁，一步即可完成，下次还能免密码登录。",
+    "createPasskey": "创建通行密钥",
+    "continueHint": "已确认是你本人。在这台设备上创建通行密钥即可完成。",
+    "useAuthenticator": "改用身份验证器应用",
+    "usePasskey": "改为创建通行密钥",
+    "reauthDescription": "给账号添加通行密钥之前，请先确认是你本人。"
   },
   "logoutConfirm": {
     "title": "退出登录？",
@@ -260,6 +314,9 @@
     "noAccount": "还没有账号？",
     "registerNow": "立即注册",
     "submit": "登录",
+    "passkey": "用通行密钥登录",
+    "passkeyCancelled": "已取消通行密钥验证，准备好后可以再试一次。",
+    "passkeyFailed": "无法使用这把通行密钥。请再试一次，或用密码登录。",
     "or": "或使用以下方式登录",
     "testAccount": "开发环境测试账号",
     "loginSuccess": "登录成功",

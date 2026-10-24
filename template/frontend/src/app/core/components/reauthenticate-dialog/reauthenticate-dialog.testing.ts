@@ -29,7 +29,7 @@ export function reauthenticateCancelButton(): HTMLButtonElement | null {
   );
 }
 
-/** 对话框当前收哪种凭证：`password`、`code` 或 `signInAgain`；没打开时为 null。 */
+/** 对话框当前收哪种凭证：`passkey`、`password`、`code` 或 `signInAgain`；没打开时为 null。 */
 export function reauthenticateMethod(): string | null {
   return reauthenticateForm()?.getAttribute('data-method') ?? null;
 }
@@ -72,20 +72,30 @@ export async function confirmWithPassword(
 }
 
 /**
- * 在对话框里输入身份验证器上的验证码；输满 6 位即自动提交。处于口令方式且可以切换时先切到验证码。
+ * 在对话框里输入身份验证器上的验证码；输满 6 位即自动提交。处于其他方式时先切到验证码。
  */
 export async function confirmWithCode(
   fixture: ComponentFixture<unknown>,
   code: string,
 ): Promise<void> {
-  if (reauthenticateMethod() === 'password') {
+  if (reauthenticateMethod() !== 'code') {
     reauthenticateForm()!
-      .querySelector<HTMLButtonElement>('[data-testid="reauthenticate-switch"]')!
+      .querySelector<HTMLButtonElement>(
+        '[data-testid="reauthenticate-switch"][data-method="code"]',
+      )!
       .click();
     await fixture.whenStable();
   }
   const input = document.getElementById('reauthenticate-code') as HTMLInputElement;
   input.value = code;
   input.dispatchEvent(new Event('input'));
+  await fixture.whenStable();
+}
+
+/** 在对话框里点"使用通行密钥"（对话框须处于通行密钥方式）；调起浏览器由调用方的确认身份状态负责。 */
+export async function confirmWithPasskey(fixture: ComponentFixture<unknown>): Promise<void> {
+  reauthenticateForm()!
+    .querySelector<HTMLButtonElement>('[data-testid="reauthenticate-submit"]')!
+    .click();
   await fixture.whenStable();
 }

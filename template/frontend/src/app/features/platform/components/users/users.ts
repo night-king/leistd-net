@@ -456,6 +456,7 @@ export class Users {
           ...(data as UpdateUserInputDto),
           password: proof?.password,
           twoFactorCode: proof?.twoFactorCode,
+          passkey: proof?.passkey,
         })
       : this.service.createUser(data as CreateUserInputDto);
 
@@ -692,7 +693,11 @@ export class Users {
 
   private resetTwoFactor(user: UserManagementOutputDto, proof?: ReauthenticationProof) {
     this.service
-      .resetTwoFactor(user.id, { password: proof?.password, twoFactorCode: proof?.twoFactorCode })
+      .resetTwoFactor(user.id, {
+        password: proof?.password,
+        twoFactorCode: proof?.twoFactorCode,
+        passkey: proof?.passkey,
+      })
       .pipe(
         finalize(() => {
           if (!this.reauth.visible()) this.resettingTwoFactorId.set(null);
@@ -734,6 +739,7 @@ export class Users {
         ...data,
         currentPassword: proof?.password,
         twoFactorCode: proof?.twoFactorCode,
+        passkey: proof?.passkey,
       })
       .pipe(
         finalize(() => this.resetPasswordSaving.set(false)),

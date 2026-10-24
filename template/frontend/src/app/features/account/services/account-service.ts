@@ -6,6 +6,8 @@ import { Observable, map } from 'rxjs';
 import { TenantContextService } from '../../../core/services/tenant-context-service';
 //#endif
 import {
+  PasskeyOptionsOutputDto,
+  PasskeyOutputDto,
   TwoFactorStatusOutputDto,
   UserSessionOutputDto,
 } from '../../../shared/dtos/account-security.dto';
@@ -14,9 +16,7 @@ import {
   //#if (ExternalLogin)
   SessionLoginOutputDto,
   //#endif
-  //#if (Email)
   TwoFactorMethod,
-  //#endif
   UserOutputDto,
 } from '../../../shared/dtos/auth.dto';
 import {
@@ -31,25 +31,31 @@ import {
   RegisterInputDto,
   SetAvatarInputDto,
   UpdateCurrentUserInputDto,
-//#if (Email)
+  //#if (Email)
   EmailVerificationInputDto,
-//#endif
+  //#endif
   CaptchaOutputDto,
-//#if (Email)
+  //#if (Email)
   SendEmailCodeInputDto,
-//#endif
-//#if (Email)
+  //#endif
+  //#if (Email)
   EmailVerificationChallengeOutputDto,
-//#endif
-//#if (Email)
+  //#endif
+  //#if (Email)
   ResetPasswordInputDto,
-//#endif
+  //#endif
+  BeginPasskeyRegistrationInputDto,
+  RemovePasskeyInputDto,
   BeginTwoFactorSetupInputDto,
+  CompletePasskeyRegistrationInputDto,
   DisableTwoFactorInputDto,
   //#if (Email)
   EmailTwoFactorChangeInputDto,
   TwoFactorEmailCodeOutputDto,
   //#endif
+  PasskeyRegistrationOutputDto,
+  PasskeySignInInputDto,
+  RegenerateRecoveryCodesInputDto,
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
   TwoFactorSetupOutputDto,
@@ -127,7 +133,7 @@ export class AccountService {
   setAvatar(data: SetAvatarInputDto): Observable<UserOutputDto> {
     return this.http.put<UserOutputDto>('/api/v1/auth/me/avatar', data);
   }
-//#if (Email)
+  //#if (Email)
 
   sendCurrentEmailCode(): Observable<EmailVerificationChallengeOutputDto> {
     return this.http.post<EmailVerificationChallengeOutputDto>(
@@ -135,14 +141,14 @@ export class AccountService {
       {},
     );
   }
-//#endif
-//#if (Email)
+  //#endif
+  //#if (Email)
 
   /** 用验证码确认自己当前的邮箱，返回确认后的资料；写回当前用户由调用方负责。 */
   confirmCurrentEmail(data: EmailVerificationInputDto): Observable<UserOutputDto> {
     return this.http.post<UserOutputDto>('/api/v1/auth/me/email-verification/confirm', data);
   }
-//#endif
+  //#endif
 
   changePassword(data: ChangePasswordInputDto): Observable<void> {
     return this.http.post('/api/v1/auth/change-password', data).pipe(map(() => undefined));
@@ -158,6 +164,23 @@ export class AccountService {
   /** 登录第二步：提交其中一种方式的码，通过后下发会话。 */
   completeTwoFactorLogin(data: TwoFactorLoginInputDto): Observable<void> {
     return this.http.post('/api/v1/auth/two-factor', data).pipe(map(() => undefined));
+  }
+
+  /** 登录第二步：取用通行密钥验证的断言选项；每取一次换一份，之前给的随之不再被认。 */
+  beginTwoFactorPasskey(token: string): Observable<PasskeyOptionsOutputDto> {
+    return this.http.post<PasskeyOptionsOutputDto>('/api/v1/auth/two-factor/passkey-options', {
+      token,
+    });
+  }
+
+  /** 免口令登录：取断言选项与仪式凭据；部署没配通行密钥时以 `Auth:PasskeyUnavailable` 拒绝。 */
+  beginPasskeySignIn(): Observable<PasskeyOptionsOutputDto> {
+    return this.http.post<PasskeyOptionsOutputDto>('/api/v1/auth/passkey-login/options', {});
+  }
+
+  /** 免口令登录：交回断言，通过即下发会话（不再要求第二步）。 */
+  completePasskeySignIn(data: PasskeySignInInputDto): Observable<void> {
+    return this.http.post('/api/v1/auth/passkey-login', data).pipe(map(() => undefined));
   }
 
   //#if (Email)
@@ -192,11 +215,54 @@ export class AccountService {
     return this.http.post('/api/v1/auth/me/two-factor/disable', data).pipe(map(() => undefined));
   }
 
-  regenerateRecoveryCodes(code: string): Observable<TwoFactorRecoveryCodesOutputDto> {
+  /** 重新生成恢复码：出示身份验证器上的验证码或通行密钥断言（恰好一种），旧的一组随即作废。 */
+  regenerateRecoveryCodes(
+    data: RegenerateRecoveryCodesInputDto,
+  ): Observable<TwoFactorRecoveryCodesOutputDto> {
     return this.http.post<TwoFactorRecoveryCodesOutputDto>(
       '/api/v1/auth/me/two-factor/recovery-codes',
-      { code },
+      data,
     );
+  }
+
+  /** 开始添加通行密钥：确认是本人后返回交给浏览器的创建选项（会话不够新时服务端要求确认身份）。 */
+  beginPasskeyRegistration(
+    input: BeginPasskeyRegistrationInputDto = {},
+  ): Observable<PasskeyOptionsOutputDto> {
+    return this.http.post<PasskeyOptionsOutputDto>(
+      '/api/v1/auth/me/two-factor/passkeys/options',
+      input,
+    );
+  }
+
+  /** 完成添加；它是第一个独立因子时一并返回一次性展示的恢复码。 */
+  completePasskeyRegistration(
+    data: CompletePasskeyRegistrationInputDto,
+  ): Observable<PasskeyRegistrationOutputDto> {
+    return this.http.post<PasskeyRegistrationOutputDto>(
+      '/api/v1/auth/me/two-factor/passkeys',
+      data,
+    );
+  }
+
+  renamePasskey(id: string, name: string): Observable<PasskeyOutputDto> {
+    return this.http.put<PasskeyOutputDto>(`/api/v1/auth/me/two-factor/passkeys/${id}/name`, {
+      name,
+    });
+  }
+
+  /** 删除通行密钥；会话不够新时服务端要求确认身份，凭证随请求体出示。 */
+  removePasskey(id: string, input: RemovePasskeyInputDto = {}): Observable<void> {
+    return this.http
+      .post(`/api/v1/auth/me/two-factor/passkeys/${id}/remove`, input)
+      .pipe(map(() => undefined));
+  }
+
+  /** 指定登录第二步的首选方式。 */
+  setPreferredTwoFactorMethod(method: TwoFactorMethod): Observable<void> {
+    return this.http
+      .put('/api/v1/auth/me/two-factor/preferred-method', { method })
+      .pipe(map(() => undefined));
   }
 
   //#if (Email)
@@ -221,13 +287,6 @@ export class AccountService {
   disableEmailTwoFactor(input: EmailTwoFactorChangeInputDto = {}): Observable<void> {
     return this.http
       .post('/api/v1/auth/me/two-factor/email/disable', input)
-      .pipe(map(() => undefined));
-  }
-
-  /** 指定登录第二步的首选方式。 */
-  setPreferredTwoFactorMethod(method: TwoFactorMethod): Observable<void> {
-    return this.http
-      .put('/api/v1/auth/me/two-factor/preferred-method', { method })
       .pipe(map(() => undefined));
   }
 
@@ -279,13 +338,13 @@ export class AccountService {
   }
 
   getExternalLoginUrl(provider: 'github' | 'google', returnUrl?: string | null): string {
-//#if (IncludeMultiTenancy)
+    //#if (IncludeMultiTenancy)
     const tenant = this.tenantContext.current()?.key;
-//#endif
+    //#endif
     const query = new URLSearchParams();
-//#if (IncludeMultiTenancy)
+    //#if (IncludeMultiTenancy)
     if (tenant) query.set('tenant', tenant);
-//#endif
+    //#endif
     if (returnUrl) query.set('returnUrl', returnUrl);
     return `/api/v1/external-auth/${provider}/challenge${query.size ? `?${query}` : ''}`;
   }

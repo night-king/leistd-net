@@ -33,6 +33,7 @@ import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 import { AccountService } from '../../services/account-service';
 import { resendCountdown } from '../../utils/resend-countdown';
+import { canChooseDefault } from '../../utils/two-factor-methods';
 
 const CODE_INPUT_ID = 'two-factor-email-code';
 
@@ -87,11 +88,8 @@ export class TwoFactorEmailSettings {
   protected readonly code = signal('');
   protected readonly codeInputId = CODE_INPUT_ID;
   protected readonly codeValid = computed(() => /^\d{6}$/.test(this.code().trim()));
-  /** 身份验证器与邮箱验证码都能用：才有"默认"可言。 */
-  protected readonly bothMethodsUsable = computed(() => {
-    const status = this.status();
-    return !!status?.enabled && !!status.emailEnabled && !status.emailUnavailableReason;
-  });
+  /** 邮箱验证码能用、还有别的方式可选（通行密钥、身份验证器）：才有"默认"可言。 */
+  protected readonly defaultChoice = computed(() => canChooseDefault(this.status(), 'email'));
 
   constructor() {
     this.reload();
@@ -110,7 +108,11 @@ export class TwoFactorEmailSettings {
   protected begin(proof?: ReauthenticationProof): void {
     this.busy.set(true);
     this.accountService
-      .beginEmailTwoFactorSetup({ password: proof?.password, twoFactorCode: proof?.twoFactorCode })
+      .beginEmailTwoFactorSetup({
+        password: proof?.password,
+        twoFactorCode: proof?.twoFactorCode,
+        passkey: proof?.passkey,
+      })
       .pipe(finalize(() => this.busy.set(false)))
       .subscribe({
         next: (challenge) => {
@@ -206,7 +208,11 @@ export class TwoFactorEmailSettings {
   private disable(proof?: ReauthenticationProof): void {
     this.busy.set(true);
     this.accountService
-      .disableEmailTwoFactor({ password: proof?.password, twoFactorCode: proof?.twoFactorCode })
+      .disableEmailTwoFactor({
+        password: proof?.password,
+        twoFactorCode: proof?.twoFactorCode,
+        passkey: proof?.passkey,
+      })
       .pipe(
         finalize(() => {
           if (!this.reauth.visible()) this.busy.set(false);

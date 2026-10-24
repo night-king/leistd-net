@@ -159,7 +159,11 @@ export class ExternalLogins {
   private unlinkConfirmed(provider: string, id: string, proof?: ReauthenticationProof): void {
     this.busy.set(provider);
     this.accountService
-      .unlinkExternalLogin(id, { password: proof?.password, twoFactorCode: proof?.twoFactorCode })
+      .unlinkExternalLogin(id, {
+        password: proof?.password,
+        twoFactorCode: proof?.twoFactorCode,
+        passkey: proof?.passkey,
+      })
       .pipe(
         finalize(() => {
           if (!this.reauth.visible()) this.busy.set(null);

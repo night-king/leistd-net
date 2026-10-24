@@ -4,8 +4,12 @@ import { ImpersonationStatus } from '../../src/app/core/services/impersonation-s
 //#if (IncludeMultiTenancy)
 import { TENANT_HEADER } from '../../src/app/core/tenancy/tenant-protocol';
 //#endif
+import { fromBase64Url, toBase64Url } from '../../src/app/core/webauthn/webauthn';
 import {
+  BeginPasskeyRegistrationInputDto,
+  RemovePasskeyInputDto,
   ChangePasswordInputDto,
+  CompletePasskeyRegistrationInputDto,
   DisableTwoFactorInputDto,
   BeginTwoFactorSetupInputDto,
   //#if (ExternalLogin)
@@ -33,6 +37,9 @@ import {
   EmailTwoFactorChangeInputDto,
   TwoFactorEmailCodeOutputDto,
   //#endif
+  PasskeyRegistrationOutputDto,
+  PasskeySignInInputDto,
+  RenamePasskeyInputDto,
   TwoFactorLoginInputDto,
   TwoFactorRecoveryCodesOutputDto,
   TwoFactorSetupOutputDto,
@@ -42,6 +49,8 @@ import {
 } from '../../src/app/features/account/dtos/account.dto';
 // prettier-ignore
 import {
+  PasskeyOptionsOutputDto,
+  PasskeyOutputDto,
   SecurityConfigOutputDto,
   //#if (Email)
   TwoFactorEmailUnavailableReason,
@@ -66,15 +75,19 @@ import { TENANTS } from '../data/tenant';
 //#endif
 // prettier-ignore
 import {
+  MOCK_PASSKEYS_AVAILABLE,
   MOCK_TWO_FACTOR_CODE,
+  MockPasskey,
   MockUser,
   USERS,
+  hasIndependentFactor,
   isEmailTaken,
   isUsernameTaken,
   rotateSecurityVersion,
   toUserOutput,
 } from '../data/user';
 import {
+  beginMockPasskeyCeremony,
   ensureMockReauthentication,
   getCurrentUser as getSessionMockUser,
   //#if (Impersonation)
@@ -84,8 +97,14 @@ import {
   //#if (Impersonation)
   setMockImpersonator,
   //#endif
+  mockPasskeyRequestOptions,
+  passkeyCeremonyExpired,
+  passkeyVerificationFailed,
+  readMockWebAuthnCredential,
   setMockSessionTenantKey,
   setMockSessionUserId,
+  takeMockPasskeyCeremony,
+  verifyMockPasskeyAssertion,
 } from '../utils/current-user';
 
 const CAPTCHA_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -213,7 +232,7 @@ function getCurrentUser(_req: MockRequest): UserOutputDto {
   //#endif
   return {
     ...toUserOutput(user),
-    twoFactorSetupRequired: requiredByPolicy && restrictable && user.twoFactorEnabled !== true,
+    twoFactorSetupRequired: requiredByPolicy && restrictable && !hasIndependentFactor(user),
   };
 }
 
@@ -241,6 +260,7 @@ function updateCurrentUser(req: MockRequest): UserOutputDto {
     ensureMockReauthentication(user, {
       password: body.currentPassword,
       twoFactorCode: body.twoFactorCode,
+      passkey: body.passkey,
     });
     user.isEmailVerified = false;
     //#if (Email)
@@ -383,7 +403,7 @@ function setPassword(req: MockRequest): 'ok' {
     });
   }
   ensureAcceptablePassword(body.newPassword, 'New password');
-  ensureMockReauthentication(user, { twoFactorCode: body.twoFactorCode });
+  ensureMockReauthentication(user, { twoFactorCode: body.twoFactorCode, passkey: body.passkey });
 
   user.password = body.newPassword;
   rotateSecurityVersion(user);
@@ -439,6 +459,8 @@ interface TwoFactorChallenge {
   remainingAttempts: number;
   /** 第一步经邮箱通道得来（口令经邮件找回）：第二步只认独立因子。 */
   firstFactorViaEmail: boolean;
+  /** 最近一次取通行密钥断言选项时的挑战；只认它，再取一次即替换。 */
+  passkeyChallenge?: string;
   //#if (Email)
   /** 最近一次发出的邮箱验证码挑战；只认它。 */
   emailChallengeId?: string;
@@ -453,7 +475,8 @@ const signInEmailChallenges = new Map<string, string>();
 
 /**
  * 本人此刻能用的第二步方式与默认方式，与后端 `TwoFactorMethodResolver.ResolveForSignInAsync` 同一规则：
- * 第一步经邮箱通道得来，或组织要求两步验证而本人有身份验证器时，不给邮箱验证码（它不是独立因子）。
+ * 系统顺序 通行密钥 → 身份验证器 → 邮箱验证码；第一步经邮箱通道得来，或组织要求两步验证而本人有独立因子时，
+ * 不给邮箱验证码（它不是独立因子）。恢复码只作备选，其余方式都用不了时才作默认。
  */
 function twoFactorOptions(
   user: MockUser,
@@ -467,13 +490,16 @@ function twoFactorOptions(
   refused: boolean;
 } {
   const methods: TwoFactorMethod[] = [];
+  if (MOCK_PASSKEYS_AVAILABLE && (user.passkeys?.length ?? 0) > 0) {
+    methods.push('passkey');
+  }
   if (user.twoFactorEnabled) {
     methods.push('authenticator');
   }
   //#if (Email)
   const independentOnly =
     firstFactorViaEmail ||
-    (user.twoFactorEnabled === true &&
+    (hasIndependentFactor(user) &&
       TENANT_SETTING_VALUES.get(`${tenantKey}:Security.RequireTwoFactor`) === 'true');
   const emailUsable =
     user.emailTwoFactorEnabled === true &&
@@ -485,20 +511,22 @@ function twoFactorOptions(
   const maskedEmail = emailUsable ? maskEmail(user.email) : null;
   const refused =
     independentOnly &&
-    user.twoFactorEnabled !== true &&
+    !hasIndependentFactor(user) &&
     user.emailTwoFactorEnabled === true &&
     !emailTwoFactorUnavailableReason(user, tenantKey);
   //#else
-  // 不含邮件能力时只有身份验证器，与租户的设置无关
+  // 不含邮件能力时只有独立因子，与租户的设置无关
   void tenantKey;
   void firstFactorViaEmail;
   const maskedEmail = null;
   const refused = false;
   //#endif
   const preferred = user.preferredTwoFactorMethod;
-  const defaultMethod = preferred && methods.includes(preferred) ? preferred : (methods[0] ?? null);
-  if (user.twoFactorEnabled && (user.recoveryCodes?.length ?? 0) > 0) {
+  let defaultMethod: TwoFactorMethod | null =
+    preferred && methods.includes(preferred) ? preferred : (methods[0] ?? null);
+  if (hasIndependentFactor(user) && (user.recoveryCodes?.length ?? 0) > 0) {
     methods.push('recoveryCode');
+    defaultMethod ??= 'recoveryCode';
   }
   return { methods, defaultMethod, maskedEmail, refused };
 }
@@ -525,6 +553,7 @@ function maskEmail(email: string): string {
   const keep = Math.min(3, Math.floor(local.length / 2));
   return `${local.slice(0, keep)}***${email.slice(at)}`;
 }
+//#endif
 
 function twoFactorMethodUnavailable(): MockException {
   return new MockException(400, {
@@ -532,7 +561,6 @@ function twoFactorMethodUnavailable(): MockException {
     message: "This verification method isn't available for your account.",
   });
 }
-//#endif
 
 function beginTwoFactorChallenge(
   user: MockUser,
@@ -613,6 +641,25 @@ function sendTwoFactorEmailCode(req: MockRequest): TwoFactorEmailCodeOutputDto {
 }
 //#endif
 
+/** 第二步：取用通行密钥验证的断言选项；每取一次换一个挑战，之前的随之不再被认。 */
+function beginTwoFactorPasskey(req: MockRequest): PasskeyOptionsOutputDto {
+  const token = (req.body as { token?: string } | undefined)?.token ?? '';
+  const challenge = twoFactorChallengeStore.get(token);
+  const user = challenge ? USERS.find((u) => u.id === challenge.userId) : undefined;
+  if (!challenge || !user || challenge.tenantKey !== getRequestScope(req)) {
+    throw twoFactorChallengeExpired();
+  }
+  if (
+    !twoFactorOptions(user, challenge.tenantKey, challenge.firstFactorViaEmail).methods.includes(
+      'passkey',
+    )
+  ) {
+    throw twoFactorMethodUnavailable();
+  }
+  challenge.passkeyChallenge = beginMockPasskeyCeremony(`two-factor:${token}`);
+  return { options: mockPasskeyRequestOptions(challenge.passkeyChallenge, user.passkeys ?? []) };
+}
+
 function twoFactorChallengeExpired(): MockException {
   return new MockException(401, {
     code: 'Auth:TwoFactorChallengeExpired',
@@ -630,10 +677,14 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
   if (!body.token?.trim()) {
     errors.push({ field: 'token', detail: 'Two-factor token is required.' });
   }
+  const passkey = typeof body.passkey === 'object' && body.passkey !== null ? body.passkey : null;
   //#if (Email)
-  const presented = [body.code, body.emailCode, body.recoveryCode].filter((v) => v?.trim()).length;
+  const presented =
+    [body.code, body.emailCode, body.recoveryCode].filter((v) => v?.trim()).length +
+    (passkey ? 1 : 0);
   //#else
-  const presented = [body.code, body.recoveryCode].filter((v) => v?.trim()).length;
+  const presented =
+    [body.code, body.recoveryCode].filter((v) => v?.trim()).length + (passkey ? 1 : 0);
   //#endif
   if (presented === 0) {
     errors.push({ field: 'code', detail: 'Enter the verification code or a recovery code.' });
@@ -654,7 +705,9 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
   // 入参已保证恰好一种；恢复码用一次即作废
   const recoveryCode = body.recoveryCode?.trim();
   let verified: boolean;
-  if (recoveryCode) {
+  if (passkey) {
+    verified = verifyTwoFactorPasskey(user, challenge, passkey);
+  } else if (recoveryCode) {
     verified = (user.recoveryCodes ?? []).includes(recoveryCode);
   } else {
     //#if (Email)
@@ -671,6 +724,9 @@ function completeTwoFactorLogin(req: MockRequest): 'ok' {
     if (challenge.remainingAttempts <= 0) {
       twoFactorChallengeStore.delete(body.token);
       throw twoFactorChallengeExpired();
+    }
+    if (passkey) {
+      throw passkeyVerificationFailed();
     }
     throw new MockException(400, {
       code: 'Auth:TwoFactorCodeInvalid',
@@ -732,19 +788,56 @@ function verifyTwoFactorEmailCode(
 }
 
 //#endif
+// 方式此刻不能用、还没取过选项不算猜错；凭据不是这个人登记的（或挑战对不上）按验证失败计数
+function verifyTwoFactorPasskey(
+  user: MockUser,
+  challenge: TwoFactorChallenge,
+  passkey: unknown,
+): boolean {
+  if (
+    !twoFactorOptions(user, challenge.tenantKey, challenge.firstFactorViaEmail).methods.includes(
+      'passkey',
+    )
+  ) {
+    throw twoFactorMethodUnavailable();
+  }
+  if (!challenge.passkeyChallenge) {
+    throw passkeyCeremonyExpired();
+  }
+  return verifyMockPasskeyAssertion(passkey, challenge.passkeyChallenge, user) !== null;
+}
+
 // 与后端一致：没启用身份验证器的人（只开了邮箱验证码）交来的验证码一律不认
 function verifyAuthenticatorCode(user: MockUser, code: string | undefined): boolean {
   return user.twoFactorEnabled === true && code?.replace(/\s/g, '') === MOCK_TWO_FACTOR_CODE;
 }
 
-function issueRecoveryCodes(user: MockUser): TwoFactorRecoveryCodesOutputDto {
+/** 发一组新的恢复码（账号级），旧的随即作废。 */
+function issueRecoveryCodes(user: MockUser): string[] {
   const codes = Array.from(
     { length: 10 },
     (_, i) => `mock-${String(i).padStart(4, '0')}-code-demo`,
   );
-  user.twoFactorEnabled = true;
   user.recoveryCodes = [...codes];
-  return { recoveryCodes: codes };
+  return codes;
+}
+
+/** 最后一个独立因子去掉了：恢复码随之作废（与后端 `User.ReleaseRecoveryCodesWithoutIndependentFactor` 一致）。 */
+function releaseRecoveryCodesWithoutIndependentFactor(user: MockUser): void {
+  if (!hasIndependentFactor(user)) {
+    user.recoveryCodes = [];
+  }
+}
+
+function isTwoFactorRequiredByPolicy(tenantKey: string): boolean {
+  return TENANT_SETTING_VALUES.get(`${tenantKey}:Security.RequireTwoFactor`) === 'true';
+}
+
+function twoFactorRequiredByPolicy(): MockException {
+  return new MockException(403, {
+    code: 'Auth:TwoFactorRequiredByPolicy',
+    message: 'Two-factor authentication is required here and cannot be turned off.',
+  });
 }
 
 function ensureMockTwoFactorCode(code: string | undefined): void {
@@ -761,8 +854,10 @@ function getTwoFactorStatus(): TwoFactorStatusOutputDto {
   const tenantKey = getMockSessionTenantKey();
   return {
     enabled: user.twoFactorEnabled === true,
-    recoveryCodesLeft: user.recoveryCodes?.length ?? 0,
-    requiredByPolicy: false,
+    passkeys: (user.passkeys ?? []).map(toPasskeyOutput),
+    passkeysAvailable: MOCK_PASSKEYS_AVAILABLE,
+    recoveryCodesLeft: hasIndependentFactor(user) ? (user.recoveryCodes?.length ?? 0) : 0,
+    requiredByPolicy: isTwoFactorRequiredByPolicy(tenantKey),
     preferredMethod: user.preferredTwoFactorMethod ?? null,
     defaultMethod: twoFactorOptions(user, tenantKey).defaultMethod,
     //#if (Email)
@@ -779,7 +874,11 @@ function beginEmailTwoFactorSetup(req: MockRequest): EmailVerificationChallengeO
   const user = requireCurrentMockUser();
   const body = (req.body ?? {}) as EmailTwoFactorChangeInputDto;
   ensureEmailTwoFactorCanBeEnabled(user);
-  ensureMockReauthentication(user, { password: body.password, twoFactorCode: body.twoFactorCode });
+  ensureMockReauthentication(user, {
+    password: body.password,
+    twoFactorCode: body.twoFactorCode,
+    passkey: body.passkey,
+  });
 
   const challengeId = crypto.randomUUID();
   emailChallengeStore.set(challengeId, {
@@ -832,7 +931,11 @@ function disableEmailTwoFactor(req: MockRequest): 'ok' {
     return 'ok';
   }
   const body = (req.body ?? {}) as EmailTwoFactorChangeInputDto;
-  ensureMockReauthentication(user, { password: body.password, twoFactorCode: body.twoFactorCode });
+  ensureMockReauthentication(user, {
+    password: body.password,
+    twoFactorCode: body.twoFactorCode,
+    passkey: body.passkey,
+  });
   user.emailTwoFactorEnabled = false;
   if (user.preferredTwoFactorMethod === 'email') {
     user.preferredTwoFactorMethod = undefined;
@@ -851,21 +954,22 @@ function ensureEmailTwoFactorCanBeEnabled(user: MockUser): void {
     throw twoFactorMethodUnavailable();
   }
 }
+//#endif
 
-/** 指定首选方式：只能是本人已设置的身份验证器或邮箱验证码。 */
+/** 指定首选方式：只能是本人已设置的通行密钥、身份验证器或邮箱验证码；恢复码只作备选。 */
 function setPreferredTwoFactorMethod(req: MockRequest): 'ok' {
   const user = requireCurrentMockUser();
   const method = (req.body as { method?: TwoFactorMethod } | undefined)?.method;
   const configured =
-    (method === 'authenticator' && user.twoFactorEnabled) ||
-    (method === 'email' && user.emailTwoFactorEnabled);
+    (method === 'passkey' && (user.passkeys?.length ?? 0) > 0) ||
+    (method === 'authenticator' && user.twoFactorEnabled === true) ||
+    (method === 'email' && user.emailTwoFactorEnabled === true);
   if (!configured) {
     throw twoFactorMethodUnavailable();
   }
-  user.preferredTwoFactorMethod = method;
+  user.preferredTwoFactorMethod = method as 'passkey' | 'authenticator' | 'email';
   return 'ok';
 }
-//#endif
 
 /** 最近一次开始的设置：只认它，别处重新开始过就作废（同后端）。 */
 let mockPendingSetupId: string | null = null;
@@ -882,7 +986,7 @@ function beginTwoFactorSetup(req: MockRequest): TwoFactorSetupOutputDto {
     if (body.code) {
       ensureMockReauthentication(user, { password: body.password, twoFactorCode: body.code });
     } else if (recoveryCode) {
-      ensureMockReauthentication(user, { password: body.password });
+      ensureMockReauthentication(user, { password: body.password, passkey: body.passkey });
       const index = (user.recoveryCodes ?? []).indexOf(recoveryCode);
       if (index < 0) {
         ensureMockTwoFactorCode(undefined);
@@ -895,7 +999,7 @@ function beginTwoFactorSetup(req: MockRequest): TwoFactorSetupOutputDto {
       });
     }
   } else {
-    ensureMockReauthentication(user, { password: body.password });
+    ensureMockReauthentication(user, { password: body.password, passkey: body.passkey });
   }
 
   const secret = 'JBSWY3DPEHPK3PXP';
@@ -919,13 +1023,25 @@ function enableTwoFactor(req: MockRequest): TwoFactorRecoveryCodesOutputDto {
   mockPendingSetupId = null;
   mockSessions = mockSessions.filter((s) => s.isCurrent);
   user.passwordSetByEmailRecovery = false;
-  return issueRecoveryCodes(user);
+  // 换绑一并换掉恢复码；首次启用时它是第一个独立因子才发，已有通行密钥时恢复码不变
+  const replacing = user.twoFactorEnabled === true;
+  const firstFactor = !hasIndependentFactor(user);
+  user.twoFactorEnabled = true;
+  return { recoveryCodes: replacing || firstFactor ? issueRecoveryCodes(user) : [] };
 }
 
 /** 停用两步验证：有口令的账号口令与验证码都要；没有口令的账号只要验证码，带了口令按方式不具备拒绝。 */
 function disableTwoFactor(req: MockRequest): 'ok' {
   const user = requireCurrentMockUser();
   const body = (req.body ?? {}) as Partial<DisableTwoFactorInputDto>;
+  // 与后端一致：组织要求两步验证时不能拆掉最后一个独立因子；还有通行密钥就照常停用
+  if (
+    user.twoFactorEnabled === true &&
+    (user.passkeys?.length ?? 0) === 0 &&
+    isTwoFactorRequiredByPolicy(getMockSessionTenantKey())
+  ) {
+    throw twoFactorRequiredByPolicy();
+  }
   if (user.password) {
     if (!body.password) {
       throw new MockException(400, {
@@ -947,15 +1063,324 @@ function disableTwoFactor(req: MockRequest): 'ok' {
   }
   ensureMockTwoFactorCode(body.code);
   user.twoFactorEnabled = false;
-  user.recoveryCodes = [];
+  if (user.preferredTwoFactorMethod === 'authenticator') {
+    user.preferredTwoFactorMethod = undefined;
+  }
+  releaseRecoveryCodesWithoutIndependentFactor(user);
   mockSessions = mockSessions.filter((s) => s.isCurrent);
   return 'ok';
 }
 
+/** 重新生成恢复码：出示一个独立因子（身份验证器上的验证码或通行密钥断言），恰好一种；不认口令与恢复码。 */
 function regenerateRecoveryCodes(req: MockRequest): TwoFactorRecoveryCodesOutputDto {
   const user = requireCurrentMockUser();
-  ensureMockTwoFactorCode(req.body?.code);
-  return issueRecoveryCodes(user);
+  const body = (req.body ?? {}) as { code?: string; passkey?: unknown };
+  const passkey = typeof body.passkey === 'object' && body.passkey !== null ? body.passkey : null;
+  const presented = (body.code?.trim() ? 1 : 0) + (passkey ? 1 : 0);
+  if (presented !== 1) {
+    throw new MockException(400, {
+      errors: [
+        {
+          field: 'code',
+          detail:
+            presented === 0
+              ? 'Enter the verification code or a recovery code.'
+              : 'Enter only one kind of code.',
+        },
+      ],
+    });
+  }
+  if (!hasIndependentFactor(user)) {
+    throw new MockException(409, {
+      code: 'Auth:TwoFactorNotEnabled',
+      message: 'Two-factor authentication is not turned on.',
+    });
+  }
+  if (passkey) {
+    ensureMockReauthentication(user, { passkey });
+  } else if (user.twoFactorEnabled !== true) {
+    ensureMockTwoFactorCode(undefined);
+  } else {
+    ensureMockTwoFactorCode(body.code?.replace(/\s/g, ''));
+  }
+  return { recoveryCodes: issueRecoveryCodes(user) };
+}
+
+/** 免口令登录：给出不限定凭据的断言选项与仪式凭据；仪式在这一刻绑定请求的租户。 */
+function beginPasskeySignIn(req: MockRequest): PasskeyOptionsOutputDto {
+  if (!MOCK_PASSKEYS_AVAILABLE) {
+    throw new MockException(400, {
+      code: 'Auth:PasskeyUnavailable',
+      message: "Passkeys aren't available on this site right now. Contact your administrator.",
+    });
+  }
+  const ceremony = crypto.randomUUID();
+  const challenge = beginMockPasskeyCeremony(`sign-in:${getRequestScope(req)}:${ceremony}`);
+  return { options: mockPasskeyRequestOptions(challenge), ceremony };
+}
+
+/**
+ * 免口令登录：认出已登记的凭据即签发会话，不再要求第二步，也不看口令是不是经邮件找回的。
+ * 仪式只认一次；换了租户、认不出凭据都按失效或验证失败拒绝；停用、锁定的账号不能登录。
+ */
+function completePasskeySignIn(req: MockRequest): 'ok' {
+  const body = (req.body ?? {}) as Partial<PasskeySignInInputDto>;
+  const errors = [];
+  if (!body.ceremony?.trim()) {
+    errors.push({ field: 'ceremony', detail: 'Ceremony is required.' });
+  }
+  if (typeof body.credential !== 'object' || body.credential === null) {
+    errors.push({ field: 'credential', detail: 'Credential is required.' });
+  }
+  if (errors.length > 0) {
+    throw new MockException(400, { errors });
+  }
+  const tenantKey = getRequestScope(req);
+  const challenge = takeMockPasskeyCeremony(`sign-in:${tenantKey}:${body.ceremony}`);
+  if (!challenge) {
+    throw passkeyCeremonyExpired();
+  }
+  const match = verifyMockPasskeyAssertion(body.credential, challenge);
+  if (!match) {
+    throw passkeyVerificationFailed();
+  }
+  ensureMockUserCanSignIn(match.user);
+  match.user.passwordSetByEmailRecovery = false;
+  match.user.lastLoginTime = new Date().toISOString();
+  setMockSessionUserId(match.user.id);
+  setMockSessionTenantKey(tenantKey);
+  return 'ok';
+}
+
+function ensureMockUserCanSignIn(user: MockUser): void {
+  if (!user.isActive) {
+    throw new MockException(401, {
+      code: 'Auth:UserDisabled',
+      message: 'This account is disabled. Contact your administrator.',
+    });
+  }
+  if (
+    user.lockoutEnd === null ||
+    (user.lockoutEnd !== undefined && new Date(user.lockoutEnd).getTime() > Date.now())
+  ) {
+    throw new MockException(401, {
+      code: 'Auth:UserLockedOut',
+      message: 'This account is locked. Contact your administrator.',
+    });
+  }
+}
+
+/** 确认身份：取用通行密钥确认的断言选项；断言随要求确认的请求一起提交。 */
+function beginPasskeyReauthentication(): PasskeyOptionsOutputDto {
+  const user = requireCurrentMockUser();
+  ensurePasskeysAvailable();
+  if ((user.passkeys?.length ?? 0) === 0) {
+    throw new MockException(400, {
+      code: 'Auth:ReauthenticationMethodUnavailable',
+      message: "This verification method isn't available for your account.",
+    });
+  }
+  const challenge = beginMockPasskeyCeremony(`reauthentication:${user.id}`);
+  return { options: mockPasskeyRequestOptions(challenge, user.passkeys ?? []) };
+}
+
+/** 开始添加通行密钥：先确认是本人，再给出创建选项（排除本人已有的凭据）。 */
+function beginPasskeyRegistration(req: MockRequest): PasskeyOptionsOutputDto {
+  const user = requireCurrentMockUser();
+  ensurePasskeysAvailable();
+  const body = (req.body ?? {}) as BeginPasskeyRegistrationInputDto;
+  ensureMockReauthentication(user, {
+    password: body.password,
+    twoFactorCode: body.twoFactorCode,
+    passkey: body.passkey,
+  });
+  const challenge = beginMockPasskeyCeremony(`registration:${user.id}`);
+  return {
+    options: {
+      rp: { name: 'CompanyName.ProjectName' },
+      user: {
+        id: toBase64Url(new TextEncoder().encode(user.id)),
+        name: user.username,
+        displayName: user.displayName ?? user.username,
+      },
+      challenge,
+      pubKeyCredParams: [
+        { type: 'public-key', alg: -7 },
+        { type: 'public-key', alg: -257 },
+      ],
+      timeout: 300_000,
+      attestation: 'none',
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        requireResidentKey: false,
+        userVerification: 'required',
+      },
+      excludeCredentials: (user.passkeys ?? []).map((passkey) => ({
+        type: 'public-key',
+        id: passkey.credentialId,
+      })),
+    },
+  };
+}
+
+/**
+ * 完成添加：只核对这次挑战与凭据 Id 没被占用，保存浏览器交回的 Id，不校验证明与公钥。
+ * 它是第一个独立因子时一并发恢复码；本人的其他设备随之退出。
+ */
+function completePasskeyRegistration(req: MockRequest): PasskeyRegistrationOutputDto {
+  const user = requireCurrentMockUser();
+  ensurePasskeysAvailable();
+  const body = (req.body ?? {}) as Partial<CompletePasskeyRegistrationInputDto>;
+  const name = ensurePasskeyName(body.name);
+  if (typeof body.credential !== 'object' || body.credential === null) {
+    throw new MockException(400, {
+      errors: [{ field: 'credential', detail: 'Credential is required.' }],
+    });
+  }
+  const challenge = takeMockPasskeyCeremony(`registration:${user.id}`);
+  if (!challenge) {
+    throw passkeyCeremonyExpired();
+  }
+  const data = readMockWebAuthnCredential(body.credential);
+  if (!data || data.type !== 'webauthn.create' || data.challenge !== challenge) {
+    throw passkeyVerificationFailed();
+  }
+  if (USERS.some((u) => u.passkeys?.some((p) => p.credentialId === data.credentialId))) {
+    throw new MockException(409, {
+      code: 'Auth:PasskeyAlreadyRegistered',
+      message: 'This passkey is already registered.',
+    });
+  }
+
+  const flags = backupFlags(body.credential);
+  const passkey: MockPasskey = {
+    id: crypto.randomUUID(),
+    credentialId: data.credentialId,
+    name,
+    creationTime: new Date().toISOString(),
+    lastUsedTime: null,
+    isBackupEligible: flags.eligible,
+    isBackedUp: flags.backedUp,
+  };
+  const firstFactor = !hasIndependentFactor(user);
+  user.passkeys = [...(user.passkeys ?? []), passkey];
+  user.passwordSetByEmailRecovery = false;
+  mockSessions = mockSessions.filter((s) => s.isCurrent);
+  return {
+    passkey: toPasskeyOutput(passkey),
+    recoveryCodes: firstFactor ? issueRecoveryCodes(user) : [],
+  };
+}
+
+/** 改名：只改显示用的名称，不要求确认身份。 */
+function renamePasskey(req: MockRequest): PasskeyOutputDto {
+  const user = requireCurrentMockUser();
+  const passkey = findOwnPasskey(user, String(req.params.id));
+  passkey.name = ensurePasskeyName((req.body as Partial<RenamePasskeyInputDto> | undefined)?.name);
+  return toPasskeyOutput(passkey);
+}
+
+/**
+ * 删除：组织要求两步验证、它又是最后一个独立因子时拒绝（先于确认身份）；确认身份后删除。
+ * 最后一个独立因子去掉时恢复码作废，指向它的首选回到系统顺序，其他设备随之退出。
+ */
+function removePasskey(req: MockRequest): 'ok' {
+  const user = requireCurrentMockUser();
+  const passkey = findOwnPasskey(user, String(req.params.id));
+  if (
+    user.twoFactorEnabled !== true &&
+    (user.passkeys?.length ?? 0) === 1 &&
+    isTwoFactorRequiredByPolicy(getMockSessionTenantKey())
+  ) {
+    throw twoFactorRequiredByPolicy();
+  }
+  const body = (req.body ?? {}) as RemovePasskeyInputDto;
+  ensureMockReauthentication(user, {
+    password: body.password,
+    twoFactorCode: body.twoFactorCode,
+    passkey: body.passkey,
+  });
+  user.passkeys = (user.passkeys ?? []).filter((item) => item.id !== passkey.id);
+  if (user.preferredTwoFactorMethod === 'passkey' && user.passkeys.length === 0) {
+    user.preferredTwoFactorMethod = undefined;
+  }
+  releaseRecoveryCodesWithoutIndependentFactor(user);
+  mockSessions = mockSessions.filter((s) => s.isCurrent);
+  return 'ok';
+}
+
+function ensurePasskeysAvailable(): void {
+  if (!MOCK_PASSKEYS_AVAILABLE) {
+    throw new MockException(400, {
+      code: 'Auth:PasskeyUnavailable',
+      message: "Passkeys aren't available on this site right now. Contact your administrator.",
+    });
+  }
+}
+
+function findOwnPasskey(user: MockUser, id: string): MockPasskey {
+  const passkey = user.passkeys?.find((item) => item.id === id);
+  if (!passkey) {
+    throw new MockException(404, {
+      code: 'Auth:PasskeyNotFound',
+      message: "This passkey doesn't exist.",
+    });
+  }
+  return passkey;
+}
+
+/** 名称必填、最长 128，与后端入参校验一致（400 字段错误，不带业务码）。 */
+function ensurePasskeyName(value: string | undefined): string {
+  const name = value?.trim() ?? '';
+  if (!name || name.length > 128) {
+    throw new MockException(400, {
+      errors: [
+        {
+          field: 'name',
+          detail: name ? 'Name cannot exceed 128 characters.' : 'Name is required.',
+        },
+      ],
+    });
+  }
+  return name;
+}
+
+function toPasskeyOutput(passkey: MockPasskey): PasskeyOutputDto {
+  return {
+    id: passkey.id,
+    name: passkey.name,
+    creationTime: passkey.creationTime,
+    lastUsedTime: passkey.lastUsedTime ?? null,
+    isBackupEligible: passkey.isBackupEligible,
+    isBackedUp: passkey.isBackedUp,
+  };
+}
+
+/**
+ * 从证明对象（CBOR）里取认证器数据的备份标志（BE、BS），让列表的备份状态与真实认证器一致
+ * （Chrome 虚拟认证器可以设置）。只找 `authData` 这个键后面的字节串，解析不了时按不可备份处理。
+ */
+function backupFlags(credential: unknown): { eligible: boolean; backedUp: boolean } {
+  const attestation = (credential as { response?: { attestationObject?: unknown } }).response
+    ?.attestationObject;
+  if (typeof attestation !== 'string') {
+    return { eligible: false, backedUp: false };
+  }
+  try {
+    const bytes = fromBase64Url(attestation);
+    const key = [0x68, ...new TextEncoder().encode('authData')];
+    const at = bytes.findIndex((_, i) => key.every((byte, offset) => bytes[i + offset] === byte));
+    if (at < 0) {
+      return { eligible: false, backedUp: false };
+    }
+    const header = bytes[at + key.length];
+    // 字节串头：0x58 带 1 字节长度、0x59 带 2 字节长度；认证器数据的第 33 字节是标志位
+    const start = at + key.length + (header === 0x58 ? 2 : header === 0x59 ? 3 : 1);
+    const flags = bytes[start + 32] ?? 0;
+    return { eligible: (flags & 0x08) !== 0, backedUp: (flags & 0x10) !== 0 };
+  } catch {
+    return { eligible: false, backedUp: false };
+  }
 }
 
 function getSessions(): UserSessionOutputDto[] {
@@ -1063,6 +1488,7 @@ function ensureRegistrationOpen(req: MockRequest): void {
 function getSecurityConfig(req: MockRequest): SecurityConfigOutputDto {
   return {
     registrationEnabled: isRegistrationOpen(req),
+    passkeysAvailable: MOCK_PASSKEYS_AVAILABLE,
     //#if (Email)
     enableEmailVerification: EMAIL_VERIFICATION_ENABLED,
     emailVerificationAvailable: true,
@@ -1484,6 +1910,9 @@ export const AUTH_API = {
     return sessionLogin(req.body.usernameOrEmail, req.body.password, getRequestScope(req));
   },
   'POST /api/v1/auth/two-factor': (req: MockRequest) => completeTwoFactorLogin(req),
+  'POST /api/v1/auth/two-factor/passkey-options': (req: MockRequest) => beginTwoFactorPasskey(req),
+  'POST /api/v1/auth/passkey-login/options': (req: MockRequest) => beginPasskeySignIn(req),
+  'POST /api/v1/auth/passkey-login': (req: MockRequest) => completePasskeySignIn(req),
   //#if (Email)
   'POST /api/v1/auth/two-factor/email-code': (req: MockRequest) => sendTwoFactorEmailCode(req),
   //#endif
@@ -1507,13 +1936,20 @@ export const AUTH_API = {
   'POST /api/v1/auth/me/two-factor/disable': (req: MockRequest) => disableTwoFactor(req),
   'POST /api/v1/auth/me/two-factor/recovery-codes': (req: MockRequest) =>
     regenerateRecoveryCodes(req),
+  'POST /api/v1/auth/me/two-factor/passkeys/options': (req: MockRequest) =>
+    beginPasskeyRegistration(req),
+  'POST /api/v1/auth/me/two-factor/passkeys': (req: MockRequest) =>
+    completePasskeyRegistration(req),
+  'PUT /api/v1/auth/me/two-factor/passkeys/:id/name': (req: MockRequest) => renamePasskey(req),
+  'POST /api/v1/auth/me/two-factor/passkeys/:id/remove': (req: MockRequest) => removePasskey(req),
+  'POST /api/v1/auth/me/reauthentication/passkey-options': () => beginPasskeyReauthentication(),
+  'PUT /api/v1/auth/me/two-factor/preferred-method': (req: MockRequest) =>
+    setPreferredTwoFactorMethod(req),
   //#if (Email)
   'POST /api/v1/auth/me/two-factor/email/setup': (req: MockRequest) =>
     beginEmailTwoFactorSetup(req),
   'POST /api/v1/auth/me/two-factor/email/enable': (req: MockRequest) => enableEmailTwoFactor(req),
   'POST /api/v1/auth/me/two-factor/email/disable': (req: MockRequest) => disableEmailTwoFactor(req),
-  'PUT /api/v1/auth/me/two-factor/preferred-method': (req: MockRequest) =>
-    setPreferredTwoFactorMethod(req),
   //#endif
   'GET /api/v1/auth/me/sessions': () => getSessions(),
   'DELETE /api/v1/auth/me/sessions/:id': (req: MockRequest) => revokeSession(req),

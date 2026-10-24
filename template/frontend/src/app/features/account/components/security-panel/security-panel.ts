@@ -56,10 +56,11 @@ import { LoginDevices } from '../login-devices/login-devices';
 //#if (Email)
 import { TwoFactorEmailSettings } from '../two-factor-email-settings/two-factor-email-settings';
 //#endif
+import { TwoFactorPasskeySettings } from '../two-factor-passkey-settings/two-factor-passkey-settings';
 import { TwoFactorSettings } from '../two-factor-settings/two-factor-settings';
 
 /**
- * 个人设置 ·「账户与安全」面板：修改密码、两步验证、已绑定的外部账号（启用外部登录时）、登录设备。
+ * 个人设置 ·「账户与安全」面板：修改密码、通行密钥、两步验证、已绑定的外部账号（启用外部登录时）、登录设备。
  * 只经外部登录建立、还没有口令的账号把"修改密码"换成"设置密码"。
  */
 @Component({
@@ -69,6 +70,7 @@ import { TwoFactorSettings } from '../two-factor-settings/two-factor-settings';
     FormField,
     NgIcon,
     LoginDevices,
+    TwoFactorPasskeySettings,
     TwoFactorSettings,
     //#if (Email)
     TwoFactorEmailSettings,
@@ -112,8 +114,9 @@ export class SecurityPanel {
   //#endif
 
   protected readonly loginDevices = viewChild(LoginDevices);
-  //#if (Email)
+  protected readonly passkeys = viewChild(TwoFactorPasskeySettings);
   protected readonly twoFactor = viewChild(TwoFactorSettings);
+  //#if (Email)
   protected readonly emailTwoFactor = viewChild(TwoFactorEmailSettings);
   //#endif
   //#if (ExternalLogin)
@@ -196,7 +199,12 @@ export class SecurityPanel {
     this.saving.set(true);
     const { newPassword, confirmPassword } = this.setModel();
     this.accountService
-      .setPassword({ newPassword, confirmPassword, twoFactorCode: proof?.twoFactorCode })
+      .setPassword({
+        newPassword,
+        confirmPassword,
+        twoFactorCode: proof?.twoFactorCode,
+        passkey: proof?.passkey,
+      })
       .pipe(finalize(() => this.saving.set(false)))
       .subscribe({
         next: () => {

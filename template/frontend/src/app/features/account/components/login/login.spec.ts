@@ -35,6 +35,11 @@ import { StartupService } from '../../../../core/services/startup-service';
 //#if (IncludeMultiTenancy)
 import { TenantContextService } from '../../../../core/services/tenant-context-service';
 //#endif
+import {
+  fakeAssertion,
+  REQUEST_OPTIONS,
+  webAuthnError,
+} from '../../../../core/webauthn/webauthn.testing';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 //#if (ExternalLogin)
 import { ExternalLoginProvidersOutputDto } from '../../dtos/account.dto';
@@ -42,9 +47,7 @@ import { ExternalLoginProvidersOutputDto } from '../../dtos/account.dto';
 //#if (IncludeMultiTenancy)
 import { TenantByHostOutputDto } from '../../dtos/tenant-by-host.dto';
 //#endif
-//#if (ExternalLogin || IncludeMultiTenancy)
 import { AccountService } from '../../services/account-service';
-//#endif
 import { TwoFactorPrompt } from '../two-factor-challenge/two-factor-challenge';
 
 import type { Mock, MockedObject } from 'vitest';
@@ -404,11 +407,13 @@ describe('Login', () => {
   });
 
   // 密码管理器按 autocomplete 取用与保存凭据：缺了它，已保存的账号口令填不进来
-  it('marks the credential fields for password managers', async () => {
+  it('marks the credential fields for password managers and passkey autofill', async () => {
     await setUp();
     const host = fixture.nativeElement as HTMLElement;
 
-    expect(host.querySelector('#usernameOrEmail')?.getAttribute('autocomplete')).toBe('username');
+    expect(host.querySelector('#usernameOrEmail')?.getAttribute('autocomplete')).toBe(
+      'username webauthn',
+    );
     expect(host.querySelector('#password')?.getAttribute('autocomplete')).toBe('current-password');
   });
 
@@ -1001,4 +1006,178 @@ describe('Login', () => {
     });
   });
   //#endif
+
+  describe('passkey sign-in', () => {
+    let beginPasskeySignIn: Mock;
+    let completePasskeySignIn: Mock;
+
+    async function setUpPasskeys(
+      config: { passkeysAvailable: boolean } = { passkeysAvailable: true },
+    ): Promise<void> {
+      await setUp();
+      beginPasskeySignIn = vi
+        .spyOn(TestBed.inject(AccountService), 'beginPasskeySignIn')
+        .mockReturnValue(of({ options: REQUEST_OPTIONS, ceremony: 'ceremony-1' })) as Mock;
+      completePasskeySignIn = vi
+        .spyOn(TestBed.inject(AccountService), 'completePasskeySignIn')
+        .mockReturnValue(of(undefined)) as Mock;
+      TestBed.inject(HttpTestingController)
+        .match('/api/v1/auth/security-config')
+        .forEach((request) => request.flush({ registrationEnabled: true, ...config }));
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    function passkeyButton(): HTMLButtonElement | null {
+      return (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '[data-testid="passkey-sign-in"]',
+      );
+    }
+
+    async function clickPasskey(): Promise<void> {
+      passkeyButton()!.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    beforeEach(() => {
+      // 条件式界面默认不可用：按钮用例只看到按钮发起的那一次请求
+      vi.spyOn(PublicKeyCredential, 'isConditionalMediationAvailable').mockResolvedValue(false);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('offers the passkey button only when the deployment has passkeys', async () => {
+      await setUpPasskeys({ passkeysAvailable: false });
+      expect(passkeyButton()).toBeNull();
+
+      fixture.destroy();
+      TestBed.resetTestingModule();
+      await setUpPasskeys();
+      expect(passkeyButton()).not.toBeNull();
+    });
+
+    it('signs in with the selected passkey and finishes like any other sign-in', async () => {
+      const get = vi.spyOn(navigator.credentials, 'get').mockResolvedValue(fakeAssertion('cred-1'));
+      await setUpPasskeys();
+
+      await clickPasskey();
+
+      expect(beginPasskeySignIn).toHaveBeenCalledTimes(1);
+      expect(get.mock.calls[0]![0]!.mediation).toBeUndefined();
+      expect(completePasskeySignIn).toHaveBeenCalledExactlyOnceWith({
+        ceremony: 'ceremony-1',
+        credential: expect.objectContaining({ id: 'cred-1' }),
+      });
+      expect(authService.loadUser).toHaveBeenCalled();
+      expect(router.navigate).toHaveBeenCalledWith(['/workspace']);
+    });
+
+    it('shows a neutral note when the user cancels and keeps the form usable', async () => {
+      vi.spyOn(navigator.credentials, 'get').mockRejectedValue(webAuthnError('NotAllowedError'));
+      await setUpPasskeys();
+
+      await clickPasskey();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('[data-testid="passkey-sign-in-cancelled"]')).not.toBeNull();
+      expect(host.textContent).not.toContain('browser text');
+      expect(completePasskeySignIn).not.toHaveBeenCalled();
+      expect(passkeyButton()!.disabled).toBe(false);
+    });
+
+    it('shows a rejected passkey in place, like rejected credentials', async () => {
+      vi.spyOn(navigator.credentials, 'get').mockResolvedValue(fakeAssertion());
+      await setUpPasskeys();
+      completePasskeySignIn.mockReturnValue(
+        throwError(() =>
+          ApplicationHttpError.from(
+            new HttpErrorResponse({
+              status: 400,
+              error: {
+                status: 400,
+                code: 'Auth:PasskeyVerificationFailed',
+                detail: "The passkey couldn't be verified.",
+              },
+            }),
+            { method: 'POST' },
+          ),
+        ),
+      );
+
+      await clickPasskey();
+
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector('[data-testid="login-error"]')!
+          .textContent,
+      ).toContain("The passkey couldn't be verified.");
+      expect(authService.loadUser).not.toHaveBeenCalled();
+    });
+
+    it('withdraws the entry when the server reports passkeys unavailable', async () => {
+      await setUpPasskeys();
+      beginPasskeySignIn.mockReturnValue(
+        throwError(() =>
+          ApplicationHttpError.from(
+            new HttpErrorResponse({
+              status: 400,
+              error: { status: 400, code: 'Auth:PasskeyUnavailable', detail: 'Unavailable.' },
+            }),
+            { method: 'POST' },
+          ),
+        ),
+      );
+
+      await clickPasskey();
+
+      expect(passkeyButton()).toBeNull();
+    });
+
+    it('waits for a passkey picked from autofill and aborts the request on leaving', async () => {
+      vi.mocked(PublicKeyCredential.isConditionalMediationAvailable).mockResolvedValue(true);
+      let signal: AbortSignal | undefined;
+      let pick!: (credential: PublicKeyCredential) => void;
+      vi.spyOn(navigator.credentials, 'get').mockImplementation((request) => {
+        signal = request?.signal ?? undefined;
+        return new Promise((resolve) => (pick = resolve));
+      });
+      await setUpPasskeys();
+      await fixture.whenStable();
+
+      expect(navigator.credentials.get).toHaveBeenCalledWith(
+        expect.objectContaining({ mediation: 'conditional' }),
+      );
+      expect(signal?.aborted).toBe(false);
+
+      pick(fakeAssertion('cred-auto'));
+      // 选中之后的提交是一串微任务（转换断言、提交、收尾），等它们落定
+      await new Promise((resolve) => setTimeout(resolve));
+      await fixture.whenStable();
+
+      expect(completePasskeySignIn).toHaveBeenCalledExactlyOnceWith({
+        ceremony: 'ceremony-1',
+        credential: expect.objectContaining({ id: 'cred-auto' }),
+      });
+
+      fixture.destroy();
+      expect(signal?.aborted).toBe(true);
+    });
+
+    it('aborts the autofill request before the button starts its own', async () => {
+      vi.mocked(PublicKeyCredential.isConditionalMediationAvailable).mockResolvedValue(true);
+      const signals: (AbortSignal | undefined)[] = [];
+      vi.spyOn(navigator.credentials, 'get').mockImplementation((request) => {
+        signals.push(request?.signal ?? undefined);
+        return request?.mediation === 'conditional'
+          ? new Promise(() => undefined)
+          : Promise.resolve(fakeAssertion());
+      });
+      await setUpPasskeys();
+      await fixture.whenStable();
+
+      await clickPasskey();
+
+      expect(signals[0]?.aborted).toBe(true);
+      expect(completePasskeySignIn).toHaveBeenCalledTimes(1);
+    });
+  });
 });
