@@ -82,6 +82,10 @@ internal sealed class TwoFactorChallengeStore(IDistributedCache cache, IClock cl
         SaveAsync(token, challenge with { EmailChallengeId = emailChallengeId }, cancellationToken);
 
 #endif
+    /// <summary>记下这次第二步最近给出的通行密钥断言选项；之前给的随之不再被认。沿用剩余有效期与已输错次数。</summary>
+    public Task AttachPasskeyStateAsync(string token, TwoFactorChallenge challenge, string state, CancellationToken cancellationToken) =>
+        SaveAsync(token, challenge with { PasskeyState = state }, cancellationToken);
+
     public Task RemoveAsync(string token, CancellationToken cancellationToken) =>
         cache.RemoveAsync(Key(token), cancellationToken);
 
@@ -118,6 +122,7 @@ internal sealed class TwoFactorChallengeStore(IDistributedCache cache, IClock cl
 /// <param name="EmailChallengeId">最近一次发出的邮箱验证码挑战；没发过为 null。</param>
 /// <param name="FirstFactorViaEmail">第一步经邮箱通道得来；为真时第二步只认独立因子（见 <see cref="SignInFirstStep"/>）。</param>
 /// <param name="ExternalConnectionId">第一步经外部登录时用到的连接；口令登录为 null。</param>
+/// <param name="PasskeyState">最近一次给出的通行密钥断言选项的仪式状态；没给过为 null。</param>
 internal sealed record TwoFactorChallenge(
     Guid UserId,
     Guid? TenantId,
@@ -126,5 +131,6 @@ internal sealed record TwoFactorChallenge(
     int Attempts,
     Guid? EmailChallengeId = null,
     bool FirstFactorViaEmail = false,
-    Guid? ExternalConnectionId = null);
+    Guid? ExternalConnectionId = null,
+    string? PasskeyState = null);
 #endif

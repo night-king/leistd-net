@@ -17,6 +17,19 @@ public interface IAuthAppService : IAppService
     Task<ClaimsPrincipal> CompleteTwoFactorLoginAsync(
         TwoFactorLoginInputDto input,
         CancellationToken cancellationToken = default);
+
+    /// <summary>登录第二步：给出用通行密钥验证的断言选项；这种方式此刻不能用时以 <c>Auth:TwoFactorMethodUnavailable</c> 拒绝。</summary>
+    Task<PasskeyOptionsOutputDto> BeginTwoFactorPasskeyAsync(
+        TwoFactorPasskeyOptionsInputDto input,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>免口令登录：给出断言选项与仪式凭据。</summary>
+    Task<PasskeyOptionsOutputDto> BeginPasskeySignInAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>免口令登录：校验断言并创建会话主体，不再要求第二步。</summary>
+    Task<ClaimsPrincipal> CompletePasskeySignInAsync(
+        PasskeySignInInputDto input,
+        CancellationToken cancellationToken = default);
 #if (Email)
 
     /// <summary>登录第二步：把验证码发到本人的已验证邮箱；邮箱方式此刻不能用时以 <c>Auth:TwoFactorMethodUnavailable</c> 拒绝。</summary>

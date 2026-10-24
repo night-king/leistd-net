@@ -71,7 +71,7 @@ internal sealed class PasskeyAppService(
         cancellationToken = lockScope.Token;
 
         await reauthenticationGuard.EnsureRecentAsync(
-            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.AuthTwoFactorPasskeyAdded,
             cancellationToken);
 
@@ -137,6 +137,26 @@ internal sealed class PasskeyAppService(
     }
 
     /// <inheritdoc />
+    /// <remarks>仪式按本人与会话保存，绑定此刻的安全版本；确认身份的守卫取出并校验，只认一次。</remarks>
+    public async Task<PasskeyOptionsOutputDto> BeginReauthenticationAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureAvailable();
+        var user = await GetCurrentUserAsync(cancellationToken);
+        var passkeys = await passkeyDomainService.GetListAsync(user.Id, cancellationToken);
+        if (passkeys.Count == 0)
+        {
+            throw new BusinessException(
+                AuthErrorCodes.ReauthenticationMethodUnavailable,
+                "This verification method isn't available for your account.");
+        }
+
+        var ceremony = passkeyProtocol.BeginAssertion(passkeys.Select(p => new PasskeyDescriptor(p.CredentialId, p.GetTransports())));
+        await ceremonies.SaveForSessionAsync(
+            PasskeyCeremonyPurpose.Reauthentication, user.Id, currentUser.GetSessionId(), ceremony.State, user.SecurityStamp, cancellationToken);
+        return OptionsOutput(ceremony.Options);
+    }
+
+    /// <inheritdoc />
     /// <remarks>只改显示用的名称，不增减方式：不要求确认身份、不换安全版本，照样留操作记录。</remarks>
     public async Task<PasskeyOutputDto> RenameAsync(Guid id, RenamePasskeyInputDto input, CancellationToken cancellationToken = default)
     {
@@ -175,7 +195,7 @@ internal sealed class PasskeyAppService(
         await passkeyDomainService.GetOwnAsync(current, id, cancellationToken);
         await EnsureRemovableAsync(current, cancellationToken);
         await reauthenticationGuard.EnsureRecentAsync(
-            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.AuthTwoFactorPasskeyRemoved,
             cancellationToken);
 

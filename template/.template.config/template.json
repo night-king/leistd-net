@@ -466,6 +466,8 @@
             "backend/tests/CompanyName.ProjectName.UnitTests/Domain/IndependentFactorTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/SoftwareAuthenticator.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/PasskeyRegistrationTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PasskeySignInTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/PasskeyReauthenticationTests.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/PasswordRehashTests.cs",
             "backend/src/CompanyName.ProjectName.Api/Auth/Authorization/AllowDuringTwoFactorSetupAttribute.cs",
             "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/LocalSessionAuthenticationExtensions.cs",

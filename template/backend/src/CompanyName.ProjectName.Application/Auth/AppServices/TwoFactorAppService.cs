@@ -124,7 +124,7 @@ internal sealed class TwoFactorAppService(
             : OperationRecordActions.AuthTwoFactorEnabled;
         // 出示了恢复码时验证码不参与（与登录第二步一致：都给时以恢复码为准）
         var method = await reauthenticationGuard.EnsureRecentAsync(
-            new ReauthenticationProof(input.Password, usesRecoveryCode ? null : input.Code),
+            ReauthenticationProof.Of(input.Password, usesRecoveryCode ? null : input.Code, input.Passkey),
             action,
             cancellationToken);
 
@@ -306,7 +306,7 @@ internal sealed class TwoFactorAppService(
 
     /// <inheritdoc />
     public async Task<TwoFactorRecoveryCodesOutputDto> RegenerateRecoveryCodesAsync(
-        TwoFactorCodeInputDto input,
+        RegenerateRecoveryCodesInputDto input,
         CancellationToken cancellationToken = default)
     {
         var userId = currentUser.Id!.Value;
@@ -316,21 +316,35 @@ internal sealed class TwoFactorAppService(
         using var unit = unitOfWorkManager.Begin(requiresNew: true);
 
         var user = await GetCurrentUserEntityAsync(cancellationToken);
-        // 先于再认证拒绝：未启用的账号没有可校验的验证码，不该计入失败次数
-        user.EnsureTwoFactorEnabled();
+        // 先于再认证拒绝：没有独立因子就没有恢复码，也没有可校验的凭证，不该计入失败次数
+        if (!user.HasIndependentFactor)
+        {
+            throw new BusinessException(AuthErrorCodes.TwoFactorNotEnabled, "Two-factor authentication is not turned on.");
+        }
 
         // 重发恢复码同样是再认证：拿到恢复码等于拿到一组可绕过两步验证的凭据。
-        // 只认验证码，不认恢复码：恢复码不能用来换出一组新的恢复码
-        await reauthenticationGuard.EnsureAllowedAsync(user, cancellationToken);
-
-        if (!twoFactorDomainService.VerifyCode(user, input.Code, clock.Now))
+        // 只认独立因子（身份验证器验证码或通行密钥），不认口令与恢复码：恢复码不能用来换出一组新的恢复码
+        if (input.Passkey is { } passkey)
         {
-            throw await reauthenticationGuard.RejectAsync(
-                user,
+            // 通行密钥的仪式与校验收在守卫里；守卫在自己的工作单元里提交，这里重读用户再改
+            await reauthenticationGuard.EnsureRecentAsync(
+                ReauthenticationProof.Of(null, null, passkey),
                 OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated,
-                AuthErrorCodes.TwoFactorCodeInvalid,
-                CodeInvalidMessage,
                 cancellationToken);
+            user = await GetCurrentUserEntityAsync(cancellationToken);
+        }
+        else
+        {
+            await reauthenticationGuard.EnsureAllowedAsync(user, cancellationToken);
+            if (!twoFactorDomainService.VerifyCode(user, input.Code!, clock.Now))
+            {
+                throw await reauthenticationGuard.RejectAsync(
+                    user,
+                    OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated,
+                    AuthErrorCodes.TwoFactorCodeInvalid,
+                    CodeInvalidMessage,
+                    cancellationToken);
+            }
         }
 
         var codes = RecoveryCodes.Generate();
@@ -365,7 +379,7 @@ internal sealed class TwoFactorAppService(
 
         await EnsureEmailCanBeEnabledAsync(await GetCurrentUserEntityAsync(cancellationToken), cancellationToken);
         await reauthenticationGuard.EnsureRecentAsync(
-            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.AuthTwoFactorEmailEnabled,
             cancellationToken);
 
@@ -426,7 +440,7 @@ internal sealed class TwoFactorAppService(
             return;
 
         await reauthenticationGuard.EnsureRecentAsync(
-            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.AuthTwoFactorEmailDisabled,
             cancellationToken);
 

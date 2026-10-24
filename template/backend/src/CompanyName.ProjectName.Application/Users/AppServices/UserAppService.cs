@@ -292,7 +292,7 @@ internal sealed class UserAppService(
         if (IsSensitiveManagementChange(target, input))
         {
             await reauthenticationGuard.EnsureRecentInOwnLockAsync(
-                new ReauthenticationProof(input.Password, input.TwoFactorCode),
+                ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
                 OperationRecordActions.UserUpdated,
                 cancellationToken);
             confirmed = true;
@@ -462,7 +462,7 @@ internal sealed class UserAppService(
     public async Task ResetPasswordAsync(Guid id, ResetUserPasswordInputDto input, CancellationToken cancellationToken = default)
     {
         await reauthenticationGuard.EnsureRecentInOwnLockAsync(
-            new ReauthenticationProof(input.CurrentPassword, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.CurrentPassword, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.UserPasswordReset,
             cancellationToken);
 
@@ -540,7 +540,7 @@ internal sealed class UserAppService(
         var actorId = currentUser.Id!.Value;
         EnsureTwoFactorResettable(await GetUserOrThrowAsync(id, cancellationToken), actorId);
         await reauthenticationGuard.EnsureRecentInOwnLockAsync(
-            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.UserTwoFactorReset,
             cancellationToken);
 

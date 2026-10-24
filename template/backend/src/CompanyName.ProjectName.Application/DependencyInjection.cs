@@ -116,6 +116,7 @@ public static class DependencyInjection
         services.TryAddTransient<TwoFactorChallengeStore>();
         services.TryAddTransient<TwoFactorMethodResolver>();
         services.TryAddTransient<PasskeyCeremonyStore>();
+        services.TryAddTransient<PasskeyAssertionVerifier>();
         services.TryAddTransient<IPasskeyAppService, PasskeyAppService>();
         // 不再登录的用户没有"登录时顺手清理"的时机，过期会话与其中的原始 IP 由这个作业每天清掉
         services.AddRecurringJob<ExpiredUserSessionCleanupJob>(

@@ -15,6 +15,8 @@ using Leistd.Ddd.Domain.Repositories;
 #endif
 using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Application.Auth.TwoFactor;
+using CompanyName.ProjectName.Application.Auth.Passkeys;
+using CompanyName.ProjectName.Domain.Auth.Passkeys;
 using Leistd.UnitOfWork;
 using Leistd.UnitOfWork.Attributes;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
@@ -59,8 +61,12 @@ internal sealed class AuthAppService(
     ICaptchaVerifier captchaVerifier,
 #if (Email)
     EmailChallengeStore emailChallengeStore,
-    TwoFactorMethodResolver twoFactorMethods,
 #endif
+    TwoFactorMethodResolver twoFactorMethods,
+    PasskeyAssertionVerifier passkeyVerifier,
+    PasskeyCeremonyStore passkeyCeremonies,
+    PasskeyDomainService passkeyDomainService,
+    IPasskeyProtocol passkeyProtocol,
 #if (Email && ExternalLogin)
     IRepository<ExternalLoginConnection, Guid> externalLoginConnectionRepository,
 #endif
@@ -231,6 +237,11 @@ internal sealed class AuthAppService(
             usedMethod = TwoFactorMethod.RecoveryCode;
             verified = twoFactorDomainService.UseRecoveryCode(user, input.RecoveryCode);
         }
+        else if (input.Passkey is { } assertion)
+        {
+            usedMethod = TwoFactorMethod.Passkey;
+            verified = await VerifyPasskeyStepAsync(user, challenge, assertion.GetRawText(), cancellationToken);
+        }
 #if (Email)
         else if (!string.IsNullOrWhiteSpace(input.EmailCode))
         {
@@ -260,7 +271,9 @@ internal sealed class AuthAppService(
                 throw TwoFactorChallengeExpired();
             }
 
-            throw new BusinessException(AuthErrorCodes.TwoFactorCodeInvalid, "The verification code is incorrect.");
+            throw usedMethod == TwoFactorMethod.Passkey
+                ? PasskeyAppService.VerificationFailed()
+                : new BusinessException(AuthErrorCodes.TwoFactorCodeInvalid, "The verification code is incorrect.");
         }
 
         await twoFactorChallengeStore.RemoveAsync(input.Token, cancellationToken);
@@ -386,10 +399,138 @@ internal sealed class AuthAppService(
         user.ConfirmPasswordByIndependentFactor();
     }
 
+#endif
+    /// <summary>登录第二步：给出用通行密钥验证的断言选项，只列本人登记的那几把。</summary>
+    /// <remarks>
+    /// 与发邮箱验证码同在本人的凭据锁内：挑战里记下的仪式状态与输错次数不能被并发的校验覆盖。
+    /// 再取一次即换一份选项，之前给的随之不再被认；这种方式此刻不能用时以 <see cref="AuthErrorCodes.TwoFactorMethodUnavailable"/> 拒绝。
+    /// </remarks>
+    public async Task<PasskeyOptionsOutputDto> BeginTwoFactorPasskeyAsync(
+        TwoFactorPasskeyOptionsInputDto input,
+        CancellationToken cancellationToken = default)
+    {
+        var challenge = await twoFactorChallengeStore.GetAsync(input.Token, cancellationToken);
+        if (challenge is null || challenge.TenantId != currentTenant.Id)
+        {
+            throw TwoFactorChallengeExpired();
+        }
+
+        await using var userLock = await distributedLock.LockAsync(
+            UserCredentialLock.Key(challenge.UserId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, userLock.LockLost);
+        cancellationToken = lockScope.Token;
+        challenge = await twoFactorChallengeStore.GetAsync(input.Token, cancellationToken);
+        var user = challenge is not null
+            ? await userRepository.GetByIdAsync(challenge.UserId, cancellationToken)
+            : null;
+        if (challenge is null || user is null || !user.HasSecurityStamp(challenge.SecurityStamp))
+        {
+            throw TwoFactorChallengeExpired();
+        }
+
+        SessionIssuer.EnsureAllowed(user, clock.Now);
+        if (!(await twoFactorMethods.ResolveForSignInAsync(user, challenge.FirstFactorViaEmail, cancellationToken)).Allows(TwoFactorMethod.Passkey))
+        {
+            throw TwoFactorMethodUnavailable();
+        }
+
+        var ceremony = passkeyVerifier.Begin(await passkeyDomainService.GetListAsync(user.Id, cancellationToken));
+        await twoFactorChallengeStore.AttachPasskeyStateAsync(input.Token, challenge, ceremony.State, cancellationToken);
+        return PasskeyAppService.OptionsOutput(ceremony.Options);
+    }
+
+    /// <summary>免口令登录：给出让浏览器列出本站可发现凭据的断言选项，与一个仪式凭据。</summary>
+    /// <remarks>租户在这一刻定案：仪式绑定当前租户，完成时换了租户就不认。部署没配依赖方时以 <see cref="AuthErrorCodes.PasskeyUnavailable"/> 拒绝。</remarks>
+    public async Task<PasskeyOptionsOutputDto> BeginPasskeySignInAsync(CancellationToken cancellationToken = default)
+    {
+        if (!passkeyProtocol.IsAvailable)
+        {
+            throw new BusinessException(
+                AuthErrorCodes.PasskeyUnavailable,
+                "Passkeys aren't available on this site right now. Contact your administrator.");
+        }
+
+        var ceremony = passkeyVerifier.Begin([]);
+        var token = await passkeyCeremonies.SaveSignInAsync(ceremony.State, currentTenant.Id, cancellationToken);
+        return PasskeyAppService.OptionsOutput(ceremony.Options, token);
+    }
+
+    /// <summary>免口令登录：校验浏览器交回的断言，通过即签发会话，不再要求第二步。</summary>
+    /// <remarks>
+    /// <para>通行密钥要求用户验证（生物识别或 PIN），一次就具备"持有 + 本人"：满足组织"要求两步验证"，也不看口令是不是经邮件找回的。</para>
+    /// <para>认不出凭据（没登记过、属于别的租户）时没有可计数的账号，只按验证失败拒绝；认出了账号而校验不通过，
+    /// 与口令输错同样计入登录失败与锁定。在本人的凭据锁内判定账号状态、校验并登记会话。</para>
+    /// </remarks>
+    public async Task<ClaimsPrincipal> CompletePasskeySignInAsync(
+        PasskeySignInInputDto input,
+        CancellationToken cancellationToken = default)
+    {
+        var state = await passkeyCeremonies.TakeSignInAsync(input.Ceremony, currentTenant.Id, cancellationToken)
+            ?? throw PasskeyAppService.CeremonyExpired();
+        var response = input.Credential!.Value.GetRawText();
+        var located = await passkeyVerifier.FindAsync(response, cancellationToken)
+            ?? throw PasskeyAppService.VerificationFailed();
+
+        await using var held = await distributedLock.LockAsync(UserCredentialLock.Key(located.UserId), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        cancellationToken = lockScope.Token;
+        using var unit = unitOfWorkManager.Begin(requiresNew: true);
+
+        var user = await userRepository.GetByIdAsync(located.UserId, cancellationToken);
+        var passkey = await passkeyVerifier.FindAsync(response, cancellationToken);
+        if (user is null || passkey is null || passkey.UserId != user.Id)
+        {
+            throw PasskeyAppService.VerificationFailed();
+        }
+
+        var now = clock.Now;
+        SessionIssuer.EnsureAllowed(user, now);
+        if (!await passkeyVerifier.VerifyAsync(passkey, state, response, cancellationToken))
+        {
+            var counted = await accessFailureCounter.CountAsync(user.Id, cancellationToken);
+            if (counted is { LockoutTriggered: true, User: { } lockedUser })
+            {
+                await RecordLockedOutAsync(lockedUser, cancellationToken);
+                throw SessionIssuer.LockedOut(lockedUser, now);
+            }
+
+            throw PasskeyAppService.VerificationFailed();
+        }
+
+        // 用独立因子证明了是本人：此前经邮件找回的口令不再只凭邮箱
+        user.ConfirmPasswordByIndependentFactor();
+        await userRepository.UpdateAsync(user, cancellationToken);
+        await RecordLoginSucceededAsync(user, cancellationToken);
+        var principal = await sessionIssuer.SignInAsync(user, cancellationToken: cancellationToken);
+        await unit.CompleteAsync(cancellationToken);
+        return principal;
+    }
+
+    // 方式此刻不能用、或还没取过选项不算猜错，不计入失败；认不出凭据或不是本人的凭据按验证失败计数
+    private async Task<bool> VerifyPasskeyStepAsync(
+        User user,
+        TwoFactorChallenge challenge,
+        string response,
+        CancellationToken cancellationToken)
+    {
+        if (!(await twoFactorMethods.ResolveForSignInAsync(user, challenge.FirstFactorViaEmail, cancellationToken)).Allows(TwoFactorMethod.Passkey))
+        {
+            throw TwoFactorMethodUnavailable();
+        }
+
+        if (challenge.PasskeyState is not { } state)
+        {
+            throw PasskeyAppService.CeremonyExpired();
+        }
+
+        var passkey = await passkeyVerifier.FindAsync(response, cancellationToken);
+        return passkey is not null && passkey.UserId == user.Id &&
+            await passkeyVerifier.VerifyAsync(passkey, state, response, cancellationToken);
+    }
+
     private static BusinessException TwoFactorMethodUnavailable() =>
         new(AuthErrorCodes.TwoFactorMethodUnavailable, "This verification method isn't available for your account.");
 
-#endif
     // 登录成功的"什么人"由目标承载：SignInAsync 只往响应里种 Cookie，
     // 本次请求的主体仍是匿名，操作人字段为空是诚实的。
     private Task RecordLoginSucceededAsync(User user, CancellationToken cancellationToken) =>
@@ -591,7 +732,7 @@ internal sealed class AuthAppService(
         if (emailChanged)
         {
             await reauthenticationGuard.EnsureRecentAsync(
-                new ReauthenticationProof(input.CurrentPassword, input.TwoFactorCode),
+                ReauthenticationProof.Of(input.CurrentPassword, input.TwoFactorCode, input.Passkey),
                 OperationRecordActions.AuthEmailChanged,
                 cancellationToken);
         }
@@ -714,7 +855,7 @@ internal sealed class AuthAppService(
         (await GetCurrentUserEntityAsync(cancellationToken)).EnsureLocalPasswordNotSet();
 
         await reauthenticationGuard.EnsureRecentAsync(
-            new ReauthenticationProof(null, input.TwoFactorCode),
+            ReauthenticationProof.Of(null, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.AuthPasswordSet,
             cancellationToken);
 

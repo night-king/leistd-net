@@ -127,7 +127,7 @@ internal sealed class ExternalAuthAppService(
     /// </remarks>
     public Task EnsureLinkAllowedAsync(CompleteExternalLinkInputDto? input, CancellationToken cancellationToken = default) =>
         reauthenticationGuard.EnsureRecentInOwnLockAsync(
-            new ReauthenticationProof(input?.Password, input?.TwoFactorCode),
+            ReauthenticationProof.Of(input?.Password, input?.TwoFactorCode, input?.Passkey),
             OperationRecordActions.AuthExternalLoginLinked,
             cancellationToken);
 
@@ -186,7 +186,7 @@ internal sealed class ExternalAuthAppService(
             await GetCurrentUserEntityAsync(cancellationToken), id, cancellationToken);
 
         await reauthenticationGuard.EnsureRecentAsync(
-            new ReauthenticationProof(input?.Password, input?.TwoFactorCode),
+            ReauthenticationProof.Of(input?.Password, input?.TwoFactorCode, input?.Passkey),
             OperationRecordActions.AuthExternalLoginUnlinked,
             cancellationToken);
 

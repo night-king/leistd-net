@@ -50,7 +50,33 @@ public sealed class AuthController(
         return await sessionCookieIssuer.CompleteLoginAsync(HttpContext, result, cancellationToken);
     }
 
-    /// <summary>登录第二步：提交其中一种方式的码（身份验证器、邮箱或恢复码）。</summary>
+    /// <summary>免口令登录：取断言选项与仪式凭据。</summary>
+    [AllowAnonymous]
+    [HttpPost("passkey-login/options")]
+    [IgnoreAntiforgeryToken]
+    public Task<PasskeyOptionsOutputDto> BeginPasskeySignInAsync(CancellationToken cancellationToken)
+        => authService.BeginPasskeySignInAsync(cancellationToken);
+
+    /// <summary>免口令登录：交回通行密钥断言，通过即签发会话（不再要求第二步）。</summary>
+    [AllowAnonymous]
+    [HttpPost("passkey-login")]
+    [IgnoreAntiforgeryToken]
+    public async Task PasskeySignInAsync([FromBody] PasskeySignInInputDto input, CancellationToken cancellationToken)
+    {
+        var principal = await authService.CompletePasskeySignInAsync(input, cancellationToken);
+        await sessionCookieIssuer.SignInNewSessionAsync(HttpContext, principal, cancellationToken);
+    }
+
+    /// <summary>登录第二步：取用通行密钥验证的断言选项（本人用通行密钥这种方式时）。</summary>
+    [AllowAnonymous]
+    [HttpPost("two-factor/passkey-options")]
+    [IgnoreAntiforgeryToken]
+    public Task<PasskeyOptionsOutputDto> BeginTwoFactorPasskeyAsync(
+        [FromBody] TwoFactorPasskeyOptionsInputDto input,
+        CancellationToken cancellationToken)
+        => authService.BeginTwoFactorPasskeyAsync(input, cancellationToken);
+
+    /// <summary>登录第二步：提交其中一种方式的凭证（通行密钥、身份验证器、邮箱或恢复码）。</summary>
     [AllowAnonymous]
     [HttpPost("two-factor")]
     [IgnoreAntiforgeryToken]
@@ -291,11 +317,11 @@ public sealed class AuthController(
     public Task DisableTwoFactorAsync([FromBody] DisableTwoFactorInputDto input, CancellationToken cancellationToken)
         => twoFactorAppService.DisableAsync(input, cancellationToken);
 
-    /// <summary>重新生成恢复码（要验证码）。</summary>
+    /// <summary>重新生成恢复码（要身份验证器验证码或通行密钥）。</summary>
     [Authorize]
     [HttpPost("me/two-factor/recovery-codes")]
     public Task<TwoFactorRecoveryCodesOutputDto> RegenerateRecoveryCodesAsync(
-        [FromBody] TwoFactorCodeInputDto input,
+        [FromBody] RegenerateRecoveryCodesInputDto input,
         CancellationToken cancellationToken)
         => twoFactorAppService.RegenerateRecoveryCodesAsync(input, cancellationToken);
 #if (Email)
@@ -339,6 +365,13 @@ public sealed class AuthController(
         [FromBody] CompletePasskeyRegistrationInputDto input,
         CancellationToken cancellationToken)
         => passkeyAppService.CompleteRegistrationAsync(input, cancellationToken);
+
+    /// <summary>确认身份：取用通行密钥确认的断言选项；断言随要求确认的请求一起提交（<c>passkey</c> 字段）。</summary>
+    [Authorize]
+    [AllowDuringTwoFactorSetup]
+    [HttpPost("me/reauthentication/passkey-options")]
+    public Task<PasskeyOptionsOutputDto> BeginPasskeyReauthenticationAsync(CancellationToken cancellationToken)
+        => passkeyAppService.BeginReauthenticationAsync(cancellationToken);
 
     /// <summary>给通行密钥改名。</summary>
     [Authorize]

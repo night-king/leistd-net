@@ -134,6 +134,27 @@ public sealed class PasskeyRegistrationTests(ProjectWebApplicationFactory factor
     }
 
     [Fact]
+    public async Task An_administrator_reset_removes_the_passkeys_and_the_recovery_codes()
+    {
+        var username = await CreateUserAsync("pk_reset");
+        using var session = await ProjectWebApplicationFactory.LoginAsync(factory, username, Password);
+        await PasskeyRequests.RegisterAsync(session.Client);
+        var userId = (await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me")).GetProperty("id").GetString();
+        Assert.True((await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me")).GetProperty("hasPasskeys").GetBoolean());
+
+        using (var admin = await ProjectWebApplicationFactory.LoginAsync(factory, "admin", ProjectWebApplicationFactory.TestAdminPassword))
+        using (var reset = await admin.Client.PostAsJsonAsync($"/api/v1/users/{userId}/reset-two-factor", new { }))
+        {
+            Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
+        }
+
+        using var again = await ProjectWebApplicationFactory.LoginAsync(factory, username, Password);
+        var status = await again.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me/two-factor");
+        Assert.Equal(0, status.GetProperty("passkeys").GetArrayLength());
+        Assert.Equal(0, status.GetProperty("recoveryCodesLeft").GetInt32());
+    }
+
+    [Fact]
     public async Task Without_a_relying_party_passkeys_are_unavailable()
     {
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>

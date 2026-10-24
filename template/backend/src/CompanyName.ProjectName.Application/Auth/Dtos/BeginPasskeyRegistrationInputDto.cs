@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using CompanyName.ProjectName.Application.Auth.Policies;
 
 namespace CompanyName.ProjectName.Application.Auth.Dtos;
@@ -16,7 +17,10 @@ public sealed record BeginPasskeyRegistrationInputDto : IValidatableObject
     [RegularExpression(@"^\s*\d{3}\s?\d{3}\s*$", ErrorMessage = "The verification code must contain exactly 6 digits.")]
     public string? TwoFactorCode { get; init; }
 
+    /// <summary>通行密钥断言的 JSON 形式（先经 <c>me/reauthentication/passkey-options</c> 取选项），与其他凭证三选一；会话刚认证过时不用带。</summary>
+    public JsonElement? Passkey { get; init; }
+
     /// <inheritdoc />
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
-        ReauthenticationProof.ValidateOneAtATime(Password, TwoFactorCode, nameof(TwoFactorCode));
+        ReauthenticationProof.ValidateOneAtATime(Password, TwoFactorCode, Passkey, nameof(TwoFactorCode));
 }
