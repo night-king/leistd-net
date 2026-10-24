@@ -64,7 +64,7 @@ jobs:
   release:
     needs: [candidate, quality]
     # 跳过机器人自身回写提交与 [skip ci]，避免死循环；schedule/dispatch 没有 head_commit。
-    if: needs.candidate.outputs.needed == 'true' && needs.quality.result == 'success' && fromJSON(needs.quality.outputs.validation_plan).ReleaseRequired && fromJSON(needs.quality.outputs.validation_plan).Mode == 'full' && fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha
+    if: needs.candidate.outputs.needed == 'true' && needs.quality.result == 'success' && fromJSON(needs.quality.outputs.validation_plan).ReleaseRequired && fromJSON(needs.quality.outputs.validation_plan).Mode == 'full' && fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha && fromJSON(needs.quality.outputs.validation_plan).QualityValidated && (fromJSON(needs.quality.outputs.validation_plan).QualityExecution == 'current' || (fromJSON(needs.quality.outputs.validation_plan).QualityExecution == 'reuse' && fromJSON(needs.quality.outputs.validation_plan).QualityReuse.Verified))
     runs-on: ubuntu-latest
     outputs:
       # 模板通道从这个提交打包：stable 是版本回写提交（模板默认的 LeistdFrameworkVersion 已是本次正式版），beta 即候选 SHA
@@ -234,6 +234,8 @@ jobs:
       - name: 生成发布说明
         id: notes
         shell: pwsh
+        env:
+          VALIDATION_PLAN: ${{ needs.quality.outputs.validation_plan }}
         run: |
           $lastStableTag = '${{ steps.ver.outputs.lastStableTag }}'
           $range = if ([string]::IsNullOrWhiteSpace($lastStableTag)) { 'HEAD' } else { "$lastStableTag..HEAD" }
@@ -283,9 +285,10 @@ jobs:
             $lines.Add('')
           }
 
-          $content = $lines -join "`n"
+          Format-QualityReuseNote ($env:VALIDATION_PLAN | ConvertFrom-Json) '${{ github.repository }}' |
+            ForEach-Object { $lines.Add($_) }
           "content<<EOF" | Out-File $env:GITHUB_OUTPUT -Append
-          $content | Out-File $env:GITHUB_OUTPUT -Append
+          ($lines -join "`n") | Out-File $env:GITHUB_OUTPUT -Append
           "EOF" | Out-File $env:GITHUB_OUTPUT -Append
 
       - name: 准备 stable 版本提交
@@ -502,7 +505,8 @@ jobs:
       (needs.release.result == 'success' || needs.release.result == 'skipped') &&
       (fromJSON(needs.quality.outputs.validation_plan).TemplateRelease.Changed || fromJSON(needs.quality.outputs.validation_plan).TemplateRelease.Required) &&
       fromJSON(needs.quality.outputs.validation_plan).Mode == 'full' &&
-      fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha
+      fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha &&
+      fromJSON(needs.quality.outputs.validation_plan).QualityValidated && (fromJSON(needs.quality.outputs.validation_plan).QualityExecution == 'current' || (fromJSON(needs.quality.outputs.validation_plan).QualityExecution == 'reuse' && fromJSON(needs.quality.outputs.validation_plan).QualityReuse.Verified))
     runs-on: ubuntu-latest
     # template-v* 的推算同样是对 tag 命名空间的读—改—写，同一分支排队；不与框架发布共用分组
     concurrency:
@@ -602,6 +606,8 @@ jobs:
       - name: 生成模板发布说明
         id: tnotes
         shell: pwsh
+        env:
+          VALIDATION_PLAN: ${{ needs.quality.outputs.validation_plan }}
         run: |
           . ./scripts/release-commits.ps1
           $lastTag = '${{ steps.tver.outputs.lastTag }}'
@@ -628,6 +634,8 @@ jobs:
             $lines.Add('## 升级说明'); $lines.Add('')
             $lines.Add("- [升级到 ${{ steps.tver.outputs.baseVersion }}](https://github.com/${{ github.repository }}/blob/$tag/$guide)"); $lines.Add('')
           }
+          Format-QualityReuseNote ($env:VALIDATION_PLAN | ConvertFrom-Json) '${{ github.repository }}' |
+            ForEach-Object { $lines.Add($_) }
           "content<<EOF" | Out-File $env:GITHUB_OUTPUT -Append
           ($lines -join "`n") | Out-File $env:GITHUB_OUTPUT -Append
           "EOF" | Out-File $env:GITHUB_OUTPUT -Append

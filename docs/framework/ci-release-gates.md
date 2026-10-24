@@ -11,7 +11,7 @@
 文档与代码使用[计划器](../../scripts/plan-quality-checks.py)的唯一输入分类，读取完整 base→候选差异；删除和跨边界移动计入两端。
 
 - 未知路径、空差异、force push、无法确认依赖或基准时，直接 PR 跑[代表场景冒烟](../template/quality-assurance.md#pr-增量保证)，其他触发方式完整验证。
-- 直接 PR 可按责任缩小；手动、定时和实际发布候选完整执行。
+- 直接 PR 可按责任缩小；手动、定时和实际发布候选保留完整责任；stable 同树复用按下述规则承接代码证据。
 
 | 文档输入 | 必过责任 |
 | --- | --- |
@@ -63,7 +63,17 @@ candidate 与 CI 分别查询 Actions API；失败、取消、进行中、缺失
 
 PR 墙钟中位 ≤ 510 秒、各路径总交付成本中位低于基线的目标，按[成本观测](#成本观测)在切换后观测判定，不能以功能验收或单次耗时认定达标。
 
-`quality-plan` 独立 checkout 固定候选与完整历史，输出 Version 3 的输入分类、Jobs、档位/模式、场景/容器及两份基线；被 `release.yml` 复用时以调用方传入的同一候选与基线计算，放行只认汇总输出的计划。framework-pack 按责任只打包一次，不可变 artifact 供消费者下载；不适用时连 SDK 安装一起跳过。每个作业直接检查计划中的自身责任，汇总始终运行。规划作业的新增 runner 时间计入净成本。
+`quality-plan` 独立 checkout 固定候选与完整历史，输出 Version 4 的输入分类、Jobs、档位/模式、场景/容器及两份基线；被 `release.yml` 复用时以调用方传入的同一候选与基线计算，放行只认汇总输出的计划。framework-pack 按责任只打包一次，不可变 artifact 供消费者下载；不适用时连 SDK 安装一起跳过。每个作业直接检查计划中的自身责任，汇总始终运行。规划作业的新增 runner 时间计入净成本。
+
+### 正式发布复用同树质量证据
+
+仅 stable 的 main push 发布候选可复用其第二父提交的 develop push 运行；两树必须相同，且该 head 的最新 release.yml 运行及最新 attempt 已成功。源码、workflow 与工具解析策略相同即可，接受该策略允许的实际环境漂移；不承诺实际 SDK、Action 或 runner 字节相同。
+
+计划器经 Actions API 读取完整作业列表及固定 ID 的 `quality-plan-<run_id>-<attempt>` 构件。来源必须是当场执行的 Version 4 full 计划，覆盖全部登记场景、执行组、两个容器、全部框架测试与消费者、包/生成文档和 PG/OIDC；逐项作业与受信汇总均成功。full 的标签或单独一个汇总绿灯不能替代责任核验，不跨 attempt 拼接，不复用其他运行的复用结果。构件缺失、过期、重复、归属不符、API/权限/分页/超时失败均带原因回退原 full 计划，旧运行不从日志补证据。
+
+本次 `CandidateSha` 和发布基线不变；`QualityExecution=reuse`、`QualityReuse` 记录 RunId/Attempt/HeadSha/Tree/PlanArtifactId，Jobs、场景和容器责任保持完整。决定在计划作业完成远端核验后冻结；汇总核对被复用作业实际 skipped、见证匹配第二父提交和树，成功后才输出 `QualityValidated=true`。原始 current 分支继续逐项核对全部回执；错误或损坏的复用汇总失败关闭，重跑重新规划。
+
+前端依赖审计依赖实时漏洞库，stable 每次仍执行且须成功；最终 Framework/模板包的打包、隔离消费、来源证明、nuget.org 还原与升级闸门也保持现场执行，不复用包产物。两种 Release 正文均记录复用来源。beta、nightly、PR 与手动 stable 的验证责任不变。
 
 ### 成本观测
 
@@ -112,7 +122,7 @@ Framework 依赖闭包只裁剪各自含单一 PackageReference 的空 restore/b
 
 ### 汇总与回执
 
-汇总 `template-matrix` 使用 always，要求静态与独立 quality-plan 作业成功，按计划严格核对每个动态作业的 success/skipped，再按 quality-plan 输出的 Version 3 计划核对准确执行组、场景、阶段、SHA、档位、包与生成文档证明。
+汇总 `template-matrix` 使用 always；current 执行要求静态与独立 quality-plan 作业成功，按计划严格核对每个动态作业的 success/skipped，再按 quality-plan 输出的 Version 4 计划核对准确执行组、场景、阶段、SHA、档位、包与生成文档证明。
 
 - 每个必要场景必须唯一分配；回执不能自行缩小范围。
 - 登记 `Verify` 的场景在完整模式须回执 `Verify=pass`，其余为 `not-run`。
@@ -143,7 +153,7 @@ Framework 依赖闭包只裁剪各自含单一 PackageReference 的空 restore/b
 
 ## 放行责任
 
-放行候选（develop beta、main 正式版、夜间与手动发布，即计划 `ReleaseRequired=true`）在发布前必须证明下表每一项；本表是放行责任的唯一出处，其他文档只链接这里。计划器对放行候选无条件设置 `ContainerSmoke=true`，不论输入分类；计划验证拒绝放行计划中任何作业不适用（含 PostgreSQL 与 OIDC）或缺少容器责任。汇总 `template-matrix` 逐项核对，任一项缺失、失败、取消或计数为 0 都以非零退出：
+放行候选（develop beta、main 正式版、夜间与手动发布，即计划 `ReleaseRequired=true`）在发布前必须证明下表每一项；本表是放行责任的唯一出处，其他文档只链接这里。计划器对放行候选无条件设置 `ContainerSmoke=true`，不论输入分类；计划验证拒绝放行计划中任何作业不适用（含 PostgreSQL 与 OIDC）或缺少容器责任。汇总 `template-matrix` 逐项核对，任一项缺失、失败、取消或计数为 0 都以非零退出。同树复用按[上述规则](#正式发布复用同树质量证据)承接这些代码责任，本次实时依赖审计仍须成功：
 
 | 责任 | 判据 | 汇总核对 |
 | --- | --- | --- |
