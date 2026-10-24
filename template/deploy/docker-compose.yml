@@ -93,6 +93,7 @@ services:
       # 账号与口令成对填写或都留空（服务器不要求认证时），只填一项启动失败
       - Leistd__Email__Smtp__Host=${SMTP_HOST:?SMTP_HOST is required}
       - Leistd__Email__Smtp__Port=${SMTP_PORT:?SMTP_PORT is required}
+      # 有意的生产默认：基础档为本机 Mailpit 写的是 false，部署环境缺省走 TLS
       - Leistd__Email__Smtp__EnableSsl=${SMTP_ENABLE_SSL:-true}
       - Leistd__Email__Smtp__DefaultFromAddress=${SMTP_FROM_ADDRESS:?SMTP_FROM_ADDRESS is required}
       - Leistd__Email__Smtp__Username=${SMTP_USERNAME:-}
@@ -117,7 +118,8 @@ services:
       # 轮换期间新旧证书同时登记（下标 1 起），步骤见 docs/operations/runbooks/token-certificate-rotation.md
       # - OAuth__SigningCertificates__1__Path=/run/secrets/oauth-signing-certificate-next
       # - OAuth__SigningCertificates__1__Password=${OAUTH_SIGNING_CERTIFICATE_NEXT_PASSWORD}
-      # 由本服务签发令牌的下游 API（每项登记为同名 scope；下游服务的 Authentication:Audience 取同一个值）
+      # 由本服务签发令牌的下游 API（每项登记一个服务级 scope；下游服务的 Authentication:Audience 取 Name；
+      # Scope 与 OwnerClientId 可单独配置，不配时取 Name）
       # - OAuth__ApiResources__0__Name=orders-api
 #endif
 

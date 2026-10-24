@@ -149,8 +149,8 @@ public class OrderService
         stubs=EF_CONTEXT + '''
 public interface IJobRunStore
 {
-    Task<Guid> InsertAsync(global::Leistd.BackgroundJobs.Recurring.RecurringJobRun run, string? traceId, CancellationToken cancellationToken);
-    Task SaveAsync(Guid? id, global::Leistd.BackgroundJobs.Recurring.RecurringJobRun run,
+    Task InsertAsync(Guid id, global::Leistd.BackgroundJobs.Recurring.RecurringJobRun run, string? traceId, CancellationToken cancellationToken);
+    Task SaveAsync(Guid id, global::Leistd.BackgroundJobs.Recurring.RecurringJobRun run,
         global::Leistd.BackgroundJobs.Recurring.RecurringJobRunResult result, CancellationToken cancellationToken);
 }
 

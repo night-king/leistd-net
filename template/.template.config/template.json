@@ -880,7 +880,8 @@
           "exclude": [
             "backend/src/CompanyName.ProjectName.Api/Auth/Sessions/AccessTokenRenewal.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/ServiceInvocationTests.cs",
-            "backend/tests/CompanyName.ProjectName.IntegrationTests/AuthenticationModeTests.cs"
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/AuthenticationModeTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Api/MachineScopePolicyTests.cs"
           ]
         },
         {
