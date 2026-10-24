@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CompanyName.ProjectName.Application.Settings.Provider;
-using CompanyName.ProjectName.IntegrationTests.Fixtures;
 using Leistd.Email.Abstractions;
 using Leistd.Security.OneTimeCodes;
 using Microsoft.AspNetCore.Mvc.Testing;

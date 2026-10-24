@@ -7,7 +7,6 @@ using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
 using CompanyName.ProjectName.Infrastructure.Persistence;
-using CompanyName.ProjectName.IntegrationTests.Fixtures;
 using Leistd.Email.Abstractions;
 using Leistd.Security.OneTimeCodes;
 using Microsoft.AspNetCore.Mvc.Testing;
