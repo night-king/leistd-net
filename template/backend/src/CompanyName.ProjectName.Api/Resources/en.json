@@ -18,6 +18,7 @@
     "Auth:InvalidCredentials": "The username or password is incorrect.",
     "Auth:InvalidCredentials:Record": "Incorrect username or password (failed attempts in the last {windowMinutes} minutes: {attempts})",
     "Auth:PasskeyAlreadyRegistered": "This passkey is already registered.",
+    "Auth:PasskeyCeremonyExpired": "This passkey request has expired. Try again.",
     "Auth:PasskeyNotFound": "This passkey doesn't exist.",
     "Auth:PasskeyUnavailable": "Passkeys aren't available on this site right now. Contact your administrator.",
     "Auth:PasskeyVerificationFailed": "The passkey couldn't be verified. Try again.",
@@ -188,6 +189,10 @@
     "SecurityAlert:LockedOut:Title": "Your account was locked",
     "SecurityAlert:NewDeviceSignIn:Content": "Your account was just signed in from a new device ({Device}, IP {Ip}). If this wasn't you, sign it out and change your password.",
     "SecurityAlert:NewDeviceSignIn:Title": "New sign-in to your account",
+    "SecurityAlert:PasskeyAdded:Content": "A passkey was added to your account. If you didn't do this, remove it and change your password right away.",
+    "SecurityAlert:PasskeyAdded:Title": "Passkey added",
+    "SecurityAlert:PasskeyRemoved:Content": "A passkey was removed from your account. If you didn't do this, contact your administrator.",
+    "SecurityAlert:PasskeyRemoved:Title": "Passkey removed",
     "SecurityAlert:PasswordChanged:Content": "If you didn't do this, contact your administrator right away.",
     "SecurityAlert:PasswordChanged:Title": "Your password was changed",
 //#if (Email)

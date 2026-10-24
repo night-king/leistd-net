@@ -175,6 +175,15 @@ public static class OperationRecordActions
     /// <remarks>值得单独留痕：恢复码是手机不在身边时的后门，被别人用掉时本人和管理员都该看得到。</remarks>
     public const string AuthTwoFactorRecoveryCodeUsed = "auth.two-factor.recovery-code-used";
 
+    /// <summary>用户添加了一把通行密钥。</summary>
+    public const string AuthTwoFactorPasskeyAdded = "auth.two-factor.passkey-added";
+
+    /// <summary>用户删除了一把通行密钥。</summary>
+    public const string AuthTwoFactorPasskeyRemoved = "auth.two-factor.passkey-removed";
+
+    /// <summary>用户给一把通行密钥改了名。</summary>
+    public const string AuthTwoFactorPasskeyRenamed = "auth.two-factor.passkey-renamed";
+
     /// <summary>用户指定了首选第二步方式。</summary>
     public const string AuthTwoFactorPreferredMethodChanged = "auth.two-factor.preferred-method-changed";
 #if (Email)

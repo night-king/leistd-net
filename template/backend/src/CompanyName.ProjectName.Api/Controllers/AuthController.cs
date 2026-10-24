@@ -37,6 +37,7 @@ public sealed class AuthController(
 #endif
     IUserSessionAppService sessionAppService,
     ITwoFactorAppService twoFactorAppService,
+    IPasskeyAppService passkeyAppService,
     SessionCookieIssuer sessionCookieIssuer) : BaseController
 {
     /// <summary>账号密码登录。已启用两步验证时不下发会话，返回第二步凭据。</summary>
@@ -319,6 +320,37 @@ public sealed class AuthController(
     public Task DisableEmailTwoFactorAsync([FromBody] EmailTwoFactorChangeInputDto input, CancellationToken cancellationToken)
         => twoFactorAppService.DisableEmailAsync(input, cancellationToken);
 #endif
+
+    /// <summary>开始添加通行密钥：确认是本人后返回交给浏览器的创建选项。</summary>
+    /// <remarks>受限会话（组织要求两步验证而此前没有独立因子）也能添加，添加完即解除限制。</remarks>
+    [Authorize]
+    [AllowDuringTwoFactorSetup]
+    [HttpPost("me/two-factor/passkeys/options")]
+    public Task<PasskeyOptionsOutputDto> BeginPasskeyRegistrationAsync(
+        [FromBody] BeginPasskeyRegistrationInputDto input,
+        CancellationToken cancellationToken)
+        => passkeyAppService.BeginRegistrationAsync(input, cancellationToken);
+
+    /// <summary>完成添加通行密钥；它是第一个独立因子时一并返回新发的恢复码。</summary>
+    [Authorize]
+    [AllowDuringTwoFactorSetup]
+    [HttpPost("me/two-factor/passkeys")]
+    public Task<PasskeyRegistrationOutputDto> CompletePasskeyRegistrationAsync(
+        [FromBody] CompletePasskeyRegistrationInputDto input,
+        CancellationToken cancellationToken)
+        => passkeyAppService.CompleteRegistrationAsync(input, cancellationToken);
+
+    /// <summary>给通行密钥改名。</summary>
+    [Authorize]
+    [HttpPut("me/two-factor/passkeys/{id:guid}/name")]
+    public Task<PasskeyOutputDto> RenamePasskeyAsync(Guid id, [FromBody] RenamePasskeyInputDto input, CancellationToken cancellationToken)
+        => passkeyAppService.RenameAsync(id, input, cancellationToken);
+
+    /// <summary>删除通行密钥（会话不够新时带上本人的一种凭证）。</summary>
+    [Authorize]
+    [HttpPost("me/two-factor/passkeys/{id:guid}/remove")]
+    public Task RemovePasskeyAsync(Guid id, [FromBody] BeginPasskeyRegistrationInputDto input, CancellationToken cancellationToken)
+        => passkeyAppService.RemoveAsync(id, input, cancellationToken);
 
     /// <summary>指定登录第二步的首选方式。</summary>
     [Authorize]

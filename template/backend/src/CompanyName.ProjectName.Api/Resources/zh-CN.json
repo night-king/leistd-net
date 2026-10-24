@@ -18,6 +18,7 @@
     "Auth:InvalidCredentials": "用户名或密码不正确。",
     "Auth:InvalidCredentials:Record": "用户名或密码不正确（{windowMinutes} 分钟内已失败 {attempts} 次）",
     "Auth:PasskeyAlreadyRegistered": "这把通行密钥已经添加过了。",
+    "Auth:PasskeyCeremonyExpired": "这次通行密钥操作已过期，请重试。",
     "Auth:PasskeyNotFound": "这把通行密钥不存在。",
     "Auth:PasskeyUnavailable": "本站暂时不能使用通行密钥，请联系管理员。",
     "Auth:PasskeyVerificationFailed": "通行密钥验证没有通过，请重试。",
@@ -188,6 +189,10 @@
     "SecurityAlert:LockedOut:Title": "账号已被临时锁定",
     "SecurityAlert:NewDeviceSignIn:Content": "你的账号刚在一台新设备上登录（{Device}，IP {Ip}）。如果不是你本人，请让它退出登录并修改密码。",
     "SecurityAlert:NewDeviceSignIn:Title": "账号在新设备上登录",
+    "SecurityAlert:PasskeyAdded:Content": "你的账号添加了一把通行密钥。如果不是你本人操作，请立即删除它并修改密码。",
+    "SecurityAlert:PasskeyAdded:Title": "已添加通行密钥",
+    "SecurityAlert:PasskeyRemoved:Content": "你的账号删除了一把通行密钥。如果不是你本人操作，请联系管理员。",
+    "SecurityAlert:PasskeyRemoved:Title": "已删除通行密钥",
     "SecurityAlert:PasswordChanged:Content": "如果不是你本人操作，请立即联系管理员。",
     "SecurityAlert:PasswordChanged:Title": "密码已修改",
 //#if (Email)

@@ -56,6 +56,21 @@ public class PasskeyDomainService(IRepository<UserPasskey, Guid> passkeyReposito
         return passkey ?? throw new BusinessException(AuthErrorCodes.PasskeyNotFound, "This passkey doesn't exist.");
     }
 
+    /// <summary>给本人的一把通行密钥改名。</summary>
+    public async Task<UserPasskey> RenameAsync(User user, Guid passkeyId, string name, CancellationToken cancellationToken = default)
+    {
+        var passkey = await GetOwnAsync(user, passkeyId, cancellationToken);
+        passkey.Rename(name);
+        return await passkeyRepository.UpdateAsync(passkey, cancellationToken);
+    }
+
+    /// <summary>记下一次通过的使用：新的计数器与备份状态。</summary>
+    public async Task RecordUseAsync(UserPasskey passkey, long signCount, bool isBackedUp, DateTime now, CancellationToken cancellationToken = default)
+    {
+        passkey.RecordUse(signCount, isBackedUp, now);
+        await passkeyRepository.UpdateAsync(passkey, cancellationToken);
+    }
+
     /// <summary>删除本人的一把通行密钥；最后一个独立因子去掉时恢复码随之作废（见 <c>User.RecordPasskeyRemoved</c>）。</summary>
     public async Task RemoveAsync(User user, UserPasskey passkey, CancellationToken cancellationToken = default)
     {

@@ -28,6 +28,7 @@ using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Sessions;
 using CompanyName.ProjectName.Application.Auth.SignIn;
 using CompanyName.ProjectName.Application.Auth.TwoFactor;
+using CompanyName.ProjectName.Application.Auth.Passkeys;
 using CompanyName.ProjectName.Domain.Auth.Events;
 using Leistd.BackgroundJobs;
 using Leistd.BackgroundJobs.Recurring;
@@ -114,6 +115,8 @@ public static class DependencyInjection
         services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<TwoFactorSetupCompletedEvent>, TwoFactorSetupCompletedEventHandler>());
         services.TryAddTransient<TwoFactorChallengeStore>();
         services.TryAddTransient<TwoFactorMethodResolver>();
+        services.TryAddTransient<PasskeyCeremonyStore>();
+        services.TryAddTransient<IPasskeyAppService, PasskeyAppService>();
         // 不再登录的用户没有"登录时顺手清理"的时机，过期会话与其中的原始 IP 由这个作业每天清掉
         services.AddRecurringJob<ExpiredUserSessionCleanupJob>(
             ExpiredUserSessionCleanupJob.Name,

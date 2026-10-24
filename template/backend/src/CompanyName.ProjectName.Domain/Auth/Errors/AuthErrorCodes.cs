@@ -16,6 +16,7 @@ public static class AuthErrorCodes
 #endif
     public const string InvalidCredentials = "Auth:InvalidCredentials";
     public const string PasskeyAlreadyRegistered = "Auth:PasskeyAlreadyRegistered";
+    public const string PasskeyCeremonyExpired = "Auth:PasskeyCeremonyExpired";
     public const string PasskeyNotFound = "Auth:PasskeyNotFound";
     public const string PasskeyUnavailable = "Auth:PasskeyUnavailable";
     public const string PasskeyVerificationFailed = "Auth:PasskeyVerificationFailed";

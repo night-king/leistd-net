@@ -272,6 +272,21 @@ public class OperationActionDefinitionProvider : IOperationActionDefinitionProvi
             OperationRecordCategories.Authentication,
             OperationVisibility.Tenant,
             OperationSeverity.Notice);
+        // 登录方式的增减：多一把通行密钥等于多开一扇门
+        context.Add(
+            OperationRecordActions.AuthTwoFactorPasskeyAdded,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor,
+            OperationSeverity.Notice);
+        context.Add(
+            OperationRecordActions.AuthTwoFactorPasskeyRemoved,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor,
+            OperationSeverity.Notice);
+        context.Add(
+            OperationRecordActions.AuthTwoFactorPasskeyRenamed,
+            OperationRecordCategories.Authentication,
+            OperationVisibility.Actor);
         context.Add(
             OperationRecordActions.AuthTwoFactorPreferredMethodChanged,
             OperationRecordCategories.Authentication,

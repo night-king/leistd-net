@@ -30,6 +30,12 @@ public enum SecurityAlertKind
 
     /// <summary>账号的邮箱换成了另一个地址（本人或管理员修改）。</summary>
     EmailChanged,
+
+    /// <summary>添加了一把通行密钥。</summary>
+    PasskeyAdded,
+
+    /// <summary>删除了一把通行密钥。</summary>
+    PasskeyRemoved,
 #if (Email)
 
     /// <summary>本人凭邮箱验证码找回了口令（忘记口令）。</summary>

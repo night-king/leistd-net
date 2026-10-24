@@ -12,6 +12,7 @@ using CompanyName.ProjectName.Application.Auth.EmailVerification;
 using Leistd.Redaction;
 #endif
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
+using CompanyName.ProjectName.Domain.Auth.Passkeys;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
 using CompanyName.ProjectName.Domain.Users.DomainServices;
@@ -52,6 +53,8 @@ internal sealed class TwoFactorAppService(
 #endif
     UserDomainService userDomainService,
     UserSessionDomainService userSessionDomainService,
+    PasskeyDomainService passkeyDomainService,
+    IPasskeyProtocol passkeyProtocol,
     ILoginSecurityPolicyProvider loginSecurityPolicy,
     IReauthenticationGuard reauthenticationGuard,
     IOperationRecorder operationRecorder,
@@ -75,6 +78,8 @@ internal sealed class TwoFactorAppService(
         return new TwoFactorStatusOutputDto
         {
             Enabled = user.TwoFactorEnabled,
+            Passkeys = [.. (await passkeyDomainService.GetListAsync(user.Id, cancellationToken)).Select(PasskeyAppService.ToOutput)],
+            PasskeysAvailable = passkeyProtocol.IsAvailable,
             RecoveryCodesLeft = user.RecoveryCodesLeft,
             RequiredByPolicy = policy.RequireTwoFactor,
             PreferredMethod = user.PreferredTwoFactorMethod,
