@@ -51,6 +51,9 @@
               [disabled]="busy()"
               (click)="turnOff()"
             >
+              @if (busy()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              }
               {{ t('account.twoFactorEmail.turnOff') }}
             </button>
           </div>
@@ -147,7 +150,7 @@
 
   <app-reauthenticate-dialog
     [visible]="reauth.visible()"
-    (visibleChange)="reauth.setVisible($event)"
+    (visibleChange)="onReauthenticationVisibleChange($event)"
     [saving]="reauth.saving()"
     [(error)]="reauth.error"
     [description]="t('account.twoFactorEmail.reauthDescription')"

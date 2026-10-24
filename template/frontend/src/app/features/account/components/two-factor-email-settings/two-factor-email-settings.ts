@@ -154,19 +154,32 @@ export class TwoFactorEmailSettings {
     this.resend.stop();
   }
 
+  protected onReauthenticationVisibleChange(visible: boolean): void {
+    const saving = this.reauth.saving();
+    this.reauth.setVisible(visible);
+    if (!visible && !saving) this.busy.set(false);
+  }
   protected async turnOff(): Promise<void> {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('account.twoFactorEmail.turnOffConfirm'),
-      confirmText: this.transloco.translate('account.twoFactorEmail.turnOff'),
-      //#else
-      message: this.t('account.twoFactorEmail.turnOffConfirm'),
-      confirmText: this.t('account.twoFactorEmail.turnOff'),
-      //#endif
-      variant: 'destructive',
-    });
-    if (confirmed) {
-      this.disable();
+    if (this.busy()) return;
+    this.busy.set(true);
+    let submitted = false;
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('account.twoFactorEmail.turnOffConfirm'),
+        confirmText: this.transloco.translate('account.twoFactorEmail.turnOff'),
+        //#else
+        message: this.t('account.twoFactorEmail.turnOffConfirm'),
+        confirmText: this.t('account.twoFactorEmail.turnOff'),
+        //#endif
+        variant: 'destructive',
+      });
+      if (confirmed) {
+        this.disable();
+        submitted = true;
+      }
+    } finally {
+      if (!submitted) this.busy.set(false);
     }
   }
 
@@ -194,7 +207,11 @@ export class TwoFactorEmailSettings {
     this.busy.set(true);
     this.accountService
       .disableEmailTwoFactor({ password: proof?.password, twoFactorCode: proof?.twoFactorCode })
-      .pipe(finalize(() => this.busy.set(false)))
+      .pipe(
+        finalize(() => {
+          if (!this.reauth.visible()) this.busy.set(false);
+        }),
+      )
       .subscribe({
         next: () => {
           this.reauth.complete();

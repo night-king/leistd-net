@@ -95,7 +95,7 @@
 
   <app-reauthenticate-dialog
     [visible]="reauth.visible()"
-    (visibleChange)="reauth.setVisible($event)"
+    (visibleChange)="onReauthenticationVisibleChange($event)"
     [saving]="reauth.saving()"
     [(error)]="reauth.error"
     [description]="t('account.externalLogins.unlinkReauthDescription')"

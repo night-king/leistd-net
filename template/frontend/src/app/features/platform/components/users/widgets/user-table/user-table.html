@@ -209,6 +209,12 @@
                               @if (hasRowActions()) {
                                 <!-- 菜单里只剩行内按钮的窄屏副本时，桌面端不显示触发器，免得点开为空。 -->
                                 <button
+                                  [disabled]="
+                                    deletingId() === row.original.id ||
+                                    activationId() === row.original.id ||
+                                    unlockingId() === row.original.id ||
+                                    resettingTwoFactorId() === row.original.id
+                                  "
                                   hlmBtn
                                   variant="ghost"
                                   size="icon-sm"
@@ -218,7 +224,16 @@
                                   [attr.aria-label]="t('common.actions')"
                                   [hlmDropdownMenuTrigger]="rowMenu"
                                 >
-                                  <ng-icon name="lucideEllipsis" />
+                                  @if (
+                                    deletingId() === row.original.id ||
+                                    activationId() === row.original.id ||
+                                    unlockingId() === row.original.id ||
+                                    resettingTwoFactorId() === row.original.id
+                                  ) {
+                                    <hlm-spinner class="text-base" />
+                                  } @else {
+                                    <ng-icon name="lucideEllipsis" />
+                                  }
                                 </button>
                               }
                               <ng-template #rowMenu>
@@ -275,11 +290,16 @@
                                     }
                                     @if (canUpdate() && row.original.isLockedOut) {
                                       <button
+                                        [disabled]="unlockingId() !== null"
                                         hlmDropdownMenuItem
                                         data-testid="user-unlock"
                                         (click)="unlock.emit(row.original)"
                                       >
-                                        <ng-icon name="lucideLockOpen" />
+                                        @if (unlockingId() === row.original.id) {
+                                          <hlm-spinner class="text-base" data-icon="inline-start" />
+                                        } @else {
+                                          <ng-icon name="lucideLockOpen" />
+                                        }
                                         {{ t('users.tooltip.unlock') }}
                                       </button>
                                     }
@@ -289,7 +309,9 @@
                                         hlmDropdownMenuItem
                                         data-testid="user-reset-two-factor"
                                         [disabled]="
-                                          isOtherSuperAdmin(row.original) || isSelf(row.original)
+                                          resettingTwoFactorId() !== null ||
+                                          isOtherSuperAdmin(row.original) ||
+                                          isSelf(row.original)
                                         "
                                         [attr.aria-describedby]="
                                           isSelf(row.original)
@@ -298,7 +320,11 @@
                                         "
                                         (click)="resetTwoFactor.emit(row.original)"
                                       >
-                                        <ng-icon name="lucideShieldOff" />
+                                        @if (resettingTwoFactorId() === row.original.id) {
+                                          <hlm-spinner class="text-base" data-icon="inline-start" />
+                                        } @else {
+                                          <ng-icon name="lucideShieldOff" />
+                                        }
                                         {{ t('users.tooltip.resetTwoFactor') }}
                                       </button>
                                       @if (isSelf(row.original)) {
@@ -317,7 +343,9 @@
                                       <button
                                         hlmDropdownMenuItem
                                         [disabled]="
-                                          isSuperAdmin(row.original) || isSelf(row.original)
+                                          activationId() !== null ||
+                                          isSuperAdmin(row.original) ||
+                                          isSelf(row.original)
                                         "
                                         [attr.aria-describedby]="
                                           isSelf(row.original)
@@ -326,13 +354,17 @@
                                         "
                                         (click)="toggleActive.emit(row.original)"
                                       >
-                                        <ng-icon
-                                          [name]="
-                                            row.original.isActive
-                                              ? 'lucideBan'
-                                              : 'lucideCircleCheck'
-                                          "
-                                        />
+                                        @if (activationId() === row.original.id) {
+                                          <hlm-spinner class="text-base" data-icon="inline-start" />
+                                        } @else {
+                                          <ng-icon
+                                            [name]="
+                                              row.original.isActive
+                                                ? 'lucideBan'
+                                                : 'lucideCircleCheck'
+                                            "
+                                          />
+                                        }
                                         {{
                                           row.original.isActive
                                             ? t('users.tooltip.disable')
@@ -356,7 +388,9 @@
                                       hlmDropdownMenuItem
                                       variant="destructive"
                                       [disabled]="
-                                        isSuperAdmin(row.original) || isSelf(row.original)
+                                        deletingId() !== null ||
+                                        isSuperAdmin(row.original) ||
+                                        isSelf(row.original)
                                       "
                                       [attr.aria-describedby]="
                                         isSelf(row.original)
@@ -365,7 +399,11 @@
                                       "
                                       (click)="delete.emit(row.original)"
                                     >
-                                      <ng-icon name="lucideTrash2" />
+                                      @if (deletingId() === row.original.id) {
+                                        <hlm-spinner class="text-base" data-icon="inline-start" />
+                                      } @else {
+                                        <ng-icon name="lucideTrash2" />
+                                      }
                                       {{ t('common.delete') }}
                                     </button>
                                     @if (isSelf(row.original)) {

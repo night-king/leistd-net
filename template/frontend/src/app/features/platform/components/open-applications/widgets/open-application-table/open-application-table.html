@@ -137,16 +137,24 @@
                                   variant="ghost"
                                   size="icon-sm"
                                   class="hidden sm:inline-flex"
-                                  [disabled]="row.original.clientType !== 'confidential'"
+                                  [disabled]="
+                                    resettingSecretId() !== null ||
+                                    row.original.clientType !== 'confidential'
+                                  "
                                   [hlmTooltip]="t('openApp.action.resetSecret')"
                                   [attr.aria-label]="t('openApp.action.resetSecret')"
                                   (click)="resetSecret.emit(row.original.id)"
                                 >
-                                  <ng-icon name="lucideRefreshCw" />
+                                  @if (resettingSecretId() === row.original.id) {
+                                    <hlm-spinner class="text-base" data-icon="inline-start" />
+                                  } @else {
+                                    <ng-icon name="lucideRefreshCw" />
+                                  }
                                 </button>
                               }
                               @if (canDelete()) {
                                 <button
+                                  [disabled]="deletingId() !== null"
                                   hlmBtn
                                   variant="ghost"
                                   size="icon-sm"
@@ -155,11 +163,19 @@
                                   [attr.aria-label]="t('common.delete')"
                                   (click)="delete.emit(row.original.id)"
                                 >
-                                  <ng-icon name="lucideTrash2" />
+                                  @if (deletingId() === row.original.id) {
+                                    <hlm-spinner class="text-base" data-icon="inline-start" />
+                                  } @else {
+                                    <ng-icon name="lucideTrash2" />
+                                  }
                                 </button>
                               }
                               @if (hasRowActions()) {
                                 <button
+                                  [disabled]="
+                                    deletingId() === row.original.id ||
+                                    resettingSecretId() === row.original.id
+                                  "
                                   hlmBtn
                                   variant="ghost"
                                   size="icon-sm"
@@ -168,7 +184,14 @@
                                   [attr.aria-label]="t('common.actions')"
                                   [hlmDropdownMenuTrigger]="rowMenu"
                                 >
-                                  <ng-icon name="lucideEllipsis" />
+                                  @if (
+                                    deletingId() === row.original.id ||
+                                    resettingSecretId() === row.original.id
+                                  ) {
+                                    <hlm-spinner class="text-base" />
+                                  } @else {
+                                    <ng-icon name="lucideEllipsis" />
+                                  }
                                 </button>
                               }
                               <ng-template #rowMenu>
@@ -186,10 +209,17 @@
                                     @if (canResetSecret()) {
                                       <button
                                         hlmDropdownMenuItem
-                                        [disabled]="row.original.clientType !== 'confidential'"
+                                        [disabled]="
+                                          resettingSecretId() !== null ||
+                                          row.original.clientType !== 'confidential'
+                                        "
                                         (click)="resetSecret.emit(row.original.id)"
                                       >
-                                        <ng-icon name="lucideRefreshCw" />
+                                        @if (resettingSecretId() === row.original.id) {
+                                          <hlm-spinner class="text-base" data-icon="inline-start" />
+                                        } @else {
+                                          <ng-icon name="lucideRefreshCw" />
+                                        }
                                         {{ t('openApp.action.resetSecret') }}
                                       </button>
                                     }
@@ -197,11 +227,16 @@
                                   @if (canDelete()) {
                                     <hlm-dropdown-menu-separator />
                                     <button
+                                      [disabled]="deletingId() !== null"
                                       hlmDropdownMenuItem
                                       variant="destructive"
                                       (click)="delete.emit(row.original.id)"
                                     >
-                                      <ng-icon name="lucideTrash2" />
+                                      @if (deletingId() === row.original.id) {
+                                        <hlm-spinner class="text-base" data-icon="inline-start" />
+                                      } @else {
+                                        <ng-icon name="lucideTrash2" />
+                                      }
                                       {{ t('common.delete') }}
                                     </button>
                                   }

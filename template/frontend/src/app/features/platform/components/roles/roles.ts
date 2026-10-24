@@ -23,7 +23,7 @@ import {
 } from '@spartan-ng/helm/input-group';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { PaginationState, SortingState } from '@tanstack/angular-table';
-import { combineLatest, defer, EMPTY, Subject } from 'rxjs';
+import { firstValueFrom, combineLatest, defer, EMPTY, Subject } from 'rxjs';
 // prettier-ignore
 import {
   catchError,
@@ -99,6 +99,8 @@ const ROLES_CHANGED_EVENT = 'Roles.Changed';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Roles {
+  readonly deletingId = signal<string | null>(null);
+
   private readonly roleService = inject(RoleService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly confirmService = inject(ConfirmService);
@@ -286,37 +288,42 @@ export class Roles {
   }
 
   async onDelete(role: RoleOutputDto): Promise<void> {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      header: this.transloco.translate('roles.deleteTitle'),
-      message: this.transloco.translate('roles.deleteDescription', { name: role.displayName }),
-      confirmText: this.transloco.translate('common.delete'),
-      //#else
-      header: 'Delete role',
-      message: `Delete "${role.displayName}"? Its permission grants will be removed as well.`,
-      confirmText: 'Delete',
-      //#endif
-      variant: 'destructive',
-    });
+    if (this.deletingId() !== null) return;
+    this.deletingId.set(role.id);
 
-    if (!confirmed) {
-      return;
-    }
-
-    this.roleService
-      .deleteRole(role.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.reload();
-          //#if (IncludeLocalization)
-          toast.success(this.transloco.translate('roles.deleted'));
-          //#else
-          toast.success('Role deleted');
-          //#endif
-        },
-        error: (error) => toast.error(applicationErrorMessage(error)),
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        header: this.transloco.translate('roles.deleteTitle'),
+        message: this.transloco.translate('roles.deleteDescription', { name: role.displayName }),
+        confirmText: this.transloco.translate('common.delete'),
+        //#else
+        header: 'Delete role',
+        message: `Delete "${role.displayName}"? Its permission grants will be removed as well.`,
+        confirmText: 'Delete',
+        //#endif
+        variant: 'destructive',
       });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await firstValueFrom(this.roleService.deleteRole(role.id));
+
+        this.reload();
+        //#if (IncludeLocalization)
+        toast.success(this.transloco.translate('roles.deleted'));
+        //#else
+        toast.success('Role deleted');
+        //#endif
+      } catch (error: unknown) {
+        toast.error(applicationErrorMessage(error));
+      }
+    } finally {
+      this.deletingId.set(null);
+    }
   }
 
   /** 权限保存后刷新列表与当前用户权限：撤销自己的权限应当立即反映到菜单上。 */

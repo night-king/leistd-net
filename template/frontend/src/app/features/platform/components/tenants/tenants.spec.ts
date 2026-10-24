@@ -313,4 +313,62 @@ describe('Tenants page query and write flow', () => {
     expect(component.loadError()).toBeNull();
     expect(notify).toHaveBeenCalledOnce();
   });
+  it('locks toggle before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.onToggleActive(tenant);
+    const duplicate = component.onToggleActive(tenant);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.activationId()).toBeTruthy();
+      expect(table().activationId()).toBe(component.activationId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.activationId()).toBeFalsy();
+  });
+
+  it('locks delete before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.onDelete(tenant);
+    const duplicate = component.onDelete(tenant);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.deletingId()).toBeTruthy();
+      expect(table().deletingId()).toBe(component.deletingId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.deletingId()).toBeFalsy();
+  });
+
+  //#if (Impersonation)
+  it('locks impersonate before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.onImpersonate(tenant);
+    const duplicate = component.onImpersonate(tenant);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.impersonatingId()).toBeTruthy();
+      expect(table().impersonatingId()).toBe(component.impersonatingId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.impersonatingId()).toBeFalsy();
+  });
+  //#endif
 });

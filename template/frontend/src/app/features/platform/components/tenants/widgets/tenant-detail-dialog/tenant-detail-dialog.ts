@@ -22,7 +22,7 @@ import { HlmFieldImports } from '@spartan-ng/helm/field';
 import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSeparator } from '@spartan-ng/helm/separator';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
-import { catchError, EMPTY, finalize, Subscription, tap } from 'rxjs';
+import { firstValueFrom, catchError, EMPTY, finalize, Subscription, tap } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../../../core/feedback/confirm-service';
@@ -75,6 +75,8 @@ interface ConnectionEditorModel {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TenantDetailDialog {
+  readonly removingConnection = signal<string | null>(null);
+
   readonly open = model(false);
   readonly tenant = input<TenantOutputDto | null>(null);
 
@@ -252,38 +254,47 @@ export class TenantDetailDialog {
   }
 
   async removeConnection(connection: TenantConnectionDto): Promise<void> {
-    const tenant = this.tenant();
-    if (!tenant) {
-      return;
-    }
+    if (this.removingConnection() !== null) return;
+    this.removingConnection.set(connection.name);
 
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      header: this.transloco.translate('tenants.deleteConnectionTitle'),
-      message: this.transloco.translate('tenants.deleteConnectionDescription', {
-        name: connection.name,
-      }),
-      confirmText: this.transloco.translate('common.delete'),
-      //#else
-      header: 'Delete connection',
-      message: `Delete connection "${connection.name}"? That service will go back to the database it is configured with.`,
-      confirmText: 'Delete',
-      //#endif
-      variant: 'destructive',
-    });
+    try {
+      const tenant = this.tenant();
+      if (!tenant) {
+        return;
+      }
 
-    if (!confirmed) {
-      return;
-    }
-
-    this.actionError.set(null);
-    this.connectionService
-      .removeConnection(tenant.id, connection.name, connection.version)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => this.reload(),
-        error: (error: unknown) => this.actionError.set(applicationErrorMessage(error)),
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        header: this.transloco.translate('tenants.deleteConnectionTitle'),
+        message: this.transloco.translate('tenants.deleteConnectionDescription', {
+          name: connection.name,
+        }),
+        confirmText: this.transloco.translate('common.delete'),
+        //#else
+        header: 'Delete connection',
+        message: `Delete connection "${connection.name}"? That service will go back to the database it is configured with.`,
+        confirmText: 'Delete',
+        //#endif
+        variant: 'destructive',
       });
+
+      if (!confirmed) {
+        return;
+      }
+
+      this.actionError.set(null);
+
+      try {
+        await firstValueFrom(
+          this.connectionService.removeConnection(tenant.id, connection.name, connection.version),
+        );
+        this.reload();
+      } catch (error: unknown) {
+        this.actionError.set(applicationErrorMessage(error));
+      }
+    } finally {
+      this.removingConnection.set(null);
+    }
   }
 
   private reload(): void {

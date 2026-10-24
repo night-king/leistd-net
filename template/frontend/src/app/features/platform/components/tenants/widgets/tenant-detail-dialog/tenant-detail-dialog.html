@@ -105,8 +105,12 @@
                           size="sm"
                           variant="ghost"
                           type="button"
+                          [disabled]="removingConnection() !== null"
                           (click)="removeConnection(connection)"
                         >
+                          @if (removingConnection() === connection.name) {
+                            <hlm-spinner class="text-base" data-icon="inline-start" />
+                          }
                           {{ t('common.delete') }}
                         </button>
                       </div>

@@ -16,6 +16,7 @@ import { of, Subject, throwError } from 'rxjs';
 
 import { Roles } from './roles';
 import { RoleTable } from './widgets/role-table/role-table';
+import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
@@ -36,7 +37,7 @@ describe('Roles page query round trip', () => {
   let fixture: ComponentFixture<Roles>;
   let component: Roles;
   let router: Router;
-  let service: Pick<MockedObject<RoleService>, 'getRoles'>;
+  let service: Pick<MockedObject<RoleService>, 'getRoles' | 'deleteRole'>;
   //#if (IncludeRealTime)
   const realtime = {
     lastResourceEvent: signal<{ eventName: string; payload: unknown } | null>(null),
@@ -65,6 +66,7 @@ describe('Roles page query round trip', () => {
   beforeEach(async () => {
     service = {
       getRoles: vi.fn().mockName('RoleService.getRoles'),
+      deleteRole: vi.fn().mockReturnValue(of(undefined)),
     };
     service.getRoles.mockReturnValue(of({ items: [], totalCount: 0 }) as never);
 
@@ -269,6 +271,44 @@ describe('Roles page query round trip', () => {
 
     expect(component.roles()).toHaveLength(1);
     expect(component.loadError()).toBeNull();
+    expect(notify).toHaveBeenCalledOnce();
+  });
+  it('locks delete before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.onDelete(loadedRow);
+    const duplicate = component.onDelete(loadedRow);
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.deletingId()).toBeTruthy();
+      expect(table().deletingId()).toBe(component.deletingId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.deletingId()).toBeFalsy();
+  });
+
+  it('keeps the confirmed write alive and busy after its component is destroyed', async () => {
+    const response = new Subject<void>();
+    service.deleteRole.mockReturnValue(response);
+    vi.spyOn(TestBed.inject(ConfirmService), 'open').mockResolvedValue(true);
+    const notify = vi.spyOn(toast, 'success').mockImplementation(() => '');
+    const pending = component.onDelete(loadedRow);
+    await Promise.resolve();
+    expect(component.deletingId()).toBe(loadedRow.id);
+    expect(service.deleteRole).toHaveBeenCalledOnce();
+    await component.onDelete(loadedRow);
+    expect(service.deleteRole).toHaveBeenCalledOnce();
+    fixture.destroy();
+    expect(response.observed).toBe(true);
+    response.next();
+    response.complete();
+    await pending;
+    expect(component.deletingId()).toBeNull();
     expect(notify).toHaveBeenCalledOnce();
   });
 });
