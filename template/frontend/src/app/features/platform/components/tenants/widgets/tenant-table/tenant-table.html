@@ -111,6 +111,11 @@
                               <!-- 溢出菜单不按修改权限裁剪：它恒有"详情"这一项，
                                  按 canUpdate||canDelete 藏起来时，只有查看权限的人在 <sm 就没有任何入口。 -->
                               <button
+                                [disabled]="
+                                  deletingId() === row.original.id ||
+                                  activationId() === row.original.id ||
+                                  impersonatingId() === row.original.id
+                                "
                                 hlmBtn
                                 variant="ghost"
                                 size="icon-sm"
@@ -118,7 +123,15 @@
                                 [attr.aria-label]="t('common.actions')"
                                 [hlmDropdownMenuTrigger]="rowMenu"
                               >
-                                <ng-icon name="lucideEllipsis" />
+                                @if (
+                                  deletingId() === row.original.id ||
+                                  activationId() === row.original.id ||
+                                  impersonatingId() === row.original.id
+                                ) {
+                                  <hlm-spinner class="text-base" />
+                                } @else {
+                                  <ng-icon name="lucideEllipsis" />
+                                }
                               </button>
                               <ng-template #rowMenu>
                                 <hlm-dropdown-menu>
@@ -143,16 +156,21 @@
                                     }
                                     @if (canUpdate()) {
                                       <button
+                                        [disabled]="activationId() !== null"
                                         hlmDropdownMenuItem
                                         (click)="toggleActive.emit(row.original)"
                                       >
-                                        <ng-icon
-                                          [name]="
-                                            row.original.isActive
-                                              ? 'lucideBan'
-                                              : 'lucideCircleCheck'
-                                          "
-                                        />
+                                        @if (activationId() === row.original.id) {
+                                          <hlm-spinner class="text-base" data-icon="inline-start" />
+                                        } @else {
+                                          <ng-icon
+                                            [name]="
+                                              row.original.isActive
+                                                ? 'lucideBan'
+                                                : 'lucideCircleCheck'
+                                            "
+                                          />
+                                        }
                                         {{
                                           row.original.isActive
                                             ? t('tenants.deactivate')
@@ -166,7 +184,9 @@
                                     @if (canImpersonate()) {
                                       <button
                                         hlmDropdownMenuItem
-                                        [disabled]="!row.original.isActive"
+                                        [disabled]="
+                                          impersonatingId() !== null || !row.original.isActive
+                                        "
                                         [attr.aria-label]="
                                           row.original.isActive
                                             ? t('tenants.impersonate')
@@ -174,7 +194,11 @@
                                         "
                                         (click)="impersonate.emit(row.original)"
                                       >
-                                        <ng-icon name="lucideLogIn" />
+                                        @if (impersonatingId() === row.original.id) {
+                                          <hlm-spinner class="text-base" data-icon="inline-start" />
+                                        } @else {
+                                          <ng-icon name="lucideLogIn" />
+                                        }
                                         {{
                                           row.original.isActive
                                             ? t('tenants.impersonate')
@@ -187,11 +211,16 @@
                                   @if (canDelete()) {
                                     <hlm-dropdown-menu-separator />
                                     <button
+                                      [disabled]="deletingId() !== null"
                                       hlmDropdownMenuItem
                                       variant="destructive"
                                       (click)="delete.emit(row.original)"
                                     >
-                                      <ng-icon name="lucideTrash2" />
+                                      @if (deletingId() === row.original.id) {
+                                        <hlm-spinner class="text-base" data-icon="inline-start" />
+                                      } @else {
+                                        <ng-icon name="lucideTrash2" />
+                                      }
                                       {{ t('common.delete') }}
                                     </button>
                                   }

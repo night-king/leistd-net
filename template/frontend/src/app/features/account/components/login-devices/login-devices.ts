@@ -9,7 +9,7 @@ import { HlmBadge } from '@spartan-ng/helm/badge';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmItemImports } from '@spartan-ng/helm/item';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
-import { finalize } from 'rxjs/operators';
+import { firstValueFrom } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
@@ -113,67 +113,75 @@ export class LoginDevices {
   }
 
   protected async revoke(id: string): Promise<void> {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('account.sessions.revokeConfirm'),
-      confirmText: this.transloco.translate('account.sessions.revoke'),
-      //#else
-      message: this.t('account.sessions.revokeConfirm'),
-      confirmText: this.t('account.sessions.revoke'),
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
-
+    if (this.busy() !== null) return;
     this.busy.set(id);
-    this.accountService
-      .revokeSession(id)
-      .pipe(finalize(() => this.busy.set(null)))
-      .subscribe({
-        next: () => {
-          this.sessions.update((list) => list?.filter((s) => s.id !== id) ?? null);
-          //#if (IncludeLocalization)
-          toast.success(this.transloco.translate('account.sessions.revoked'));
-          //#else
-          toast.success(this.t('account.sessions.revoked'));
-          //#endif
-        },
-        error: (error) => this.showError(error),
+
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('account.sessions.revokeConfirm'),
+        confirmText: this.transloco.translate('account.sessions.revoke'),
+        //#else
+        message: this.t('account.sessions.revokeConfirm'),
+        confirmText: this.t('account.sessions.revoke'),
+        //#endif
+        variant: 'destructive',
       });
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await firstValueFrom(this.accountService.revokeSession(id));
+
+        this.sessions.update((list) => list?.filter((s) => s.id !== id) ?? null);
+        //#if (IncludeLocalization)
+        toast.success(this.transloco.translate('account.sessions.revoked'));
+        //#else
+        toast.success(this.t('account.sessions.revoked'));
+        //#endif
+      } catch (error: unknown) {
+        this.showError(error);
+      }
+    } finally {
+      this.busy.set(null);
+    }
   }
 
   protected async revokeOthers(): Promise<void> {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('account.sessions.revokeOthersConfirm'),
-      confirmText: this.transloco.translate('account.sessions.revokeOthers'),
-      //#else
-      message: this.t('account.sessions.revokeOthersConfirm'),
-      confirmText: this.t('account.sessions.revokeOthers'),
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
-
+    if (this.busy() !== null) return;
     this.busy.set(OTHERS);
-    this.accountService
-      .revokeOtherSessions()
-      .pipe(finalize(() => this.busy.set(null)))
-      .subscribe({
-        next: (count) => {
-          this.sessions.update((list) => list?.filter((s) => s.isCurrent) ?? null);
-          //#if (IncludeLocalization)
-          toast.success(this.transloco.translate('account.sessions.revokedOthers', { count }));
-          //#else
-          toast.success(this.t('account.sessions.revokedOthers', { count }));
-          //#endif
-        },
-        error: (error) => this.showError(error),
+
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('account.sessions.revokeOthersConfirm'),
+        confirmText: this.transloco.translate('account.sessions.revokeOthers'),
+        //#else
+        message: this.t('account.sessions.revokeOthersConfirm'),
+        confirmText: this.t('account.sessions.revokeOthers'),
+        //#endif
+        variant: 'destructive',
       });
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        const count = await firstValueFrom(this.accountService.revokeOtherSessions());
+
+        this.sessions.update((list) => list?.filter((s) => s.isCurrent) ?? null);
+        //#if (IncludeLocalization)
+        toast.success(this.transloco.translate('account.sessions.revokedOthers', { count }));
+        //#else
+        toast.success(this.t('account.sessions.revokedOthers', { count }));
+        //#endif
+      } catch (error: unknown) {
+        this.showError(error);
+      }
+    } finally {
+      this.busy.set(null);
+    }
   }
 
   private showError(error: unknown): void {

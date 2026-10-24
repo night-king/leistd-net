@@ -374,4 +374,25 @@ describe('OpenApplicationTable', () => {
     expect(security).toHaveLength(2);
     expect(security.every((badge) => getComputedStyle(badge).display !== 'none')).toBe(true);
   });
+  it('shows the active row write on its closed action menu without locking other rows', async () => {
+    fixture.componentRef.setInput('applications', [application('1'), application('2')]);
+    fixture.componentRef.setInput('canDelete', true);
+    fixture.componentRef.setInput('deletingId', '1');
+    fixture.detectChanges();
+    for (const block of await fixture.getDeferBlocks())
+      await block.render(DeferBlockState.Complete);
+    await fixture.whenStable();
+    const buttons = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        'tbody button[aria-haspopup="menu"]',
+      ),
+    );
+    expect(buttons.length).toBe(2);
+    expect(buttons[0].disabled).toBe(true);
+    expect(buttons[0].querySelector('hlm-spinner')).not.toBeNull();
+    expect(buttons[1].disabled).toBe(false);
+    fixture.componentRef.setInput('deletingId', null);
+    fixture.detectChanges();
+    expect(buttons[0].disabled).toBe(false);
+  });
 });

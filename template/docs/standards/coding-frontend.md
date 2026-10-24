@@ -1,17 +1,17 @@
 # 前端开发规范
 
-同时遵循 [项目通用约定](./coding-common.md)。界面与样式见 [前端界面规范](./frontend-ui.md)。
+遵循[通用约定](./coding-common.md)；界面与样式见[前端界面规范](./frontend-ui.md)。
 <!--#if (IncludeLocalization)-->
-多语言见 [前端多语言规范](./frontend-i18n.md)，词条、引用与 scope 登记由 `scripts/check-i18n.py` 检查。
+多语言见[前端多语言规范](./frontend-i18n.md)；`scripts/check-i18n.py` 检查词条、引用与 scope 登记。
 <!--#endif-->
 
 ## 1. 技术栈
 
-Angular（Signals、zoneless、Angular CLI）、TypeScript、Spartan UI（`@spartan-ng/brain` 无头基元 + 项目持有的 helm 样式层）、Tailwind CSS 4、Angular Signal Forms（`@angular/forms/signals`）、TanStack Table。精确版本以 `frontend/package.json` 与锁文件为准。表单写法见[前端表单规范](./frontend-forms.md)，`FormsModule`/`ReactiveFormsModule`/`ngModel` 由 eslint 拦截。
+Angular（Signals、zoneless、Angular CLI）、TypeScript、Spartan UI（`@spartan-ng/brain` 无头基元 + 项目持有的 helm 样式层）、Tailwind CSS 4、Angular Signal Forms（`@angular/forms/signals`）、TanStack Table。版本以 `frontend/package.json` 与锁文件为准。表单写法见[前端表单规范](./frontend-forms.md)，`FormsModule`/`ReactiveFormsModule`/`ngModel` 由 eslint 拦截。
 
 ## 2. 目录与依赖方向
 
-目录按职责划分，按需新增子目录，不预建空层级。
+目录按职责划分，按需建子目录，不预建空层级。
 
 ```text
 frontend/
@@ -27,7 +27,7 @@ frontend/
 └── public/                # 构建后映射到站点根的静态资源
 ```
 
-依赖方向由 `frontend/eslint.config.mjs` 按解析出的真实文件检查，完整规则以它的报错消息为准：`shared` 只依赖自身，`core` 只依赖 `core` 与 `shared`，`layout` 与各功能另可依赖自身，功能之间只有路由文件可经 `loadComponent`/`loadChildren` 懒加载；业务代码中只有应用装配点（`app.*.ts`）引入 `_mock`，各目录可读取 `environment`，测试文件可引用 `_mock`，不放开其他方向。导入路径写普通字符串字面量。
+`frontend/eslint.config.mjs` 按解析出的真实文件检查依赖方向，规则以报错为准：`shared` 只依赖自身，`core` 只依赖 `core` 与 `shared`，`layout` 与各功能另可依赖自身，功能之间只有路由文件可经 `loadComponent`/`loadChildren` 懒加载；业务代码中只有应用装配点（`app.*.ts`）引入 `_mock`，各目录可读取 `environment`，测试文件可引用 `_mock`，不放开其他方向。导入路径写普通字符串字面量。
 
 - 多个功能共用的服务或契约下沉：有状态或应用级的放 `core`，无状态的展示组件与契约放 `shared`；依赖 `core` 服务的组件不放 `shared`。功能内复用的组件放该页面的 `widgets/`。
 - 业务代码判断请求是否走 Mock 时注入 `frontend/src/app/core/mock/mocked-url.ts` 的 `MOCKED_URL`（默认 `false`，Mock 构建由 `provideMock` 提供），不调用 `_mock` 中的函数。
@@ -52,10 +52,10 @@ frontend/
 | 路由 | `{name}.routes.ts` | |
 | 测试装配 | `{name}.testing.ts` | |
 
-组件 selector 为 `app-` + kebab-case（eslint 检查）。API 的请求与响应必须有类型定义。
+组件 selector 用 `app-` + kebab-case（eslint 检查）；API 请求与响应须有类型定义。
 
 - JSDoc 按需补服务边界、状态归属和协议契约，不逐成员翻译名称；`@param`、`@returns` 只补单位、空值、失败等非显然信息，不重复 TypeScript 类型。
-- 实现原因用独占行 `//`，保留订阅清理、竞态、安全与可访问性约束；模板与样式不加显然的区块标签。
+- 实现原因用独占行 `//`，保留订阅清理、竞态、安全与可访问性约束；模板、样式不写显然的区块标签。
 - 上游 Skill 与 helm 原样内容遵循上游风格，不为注释精简制造定制差异；本地改动见[Spartan 维护约定](./frontend-spartan.md)。
 
 注释原则参考 [Angular 框架规范](https://github.com/angular/angular/blob/main/contributing-docs/coding-standards.md#write-useful-comments)与 [TypeScript JSDoc](https://www.typescriptlang.org/docs/handbook/jsdoc-supported-types.html)。
@@ -73,6 +73,7 @@ frontend/
 ## 5. 状态
 
 - 组件内部与简单父子组件间的状态用 Signals。
+- 确认写入口点击即禁用并显示 spinner（含确认框打开期间），实际请求结束才复位；确认即关框，不等请求。
 - 媒体查询（断点、系统暗色偏好）用 CDK `BreakpointObserver` 转成信号，不手写 `matchMedia`。
 - 启动流程、拦截器判断当前路由用 `frontend/src/app/core/routing/entry-route-service.ts`，不读 `Router.url`（初始导航前恒为 `/`）。
 
@@ -90,11 +91,11 @@ frontend/
 ## 7. Mock
 
 - 每个后端新端点同步补 Mock（`_mock/data` + `_mock/api` + `frontend/_mock/index.ts` 注册），前端可脱离后端运行。
-- Mock 代码只放 `_mock`，引入规则见第 2 节；Mock 自身的单测与被测文件相邻放在 `_mock/`。
+- Mock 代码只放 `_mock`，引入规则见第 2 节；Mock 单测在 `_mock/` 与被测文件相邻。
 - Mock 与后端保持可观察行为一致：认证、权限、参数校验、过滤语义与失败响应；不复制后端内部实现。
-- Mock 后端按页面运行：业务数据在页面内存里，重新加载即回到初始数据；会话与设置覆盖存当前页面的 `sessionStorage`（设置用 `frontend/_mock/utils/stored-map.ts`，每次读写直达存储），刷新后不丢。新页面的初始存储由浏览器决定（保留 opener 打开、复制或恢复的标签页会带着原有存储），因此不保证新标签页一定未登录；之后各页的会话与设置改动互不影响。
+- Mock 业务数据存本页内存，重载回初始数据；会话与设置覆盖存本页 `sessionStorage`（设置用 `frontend/_mock/utils/stored-map.ts`，读写直达存储），刷新不丢。新页面初始存储由浏览器决定（保留 opener 打开、复制或恢复标签页会带入原存储），不保证新标签页未登录；之后各页会话与设置改动互不影响。
 
-**跨层字段同步**：新增或修改贯穿前后端的字段时逐环改到：后端入参 DTO → 应用层逻辑 → 前端 DTO → 前端服务传参 → Mock 处理器 → Mock 数据。
+**跨层字段同步**：贯穿前后端字段的增改须逐环同步：后端入参 DTO → 应用层逻辑 → 前端 DTO → 前端服务传参 → Mock 处理器 → Mock 数据。
 
 ## 8. 测试
 

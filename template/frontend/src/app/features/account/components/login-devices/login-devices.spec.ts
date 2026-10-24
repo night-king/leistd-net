@@ -128,4 +128,26 @@ describe('LoginDevices', () => {
     expect(account.revokeOtherSessions).toHaveBeenCalledTimes(1);
     expect(host.querySelectorAll('[data-testid="session-row"]').length).toBe(1);
   });
+  it('disables the trigger during confirmation and restores it on cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirmation = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const host = await render([session({ id: 'phone', isCurrent: false })]);
+    const button = host.querySelector<HTMLButtonElement>('[data-testid="revoke-session"]')!;
+    button.click();
+    button.click();
+    fixture.detectChanges();
+    try {
+      expect(confirmation).toHaveBeenCalledOnce();
+      expect(button.disabled).toBe(true);
+      expect(button.querySelector('hlm-spinner')).not.toBeNull();
+    } finally {
+      answer(false);
+      await fixture.whenStable();
+    }
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(button.disabled).toBe(false);
+  });
 });

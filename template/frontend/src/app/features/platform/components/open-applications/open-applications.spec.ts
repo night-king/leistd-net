@@ -259,4 +259,41 @@ describe('OpenApplications page query round trip', () => {
     expect(component.loadError()).toBeNull();
     expect(notify).toHaveBeenCalledOnce();
   });
+  it('locks delete before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.handleDelete('app-1');
+    const duplicate = component.handleDelete('app-1');
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.deletingId()).toBeTruthy();
+      expect(table().deletingId()).toBe(component.deletingId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.deletingId()).toBeFalsy();
+  });
+
+  it('locks reset secret before confirmation and unlocks after cancellation', async () => {
+    let answer!: (value: boolean) => void;
+    const confirm = vi
+      .spyOn(TestBed.inject(ConfirmService), 'open')
+      .mockReturnValue(new Promise<boolean>((resolve) => (answer = resolve)));
+    const pending = component.handleResetSecret('app-1');
+    const duplicate = component.handleResetSecret('app-1');
+    fixture.detectChanges();
+    try {
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(component.resettingSecretId()).toBeTruthy();
+      expect(table().resettingSecretId()).toBe(component.resettingSecretId());
+    } finally {
+      answer(false);
+      await Promise.all([pending, duplicate]);
+    }
+    expect(component.resettingSecretId()).toBeFalsy();
+  });
 });

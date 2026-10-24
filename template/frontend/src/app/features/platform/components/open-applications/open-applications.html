@@ -65,6 +65,8 @@
       </div>
 
       <app-open-application-table
+        [deletingId]="deletingId()"
+        [resettingSecretId]="resettingSecretId()"
         [applications]="applications()"
         [totalCount]="totalRecords()"
         [pagination]="pagination()"

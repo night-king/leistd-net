@@ -23,7 +23,7 @@ import {
 } from '@spartan-ng/helm/input-group';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { PaginationState } from '@tanstack/angular-table';
-import { combineLatest, defer, EMPTY, Subject } from 'rxjs';
+import { firstValueFrom, combineLatest, defer, EMPTY, Subject } from 'rxjs';
 import {
   catchError,
   debounceTime,
@@ -78,6 +78,10 @@ import { TenantService } from '../../services/tenant-service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Tenants {
+  readonly activationId = signal<string | null>(null);
+  readonly impersonatingId = signal<string | null>(null);
+  readonly deletingId = signal<string | null>(null);
+
   private readonly tenantService = inject(TenantService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly confirmService = inject(ConfirmService);
@@ -228,28 +232,33 @@ export class Tenants {
 
   /** 启停切换：停用会阻止该租户用户登录，先确认再提交。 */
   async onToggleActive(tenant: TenantOutputDto): Promise<void> {
-    const nextActive = !tenant.isActive;
-    const confirmed = await this.confirmService.open({
-      header: this.toggleTitle(nextActive),
-      message: this.toggleDescription(tenant, nextActive),
-      confirmText: this.toggleConfirmLabel(nextActive),
-      variant: nextActive ? 'default' : 'destructive',
-    });
+    if (this.activationId() !== null) return;
+    this.activationId.set(tenant.id);
 
-    if (!confirmed) {
-      return;
-    }
-
-    this.tenantService
-      .setActivation(tenant.id, nextActive)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.reload();
-          toast.success(this.toggledMessage(nextActive));
-        },
-        error: (error) => toast.error(applicationErrorMessage(error)),
+    try {
+      const nextActive = !tenant.isActive;
+      const confirmed = await this.confirmService.open({
+        header: this.toggleTitle(nextActive),
+        message: this.toggleDescription(tenant, nextActive),
+        confirmText: this.toggleConfirmLabel(nextActive),
+        variant: nextActive ? 'default' : 'destructive',
       });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await firstValueFrom(this.tenantService.setActivation(tenant.id, nextActive));
+
+        this.reload();
+        toast.success(this.toggledMessage(nextActive));
+      } catch (error: unknown) {
+        toast.error(applicationErrorMessage(error));
+      }
+    } finally {
+      this.activationId.set(null);
+    }
   }
 
   //#if (Impersonation)
@@ -258,21 +267,28 @@ export class Tenants {
    * 本页状态全部作废。
    */
   async onImpersonate(tenant: TenantOutputDto): Promise<void> {
-    const confirmed = await this.confirmService.open({
-      header: this.impersonateTitle(),
-      message: this.impersonateDescription(tenant),
-      confirmText: this.impersonateTitle(),
-      variant: 'default',
-    });
-
-    if (!confirmed) {
-      return;
-    }
+    if (this.impersonatingId() !== null) return;
+    this.impersonatingId.set(tenant.id);
 
     try {
-      await this.impersonationService.start(tenant.id);
-    } catch (error) {
-      toast.error(applicationErrorMessage(error));
+      const confirmed = await this.confirmService.open({
+        header: this.impersonateTitle(),
+        message: this.impersonateDescription(tenant),
+        confirmText: this.impersonateTitle(),
+        variant: 'default',
+      });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await this.impersonationService.start(tenant.id);
+      } catch (error) {
+        toast.error(applicationErrorMessage(error));
+      }
+    } finally {
+      this.impersonatingId.set(null);
     }
   }
 
@@ -296,27 +312,32 @@ export class Tenants {
 
   //#endif
   async onDelete(tenant: TenantOutputDto): Promise<void> {
-    const confirmed = await this.confirmService.open({
-      header: this.deleteTitle(),
-      message: this.deleteDescription(tenant),
-      confirmText: this.deleteConfirmLabel(),
-      variant: 'destructive',
-    });
+    if (this.deletingId() !== null) return;
+    this.deletingId.set(tenant.id);
 
-    if (!confirmed) {
-      return;
-    }
-
-    this.tenantService
-      .deleteTenant(tenant.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.reload();
-          toast.success(this.deletedMessage());
-        },
-        error: (error) => toast.error(applicationErrorMessage(error)),
+    try {
+      const confirmed = await this.confirmService.open({
+        header: this.deleteTitle(),
+        message: this.deleteDescription(tenant),
+        confirmText: this.deleteConfirmLabel(),
+        variant: 'destructive',
       });
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await firstValueFrom(this.tenantService.deleteTenant(tenant.id));
+
+        this.reload();
+        toast.success(this.deletedMessage());
+      } catch (error: unknown) {
+        toast.error(applicationErrorMessage(error));
+      }
+    } finally {
+      this.deletingId.set(null);
+    }
   }
 
   //#if (IncludeLocalization)

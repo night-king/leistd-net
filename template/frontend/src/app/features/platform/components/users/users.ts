@@ -36,9 +36,10 @@ import {
   HlmInputGroupAddon,
 } from '@spartan-ng/helm/input-group';
 import { HlmKbdImports } from '@spartan-ng/helm/kbd';
+import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { PaginationState, RowSelectionState, SortingState } from '@tanstack/angular-table';
-import { combineLatest, defer, EMPTY, Observable, Subject } from 'rxjs';
+import { firstValueFrom, combineLatest, defer, EMPTY, Observable, Subject } from 'rxjs';
 import {
   catchError,
   debounceTime,
@@ -112,6 +113,7 @@ const DEFAULT_USER_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
   imports: [
     NgIcon,
     HlmButton,
+    HlmSpinner,
     HlmInputGroup,
     HlmInputGroupInput,
     HlmInputGroupAddon,
@@ -154,6 +156,12 @@ const DEFAULT_USER_SORTING: SortingState = [{ id: 'creationTime', desc: true }];
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Users {
+  readonly resettingTwoFactorId = signal<string | null>(null);
+
+  readonly activationId = signal<string | null>(null);
+  readonly deletingId = signal<string | null>(null);
+  readonly unlockingId = signal<string | null>(null);
+
   private readonly service = inject(UserManagementService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
@@ -483,33 +491,39 @@ export class Users {
 
   //#endif
   async handleToggleActive(user: UserManagementOutputDto) {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate(
-        user.isActive ? 'users.confirm.disableMessage' : 'users.confirm.enableMessage',
-        { name: user.username },
-      ),
-      header: this.transloco.translate(
-        user.isActive ? 'users.confirm.disableHeader' : 'users.confirm.enableHeader',
-      ),
-      confirmText: this.transloco.translate('common.ok'),
-      cancelText: this.transloco.translate('common.cancel'),
-      //#else
-      message: user.isActive
-        ? `Are you sure you want to disable user ${user.username}?`
-        : `Are you sure you want to enable user ${user.username}?`,
-      header: user.isActive ? 'Confirm disable' : 'Confirm enable',
-      //#endif
-    });
-    if (!confirmed) {
-      return;
-    }
+    if (this.activationId() !== null) return;
+    this.activationId.set(user.id);
 
-    const request = user.isActive
-      ? this.service.disableUser(user.id)
-      : this.service.enableUser(user.id);
-    request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate(
+          user.isActive ? 'users.confirm.disableMessage' : 'users.confirm.enableMessage',
+          { name: user.username },
+        ),
+        header: this.transloco.translate(
+          user.isActive ? 'users.confirm.disableHeader' : 'users.confirm.enableHeader',
+        ),
+        confirmText: this.transloco.translate('common.ok'),
+        cancelText: this.transloco.translate('common.cancel'),
+        //#else
+        message: user.isActive
+          ? `Are you sure you want to disable user ${user.username}?`
+          : `Are you sure you want to enable user ${user.username}?`,
+        header: user.isActive ? 'Confirm disable' : 'Confirm enable',
+        //#endif
+      });
+      if (!confirmed) {
+        return;
+      }
+
+      const request = user.isActive
+        ? this.service.disableUser(user.id)
+        : this.service.enableUser(user.id);
+
+      try {
+        await firstValueFrom(request);
+
         //#if (IncludeLocalization)
         toast.success(this.transloco.translate('common.success'), {
           description: this.transloco.translate(
@@ -522,115 +536,141 @@ export class Users {
         });
         //#endif
         this.reloadList();
-      },
-      error: (error) => this.showRequestError(error),
-    });
+      } catch (error: unknown) {
+        this.showRequestError(error);
+      }
+    } finally {
+      this.activationId.set(null);
+    }
   }
 
   //#if (LocalIdentity)
   async handleDelete(user: UserManagementOutputDto) {
-    if (user.isSuperAdmin) {
-      //#if (IncludeLocalization)
-      toast.warning(this.transloco.translate('users.toast.cannotDeleteSummary'), {
-        description: this.transloco.translate('users.toast.cannotDeleteSuperAdmin'),
-      });
-      //#else
-      toast.warning('Cannot delete', {
-        description: 'The built-in super administrator cannot be deleted',
-      });
-      //#endif
-      return;
-    }
+    if (this.deletingId() !== null) return;
+    this.deletingId.set(user.id);
 
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('users.confirm.deleteMessage', { name: user.username }),
-      header: this.transloco.translate('users.confirm.deleteHeader'),
-      confirmText: this.transloco.translate('common.ok'),
-      cancelText: this.transloco.translate('common.cancel'),
-      //#else
-      message: `Are you sure you want to delete user ${user.username}? Once deleted, the user will no longer be able to sign in.`,
-      header: 'Confirm delete',
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
+    try {
+      if (user.isSuperAdmin) {
+        //#if (IncludeLocalization)
+        toast.warning(this.transloco.translate('users.toast.cannotDeleteSummary'), {
+          description: this.transloco.translate('users.toast.cannotDeleteSuperAdmin'),
+        });
+        //#else
+        toast.warning('Cannot delete', {
+          description: 'The built-in super administrator cannot be deleted',
+        });
+        //#endif
+        return;
+      }
 
-    this.service
-      .deleteUser(user.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          //#if (IncludeLocalization)
-          toast.success(this.transloco.translate('common.success'), {
-            description: this.transloco.translate('users.toast.deleted'),
-          });
-          //#else
-          toast.success('Success', { description: 'User deleted' });
-          //#endif
-          this.reloadList();
-        },
-        error: (error) => this.showRequestError(error),
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('users.confirm.deleteMessage', { name: user.username }),
+        header: this.transloco.translate('users.confirm.deleteHeader'),
+        confirmText: this.transloco.translate('common.ok'),
+        cancelText: this.transloco.translate('common.cancel'),
+        //#else
+        message: `Are you sure you want to delete user ${user.username}? Once deleted, the user will no longer be able to sign in.`,
+        header: 'Confirm delete',
+        //#endif
+        variant: 'destructive',
       });
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await firstValueFrom(this.service.deleteUser(user.id));
+
+        //#if (IncludeLocalization)
+        toast.success(this.transloco.translate('common.success'), {
+          description: this.transloco.translate('users.toast.deleted'),
+        });
+        //#else
+        toast.success('Success', { description: 'User deleted' });
+        //#endif
+        this.reloadList();
+      } catch (error: unknown) {
+        this.showRequestError(error);
+      }
+    } finally {
+      this.deletingId.set(null);
+    }
   }
   //#endif
   //#if (LocalIdentity)
   async handleUnlock(user: UserManagementOutputDto) {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('users.confirm.unlockMessage', { name: user.username }),
-      header: this.transloco.translate('users.confirm.unlockHeader'),
-      confirmText: this.transloco.translate('common.ok'),
-      cancelText: this.transloco.translate('common.cancel'),
-      //#else
-      message: `Unlock user ${user.username}? The failed sign-in count will also be reset.`,
-      header: 'Confirm unlock',
-      //#endif
-    });
-    if (!confirmed) {
-      return;
-    }
+    if (this.unlockingId() !== null) return;
+    this.unlockingId.set(user.id);
 
-    this.service
-      .unlockUser(user.id)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          //#if (IncludeLocalization)
-          toast.success(this.transloco.translate('common.success'), {
-            description: this.transloco.translate('users.toast.unlocked'),
-          });
-          //#else
-          toast.success('Success', { description: 'User unlocked' });
-          //#endif
-          this.reloadList();
-        },
-        error: (error) => this.showRequestError(error),
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('users.confirm.unlockMessage', { name: user.username }),
+        header: this.transloco.translate('users.confirm.unlockHeader'),
+        confirmText: this.transloco.translate('common.ok'),
+        cancelText: this.transloco.translate('common.cancel'),
+        //#else
+        message: `Unlock user ${user.username}? The failed sign-in count will also be reset.`,
+        header: 'Confirm unlock',
+        //#endif
       });
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await firstValueFrom(this.service.unlockUser(user.id));
+
+        //#if (IncludeLocalization)
+        toast.success(this.transloco.translate('common.success'), {
+          description: this.transloco.translate('users.toast.unlocked'),
+        });
+        //#else
+        toast.success('Success', { description: 'User unlocked' });
+        //#endif
+        this.reloadList();
+      } catch (error: unknown) {
+        this.showRequestError(error);
+      }
+    } finally {
+      this.unlockingId.set(null);
+    }
   }
 
+  protected onReauthenticationVisibleChange(visible: boolean): void {
+    const saving = this.reauth.saving();
+    this.reauth.setVisible(visible);
+    if (!visible && !saving) this.resettingTwoFactorId.set(null);
+  }
   async handleResetTwoFactor(user: UserManagementOutputDto) {
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('users.confirm.resetTwoFactorMessage', {
-        name: user.username,
-      }),
-      header: this.transloco.translate('users.confirm.resetTwoFactorHeader'),
-      confirmText: this.transloco.translate('common.ok'),
-      cancelText: this.transloco.translate('common.cancel'),
-      //#else
-      message: `Reset two-factor authentication for ${user.username}? They will be signed out everywhere and can sign in with just their password.`,
-      header: 'Confirm reset',
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
+    if (this.resettingTwoFactorId() !== null) return;
+    this.resettingTwoFactorId.set(user.id);
+    let submitted = false;
+    try {
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('users.confirm.resetTwoFactorMessage', {
+          name: user.username,
+        }),
+        header: this.transloco.translate('users.confirm.resetTwoFactorHeader'),
+        confirmText: this.transloco.translate('common.ok'),
+        cancelText: this.transloco.translate('common.cancel'),
+        //#else
+        message: `Reset two-factor authentication for ${user.username}? They will be signed out everywhere and can sign in with just their password.`,
+        header: 'Confirm reset',
+        //#endif
+        variant: 'destructive',
+      });
+      if (!confirmed) {
+        return;
+      }
 
-    this.resetTwoFactor(user);
+      this.resetTwoFactor(user);
+      submitted = true;
+    } finally {
+      if (!submitted) this.resettingTwoFactorId.set(null);
+    }
   }
 
   /**
@@ -653,7 +693,11 @@ export class Users {
   private resetTwoFactor(user: UserManagementOutputDto, proof?: ReauthenticationProof) {
     this.service
       .resetTwoFactor(user.id, { password: proof?.password, twoFactorCode: proof?.twoFactorCode })
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        finalize(() => {
+          if (!this.reauth.visible()) this.resettingTwoFactorId.set(null);
+        }),
+      )
       .subscribe({
         next: () => {
           this.reauth.complete();
@@ -770,48 +814,70 @@ export class Users {
   }
 
   async batchSetActive(active: boolean): Promise<void> {
-    const count = this.selectedIds().length;
-    const confirmed = await this.confirmService.open({
-      message: this.text(active ? 'users.batch.enableMessage' : 'users.batch.disableMessage', {
-        count,
-      }),
-      header: this.text(active ? 'users.batch.enableHeader' : 'users.batch.disableHeader'),
-      //#if (IncludeLocalization)
-      confirmText: this.text('common.ok'),
-      cancelText: this.text('common.cancel'),
-      //#endif
-      variant: active ? undefined : 'destructive',
-    });
-    if (confirmed) {
-      const ids = this.selectedIds();
-      this.runBatch(
-        active ? this.service.batchEnableUsers({ ids }) : this.service.batchDisableUsers({ ids }),
-      );
+    if (this.batchBusy()) return;
+    this.batchBusy.set(true);
+    let submitted = false;
+    try {
+      const count = this.selectedIds().length;
+      const confirmed = await this.confirmService.open({
+        message: this.text(active ? 'users.batch.enableMessage' : 'users.batch.disableMessage', {
+          count,
+        }),
+        header: this.text(active ? 'users.batch.enableHeader' : 'users.batch.disableHeader'),
+        //#if (IncludeLocalization)
+        confirmText: this.text('common.ok'),
+        cancelText: this.text('common.cancel'),
+        //#endif
+        variant: active ? undefined : 'destructive',
+      });
+      if (confirmed) {
+        const ids = this.selectedIds();
+        submitted = true;
+        this.runBatch(
+          active ? this.service.batchEnableUsers({ ids }) : this.service.batchDisableUsers({ ids }),
+        );
+      }
+    } finally {
+      if (!submitted) this.batchBusy.set(false);
     }
   }
   //#if (LocalIdentity)
 
   async batchUnlock(): Promise<void> {
-    const confirmed = await this.confirmService.open({
-      message: this.text('users.batch.unlockMessage', { count: this.selectedIds().length }),
-      header: this.text('users.batch.unlockHeader'),
-      //#if (IncludeLocalization)
-      confirmText: this.text('common.ok'),
-      cancelText: this.text('common.cancel'),
-      //#endif
-    });
-    if (confirmed) {
-      this.runBatch(this.service.batchUnlockUsers({ ids: this.selectedIds() }));
+    if (this.batchBusy()) return;
+    this.batchBusy.set(true);
+    let submitted = false;
+    try {
+      const confirmed = await this.confirmService.open({
+        message: this.text('users.batch.unlockMessage', { count: this.selectedIds().length }),
+        header: this.text('users.batch.unlockHeader'),
+        //#if (IncludeLocalization)
+        confirmText: this.text('common.ok'),
+        cancelText: this.text('common.cancel'),
+        //#endif
+      });
+      if (confirmed) {
+        submitted = true;
+        this.runBatch(this.service.batchUnlockUsers({ ids: this.selectedIds() }));
+      }
+    } finally {
+      if (!submitted) this.batchBusy.set(false);
     }
   }
   //#endif
 
   batchAssignRoles(roleIds: string[]): void {
-    this.runBatch(this.service.batchAssignUserRoles({ ids: this.selectedIds(), roleIds }), () => {
-      this.batchRolesVisible.set(false);
-      // 角色变化会改变有效权限，选中的可能包括自己
-      this.authorizationService.reload().subscribe({ error: () => undefined });
-    });
+    if (this.batchBusy()) return;
+    this.runBatch(
+      this.service
+        .batchAssignUserRoles({ ids: this.selectedIds(), roleIds })
+        .pipe(takeUntilDestroyed(this.destroyRef)),
+      () => {
+        this.batchRolesVisible.set(false);
+        // 角色变化会改变有效权限，选中的可能包括自己
+        this.authorizationService.reload().subscribe({ error: () => undefined });
+      },
+    );
   }
 
   /**
@@ -820,20 +886,15 @@ export class Users {
    */
   private runBatch(request: Observable<BatchOperationOutputDto>, onDone?: () => void): void {
     this.batchBusy.set(true);
-    request
-      .pipe(
-        finalize(() => this.batchBusy.set(false)),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: (result) => {
-          this.reportBatch(result);
-          this.rowSelection.set({});
-          onDone?.();
-          this.reloadList();
-        },
-        error: (error) => this.showRequestError(error),
-      });
+    request.pipe(finalize(() => this.batchBusy.set(false))).subscribe({
+      next: (result) => {
+        this.reportBatch(result);
+        this.rowSelection.set({});
+        onDone?.();
+        this.reloadList();
+      },
+      error: (error) => this.showRequestError(error),
+    });
   }
 
   private reportBatch(result: BatchOperationOutputDto): void {

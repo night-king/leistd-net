@@ -121,25 +121,38 @@ export class ExternalLogins {
     }
   }
 
+  protected onReauthenticationVisibleChange(visible: boolean): void {
+    const saving = this.reauth.saving();
+    this.reauth.setVisible(visible);
+    if (!visible && !saving) this.busy.set(null);
+  }
   protected async unlink(provider: string, id: string): Promise<void> {
-    const providerLabel = PROVIDER_LABELS[provider] ?? provider;
-    const confirmed = await this.confirmService.open({
-      //#if (IncludeLocalization)
-      message: this.transloco.translate('account.externalLogins.unlinkConfirm', {
-        provider: providerLabel,
-      }),
-      confirmText: this.transloco.translate('account.externalLogins.unlink'),
-      //#else
-      message: this.t('account.externalLogins.unlinkConfirm', { provider: providerLabel }),
-      confirmText: this.t('account.externalLogins.unlink'),
-      //#endif
-      variant: 'destructive',
-    });
-    if (!confirmed) {
-      return;
-    }
+    if (this.busy() !== null) return;
+    this.busy.set(provider);
+    let submitted = false;
+    try {
+      const providerLabel = PROVIDER_LABELS[provider] ?? provider;
+      const confirmed = await this.confirmService.open({
+        //#if (IncludeLocalization)
+        message: this.transloco.translate('account.externalLogins.unlinkConfirm', {
+          provider: providerLabel,
+        }),
+        confirmText: this.transloco.translate('account.externalLogins.unlink'),
+        //#else
+        message: this.t('account.externalLogins.unlinkConfirm', { provider: providerLabel }),
+        confirmText: this.t('account.externalLogins.unlink'),
+        //#endif
+        variant: 'destructive',
+      });
+      if (!confirmed) {
+        return;
+      }
 
-    this.unlinkConfirmed(provider, id);
+      this.unlinkConfirmed(provider, id);
+      submitted = true;
+    } finally {
+      if (!submitted) this.busy.set(null);
+    }
   }
 
   /** 先不带凭证解绑；服务端要求确认身份时弹出对话框，带上交出的凭证重试。 */
@@ -147,7 +160,11 @@ export class ExternalLogins {
     this.busy.set(provider);
     this.accountService
       .unlinkExternalLogin(id, { password: proof?.password, twoFactorCode: proof?.twoFactorCode })
-      .pipe(finalize(() => this.busy.set(null)))
+      .pipe(
+        finalize(() => {
+          if (!this.reauth.visible()) this.busy.set(null);
+        }),
+      )
       .subscribe({
         next: () => {
           this.reauth.complete();

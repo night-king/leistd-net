@@ -151,7 +151,7 @@
                                   variant="ghost"
                                   size="icon-sm"
                                   class="hidden text-destructive hover:text-destructive sm:inline-flex"
-                                  [disabled]="row.original.isStatic"
+                                  [disabled]="deletingId() !== null || row.original.isStatic"
                                   [hlmTooltip]="
                                     row.original.isStatic
                                       ? t('roles.staticRoleHint')
@@ -164,11 +164,16 @@
                                   "
                                   (click)="delete.emit(row.original)"
                                 >
-                                  <ng-icon name="lucideTrash2" />
+                                  @if (deletingId() === row.original.id) {
+                                    <hlm-spinner class="text-base" data-icon="inline-start" />
+                                  } @else {
+                                    <ng-icon name="lucideTrash2" />
+                                  }
                                 </button>
                               }
                               @if (hasRowActions()) {
                                 <button
+                                  [disabled]="deletingId() === row.original.id"
                                   hlmBtn
                                   variant="ghost"
                                   size="icon-sm"
@@ -177,7 +182,11 @@
                                   [attr.aria-label]="t('common.actions')"
                                   [hlmDropdownMenuTrigger]="rowMenu"
                                 >
-                                  <ng-icon name="lucideEllipsis" />
+                                  @if (deletingId() === row.original.id) {
+                                    <hlm-spinner class="text-base" />
+                                  } @else {
+                                    <ng-icon name="lucideEllipsis" />
+                                  }
                                 </button>
                               }
                               <ng-template #rowMenu>
@@ -205,7 +214,7 @@
                                     <button
                                       hlmDropdownMenuItem
                                       variant="destructive"
-                                      [disabled]="row.original.isStatic"
+                                      [disabled]="deletingId() !== null || row.original.isStatic"
                                       [attr.aria-label]="
                                         row.original.isStatic
                                           ? t('roles.staticRoleHint')
@@ -213,7 +222,11 @@
                                       "
                                       (click)="delete.emit(row.original)"
                                     >
-                                      <ng-icon name="lucideTrash2" />
+                                      @if (deletingId() === row.original.id) {
+                                        <hlm-spinner class="text-base" data-icon="inline-start" />
+                                      } @else {
+                                        <ng-icon name="lucideTrash2" />
+                                      }
                                       {{
                                         row.original.isStatic
                                           ? t('roles.staticRoleHint')
