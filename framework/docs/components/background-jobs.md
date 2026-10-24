@@ -84,7 +84,7 @@ public sealed class LeadArchiveJob(IOptionsSnapshot<LeadOptions> options, LeadSe
 }
 ```
 
-记录每次真正开始的执行时，宿主提供存储并按 Scoped 登记观察者；组件内部登记的任务也会回调。下面的 IJobRunStore 代表宿主自己的执行记录存储，`InsertAsync` 返回记录 id，`SaveAsync` 在 id 为空时补建完整记录：
+记录每次真正开始的执行时，宿主提供存储并按 Scoped 登记观察者；组件内部登记的任务也会回调。下面的 IJobRunStore 代表宿主自己的执行记录存储：`InsertAsync` 按给定 Id 插入开始记录，`UpsertAsync` 按 Id 写入终态、记录不存在时补建。Id 在 Started 之前生成，Started 被取消、超时或插入结果未知时，Completed 仍落到同一条记录，不会留下停在“执行中”的重复行：
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -97,13 +97,16 @@ using System.Diagnostics;
 
 public sealed class JobRunRecorder(IServiceScopeFactory scopes) : IRecurringJobRunObserver
 {
-    private Guid? recordId;
+    private readonly Guid recordId = Guid.CreateVersion7();
 
     public async Task OnRunStartedAsync(RecurringJobRun run, CancellationToken cancellationToken)
     {
+        // 持锁期间执行：除了停机与失锁的令牌，还要有自己的上限
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
         await using var scope = scopes.CreateAsyncScope();
-        recordId = await scope.ServiceProvider.GetRequiredService<IJobRunStore>()
-            .InsertAsync(run, Activity.Current?.TraceId.ToString(), cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<IJobRunStore>()
+            .InsertAsync(recordId, run, Activity.Current?.TraceId.ToString(), timeout.Token);
     }
 
     public async Task OnRunCompletedAsync(RecurringJobRun run, RecurringJobRunResult result)
@@ -111,7 +114,7 @@ public sealed class JobRunRecorder(IServiceScopeFactory scopes) : IRecurringJobR
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await using var scope = scopes.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<IJobRunStore>()
-            .SaveAsync(recordId, run, result, timeout.Token);
+            .UpsertAsync(recordId, run, result, timeout.Token);
     }
 }
 ```
@@ -187,7 +190,9 @@ if (!queue.TryQueue((services, ct) => services.GetRequiredService<WelcomeMailer>
 ## 注意事项
 
 - 多副本部署要注册共享水位（`AddBackgroundJobsEfCore`）与 Redis 分布式锁；进程内水位与内存锁只对单副本成立。
-- 观察者推荐 Scoped，有状态的 Transient 在本次仅解析一次；Singleton 会被多个任务并发调用，须线程安全，不能捕获 Scoped 或用字段存“当前执行”。Completed 不接收执行令牌，实现应为 I/O 自设有限超时；慢回调会延长本轮执行与停机等待。
+- 观察者推荐 Scoped，有状态的 Transient 在本次仅解析一次；Singleton 会被多个任务并发调用，须线程安全，不能捕获 Scoped 或用字段存“当前执行”。
+- Started 与 Completed 都在持锁期间执行，两者都要为 I/O 自设有限超时。Started 收到停机与失锁的联合令牌，但不响应令牌的慢回调会一直占着集群锁，其他副本这一时段全部跳过；自设超时触发时按回调失败记 Warning，任务照常执行。Completed 不接收执行令牌，慢回调会延长本轮执行、持锁时间与停机等待。
+- Started 的写入可能被取消、超时或结果未知，Completed 不能依赖 Started 的返回值：记录 Id 由观察者预先生成，Completed 按 Id 幂等写入，如上例。
 - 观察者在宿主上下文回调，但任务可能已在共享作用域解析过租户库 DbContext。执行记录写入应像上例另建作用域并使用宿主库，不复用任务的 DbContext；共享的普通 Scoped 统计服务仍可在 Completed 读取。
 - 实例标识由宿主提供，执行记录与遥测的 `service.instance.id` 共用该值；部署保证唯一时可用 Pod/机器名，同机多进程用启动时生成的 GUID 或其他唯一组合。机器名加应用名不能区分同应用的多个进程。
 - 自研调度器如需支持观察者，应自行实现上述回调与隔离契约；Core 登记本身不触发回调。

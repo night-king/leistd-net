@@ -34,6 +34,7 @@ description: 在业务项目中做需求分析、实现、审查、测试、Git 
 | 线上数据修正 | 预演结果经用户确认后单事务执行并留痕 | [运维操作](references/operations.md) |
 | 配置或运维变更 | 用户确认后执行，并验证已生效、可恢复 | [环境交付](references/delivery.md)、项目部署规范 |
 | 紧急热修 | 先止损，再交付最小修复，事后补简短规格 | [环境交付](references/delivery.md) |
+| 框架用法咨询（`Leistd.*` 的类型、签名、注册方式） | 按实际还原的包版本给出签名与用法，注明包名与版本；不凭记忆回答 | `backend/README.md` 的“Leistd 框架 API”一节，按其步骤读包内文档 |
 | 同步或升级模板版本、存量项目接入模板 | 合并到目标版本、冲突已按语义解决、verify 通过，并列出未自动合并的项 | [同步模板](references/template-sync.md) |
 
 文档创建与去重读 [文档沉淀](references/documentation.md)；要求初始化或文档缺失影响长期协作时读 [项目协作初始化](references/bootstrap.md)。
