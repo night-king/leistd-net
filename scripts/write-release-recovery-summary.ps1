@@ -12,7 +12,7 @@
       packages     推包步骤失败或被取消：可能部分已发布，从原产物只补缺失包，再补 tag 及后续
       tag          包已全部推送，tag 未落地（含远端同名 tag 冲突）
       main         stable：tag 已落地，main 版本回写未完成
-      release      stable/beta：tag（与回写）已完成，Release 或附件未完成；nightly 不创建 Release
+      release      stable/beta：tag（与回写）已完成，Release 或附件未完成
       unknown      上述发布步骤都成功，失败来自其他步骤
 
     输出首行是机器可读标记 <!-- release-recovery-stage: <阶段> -->，供测试断言。
@@ -21,11 +21,11 @@
 [CmdletBinding()]
 param(
     # 判定通道之前就失败时为空，此时推包必然未开始
-    [ValidateSet('stable', 'beta', 'nightly', '')][string]$Channel = '',
+    [ValidateSet('stable', 'beta', '')][string]$Channel = '',
     [string]$Version = '',
     [string]$Tag = '',
     [string]$CandidateSha = '',
-    # tag 解引用后的提交：beta/nightly 等于候选 SHA，stable 有回写时是 runner 本地创建的版本提交
+    # tag 解引用后的提交：beta 等于候选 SHA，stable 有回写时是 runner 本地创建的版本提交
     [string]$ReleaseSha = '',
     [string]$Repository = '',
     [string]$ServerUrl = 'https://github.com',
@@ -49,7 +49,7 @@ $stage = if (-not $pushStarted) { 'before-push' }
     elseif ($PushOutcome -ne 'success') { 'packages' }
     elseif ($TagOutcome -ne 'success') { 'tag' }
     elseif ($Channel -eq 'stable' -and $BranchOutcome -ne 'success') { 'main' }
-    elseif ($Channel -ne 'nightly' -and $ReleaseOutcome -ne 'success') { 'release' }
+    elseif ($ReleaseOutcome -ne 'success') { 'release' }
     else { 'unknown' }
 
 $order = @('packages', 'tag', 'main', 'release')
@@ -62,7 +62,7 @@ function Show([string]$Value) { if ($Value) { $Value } else { '（未产生）' 
 
 $download = ".tmp/release-$Version"
 $runUrl = if ($Repository -and $RunId) { "$ServerUrl/$Repository/actions/runs/$RunId" } else { '' }
-$feed = if ($Channel -eq 'nightly') { "https://nuget.pkg.github.com/$($Repository.Split('/')[0])/index.json" } else { 'https://api.nuget.org/v3/index.json' }
+$feed = 'https://api.nuget.org/v3/index.json'
 
 $lines = [Collections.Generic.List[string]]::new()
 $lines.Add("<!-- release-recovery-stage: $stage -->")
@@ -80,7 +80,7 @@ $lines.Add("| 失败阶段 | ``$stage`` |")
 $lines.Add('')
 $lines.Add("步骤结果：推包=$(Show $PushOutcome)；tag=$(Show $TagOutcome)$(if ($TagResult) { "（$TagResult）" })" +
     $(if ($Channel -eq 'stable') { "；main 回写=$(Show $BranchOutcome)$(if ($BranchResult) { "（$BranchResult）" })" }) +
-    $(if ($Channel -ne 'nightly') { "；Release=$(Show $ReleaseOutcome)" } else { '；nightly 不创建 Release' }))
+    "；Release=$(Show $ReleaseOutcome)")
 $lines.Add('')
 $lines.Add('不要整体重跑本 job：它会重新推算并重打同一版本，已上传的包会被拒绝。不自动 unlist；理由与完整规则见 `docs/framework/versioning.md`「部分发布恢复」。')
 $lines.Add('')
@@ -155,7 +155,7 @@ else {
         }
         $lines.Add('')
     }
-    if ($Channel -ne 'nightly' -and (Test-Pending 'release')) {
+    if (Test-Pending 'release') {
         $title = if ($Channel -eq 'stable') { "Release $Tag" } else { "Prerelease $Tag" }
         $flags = if ($Channel -eq 'stable') { '--latest' } else { '--prerelease --latest=false' }
         $lines.Add("**Release**：按 tag 查询实际状态，只补缺失项；说明与附件都取原产物，不覆盖已有附件：")
@@ -167,10 +167,6 @@ else {
         $lines.Add("# 只上传缺失的附件（不加 --clobber）：")
         $lines.Add("gh release upload $Tag -R $Repository $download/packages/<缺失的包>.nupkg")
         $lines.Add('```')
-        $lines.Add('')
-    }
-    if ($Channel -eq 'nightly') {
-        $lines.Add('nightly 只发布 GitHub Packages 与 tag，不创建 Release。')
         $lines.Add('')
     }
 }

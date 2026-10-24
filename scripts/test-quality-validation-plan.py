@@ -5,6 +5,7 @@ Not a per-feature gate. Logs and generation evidence stay under .tmp.
 """
 import argparse
 import hashlib
+import io
 import importlib.util
 import json
 import os
@@ -15,6 +16,8 @@ import subprocess
 import tempfile
 import time
 import sys
+import zipfile
+from unittest import mock
 
 sys.dont_write_bytecode = True
 
@@ -60,6 +63,7 @@ def main():
         scenarios = planner.coverage.load_scenarios()
         registered = set(scenarios)
         prove_dependency_audit_inputs(planner)
+        prove_release_reuse(planner, repo, base, out, run)
         core = {name for name, info in scenarios.items() if 'core' in info['Slices']}
         front = 'template/frontend/src/app/core/services/notification-service.ts'
         back = 'template/backend/src/CompanyName.ProjectName.Api/Controllers/AuthController.cs'
@@ -94,7 +98,7 @@ def main():
             assert plan['Tier'] == 'core', (label, plan['Tier'])
             assert plan['ScenarioSelection'] == ('representative' if not narrowed else 'none' if expected_mode == 'documentation'
                                                  else 'selector'), (label, plan['ScenarioSelection'])
-            assert plan['Version'] == 3 and (label != 'cross-layer' or plan['ContainerSmoke'])
+            assert plan['Version'] == 4 and (label != 'cross-layer' or plan['ContainerSmoke'])
             # The frontend dependency audit follows proven inputs that reach the dependency closure or the audit itself.
             audits = label in DEPENDENCY_AUDIT_CASES
             assert plan['DependencyAudit'] is audits, (label, plan['DependencyAudit'])
@@ -154,7 +158,7 @@ def main():
                 # The same unknown input stays full on every other trigger and publication channel.
                 head = git('rev-parse', 'HEAD')
                 for tier, event, candidate, channel in [('full', 'push', head, 'beta'), ('full', 'push', head, 'stable'),
-                                                        ('full', 'schedule', head, 'nightly'), ('full', 'workflow_dispatch', head, 'beta'),
+                                                        ('full', 'workflow_dispatch', head, 'beta'),
                                                         ('full', 'workflow_dispatch', head, 'stable'), ('full', 'push', '', ''),
                                                         ('core', 'workflow_dispatch', '', ''), ('core', 'pull_request', head, '')]:
                     other = planner.create_plan(tier, base, event, candidate, release_channel=channel)
@@ -162,8 +166,8 @@ def main():
                     assert set(other['Scenarios']) == registered and all(other['Jobs'].values()) and other['ContainerSmoke'], (label, event, channel)
                     assert other['FrameworkTestSelection'] == 'all' and other['ConsumerProjects'] is None, (label, event, channel)
                     assert other['ReleaseRequired'] == bool(channel), (label, event, channel, other['ReleaseReason'])
-                    # Stable and manual runs always audit; nightly previews never do (the scheduled checks audit daily).
-                    expected_audit = channel == 'stable' or event == 'workflow_dispatch' or (channel != 'nightly' and audits)
+                    # Stable and manual runs always audit; other candidates follow the inputs.
+                    expected_audit = channel == 'stable' or event == 'workflow_dispatch' or audits
                     assert other['DependencyAudit'] is expected_audit, (label, event, channel, other['DependencyAudit'])
             for tier, event, baseline, candidate in [('full','pull_request',base,''), ('core','workflow_dispatch',base,'')]:
                 conservative = planner.create_plan(tier, baseline, event, candidate)
@@ -249,6 +253,158 @@ EMAIL_TESTS = 'framework/tests/components/email/Leistd.Email.Tests/Leistd.Email.
 DEPENDENCY_AUDIT_CASES = {'frontend-lock', 'template-parameters', 'workflow'}
 
 
+def prove_release_reuse(planner, repo, base, out, run):
+    """Exercise the production reader and real summary against an isolated merge and remote responses."""
+    import yaml
+    def git(*args):
+        return subprocess.check_output(['git', *args], cwd=repo, text=True).strip()
+    def clone(value): return json.loads(json.dumps(value))
+    target = repo / 'README.md'
+    target.write_text(target.read_text() + '\nReuse fixture\n')
+    git('add', '.'); git('commit', '-qm', 'fix: reuse fixture')
+    source = git('rev-parse', 'HEAD')
+    source_plan = planner.create_plan('full', base, 'push', source, True, 'beta')
+    # A non-publication source is also valid if its actual code responsibilities are complete.
+    source_plan['ReleaseRequired'] = False
+    tree = git('rev-parse', 'HEAD^{tree}')
+    head = git('commit-tree', tree, '-p', base, '-p', source, '-m', 'merge fixture')
+    git('reset', '--hard', head)
+    workflow = yaml.safe_load((repo / '.github/workflows/ci.yml').read_text())
+    names = set()
+    for key in ['quality-plan', 'docs-sync', 'docs-sync-windows', *source_plan['Jobs'], 'template-matrix']:
+        label = workflow['jobs'][key]['name']
+        if key == 'template-generation':
+            names.update('quality / ' + label.replace('${{ matrix.shard }}', shard) for shard in workflow['jobs'][key]['strategy']['matrix']['shard'])
+        elif key == 'template-slices':
+            names.update('quality / ' + label.replace('${{ matrix.slice.title }}', group['title']) for group in source_plan['Slices'])
+        else: names.add('quality / ' + label)
+    assert names == planner.quality_job_names(source_plan), 'Source job names must match the real workflow'
+    repository = dict(id=17, full_name='fixture/repo')
+    source_run = dict(id=41, run_attempt=2, head_sha=source, head_branch='develop', event='push',
+                      path='.github/workflows/release.yml', status='completed', conclusion='success',
+                      repository=repository, head_repository=repository)
+    good = dict(runs=[source_run], current=source_run, plan=source_plan,
+                jobs=[dict(name=name, status='completed', conclusion='success') for name in sorted(names)],
+                artifacts=[dict(id=73, name='quality-plan-41-2', expired=False,
+                                workflow_run=dict(id=41, repository_id=17, head_repository_id=17, head_sha=source, head_branch='develop'))])
+    state = clone(good)
+    def api(endpoint):
+        if endpoint.startswith('workflows/release.yml/runs?'):
+            assert 'head_sha=' + source in endpoint and 'branch=develop' in endpoint and 'status=' not in endpoint
+            key, items = 'workflow_runs', state['runs']
+        elif endpoint == 'runs/41/attempts/2/jobs?per_page=100': key, items = 'jobs', state['jobs']
+        elif endpoint == 'runs/41/artifacts?per_page=100': key, items = 'artifacts', state['artifacts']
+        elif endpoint == 'runs/41': return state['current']
+        else: raise AssertionError('Unexpected API request: ' + endpoint)
+        return dict(total_count=len(items) + (1 if state.get('incomplete') == key else 0), **{key: items})
+    records = []
+    env = dict(GITHUB_REPOSITORY='fixture/repo', GITHUB_REF_NAME='main', GH_TOKEN='fixture-token')
+    with mock.patch.dict(os.environ, env), mock.patch.object(planner, 'actions_get', side_effect=api), \
+            mock.patch.object(planner, 'actions_quality_plan', side_effect=lambda artifact: clone(state['plan'])):
+        witness, reason = planner.verified_release_quality(head)
+        assert witness == dict(Verified=True, RunId=41, Attempt=2, HeadSha=source, Tree=tree, PlanArtifactId=73), reason
+        plan = planner.create_plan('full', base, 'push', head, release_channel='stable')
+        assert plan['QualityExecution'] == 'reuse' and plan['QualityReuse'] == witness and not plan['QualityValidated'], plan
+        assert plan['CandidateSha'] == head and plan['ReleaseRequired'] and plan['TemplateRelease']['Required'] and plan['DependencyAudit']
+        assert plan['Jobs'] == source_plan['Jobs'] and plan['Slices'] == source_plan['Slices']
+        def reject(label, mutate):
+            nonlocal state
+            state = clone(good); mutate(state)
+            evidence, why = planner.verified_release_quality(head)
+            assert evidence == planner.no_quality_reuse() and why.startswith('Full:'), (label, why, evidence)
+            records.append(dict(case=label, reason=why))
+        for field, value in [('status', 'in_progress'), ('conclusion', 'failure'), ('conclusion', 'cancelled'),
+                             ('event', 'workflow_dispatch'), ('head_branch', 'main'), ('path', '.github/workflows/ci.yml'),
+                             ('head_sha', 'f' * 40), ('head_repository', dict(id=99, full_name='fork/repo'))]:
+            reject('run-' + field + '-' + str(value), lambda s, f=field, v=value: s['runs'][0].update({f: v}))
+        reject('newer-failed-run', lambda s: s['runs'].append(dict(s['runs'][0], id=42, conclusion='failure')))
+        reject('no-runs', lambda s: s.update(runs=[]))
+        reject('attempt-changed', lambda s: s['current'].update(run_attempt=3))
+        for key in ['workflow_runs', 'jobs', 'artifacts']:
+            reject('pagination-' + key, lambda s, k=key: s.update(incomplete=k))
+        for field, value in [('Version', 3), ('CandidateSha', head), ('Tier', 'core'), ('Mode', 'backend'),
+                             ('ContainerSmoke', False), ('Scenarios', []), ('Slices', []), ('ConsumerProjects', []),
+                             ('FrameworkTestSelection', 'affected'), ('FrameworkTestProjects', []), ('GeneratedDocumentation', False),
+                             ('PackageDocumentation', False), ('ScenarioSelection', 'selector'), ('QualityExecution', 'reuse'),
+                             ('QualityValidated', True)]:
+            reject('plan-' + field, lambda s, f=field, v=value: s['plan'].update({f: v}))
+        for job in source_plan['Jobs']:
+            reject('plan-job-' + job, lambda s, j=job: s['plan']['Jobs'].update({j: False}))
+        for name in sorted(names):
+            reject('missing-job-' + name, lambda s, n=name: s.update(jobs=[j for j in s['jobs'] if j['name'] != n]))
+        for conclusion in ['failure', 'cancelled', 'skipped', None]:
+            reject('job-' + str(conclusion), lambda s, v=conclusion: s['jobs'][0].update(conclusion=v))
+        reject('duplicate-job', lambda s: s['jobs'].append(clone(s['jobs'][0])))
+        reject('artifact-missing', lambda s: s.update(artifacts=[]))
+        reject('artifact-duplicate', lambda s: s['artifacts'].append(clone(s['artifacts'][0])))
+        reject('artifact-expired', lambda s: s['artifacts'][0].update(expired=True))
+        reject('artifact-old-attempt', lambda s: s['artifacts'][0].update(name='quality-plan-41-1'))
+        for field, value in [('id', 42), ('head_sha', head), ('head_branch', 'main'), ('repository_id', 99), ('head_repository_id', 99)]:
+            reject('artifact-owner-' + field, lambda s, f=field, v=value: s['artifacts'][0]['workflow_run'].update({f: v}))
+        state = clone(good)
+        fallback = planner.create_plan('full', base, 'push', head, release_channel='stable')
+        assert fallback['QualityExecution'] == 'reuse'
+        state['plan']['ContainerSmoke'] = False
+        fallback = planner.create_plan('full', base, 'push', head, release_channel='stable')
+        assert fallback['QualityExecution'] == 'current' and all(fallback['Jobs'].values()) and fallback['ContainerSmoke'] and fallback['DependencyAudit']
+        assert fallback['CandidateSha'] == head and 'ContainerSmoke' in fallback['Reason']
+        for event, channel in [('push', 'beta'), ('workflow_dispatch', 'stable')]:
+            with mock.patch.object(planner, 'verified_release_quality', side_effect=AssertionError('Unexpected reuse query')):
+                ordinary = planner.create_plan('full', base, event, head, release_channel=channel)
+                assert ordinary['QualityExecution'] == 'current'
+    for error in [OSError('unavailable'), TimeoutError('timeout'), json.JSONDecodeError('invalid JSON', '', 0)]:
+        with mock.patch.dict(os.environ, env), mock.patch.object(planner, 'actions_get', side_effect=error):
+            assert not planner.verified_release_quality(head)[0]['Verified']
+    with mock.patch.dict(os.environ, dict(env, GH_TOKEN='')), mock.patch.object(planner, 'urlopen', side_effect=AssertionError('No token')):
+        assert 'credentials unavailable' in planner.verified_release_quality(head)[1]
+    assert 'two-parent' in planner.verified_release_quality(source)[1]
+    original_git = planner.git
+    with mock.patch.object(planner, 'git', side_effect=lambda *a: 'f' * 40 if a == ('rev-parse', source + '^{tree}') else original_git(*a)):
+        assert 'trees differ' in planner.verified_release_quality(head)[1]
+    # The raw artifact reader checks the archive itself; its redirect never forwards the token to storage.
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w') as archive: archive.writestr('quality-plan.json', json.dumps(source_plan))
+    class ArchiveResponse:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return buffer.getvalue()
+    with mock.patch.dict(os.environ, env), mock.patch.object(planner, 'build_opener') as opener:
+        opener.return_value.open.return_value = ArchiveResponse()
+        assert planner.actions_quality_plan(73) == source_plan
+    request = planner.Request('https://api.github.com/test', headers={'Authorization': 'Bearer fixture-token'})
+    redirected = planner.ArtifactRedirect().redirect_request(request, None, 302, '', {}, 'https://storage.example.invalid/signed')
+    assert not redirected.has_header('Authorization')
+    (out / 'release-reuse-fixtures.json').write_text(json.dumps(records, ensure_ascii=False, indent=2))
+    # Execute the actual summary scripts: skipped reused jobs are required, the fresh audit must succeed.
+    summary = next(s['run'] for s in workflow['jobs']['template-matrix']['steps'] if s.get('id') == 'quality')
+    complete = next(s['run'] for s in workflow['jobs']['template-matrix']['steps'] if s.get('id') == 'complete')
+    states = {name: dict(result='skipped', outputs={}) for name in workflow['jobs']['template-matrix']['needs']}
+    states['quality-plan'] = dict(result='success', outputs=dict(validation_plan=json.dumps(plan)))
+    states['dependency-audit']['result'] = 'success'
+    script = out / 'reuse-summary.ps1'; script.write_text(summary)
+    output = out / 'reuse-summary-output.txt'
+    def summary_check(label, jobs, success):
+        output.unlink(missing_ok=True)
+        with mock.patch.dict(os.environ, dict(NEEDS_JSON=json.dumps(jobs), CANDIDATE_SHA=head, PLAN_SCOPE='full', GITHUB_OUTPUT=str(output))):
+            run(label, ['pwsh', '-NoProfile', '-File', str(script)], repo, success)
+        if success: assert output.read_text().splitlines() == ['dynamic=false', 'framework_tests=false', 'tier=full']
+    summary_check('reuse-summary-valid', states, True)
+    for job in states:
+        invalid = clone(states); invalid[job]['result'] = 'failure' if job in ('quality-plan', 'dependency-audit') else 'success'
+        summary_check('reuse-summary-reject-' + job, invalid, False)
+    for field, value in [('Verified', False), ('HeadSha', head), ('Tree', 'f' * 40), ('Attempt', 0), ('PlanArtifactId', 0)]:
+        invalid = clone(states); changed = clone(plan); changed['QualityReuse'][field] = value
+        invalid['quality-plan']['outputs']['validation_plan'] = json.dumps(changed)
+        summary_check('reuse-summary-witness-' + field, invalid, False)
+    script.write_text(complete)
+    with mock.patch.dict(os.environ, dict(VALIDATION_PLAN=json.dumps(plan), GITHUB_OUTPUT=str(output))):
+        output.unlink(missing_ok=True); run('reuse-summary-output', ['pwsh', '-NoProfile', '-File', str(script)], repo)
+        final = json.loads(output.read_text().removeprefix('validation_plan='))
+        assert final['QualityValidated'] is True and final['QualityReuse'] == plan['QualityReuse']
+    git('reset', '--hard', base)
+    print(f'PASS same-tree reuse: {len(records)} source counterexamples, full fallback and real summary states', flush=True)
+
+
 def prove_dependency_audit_inputs(planner):
     """Every path class that reaches the audited dependency closure or the audit itself; generation-free."""
     audited = ['template/.template.config/localization/frontend/package-lock.json',
@@ -261,12 +417,10 @@ def prove_dependency_audit_inputs(planner):
                  'template/backend/src/CompanyName.ProjectName.Api/Program.cs', 'docs/README.md']
     for path in audited:
         assert planner.dependency_audit('', 'pull_request', [path]) and planner.dependency_audit('beta', 'push', [path]), path
-        assert not planner.dependency_audit('nightly', 'schedule', [path]), path
     for path in unaudited:
         assert not planner.dependency_audit('', 'pull_request', [path]) and not planner.dependency_audit('beta', 'push', [path]), path
         assert planner.dependency_audit('stable', 'push', [path]) and planner.dependency_audit('', 'workflow_dispatch', [path]), path
     assert planner.dependency_audit('', 'pull_request', None) and planner.dependency_audit('beta', 'push', None)
-    assert not planner.dependency_audit('nightly', 'schedule', None)
     print('PASS dependency audit inputs: closure, audit machinery, proof fallback and channel overrides', flush=True)
 
 
@@ -816,9 +970,9 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
     # Without publication the same documentation input carries no container responsibility.
     ordinary = planner.create_plan('full', base, 'push', '')
     assert not ordinary['ReleaseRequired'] and not ordinary['ContainerSmoke'], ordinary
-    plan = planner.create_plan('full', base, 'schedule', head, release_channel='nightly')
+    plan = planner.create_plan('full', base, 'workflow_dispatch', head, release_channel='beta')
     assert plan['ReleaseRequired'] and plan['Mode'] == 'full' and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
-    assert not plan['DependencyAudit'], 'Nightly previews leave the dependency audit to the scheduled checks'
+    assert plan['DependencyAudit'], 'Manual publication always runs the dependency audit'
     core = [name for name, info in scenarios.items() if 'core' in info['Slices']]
     containers = [name for group in plan['Slices'] for name in group['Containers']]
     assert sorted(containers) == sorted(['standalone-external-login', 'resource-capabilities-03']), containers
@@ -846,7 +1000,8 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
     assert stable['DependencyAudit'], stable
     plan_file.write_text(json.dumps(stable), encoding='utf-8'); run('stable-plan-valid', validator, repo)
     for name, mutate, message in [('stable-without-audit', lambda p: p.update(DependencyAudit=False), 'Stable publication requires the frontend dependency audit'),
-                                  ('missing-audit-field', lambda p: p.pop('DependencyAudit'), 'Invalid quality plan')]:
+                                  ('missing-audit-field', lambda p: p.pop('DependencyAudit'), 'Invalid quality plan'),
+                                  ('invalid-release-channel', lambda p: p.update(ReleaseChannel='invalid'), 'Invalid quality plan')]:
         invalid = json.loads(json.dumps(stable)); mutate(invalid)
         plan_file.write_text(json.dumps(invalid), encoding='utf-8')
         run('stable-plan-reject-' + name, validator, repo, False)

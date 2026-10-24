@@ -80,6 +80,20 @@ function Step-ReleaseVersion([string]$BaseVersion, [string]$Bump) {
 # 它不是一项变更，两条通道的发布说明都不列它；模板通道也不因它升版：只改框架时不升模板版本。
 function Test-ReleaseWriteBack([string]$Subject) { $Subject -cmatch '^chore: 发布 v\d+\.\d+\.\d+ \[skip ci\]$' }
 
+# 两条发布通道共用的质量证据说明，只消费成功汇总输出的计划。
+function Format-QualityReuseNote($Plan, [string]$Repository) {
+    if ($Plan.QualityExecution -ceq 'current') { return }
+    $reuse = $Plan.QualityReuse
+    if ($Plan.QualityExecution -cne 'reuse' -or $Plan.QualityValidated -cne $true -or $reuse.Verified -cne $true -or
+        $reuse.RunId -le 0 -or $reuse.Attempt -le 0 -or $reuse.HeadSha -cnotmatch '^[0-9a-f]{40}$' -or
+        $reuse.Tree -cnotmatch '^[0-9a-f]{40}$' -or $Repository -cnotmatch '^[\w.-]+/[\w.-]+$') {
+        throw 'Invalid quality reuse note evidence.'
+    }
+    ''; '## 质量验证'; ''
+    "质量证据复用自 [run $($reuse.RunId)](https://github.com/$Repository/actions/runs/$($reuse.RunId)/attempts/$($reuse.Attempt))（attempt $($reuse.Attempt)，develop ``$($reuse.HeadSha)``，tree ``$($reuse.Tree)``）。本次依赖审计与最终产物验证另行执行。"
+    ''
+}
+
 # 发布说明的变更小节：每条记录带上 Conventional Commits 的 scope（如 settings、multi-tenancy），
 # 各小节内按 scope 字母序分组，没有 scope 的条目放在最后；组内保持 git log 的顺序。
 # Release 正文就是变更记录，消费者按自己用到的范围查找。

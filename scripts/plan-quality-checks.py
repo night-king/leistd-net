@@ -6,7 +6,7 @@ Scenario/source definitions stay in their existing files; conditions are evaluat
 with the coverage gate's evaluator.
 
 A direct PR always has Tier core; the template full set runs only after merge,
-nightly, on dispatch and for publication. A narrowed core plan (ScenarioSelection
+on dispatch and for publication. A narrowed core plan (ScenarioSelection
 selector) carries the incremental guarantee: the core consumers of every changed
 source, every changed conditional branch on its enabled side and the trimmed side
 of conditional files. Inputs that cannot be proven (shared/unknown inputs,
@@ -18,6 +18,8 @@ combinations are proven only by the full tier before any publication.
 from __future__ import annotations
 
 import argparse
+import io
+from http.client import HTTPException
 import importlib.util
 import itertools
 import json
@@ -28,7 +30,8 @@ import re
 import subprocess
 import sys
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+import zipfile
 from xml.etree import ElementTree
 
 sys.dont_write_bytecode = True
@@ -146,15 +149,12 @@ CONTAINER_INPUT = re.compile(r'template/(?:Dockerfile|\.dockerignore|deploy/.+|\
 def dependency_audit(channel: str, event: str, proven_paths: list[str] | None) -> bool:
     """Whether this candidate audits the generated frontend lock files.
 
-    Stable publication and manual runs always do. Nightly previews publish framework packages only and never do:
-    the scheduled checks audit the full closure every day, which also catches new advisories against unchanged
+    Stable publication and manual runs always do. The scheduled checks also catch new advisories against unchanged
     dependencies. Every other candidate audits only when a proven input difference reaches the dependency closure
     or the audit; without that proof (no valid baseline, dirty tree) it audits.
     """
     if channel == 'stable' or event == 'workflow_dispatch':
         return True
-    if channel == 'nightly':
-        return False
     if proven_paths is None:
         return True
     return any(DEPENDENCY_AUDIT_INPUT.fullmatch(path) or (FRONTEND_ROOT.fullmatch(path) and not frontend_source(path))
@@ -172,41 +172,158 @@ def changed_paths(base: str, head: str) -> list[str]:
     return paths
 
 
+def actions_request(endpoint: str) -> Request:
+    repository = os.environ.get('GITHUB_REPOSITORY', '')
+    token = os.environ.get('GH_TOKEN', '')
+    if not re.fullmatch(r'[\w.-]+/[\w.-]+', repository) or not token:
+        raise ValueError('Actions credentials unavailable')
+    api = os.environ.get('GITHUB_API_URL', 'https://api.github.com').rstrip('/')
+    return Request(api + '/repos/' + repository + '/actions/' + endpoint,
+                   headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
+                            'X-GitHub-Api-Version': '2022-11-28'})
+
+
+def actions_get(endpoint: str) -> dict:
+    with urlopen(actions_request(endpoint), timeout=15) as response:
+        return json.load(response)
+
+
+def complete_actions_list(endpoint: str, key: str) -> list:
+    payload = actions_get(endpoint)
+    entries = payload[key]
+    if not isinstance(entries, list) or type(payload['total_count']) is not int or payload['total_count'] != len(entries):
+        raise ValueError('Actions pagination incomplete')
+    return entries
+
+
+def trusted_quality_run(run: dict, sha: str, branch: str) -> None:
+    if (run['head_sha'] != sha or run['head_branch'] != branch or run['event'] != 'push' or
+            run['path'] != '.github/workflows/release.yml' or run['status'] != 'completed' or run['conclusion'] != 'success'):
+        raise ValueError('Latest quality run is not a successful trusted push')
+
+
+def latest_quality_run(sha: str, branch: str) -> dict:
+    query = urlencode(dict(head_sha=sha, branch=branch, event='push', per_page=100))
+    runs = complete_actions_list('workflows/release.yml/runs?' + query, 'workflow_runs')
+    if not runs:
+        raise ValueError('No source quality run')
+    run = max(runs, key=lambda entry: entry['id'])
+    trusted_quality_run(run, sha, branch)
+    return run
+
+
 def verified_quality_base(base: str, head: str) -> dict:
     """A push may narrow only after its preceding candidate passed this workflow."""
     unavailable = dict(Verified=False, RunId=0, Attempt=0)
     try:
         git('merge-base', '--is-ancestor', base, head)
-        repository = os.environ.get('GITHUB_REPOSITORY', '')
         branch = os.environ.get('GITHUB_REF_NAME', '')
-        token = os.environ.get('GH_TOKEN', '')
-        if not re.fullmatch(r'[\w.-]+/[\w.-]+', repository) or branch not in ('main', 'develop') or not token:
+        if branch not in ('main', 'develop'):
             return unavailable
-        api = os.environ.get('GITHUB_API_URL', 'https://api.github.com').rstrip('/')
-        def get(endpoint):
-            request = Request(api + '/repos/' + repository + '/actions/' + endpoint,
-                              headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
-                                       'X-GitHub-Api-Version': '2022-11-28'})
-            with urlopen(request, timeout=15) as response:
-                return json.load(response)
-        query = urlencode(dict(head_sha=base, branch=branch, event='push', per_page=100))
-        payload = get('workflows/release.yml/runs?' + query)
-        runs = payload['workflow_runs']
-        if payload['total_count'] != len(runs) or not runs:
-            return unavailable
-        run = max(runs, key=lambda entry: entry['id'])
-        if (run['head_sha'] != base or run['head_branch'] != branch or run['event'] != 'push' or
-                run['path'] != '.github/workflows/release.yml' or run['status'] != 'completed' or run['conclusion'] != 'success'):
-            return unavailable
-        jobs = get(f"runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")
-        if jobs['total_count'] != len(jobs['jobs']):
-            return unavailable
-        aggregates = [job for job in jobs['jobs'] if job['name'] == 'quality / 模板全场景矩阵']
+        run = latest_quality_run(base, branch)
+        jobs = complete_actions_list(f"runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100", 'jobs')
+        aggregates = [job for job in jobs if job['name'] == 'quality / 模板全场景矩阵']
         if len(aggregates) != 1 or aggregates[0]['status'] != 'completed' or aggregates[0]['conclusion'] != 'success':
             return unavailable
         return dict(Verified=True, RunId=run['id'], Attempt=run['run_attempt'])
-    except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError):
+    except (ValueError, KeyError, TypeError, OSError, HTTPException, subprocess.CalledProcessError):
         return unavailable
+
+
+def no_quality_reuse() -> dict:
+    return dict(Verified=False, RunId=0, Attempt=0, HeadSha='', Tree='', PlanArtifactId=0)
+
+
+class ArtifactRedirect(HTTPRedirectHandler):
+    """Artifact storage receives its signed URL, never the repository's bearer token."""
+    def redirect_request(self, request, fp, code, message, headers, newurl):
+        if not newurl.startswith('https://'):
+            raise ValueError('Artifact redirect must use HTTPS')
+        redirected = super().redirect_request(request, fp, code, message, headers, newurl)
+        if redirected is not None:
+            redirected.remove_header('Authorization')
+        return redirected
+
+
+def actions_quality_plan(artifact_id: int) -> dict:
+    with build_opener(ArtifactRedirect()).open(actions_request(f'artifacts/{artifact_id}/zip'), timeout=15) as response:
+        archive = response.read()
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        if bundle.namelist() != ['quality-plan.json'] or bundle.getinfo('quality-plan.json').file_size > PLAN_OUTPUT_LIMIT:
+            raise ValueError('Invalid quality plan archive')
+        return json.loads(bundle.read('quality-plan.json'))
+
+
+def full_quality_source(plan: dict, sha: str) -> None:
+    """Compare actual responsibilities with the catalog, not a source plan's claim to be full."""
+    scenarios = coverage.load_scenarios()
+    expected = dict(Version=4, CandidateSha=sha, Event='push', ReleaseChannel='beta', Tier='full', Mode='full', DocsOnly=False,
+                    ScenarioSelection='all', Scenarios=list(scenarios), ContainerSmoke=True,
+                    FrameworkTests=True, FrameworkTestSelection='all', FrameworkTestProjects=all_framework_tests(sha),
+                    ConsumerProjects=None, GeneratedDocumentation=True, PackageDocumentation=True,
+                    Jobs={name: True for name in JOB_NAMES}, QualityExecution='current',
+                    QualityReuse=no_quality_reuse(), QualityValidated=False,
+                    Slices=execution_slices(scenarios, list(scenarios), 'full', 'full', True))
+    for field, value in expected.items():
+        if field not in plan or json.dumps(plan[field], sort_keys=True) != json.dumps(value, sort_keys=True):
+            raise ValueError('Source quality responsibility differs: ' + field)
+
+
+def quality_job_names(plan: dict) -> set[str]:
+    names = {'计算候选验证责任', '文档与 Skill 同步闸门', '文档与 Skill 同步闸门（Windows）',
+             '前端依赖闸门', '打包候选 Framework', '框架单元测试', 'NuGet 包内容与隔离消费',
+             '模板 PostgreSQL 端到端', '模板 OIDC 跨服务端到端', '模板全场景矩阵'}
+    names.update('模板有效形态生成 · ' + shard for shard in ('0', '1', '2', 'control'))
+    names.update('模板场景 · ' + group['title'] for group in plan['Slices'])
+    return {'quality / ' + name for name in names}
+
+
+def verified_release_quality(head: str) -> tuple[dict, str]:
+    """Freeze a same-tree develop attempt before any current jobs can be skipped."""
+    try:
+        parents = git('show', '-s', '--format=%P', head).split()
+        if len(parents) != 2:
+            raise ValueError('Candidate is not a two-parent merge')
+        source = parents[1]
+        tree = git('rev-parse', head + '^{tree}')
+        if git('rev-parse', source + '^{tree}') != tree:
+            raise ValueError('Candidate and develop trees differ')
+        run = latest_quality_run(source, 'develop')
+        repository = os.environ['GITHUB_REPOSITORY'].lower()
+        if (run['repository']['full_name'].lower() != repository or
+                run['head_repository']['full_name'].lower() != repository):
+            raise ValueError('Source repository differs')
+        run_id, attempt = run['id'], run['run_attempt']
+        if type(run_id) is not int or run_id <= 0 or type(attempt) is not int or attempt <= 0:
+            raise ValueError('Invalid source run identity')
+        jobs = complete_actions_list(f'runs/{run_id}/attempts/{attempt}/jobs?per_page=100', 'jobs')
+        artifacts = complete_actions_list(f'runs/{run_id}/artifacts?per_page=100', 'artifacts')
+        matches = [item for item in artifacts if item['name'] == f'quality-plan-{run_id}-{attempt}']
+        if len(matches) != 1 or matches[0]['expired'] is not False:
+            raise ValueError('Source plan artifact missing, expired or duplicated')
+        artifact = matches[0]
+        owner = artifact['workflow_run']
+        if (owner['id'] != run_id or owner['head_sha'] != source or owner['head_branch'] != 'develop' or
+                owner['repository_id'] != run['repository']['id'] or owner['head_repository_id'] != run['repository']['id'] or
+                type(artifact['id']) is not int or artifact['id'] <= 0):
+            raise ValueError('Source plan artifact ownership differs')
+        # The immutable artifact name binds the attempt; its uploading job must succeed in that exact attempt.
+        plan = actions_quality_plan(artifact['id'])
+        full_quality_source(plan, source)
+        for name in quality_job_names(plan):
+            found = [job for job in jobs if job['name'] == name]
+            if len(found) != 1 or found[0]['status'] != 'completed' or found[0]['conclusion'] != 'success':
+                raise ValueError('Source quality job missing or unsuccessful: ' + name)
+        current = actions_get(f'runs/{run_id}')
+        trusted_quality_run(current, source, 'develop')
+        if current['id'] != run_id or current['run_attempt'] != attempt:
+            raise ValueError('Source attempt changed during verification')
+        return dict(Verified=True, RunId=run_id, Attempt=attempt, HeadSha=source, Tree=tree,
+                    PlanArtifactId=artifact['id']), f'Reused full code quality from run {run_id}, attempt {attempt}'
+    except (ValueError, KeyError, TypeError, AttributeError, OSError, HTTPException, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
+        # Transport errors can contain signed storage URLs; only our own validation errors are diagnostic text.
+        reason = str(error) if type(error) is ValueError else type(error).__name__
+        return no_quality_reuse(), 'Full: quality reuse unavailable (' + reason + ')'
 
 
 def packaged_documents(sha: str) -> set[str]:
@@ -301,6 +418,36 @@ def classify_inputs(base: str, head: str, paths: list[str]) -> dict[str, list[st
     return result
 
 
+def same_as_stable(head: str, event: str, branch: str) -> dict:
+    """A develop push with no new tree content needs neither quality nor a new release.
+
+    Select the global highest stable version before checking ancestry. A tag records
+    content identity, not completion of the original release's remaining steps.
+    """
+    result = dict(SameAsStable=False, Tag='', Commit='', Tree='', Reason='Only a develop push is eligible')
+    if event != 'push' or branch != 'develop':
+        return result
+    try:
+        tags = [(tuple(map(int, match.groups())), name) for name in git('tag', '--list').splitlines()
+                if (match := re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)', name))]
+        if not tags:
+            return dict(result, Reason='No stable tag')
+        tag = max(tags)[1]
+        commit = git('rev-parse', tag + '^{commit}')
+        try:
+            git('merge-base', '--is-ancestor', commit, head)
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 1:
+                raise
+            return dict(result, Reason=f'Latest stable tag {tag} is not a candidate ancestor')
+        tree = git('rev-parse', commit + '^{tree}')
+        if tree != git('rev-parse', head + '^{tree}'):
+            return dict(result, Reason=f'Candidate tree differs from {tag}')
+        return dict(SameAsStable=True, Tag=tag, Commit=commit, Tree=tree, Reason='No new repository content')
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        return dict(result, Reason=f'Stable content comparison unavailable ({type(error).__name__})')
+
+
 def release_tag(channel: str, head: str, selected: str = '') -> tuple[str, str]:
     pattern = r'v\d+\.\d+\.\d+' + (r'(?:-beta\.\d+)?' if channel == 'beta' else '')
     names = [name for name in git('tag', '--merged', head).splitlines() if re.fullmatch(pattern, name)]
@@ -342,8 +489,7 @@ def template_release(channel: str, head: str) -> dict:
     fails when its result differs from this decision.
     """
     if channel not in ('stable', 'beta'):
-        return dict(Changed=False, Required=False, BaseTag='', BaseSha='',
-                    Reason='Nightly carries no template channel' if channel else 'Not a publication candidate')
+        return dict(Changed=False, Required=False, BaseTag='', BaseSha='', Reason='Not a publication candidate')
     tags = [name for name in git('tag', '--merged', head).splitlines() if TEMPLATE_RELEASE_TAG.fullmatch(name)]
     if not tags:
         changed, base_tag, base_sha, reason = True, '', '', 'No published template version'
@@ -619,10 +765,9 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
     all_tests = all_framework_tests(head)
     tag, published, publish, release_reason = '', '', False, 'Not a publication candidate'
     if release_channel:
-        if release_channel not in ('stable', 'beta', 'nightly') or not candidate_input:
+        if release_channel not in ('stable', 'beta') or not candidate_input:
             raise ValueError('invalid publication context')
-        if release_channel != 'nightly':
-            tag, published = release_tag(release_channel, head, release_base_tag)
+        tag, published = release_tag(release_channel, head, release_base_tag)
         if release_base_sha and release_base_sha != published:
             raise ValueError('release baseline differs from channel tag')
         if event == 'push':
@@ -639,10 +784,11 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             template['Reason'] += '; published with the framework under one version'
     # Only a direct PR may lower the template responsibility; every other trigger keeps full.
     direct_pr = tier == 'core' and event == 'pull_request' and not candidate_input and not release_channel
-    plan = dict(Version=3, CandidateSha=head, BaseSha=base, Tier='full', Event=event,
+    plan = dict(Version=4, CandidateSha=head, BaseSha=base, Tier='full', Event=event,
                 ReleaseRequired=publish, ReleaseChannel=release_channel, ReleaseBaseTag=tag,
                 ReleaseBaseSha=published, ReleaseReason=release_reason, TemplateRelease=template,
                 QualityBaseline=dict(Verified=False, RunId=0, Attempt=0),
+                QualityExecution='current', QualityReuse=no_quality_reuse(), QualityValidated=False,
                 DocsOnly=False, Mode='full', Scenarios=order, ScenarioSelection='all', FrameworkTests=True,
                 ConsumerProjects=None, GeneratedDocumentation=True, PackageDocumentation=True,
                 Jobs={name: True for name in JOB_NAMES}, Inputs={}, ChangedPaths=[],
@@ -717,7 +863,12 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
             return finish(dict(plan, Reason='Full: working tree differs from candidate HEAD'))
         proof['paths'] = paths
         if publish or template['Required']:
-            return finish(dict(plan, Reason='Full: publication requires all quality responsibilities'))
+            result = finish(dict(plan, Reason='Full: publication requires all quality responsibilities'))
+            if release_channel == 'stable' and event == 'push' and os.environ.get('GITHUB_REF_NAME') == 'main':
+                result['QualityReuse'], result['Reason'] = verified_release_quality(head)
+                if result['QualityReuse']['Verified']:
+                    result['QualityExecution'] = 'reuse'
+            return result
         if event == 'push' and release_channel and not publish:
             plan['QualityBaseline'] = verified_quality_base(base, head)
             if not plan['QualityBaseline']['Verified']:
@@ -864,18 +1015,40 @@ def main() -> None:
     parser.add_argument('--base', default=os.environ.get('PR_BASE_SHA', ''))
     parser.add_argument('--event', default=os.environ.get('EVENT_NAME', ''))
     parser.add_argument('--candidate-input', default=os.environ.get('CANDIDATE_SHA', ''))
-    parser.add_argument('--release-channel', choices=['stable', 'beta', 'nightly'], default='')
+    parser.add_argument('--release-channel', choices=['stable', 'beta'], default='')
     parser.add_argument('--release-base-tag', default='')
     parser.add_argument('--release-base-sha', default='')
     parser.add_argument('--container-smoke', choices=['true', 'false'], default='false',
                         help='Bind the independent container-scope decision into this candidate plan')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--github-output', action='store_true')
+    parser.add_argument('--check-same-as-stable', action='store_true',
+                        help='Only compare develop push content with the highest stable tag; do not generate a quality plan')
     parser.add_argument('--local-scenarios', action='store_true',
                         help='Output the PR plan scenarios for local -GenerateOnly checks (selector or representative; full only for a dirty tree)')
     parser.add_argument('--local-framework-tests', action='store_true',
                         help='Output local L1 framework test projects (Projects) affected since --base')
     args = parser.parse_args()
+    if args.check_same_as_stable:
+        if (args.local_scenarios or args.local_framework_tests or args.release_channel or args.release_base_tag or
+                args.release_base_sha or args.container_smoke != 'false' or args.tier != 'full'):
+            parser.error('--check-same-as-stable cannot be combined with quality selection options')
+        head = git('rev-parse', 'HEAD')
+        if args.candidate_input != head:
+            parser.error('candidate input differs from checkout')
+        decision = same_as_stable(head, args.event, os.environ.get('GITHUB_REF_NAME', ''))
+        text = json.dumps(decision, ensure_ascii=False, separators=(',', ':'))
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text, encoding='utf-8')
+        if args.github_output:
+            with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
+                stream.write('same_as_stable=' + str(decision['SameAsStable']).lower() + '\n')
+            if decision['SameAsStable']:
+                with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+                    summary.write(f"候选树等于 {decision['Tag']}（提交 `{decision['Commit']}`、tree `{decision['Tree']}`），"
+                                  '没有新的仓库内容，不验证、不发布。\n')
+        print(text)
+        return
     local = args.local_scenarios or args.local_framework_tests
     if local and (args.local_scenarios and args.local_framework_tests or args.tier != 'core' or args.github_output or
                   args.release_channel or args.release_base_tag or args.release_base_sha or args.candidate_input or args.container_smoke != 'false'):

@@ -1,6 +1,6 @@
 name: CI
 
-# PR 与发布共用候选计划；静态检查始终执行，其他作业按输入责任选择。
+# PR 与发布共用候选计划；按输入责任执行，stable 同树复用时只现场执行实时依赖审计。
 # template-matrix 保留必过检查名，严格核对作业状态、候选与回执。
 on:
   pull_request:
@@ -32,7 +32,7 @@ permissions:
   actions: read
 
 # 直接 PR 一律是 core 档：能证明时收窄为代表场景加改动条件分支，不能证明时跑代表场景冒烟（完整阶段）。
-# PR 有意不承担全局覆盖；full 在 develop/main 推送、夜间、手动与发布时执行（推送、夜间与发布由 release.yml 复用本工作流）。
+# PR 有意不承担全局覆盖；full 在 develop/main 推送、手动与发布时执行（推送与发布由 release.yml 复用本工作流；develop 与正式版同树的推送整体跳过）。
 # 计划的 Tier 才是本次实际档位，下游作业一律读计划，不另行推断。
 env:
   PLAN_SCOPE: ${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'core' || 'full' }}
@@ -43,6 +43,8 @@ concurrency:
 
 jobs:
   docs-sync:
+    needs: quality-plan
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     name: 文档与 Skill 同步闸门
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -62,6 +64,8 @@ jobs:
         run: pwsh scripts/check-all.ps1
 
   docs-sync-windows:
+    needs: quality-plan
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     name: 文档与 Skill 同步闸门（Windows）
     runs-on: windows-latest
     timeout-minutes: 15
@@ -83,7 +87,7 @@ jobs:
   frontend-gates:
     name: 前端依赖闸门
     needs: quality-plan
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['frontend-gates']
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['frontend-gates'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -147,7 +151,7 @@ jobs:
   template-slices:
     name: 模板场景 · ${{ matrix.slice.title }}
     needs: [quality-plan, framework-pack]
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-slices']
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-slices'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -268,11 +272,17 @@ jobs:
                             '--release-base-sha', os.environ['RELEASE_BASE_SHA']]
           subprocess.run(arguments, check=True)
           PY
+      - name: 保留本次原始质量计划
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .tmp/quality-plan.json
+          if-no-files-found: error
 
   framework-pack:
     name: 打包候选 Framework
     needs: quality-plan
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['framework-pack']
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['framework-pack'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -307,7 +317,7 @@ jobs:
   package-consumption:
     name: NuGet 包内容与隔离消费
     needs: [quality-plan, framework-pack]
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['package-consumption']
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['package-consumption'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -351,7 +361,7 @@ jobs:
   template-generation:
     name: 模板有效形态生成 · ${{ matrix.shard }}
     needs: quality-plan
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation']
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -408,6 +418,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.candidate_sha || github.sha }}
+          fetch-depth: 0
       - name: 检查必要作业全部成功
         id: quality
         shell: pwsh
@@ -416,7 +427,7 @@ jobs:
           CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
         run: |
           $jobs = ConvertFrom-Json $env:NEEDS_JSON -AsHashtable
-          foreach ($required in @('quality-plan', 'docs-sync', 'docs-sync-windows')) {
+          foreach ($required in @('quality-plan')) {
             if ($jobs[$required].result -cne 'success') { throw "$required 失败、缺失、跳过或取消" }
           }
           New-Item -ItemType Directory -Force .tmp | Out-Null
@@ -427,15 +438,20 @@ jobs:
           # 只有直接 PR 能收窄为 core；其余触发方式的计划必须是 full
           if ($env:PLAN_SCOPE -cne 'core' -and $tier -cne 'full') { throw '非直接 PR 的计划必须是 full 档' }
           $plan = Read-QualityValidationPlan .tmp/quality-plan.json $tier
-          if ($plan.CandidateSha -cne $env:CANDIDATE_SHA) { throw '汇总候选身份不一致' }
+          if ($plan.CandidateSha -cne $env:CANDIDATE_SHA -or $plan.QualityValidated) { throw '汇总候选身份或计划状态不一致' }
+          $reuse = $plan.QualityExecution -ceq 'reuse'
+          foreach ($required in @('docs-sync', 'docs-sync-windows')) {
+            $expected = $reuse ? 'skipped' : 'success'
+            if ($jobs[$required].result -cne $expected) { throw "$required 应为 $expected" }
+          }
           foreach ($responsibility in $plan.Jobs.PSObject.Properties) {
-            $expected = if ($responsibility.Value) { 'success' } else { 'skipped' }
+            $expected = if ($responsibility.Value -and -not $reuse) { 'success' } else { 'skipped' }
             if ($jobs[$responsibility.Name].result -cne $expected) { throw "$($responsibility.Name) 应为 $expected" }
           }
           $expected = if ($plan.DependencyAudit) { 'success' } else { 'skipped' }
           if ($jobs['dependency-audit'].result -cne $expected) { throw "dependency-audit 应为 $expected" }
-          "dynamic=$($plan.Jobs.'template-slices' ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
-          "framework_tests=$($plan.FrameworkTests ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
+          "dynamic=$(-not $reuse -and $plan.Jobs.'template-slices' ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
+          "framework_tests=$(-not $reuse -and $plan.FrameworkTests ? 'true' : 'false')" | Out-File $env:GITHUB_OUTPUT -Append
           "tier=$tier" | Out-File $env:GITHUB_OUTPUT -Append
       - uses: actions/download-artifact@v8
         if: steps.quality.outputs.dynamic == 'true'
@@ -490,49 +506,49 @@ jobs:
           if ($missing) { throw "选中的框架测试项目缺少回执：$($missing -join '、')" }
           "框架测试回执：$($expected.Count) 个项目全部通过。" | Out-File $env:GITHUB_STEP_SUMMARY -Append
       - uses: actions/download-artifact@v8
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['package-consumption']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['package-consumption'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         with:
           name: package-content-proof
           path: .tmp/package-content-proof
       - name: 核对包与文档编译证明
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['package-consumption']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['package-consumption'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         shell: pwsh
         run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind package -ResultsPath .tmp/package-content-proof
       - uses: actions/download-artifact@v8
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         with:
           pattern: generated-documentation-proof-*
           path: .tmp/generated-documentation-proof
       - name: 核对生成文档证明
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).GeneratedDocumentation && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         shell: pwsh
         run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind documentation -ResultsPath .tmp/generated-documentation-proof
       # 四片证明各自落在以 artifact 命名的子目录，不合并（同名文件会互相覆盖）
       - uses: actions/download-artifact@v8
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         with:
           pattern: template-generation-proof-*
           path: .tmp/template-generation-proof
       - name: 核对模板生成证明
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['template-generation'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         shell: pwsh
         run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind generation -ResultsPath .tmp/template-generation-proof
       - uses: actions/download-artifact@v8
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         with:
           name: postgresql-e2e-proof
           path: .tmp/postgresql-e2e-proof
       - name: 核对 PostgreSQL 端到端证明
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         shell: pwsh
         run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind postgresql -ResultsPath .tmp/postgresql-e2e-proof
       - uses: actions/download-artifact@v8
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         with:
           name: oidc-e2e-proof
           path: .tmp/oidc-e2e-proof
       - name: 核对 OIDC 端到端证明
-        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e']
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
         shell: pwsh
         run: pwsh scripts/check-quality-proof.ps1 -ValidationPlanPath .tmp/quality-plan.json -Kind oidc -ResultsPath .tmp/oidc-e2e-proof
       - name: 输出已验证候选计划
@@ -540,12 +556,15 @@ jobs:
         shell: pwsh
         env:
           VALIDATION_PLAN: ${{ needs.quality-plan.outputs.validation_plan }}
-        run: '"validation_plan=$env:VALIDATION_PLAN" | Out-File $env:GITHUB_OUTPUT -Append'
+        run: |
+          $plan = $env:VALIDATION_PLAN | ConvertFrom-Json
+          $plan.QualityValidated = $true
+          "validation_plan=$($plan | ConvertTo-Json -Depth 30 -Compress)" | Out-File $env:GITHUB_OUTPUT -Append
 
   test:
     name: 框架单元测试
     needs: quality-plan
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs.test
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs.test && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # 分布式锁的 Redis 契约用例需要真实服务：没有服务时它们会跳过而不是失败
@@ -622,7 +641,7 @@ jobs:
   postgresql-e2e:
     name: 模板 PostgreSQL 端到端
     needs: [quality-plan, framework-pack]
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e']
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['postgresql-e2e'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     # 复用候选包；各作业的数据库、hive 与解包缓存仍各自隔离。
     timeout-minutes: 15
@@ -665,7 +684,7 @@ jobs:
   oidc-e2e:
     name: 模板 OIDC 跨服务端到端
     needs: [quality-plan, framework-pack]
-    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e']
+    if: fromJSON(needs.quality-plan.outputs.validation_plan).Jobs['oidc-e2e'] && fromJSON(needs.quality-plan.outputs.validation_plan).QualityExecution != 'reuse'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
