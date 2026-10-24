@@ -175,7 +175,7 @@ public class User : FullAuditedEntity<Guid>, IAggregateRoot<Guid>, IMultiTenant
     /// <summary>本人修改资料。头像另有入口（<see cref="SetAvatar"/>），不随资料表单一起提交。</summary>
     /// <remarks>
     /// 换了邮箱即回到"未验证"：验证过的是旧地址，新地址是否属于本人还不知道。
-    /// 邮箱验证码随之关闭（见 <see cref="ReleaseEmailFactorIfChanged"/>）。
+    /// 本地身份形态下，开着的邮箱验证码随之关闭：它证明的是旧地址。
     /// </remarks>
     public void UpdateProfile(string username, string email, string? displayName, string? phoneNumber)
     {
