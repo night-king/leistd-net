@@ -1,6 +1,6 @@
 # 删除 nightly 渠道，发布回合并不再重复验证与发布
 
-状态：进行中 · 风险档：高（CI 与发布流程、发布渠道删除） · 关联：https://github.com/zengqinglei/leistd-net/pull/175
+状态：已完成 · 风险档：高（CI 与发布流程、发布渠道删除） · 关联：https://github.com/zengqinglei/leistd-net/pull/175
 
 ## 1. 需求
 
@@ -149,3 +149,44 @@
 | 4 | 合入后的切换 | 用户授权的下一次正式发布 | 首次正式发布后，确认默认分支已没有 `schedule`，并补记 #174 复用的实测耗时 |
 
 **不做的事**：见 §1"非目标"。另外，不为切换窗口保留 nightly 的兼容代码。
+
+## 4. 结果
+
+### 实际交付
+
+PR #175（合并提交 `3c20f953`）：
+- 删除 `release.yml` 的 `schedule`、nightly 通道、GitHub Packages 推送与 `packages: write`，计划器、验证器、恢复摘要、测试与现行说明同步；`scheduled-checks.yml` 与 Dependabot 不变；
+- `candidate` 新增 `same_as_stable`。
+
+### 与计划的偏差
+
+- 阶段 1 审查（Codex）四条意见全部采纳：
+  - 默认分支的切换安排与失败窗口；
+  - N1 的口径改为"没有可执行的 nightly 渠道"，并新增 N1a；
+  - 跳过依据限定为"没有新的仓库内容"；
+  - 补齐 §2、§3，并新增 B5–B7。
+- 用户追问后，D1 的范围补上 `scheduled-checks.yml` 的注释；规格写明漏洞检查与依赖升级不在 nightly 里。
+- 实施时按全仓巡检，额外清理了模板维护文档与场景脚本里的"夜间"描述。
+
+### 验收记录
+
+| 项 | 结果 |
+| --- | --- |
+| N1–N3、B1–B7、D1 | 计划器自检 567 个子进程检查（364 个反例按预期非零退出）。workflow 接线断言通过，包括"quality 跳过、计划为空时，真实发布表达式拒绝且不做 JSON 求值"。真实 Git 对象演练：`21b1ca91` 命中 `v1.2.1`；`77a42f18` 在当前 tag 集合下不命中。恢复摘要 14 组输入逐字一致。PR CI 17 项通过 |
+| 任务 4：默认分支切换 | 1.2.2 正式发布（PR #176，run `40089893621`）后，main 的 `release.yml` 已没有 `schedule`，nightly 停止 |
+| 回合并首次实测 | PR #177 的合并提交 `bc20b7ac` 与 `v1.2.2` 同树。develop run `40092112795` 只执行 `candidate`，`quality`、`release`、`template-release` 全部 skipped，整次运行约 5 秒，没有 beta，没有 tag。此前的回合并 run `40078491408` 用了 119 runner 分钟，并发布了 `1.2.1-beta.1` |
+
+### 实测效果
+
+| 项 | 改动前 | 改动后 |
+| --- | --- | --- |
+| 每个工作日的 nightly | 约 20 分钟、114–119 runner 分钟 | 0 |
+| 每次发布后的回合并 | 约 20 分钟、114–119 runner 分钟，外加一个 beta | 约 5 秒，没有 beta |
+
+### 遗留项
+
+- npm 依赖没有自动升级（模板前端锁文件含条件行，Dependabot 解析不了），与本规格无关，需要时另行评估。
+
+### 已上收的常驻文档
+
+`docs/framework/versioning.md`、`ci-release-gates.md`、`quality-assurance.md`，`docs/template/versioning.md`、`development-guide.md`、`quality-assurance.md`，`skills/leistd-net-framework/SKILL.md`。
