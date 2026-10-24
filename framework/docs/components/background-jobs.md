@@ -84,7 +84,7 @@ public sealed class LeadArchiveJob(IOptionsSnapshot<LeadOptions> options, LeadSe
 }
 ```
 
-记录每次真正开始的执行时，宿主提供存储并按 Scoped 登记观察者；组件内部登记的任务也会回调。下面的 IJobRunStore 代表宿主自己的执行记录存储：`InsertAsync` 按给定 Id 插入开始记录，`UpsertAsync` 按 Id 写入终态、记录不存在时补建。Id 在 Started 之前生成，Started 被取消、超时或插入结果未知时，Completed 仍落到同一条记录，不会留下停在“执行中”的重复行：
+记录每次真正开始的执行时，宿主提供存储并按 Scoped 登记观察者；组件内部登记的任务也会回调。下面的 IJobRunStore 代表宿主自己的执行记录存储：`InsertAsync` 按给定 Id 插入开始记录，`SaveAsync` 按 Id 写入终态、记录不存在时补建。Id 在 Started 之前生成，Started 被取消、超时或插入结果未知时，Completed 仍落到同一条记录，不会留下停在“执行中”的重复行：
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -114,7 +114,7 @@ public sealed class JobRunRecorder(IServiceScopeFactory scopes) : IRecurringJobR
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await using var scope = scopes.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<IJobRunStore>()
-            .UpsertAsync(recordId, run, result, timeout.Token);
+            .SaveAsync(recordId, run, result, timeout.Token);
     }
 }
 ```

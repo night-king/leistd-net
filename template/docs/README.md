@@ -19,7 +19,6 @@
 | 新增界面文案 | [通用约定](standards/coding-common.md)、[前端](standards/coding-frontend.md)、[界面文案](standards/frontend-ui.md#3-界面文案) | 校验提示读 [表单](standards/frontend-forms.md) |
 <!--#endif-->
 <!--#endif-->
-| 框架用法咨询（`Leistd.*` API） | [后端说明的 Leistd 框架 API](../backend/README.md#leistd-框架-api)：按实际还原的包版本读包内文档 | |
 | 只审查代码 | 改动所属任务行的必读文档（全栈改动按全栈功能行） | 改动触及的专题 |
 | 部署、迁移或回滚 | [部署](deploy/README.md) | [配置参考](deploy/configuration.md)、[配置差异](standards/settings.md#部署配置只写差异)、[技术栈](standards/tech-stack.md) |
 | 证书轮换、数据库升级等运维操作 | [运维手册](operations/runbooks/)中对应的一份 | |
