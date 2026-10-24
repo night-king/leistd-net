@@ -1,5 +1,5 @@
 # 模板场景与 CI 归属的唯一来源；生成入口、汇总入口、PR 选择器与场景覆盖闸门共同使用。
-# Slices 记各档位里场景所属的分片：full 为全集（合入后、夜间、发布），core 为 PR 的代表场景，每个场景一片。
+# Slices 记各档位里场景所属的分片：full 为全集（合入后、发布），core 为 PR 的代表场景，每个场景一片。
 # $MatrixSlices 维护逻辑分组；候选计划明确绑定各组实际所选成员。
 # check-template-scenario-coverage.py 在 full 档上检查行覆盖（每个可达条件行都由某个登记场景生成）
 # 与有效能力的可达两两组合；PR 只承担 plan-quality-checks.py 的增量保证，全局覆盖由放行前的 full 证明。

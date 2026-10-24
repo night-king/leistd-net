@@ -7,7 +7,7 @@ name: Scheduled checks
 # 定时任务使用默认分支（main）上的本文件；检出的是 develop。
 on:
   schedule:
-    - cron: '0 20 * * 1-5'   # UTC 20:00（北京次日 04:00），在 nightly 预览之后
+    - cron: '0 20 * * 1-5'   # UTC 20:00（北京次日 04:00）
   workflow_dispatch:
 
 permissions:

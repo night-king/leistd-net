@@ -5,7 +5,7 @@
     由 framework/Directory.Build.props 自动导入到所有框架项目。
 
     版本：唯一来源是仓库根的 VERSION 文件（基准 x.y.z）。此处自动读取它作为 VersionPrefix，
-    所有 Leistd.* 包同步该版本。发布预发布版（beta/nightly）时，由流水线用 dotnet pack
+    所有 Leistd.* 包同步该版本。发布预发布版（beta）时，由流水线用 dotnet pack
     的 -p:Version=... 追加后缀覆盖，见 .github/workflows/release-*.yml。
   -->
   <PropertyGroup>

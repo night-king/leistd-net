@@ -15,6 +15,7 @@ from contextlib import contextmanager
 import importlib.util
 import io
 import shutil
+import shlex
 from unittest import mock
 import json
 import os
@@ -186,7 +187,7 @@ def check_existing_scopes():
         assert shared['Tier'] == 'core' and shared['ScenarioSelection'] == 'representative' and shared['Mode'] == 'full', shared
         uncertain = planner.create_plan('core', '0' * 40, 'pull_request', '')
         assert uncertain['Tier'] == 'core' and uncertain['ScenarioSelection'] == 'representative' and uncertain['ContainerSmoke'], uncertain
-    print('PASS publication baselines, explicit inputs, cancelled/failed push carry-forward, API fallback, nightly and force push')
+    print('PASS publication baselines, explicit inputs, cancelled/failed push carry-forward, API fallback, historical preview tags and force push')
 
 
 def check_docs_scope():
@@ -316,7 +317,7 @@ def check_template_package_responsibilities():
                 validate(invalid, False, 'Representative smoke requires')
         git(repo, 'reset', '--hard', base)
         append_input(repo, sources[0][0])
-        for event in ('workflow_dispatch', 'schedule'):
+        for event in ('workflow_dispatch',):
             plan = planner.create_plan('core', base, event, '')
             assert plan['Mode'] == 'full' and all(plan['Jobs'].values())
             validate(plan, True)
@@ -424,7 +425,7 @@ def check_quality_aggregation():
             append_input(repo, path)
             scope = 'full' if mode == 'release' else 'core'
             if mode == 'release':
-                plan = planner.create_plan('full', base, 'schedule', git(repo, 'rev-parse', 'HEAD'), release_channel='nightly')
+                plan = planner.create_plan('full', base, 'workflow_dispatch', git(repo, 'rev-parse', 'HEAD'), release_channel='beta')
                 assert plan['ReleaseRequired'] and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
             else:
                 plan = planner.create_plan('core', base, 'pull_request', '')
@@ -432,8 +433,8 @@ def check_quality_aggregation():
             normal = {name: dict(result='success', outputs={}) for name in required}
             for name, needed in plan['Jobs'].items(): normal[name]['result'] = 'success' if needed else 'skipped'
             normal['dependency-audit']['result'] = 'success' if plan['DependencyAudit'] else 'skipped'
-            # A workflow change audits; documentation does not; a nightly preview leaves the audit to the scheduled checks.
-            assert plan['DependencyAudit'] is (mode == 'representative'), (mode, plan['DependencyAudit'])
+            # A workflow change and manual publication audit; documentation does not.
+            assert plan['DependencyAudit'] is (mode in ('representative', 'release')), (mode, plan['DependencyAudit'])
             normal['quality-plan']['outputs']['validation_plan'] = json.dumps(plan)
             def check(state, success, variant=script):
                 code, output, error = evaluate(repo, variant, base, extra_env=dict(NEEDS_JSON=json.dumps(state), CANDIDATE_SHA=candidate, PLAN_SCOPE=scope))
@@ -634,7 +635,6 @@ def check_release_links():
     channels = {
         'stable': '0.13.0',
         'beta': '0.13.0-beta.7',
-        'nightly': '0.13.0-preview.20261007.12',
     }
     with tempfile.TemporaryDirectory(prefix='leistd-release-links-') as directory:
         for channel, version in channels.items():
@@ -672,7 +672,6 @@ def check_release_links():
                 expected = guide_url if has_guide else {
                     'stable': f'{repo_url}/releases/tag/{tag}',
                     'beta': f'{repo_url}/releases/tag/{tag}',
-                    'nightly': f'{repo_url}/commit/{tag}',
                 }[channel]
 
                 code, output, log = run_pwsh(repo, substitute(links['run'], values))
@@ -906,8 +905,6 @@ def check_template_channel_plan():
         # 手动触发 main 发布框架正式版，模板同号随之发布
         dispatched = planner.create_plan('full', base, 'workflow_dispatch', git(repo, 'rev-parse', 'HEAD'), release_channel='stable')
         assert dispatched['ReleaseRequired'] and dispatched['TemplateRelease']['Required'], dispatched['TemplateRelease']
-        nightly = planner.create_plan('full', base, 'schedule', git(repo, 'rev-parse', 'HEAD'), release_channel='nightly')
-        assert not nightly['TemplateRelease']['Changed'] and not nightly['TemplateRelease']['Required'], nightly['TemplateRelease']
         pull = planner.create_plan('core', base, 'pull_request', '')
         assert pull['TemplateRelease'] == dict(Changed=False, Required=False, BaseTag='', BaseSha='', Reason='Not a publication candidate'), pull
         # 最高版本的 template-v tag 是基线；没有任何 template-v tag 时首版发布
@@ -1113,7 +1110,7 @@ def check_template_release_notes():
 
 
 def check_template_release_wiring():
-    """develop/nightly never push the template; main publishes only after validation, after the framework channel."""
+    """develop never pushes the template; main publishes only after validation, after the framework channel."""
     data = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8'))
     job = data['jobs']['template-release']
     steps = job['steps']
@@ -1411,9 +1408,6 @@ def check_release_recovery_summary():
     assert stage == 'packages', text
     assert 'api.nuget.org' in text and f'-ExpectedSha {cand}' in text and '--prerelease --latest=false' in text, text
 
-    stage, text = summary(Channel='nightly', **common, ReleaseSha=cand, PushOutcome='cancelled')
-    assert stage == 'packages' and 'nuget.pkg.github.com/owner/' in text and 'gh release' not in text, text
-
     stage, text = summary(Channel='beta', **common, ReleaseSha=cand, PushOutcome='success',
                           TagOutcome='failure', TagResult='conflict')
     assert stage == 'tag' and tag_cmd not in text and 'force' in text, text
@@ -1432,10 +1426,10 @@ def check_release_recovery_summary():
     stage, text = summary(Channel='beta', **common, ReleaseSha=cand, PushOutcome='success', TagOutcome='success',
                           ReleaseOutcome='failure')
     assert stage == 'release' and tag_cmd not in text and 'dotnet nuget push' not in text and '--clobber' in text, text
-    stage, text = summary(Channel='nightly', **common, ReleaseSha=cand, PushOutcome='success', TagOutcome='success',
-                          ReleaseOutcome='skipped')
+    stage, text = summary(Channel='beta', **common, ReleaseSha=cand, PushOutcome='success', TagOutcome='success',
+                          ReleaseOutcome='success')
     assert stage == 'unknown', text
-    print('PASS release recovery summary: before-push/packages/tag/main/release/unknown across stable, beta, nightly')
+    print('PASS release recovery summary: before-push/packages/tag/main/release/unknown across stable, beta')
 
 
 def check_release_artifact_rehearsal():
@@ -1541,14 +1535,14 @@ def check_release_workflow_wiring():
     script_pushes = [line.strip() for line in (ROOT / 'scripts/push-release-ref.ps1').read_text(encoding='utf-8').splitlines()
                      if line.strip().startswith('git push')]
     assert script_pushes and not any(re.search(r'--force|\s-f\b|\+', line) for line in script_pushes), script_pushes
-    for push in ('push-nuget', 'push-gpr'):
+    for push in ('push-nuget',):
         assert ids.index('artifact') < ids.index(push), 'final packages must be uploaded before pushing'
     assert ids.index('tag') < ids.index('pack') and ids.index('push-tag') < ids.index('gh-release'), ids
     final = steps[-1]
     assert 'failure()' in final['if'] and 'write-release-recovery-summary.ps1' in final['run'], final
     referenced = set(re.findall(r'steps\.([\w-]+)\.', json.dumps(final)))
     assert referenced <= set(ids), ('summary references unknown step ids', referenced - set(ids))
-    assert {'push-nuget', 'push-gpr', 'push-tag', 'push-main', 'gh-release', 'artifact'} <= referenced, referenced
+    assert {'push-nuget', 'push-tag', 'push-main', 'gh-release', 'artifact'} <= referenced, referenced
     gh = steps[ids.index('gh-release')]
     assert gh['uses'].startswith('softprops/action-gh-release@'), gh
     # 来源证明绑定整理后的最终包，并在上传产物、推包之前完成
@@ -1593,6 +1587,96 @@ def check_reuse_plan_wiring():
     print('PASS reuse wiring: original plan artifact, history, static skips, fresh audit and no absent-feed downloads', flush=True)
 
 
+def workflow_condition(expression, values, plan=None):
+    """Exercise the workflow's existing boolean expressions, keeping JSON reads lazy."""
+    expression = expression.removeprefix('${{').removesuffix('}}').strip().replace('!cancelled()', 'True')
+    def field(path):
+        value = json.loads(plan) if isinstance(plan, str) else plan
+        for key in path.split('.'):
+            value = value.get(key, False) if isinstance(value, dict) else False
+        return value
+    expression = re.sub(r'fromJSON\(needs\.quality\.outputs\.validation_plan\)\.([A-Za-z.]+)',
+                        lambda match: f'field({match[1]!r})', expression)
+    for key in sorted(values, key=len, reverse=True):
+        expression = expression.replace(key, repr(values[key]))
+    return eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}}, {'field': field})
+
+
+def check_stable_content():
+    """Local content identity, actual candidate CLI and independent quality/publication gates."""
+    workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+    jobs = workflow['jobs']
+    assert set(workflow[True]) == {'push', 'workflow_dispatch'}
+    assert 'packages' not in jobs['release']['permissions']
+    assert 'nuget.pkg.github.com' not in json.dumps(workflow)
+    assert not any(step.get('id') == 'push-gpr' for step in jobs['release']['steps'])
+    content = next(step for step in jobs['candidate']['steps'] if step.get('id') == 'content')
+    planning = next(step for step in jobs['candidate']['steps'] if step.get('id') == 'plan')
+    assert planning['if'] == "steps.content.outputs.same_as_stable != 'true'"
+    assert jobs['candidate']['outputs']['same_as_stable'] == '${{ steps.content.outputs.same_as_stable }}'
+    def quality(marker, result='success'):
+        return workflow_condition(jobs['quality']['if'], {'needs.candidate.result': result,
+                                  'needs.candidate.outputs.same_as_stable': marker})
+    def needed(marker, release):
+        return workflow_condition(jobs['candidate']['outputs']['needed'], {
+            'steps.content.outputs.same_as_stable': marker, 'steps.plan.outputs.release_required': release})
+    assert not quality('true') and needed('true', '') == 'false'
+    for marker in ('false', ''):
+        assert quality(marker) and needed(marker, 'false') == 'false' and needed(marker, 'true') == 'true'
+        for result in ('failure', 'cancelled', 'skipped'):
+            assert not quality(marker, result)
+    with candidate_fixture() as (repo, planner, base), tempfile.TemporaryDirectory(prefix='leistd-content-output-') as directory:
+        out = Path(directory)
+        def compare(head=None, event='push', branch='develop'):
+            with mock.patch.object(planner, 'actions_get', side_effect=AssertionError('Content comparison must be local')):
+                return planner.same_as_stable(head or git(repo, 'rev-parse', 'HEAD'), event, branch)
+        assert not compare()['SameAsStable'], 'No formal tag'
+        git(repo, 'tag', '-a', 'v1.2.0', '-m', 'stable content')
+        git(repo, 'commit', '--allow-empty', '-qm', 'backmerge without new content')
+        head = git(repo, 'rev-parse', 'HEAD')
+        decision = compare()
+        assert decision['SameAsStable'] and decision['Tag'] == 'v1.2.0'
+        assert decision['Commit'] == base and decision['Tree'] == git(repo, 'rev-parse', 'HEAD^{tree}')
+        command = shlex.split(content['run'])
+        assert command[0] == 'python3'
+        command[0] = sys.executable
+        env = dict(os.environ, EVENT_NAME='push', GITHUB_REF_NAME='develop', CANDIDATE_SHA=head, GH_TOKEN='',
+                   GITHUB_OUTPUT=str(out / 'output.txt'), GITHUB_STEP_SUMMARY=str(out / 'summary.md'))
+        result = subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == decision
+        assert (out / 'output.txt').read_text() == 'same_as_stable=true\n'
+        assert not (repo / '.tmp/quality-plan.json').exists(), 'Do not manufacture a quality plan'
+        summary_text = (out / 'summary.md').read_text()
+        assert all(value in summary_text for value in (decision['Tag'], decision['Commit'], decision['Tree']))
+        for event, branch in [('pull_request', 'develop'), ('push', 'main'), ('workflow_dispatch', 'develop'),
+                              ('workflow_dispatch', 'main'), ('push', 'feature')]:
+            assert not compare(event=event, branch=branch)['SameAsStable'], (event, branch)
+        mismatch = subprocess.run(command, cwd=repo, env={**env, 'CANDIDATE_SHA': base}, capture_output=True, text=True)
+        assert mismatch.returncode != 0, 'Candidate input must match checkout'
+        # Numeric global ordering; neither historical previews nor template tags can win.
+        for tag in ('v1.9.0', 'v1.10.0', 'v99.0.0-beta.1', 'v99.0.0-preview.20261008.99', 'template-v999.0.0'):
+            git(repo, 'tag', tag, base)
+        assert compare()['Tag'] == 'v1.10.0'
+        # Ordinary non-publication inputs still execute quality; templates are not an exemption.
+        for path in ('README.md', 'template/docs/standards/testing.md', 'framework/tests/fixture.cs'):
+            git(repo, 'reset', '--hard', head)
+            append_input(repo, path)
+            assert not compare()['SameAsStable'], path
+            with mock.patch.object(planner, 'verified_quality_base', return_value=dict(Verified=False, RunId=0, Attempt=0)):
+                plan = planner.create_plan('full', head, 'push', git(repo, 'rev-parse', 'HEAD'), release_channel='beta')
+            assert not plan['ReleaseRequired'] and quality('false'), (path, plan['ReleaseReason'])
+        git(repo, 'checkout', '--detach', base)
+        append_input(repo, 'README.md')
+        git(repo, 'tag', 'v2.0.0')
+        git(repo, 'checkout', '--detach', head)
+        assert not compare()['SameAsStable'], 'Do not fall back to an older ancestor tag'
+        assert 'not a candidate ancestor' in compare()['Reason']
+        with mock.patch.object(planner, 'git', side_effect=subprocess.CalledProcessError(128, ['git'])):
+            assert not planner.same_as_stable(head, 'push', 'develop')['SameAsStable']
+    print('PASS stable content: real candidate CLI, no tags/different tree/nonancestor, numeric global tag, event limits and independent quality gate', flush=True)
+
+
 def check_reuse_release_predicates():
     """Evaluate the actual two publication predicates with missing and contradictory evidence."""
     workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
@@ -1603,14 +1687,7 @@ def check_reuse_release_predicates():
         values = {'needs.candidate.outputs.needed': 'true', 'needs.candidate.outputs.sha': 'c' * 40,
                   'needs.candidate.result': 'success', 'needs.quality.result': 'success', 'needs.release.result': 'success'}
         values.update(overrides or {})
-        expression = workflow['jobs'][job]['if'].replace('!cancelled()', 'True')
-        def field(match):
-            value = plan
-            for key in match[1].split('.'): value = value.get(key, False) if isinstance(value, dict) else False
-            return repr(value)
-        expression = re.sub(r'fromJSON\(needs\.quality\.outputs\.validation_plan\)\.([A-Za-z.]+)', field, expression)
-        for key in sorted(values, key=len, reverse=True): expression = expression.replace(key, repr(values[key]))
-        return bool(eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}}, {}))
+        return bool(workflow_condition(workflow['jobs'][job]['if'], values, plan))
     for job in ('release', 'template-release'):
         assert allowed(job, base)
         reused = {**base, 'QualityExecution': 'reuse', 'QualityReuse': dict(Verified=True)}
@@ -1621,6 +1698,16 @@ def check_reuse_release_predicates():
         assert not allowed(job, {k: v for k, v in reused.items() if k != 'QualityValidated'})
         for result in ('failure', 'cancelled', 'skipped'):
             assert not allowed(job, reused, {'needs.quality.result': result})
+            assert not allowed(job, '', {'needs.quality.result': result}), 'Empty skipped output must never be parsed'
+        assert not allowed(job, '', {'needs.candidate.outputs.needed': 'false', 'needs.quality.result': 'skipped',
+                                     'needs.release.result': 'skipped'})
+        # Prove the evaluator really parses JSON if a guard wrongly allows evaluation.
+        try:
+            allowed(job, '')
+        except json.JSONDecodeError:
+            pass
+        else:
+            raise AssertionError('JSON reads must be real and lazy, not substituted with false')
     assert not allowed('release', base, {'needs.candidate.outputs.needed': 'false'})
     assert not allowed('release', {**base, 'ReleaseRequired': False})
     assert not allowed('template-release', base, {'needs.release.result': 'failure'})
@@ -1686,6 +1773,7 @@ def main():
         return
     check_plan_output()
     check_reuse_plan_wiring()
+    check_stable_content()
     check_existing_scopes()
     check_docs_scope()
     check_template_package_responsibilities()
