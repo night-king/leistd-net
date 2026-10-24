@@ -32,7 +32,7 @@ permissions:
   actions: read
 
 # 直接 PR 一律是 core 档：能证明时收窄为代表场景加改动条件分支，不能证明时跑代表场景冒烟（完整阶段）。
-# PR 有意不承担全局覆盖；full 在 develop/main 推送、夜间、手动与发布时执行（推送、夜间与发布由 release.yml 复用本工作流）。
+# PR 有意不承担全局覆盖；full 在 develop/main 推送、手动与发布时执行（推送与发布由 release.yml 复用本工作流；develop 与正式版同树的推送整体跳过）。
 # 计划的 Tier 才是本次实际档位，下游作业一律读计划，不另行推断。
 env:
   PLAN_SCOPE: ${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'core' || 'full' }}

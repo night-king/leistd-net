@@ -6,7 +6,7 @@ Scenario/source definitions stay in their existing files; conditions are evaluat
 with the coverage gate's evaluator.
 
 A direct PR always has Tier core; the template full set runs only after merge,
-nightly, on dispatch and for publication. A narrowed core plan (ScenarioSelection
+on dispatch and for publication. A narrowed core plan (ScenarioSelection
 selector) carries the incremental guarantee: the core consumers of every changed
 source, every changed conditional branch on its enabled side and the trimmed side
 of conditional files. Inputs that cannot be proven (shared/unknown inputs,
@@ -149,15 +149,12 @@ CONTAINER_INPUT = re.compile(r'template/(?:Dockerfile|\.dockerignore|deploy/.+|\
 def dependency_audit(channel: str, event: str, proven_paths: list[str] | None) -> bool:
     """Whether this candidate audits the generated frontend lock files.
 
-    Stable publication and manual runs always do. Nightly previews publish framework packages only and never do:
-    the scheduled checks audit the full closure every day, which also catches new advisories against unchanged
+    Stable publication and manual runs always do. The scheduled checks also catch new advisories against unchanged
     dependencies. Every other candidate audits only when a proven input difference reaches the dependency closure
     or the audit; without that proof (no valid baseline, dirty tree) it audits.
     """
     if channel == 'stable' or event == 'workflow_dispatch':
         return True
-    if channel == 'nightly':
-        return False
     if proven_paths is None:
         return True
     return any(DEPENDENCY_AUDIT_INPUT.fullmatch(path) or (FRONTEND_ROOT.fullmatch(path) and not frontend_source(path))
@@ -421,6 +418,36 @@ def classify_inputs(base: str, head: str, paths: list[str]) -> dict[str, list[st
     return result
 
 
+def same_as_stable(head: str, event: str, branch: str) -> dict:
+    """A develop push with no new tree content needs neither quality nor a new release.
+
+    Select the global highest stable version before checking ancestry. A tag records
+    content identity, not completion of the original release's remaining steps.
+    """
+    result = dict(SameAsStable=False, Tag='', Commit='', Tree='', Reason='Only a develop push is eligible')
+    if event != 'push' or branch != 'develop':
+        return result
+    try:
+        tags = [(tuple(map(int, match.groups())), name) for name in git('tag', '--list').splitlines()
+                if (match := re.fullmatch(r'v(\d+)\.(\d+)\.(\d+)', name))]
+        if not tags:
+            return dict(result, Reason='No stable tag')
+        tag = max(tags)[1]
+        commit = git('rev-parse', tag + '^{commit}')
+        try:
+            git('merge-base', '--is-ancestor', commit, head)
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 1:
+                raise
+            return dict(result, Reason=f'Latest stable tag {tag} is not a candidate ancestor')
+        tree = git('rev-parse', commit + '^{tree}')
+        if tree != git('rev-parse', head + '^{tree}'):
+            return dict(result, Reason=f'Candidate tree differs from {tag}')
+        return dict(SameAsStable=True, Tag=tag, Commit=commit, Tree=tree, Reason='No new repository content')
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        return dict(result, Reason=f'Stable content comparison unavailable ({type(error).__name__})')
+
+
 def release_tag(channel: str, head: str, selected: str = '') -> tuple[str, str]:
     pattern = r'v\d+\.\d+\.\d+' + (r'(?:-beta\.\d+)?' if channel == 'beta' else '')
     names = [name for name in git('tag', '--merged', head).splitlines() if re.fullmatch(pattern, name)]
@@ -462,8 +489,7 @@ def template_release(channel: str, head: str) -> dict:
     fails when its result differs from this decision.
     """
     if channel not in ('stable', 'beta'):
-        return dict(Changed=False, Required=False, BaseTag='', BaseSha='',
-                    Reason='Nightly carries no template channel' if channel else 'Not a publication candidate')
+        return dict(Changed=False, Required=False, BaseTag='', BaseSha='', Reason='Not a publication candidate')
     tags = [name for name in git('tag', '--merged', head).splitlines() if TEMPLATE_RELEASE_TAG.fullmatch(name)]
     if not tags:
         changed, base_tag, base_sha, reason = True, '', '', 'No published template version'
@@ -739,10 +765,9 @@ def create_plan(tier: str, base: str, event: str, candidate_input: str,
     all_tests = all_framework_tests(head)
     tag, published, publish, release_reason = '', '', False, 'Not a publication candidate'
     if release_channel:
-        if release_channel not in ('stable', 'beta', 'nightly') or not candidate_input:
+        if release_channel not in ('stable', 'beta') or not candidate_input:
             raise ValueError('invalid publication context')
-        if release_channel != 'nightly':
-            tag, published = release_tag(release_channel, head, release_base_tag)
+        tag, published = release_tag(release_channel, head, release_base_tag)
         if release_base_sha and release_base_sha != published:
             raise ValueError('release baseline differs from channel tag')
         if event == 'push':
@@ -990,18 +1015,40 @@ def main() -> None:
     parser.add_argument('--base', default=os.environ.get('PR_BASE_SHA', ''))
     parser.add_argument('--event', default=os.environ.get('EVENT_NAME', ''))
     parser.add_argument('--candidate-input', default=os.environ.get('CANDIDATE_SHA', ''))
-    parser.add_argument('--release-channel', choices=['stable', 'beta', 'nightly'], default='')
+    parser.add_argument('--release-channel', choices=['stable', 'beta'], default='')
     parser.add_argument('--release-base-tag', default='')
     parser.add_argument('--release-base-sha', default='')
     parser.add_argument('--container-smoke', choices=['true', 'false'], default='false',
                         help='Bind the independent container-scope decision into this candidate plan')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--github-output', action='store_true')
+    parser.add_argument('--check-same-as-stable', action='store_true',
+                        help='Only compare develop push content with the highest stable tag; do not generate a quality plan')
     parser.add_argument('--local-scenarios', action='store_true',
                         help='Output the PR plan scenarios for local -GenerateOnly checks (selector or representative; full only for a dirty tree)')
     parser.add_argument('--local-framework-tests', action='store_true',
                         help='Output local L1 framework test projects (Projects) affected since --base')
     args = parser.parse_args()
+    if args.check_same_as_stable:
+        if (args.local_scenarios or args.local_framework_tests or args.release_channel or args.release_base_tag or
+                args.release_base_sha or args.container_smoke != 'false' or args.tier != 'full'):
+            parser.error('--check-same-as-stable cannot be combined with quality selection options')
+        head = git('rev-parse', 'HEAD')
+        if args.candidate_input != head:
+            parser.error('candidate input differs from checkout')
+        decision = same_as_stable(head, args.event, os.environ.get('GITHUB_REF_NAME', ''))
+        text = json.dumps(decision, ensure_ascii=False, separators=(',', ':'))
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text, encoding='utf-8')
+        if args.github_output:
+            with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
+                stream.write('same_as_stable=' + str(decision['SameAsStable']).lower() + '\n')
+            if decision['SameAsStable']:
+                with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+                    summary.write(f"候选树等于 {decision['Tag']}（提交 `{decision['Commit']}`、tree `{decision['Tree']}`），"
+                                  '没有新的仓库内容，不验证、不发布。\n')
+        print(text)
+        return
     local = args.local_scenarios or args.local_framework_tests
     if local and (args.local_scenarios and args.local_framework_tests or args.tier != 'core' or args.github_output or
                   args.release_channel or args.release_base_tag or args.release_base_sha or args.candidate_input or args.container_smoke != 'false'):

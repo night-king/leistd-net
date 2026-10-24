@@ -3,15 +3,12 @@ name: Release
 # 单一发布流水线：
 #   push main    -> stable  : vX.Y.Z，发布 nuget.org + GitHub 正式 Release
 #   push develop -> beta    : vX.Y.Z-beta.N，发布 nuget.org 预发布包 + GitHub prerelease
-#   schedule     -> nightly : vX.Y.Z-preview.YYYYMMDD.RUN，发布 GitHub Packages + tag
 #   template 通道（template-release 作业）：与框架同号。main 上框架正式版与 Leistd.Templates 总是一起发布（任一侧有变化即两侧都发），
 #     模板版本即框架版本（tag template-vX.Y.Z，nuget.org + GitHub Release）；develop 上模板有变化时只打包验证，不推送。
-# 发布原则：所有通道都打唯一 tag；stable Release Notes 从上一个 stable tag 累积所有 beta/nightly 期间变更。
+# 发布原则：所有通道都打唯一 tag；stable Release Notes 从上一个 stable tag 累积预发布期间的变更。
 on:
   push:
     branches: [main, develop]
-  schedule:
-    - cron: '0 18 * * 1-5'   # UTC 18:00（北京次日 02:00），工作日 -> nightly
   workflow_dispatch:
 
 permissions:
@@ -24,25 +21,32 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
-      needed: ${{ steps.plan.outputs.release_required }}
+      needed: ${{ steps.content.outputs.same_as_stable == 'true' && 'false' || steps.plan.outputs.release_required }}
+      same_as_stable: ${{ steps.content.outputs.same_as_stable }}
       release_base_tag: ${{ steps.plan.outputs.release_base_tag }}
       release_base_sha: ${{ steps.plan.outputs.release_base_sha }}
       channel: ${{ steps.commit.outputs.channel }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'schedule' && 'develop' || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - id: commit
         shell: bash
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then channel=nightly
-          elif [ "$GITHUB_REF" = refs/heads/main ]; then channel=stable
+          if [ "$GITHUB_REF" = refs/heads/main ]; then channel=stable
           else channel=beta; fi
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
+      - id: content
+        name: 判断是否与正式版内容相同
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CANDIDATE_SHA: ${{ steps.commit.outputs.sha }}
+        run: python3 scripts/plan-quality-checks.py --check-same-as-stable --output .tmp/release-content.json --github-output
       - id: plan
         name: 判断质量与发布责任
+        if: steps.content.outputs.same_as_stable != 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.before || '' }}
@@ -52,7 +56,7 @@ jobs:
 
   quality:
     needs: candidate
-    if: needs.candidate.result == 'success'
+    if: needs.candidate.result == 'success' && needs.candidate.outputs.same_as_stable != 'true'
     uses: ./.github/workflows/ci.yml
     with:
       candidate_sha: ${{ needs.candidate.outputs.sha }}
@@ -63,7 +67,7 @@ jobs:
 
   release:
     needs: [candidate, quality]
-    # 跳过机器人自身回写提交与 [skip ci]，避免死循环；schedule/dispatch 没有 head_commit。
+    # 跳过机器人自身回写提交与 [skip ci]，避免死循环；dispatch 没有 head_commit。
     if: needs.candidate.outputs.needed == 'true' && needs.quality.result == 'success' && fromJSON(needs.quality.outputs.validation_plan).ReleaseRequired && fromJSON(needs.quality.outputs.validation_plan).Mode == 'full' && fromJSON(needs.quality.outputs.validation_plan).CandidateSha == needs.candidate.outputs.sha && fromJSON(needs.quality.outputs.validation_plan).QualityValidated && (fromJSON(needs.quality.outputs.validation_plan).QualityExecution == 'current' || (fromJSON(needs.quality.outputs.validation_plan).QualityExecution == 'reuse' && fromJSON(needs.quality.outputs.validation_plan).QualityReuse.Verified))
     runs-on: ubuntu-latest
     outputs:
@@ -88,11 +92,10 @@ jobs:
       contents: write      # 回写 VERSION / 打 tag / 建 Release
       id-token: write      # nuget.org Trusted Publishing（stable/beta）；来源证明的签名证书
       attestations: write  # 写入来源证明
-      packages: write      # GitHub Packages（nightly）
     steps:
       - uses: actions/checkout@v7
         with:
-          # nightly 固定构建 develop；其余构建**触发的那个提交**，不是分支当下的 tip。
+          # 构建触发的那个提交，不是分支当下的 tip。
           #
           # 写分支名会让"发了什么"取决于 checkout 那一刻分支在哪：两次合并挨得近时，
           # 两个 run 都检出同一个 tip，于是 beta 序号（按距上一个 stable tag 的提交数算）
@@ -106,9 +109,7 @@ jobs:
         id: ch
         shell: pwsh
         run: |
-          if ('${{ github.event_name }}' -eq 'schedule') {
-            $channel = 'nightly'
-          } elseif ('${{ github.ref }}' -eq 'refs/heads/main') {
+          if ('${{ github.ref }}' -eq 'refs/heads/main') {
             $channel = 'stable'
           } elseif ('${{ github.ref }}' -eq 'refs/heads/develop') {
             $channel = 'beta'
@@ -182,10 +183,6 @@ jobs:
             'beta' {
               $version = "$baseVersion-beta.$preNumber"
             }
-            'nightly' {
-              # NuGet SemVer2 兼容：日期与 run_number 都是不带前导 0 的数字标识符。
-              $version = "$baseVersion-preview.$(Get-Date -Format 'yyyyMMdd').${{ github.run_number }}"
-            }
             default {
               $version = $baseVersion
             }
@@ -213,7 +210,7 @@ jobs:
           }
           $global:LASTEXITCODE = 0
 
-      # 发布说明固定到本次 tag；有可选指南时链接指南，否则链接对应 Release 或 nightly 提交页。
+      # 发布说明固定到本次 tag；有可选指南时链接指南，否则链接对应 Release。
       - name: 确定升级指南与包发布说明链接
         id: links
         shell: pwsh
@@ -223,9 +220,8 @@ jobs:
           $channel = '${{ steps.ch.outputs.channel }}'
           $guide = 'docs/framework/upgrades/${{ steps.ver.outputs.baseVersion }}.md'
           $guideUrl = if (Test-Path -LiteralPath $guide -PathType Leaf) { "$repoUrl/blob/$tag/$guide" } else { '' }
-          if ($channel -notin 'stable', 'beta', 'nightly') { throw "未知发布通道: $channel" }
+          if ($channel -notin 'stable', 'beta') { throw "未知发布通道: $channel" }
           $packageReleaseNotes = if ($guideUrl) { $guideUrl }
-            elseif ($channel -eq 'nightly') { "$repoUrl/commit/$tag" }
             else { "$repoUrl/releases/tag/$tag" }
           "guideUrl=$guideUrl" | Out-File $env:GITHUB_OUTPUT -Append
           "packageReleaseNotes=$packageReleaseNotes" | Out-File $env:GITHUB_OUTPUT -Append
@@ -244,7 +240,7 @@ jobs:
 
           $preTags = @()
           if (-not [string]::IsNullOrWhiteSpace($lastStableTag)) {
-            $preTags = @(git tag --merged HEAD | Where-Object { $_ -match '^v\d+\.\d+\.\d+-(beta|alpha|rc|preview|nightly)\.' } | ForEach-Object {
+            $preTags = @(git tag --merged HEAD | Where-Object { $_ -match '^v\d+\.\d+\.\d+-(beta|alpha|rc|preview)\.' } | ForEach-Object {
               $tag = $_
               $sha = git rev-list -n 1 $tag
               git merge-base --is-ancestor $lastStableTag $sha
@@ -316,7 +312,7 @@ jobs:
           }
 
       # tag 只在这里创建一次，后面的推送与失败恢复都用这同一个 tag 对象（随原产物保存为 bundle）。
-      # stable 指向上一步的版本回写提交（无回写变更时即候选 SHA），beta/nightly 指向候选 SHA。
+      # stable 指向上一步的版本回写提交（无回写变更时即候选 SHA），beta 指向候选 SHA。
       - name: 创建发布 tag（仅本地）
         id: tag
         shell: pwsh
@@ -418,7 +414,6 @@ jobs:
           if-no-files-found: error
 
       - name: 登录 nuget.org
-        if: steps.ch.outputs.channel != 'nightly'
         uses: NuGet/login@v1
         id: nuget-login
         with:
@@ -426,19 +421,10 @@ jobs:
 
       - name: 推送到 nuget.org
         id: push-nuget
-        if: steps.ch.outputs.channel != 'nightly'
         run: >
           dotnet nuget push "framework/artifacts/*.nupkg"
           --source https://api.nuget.org/v3/index.json
           --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
-
-      - name: 推送到 GitHub Packages（nightly）
-        id: push-gpr
-        if: steps.ch.outputs.channel == 'nightly'
-        run: >
-          dotnet nuget push "framework/artifacts/*.nupkg"
-          --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
-          --api-key ${{ secrets.GITHUB_TOKEN }}
 
       # 包源写入后立即固定版本身份；索引延迟不能阻止 tag 记录已发布产物。
       # 只重试推送，不重建 tag；每次推送前查远端，同名 tag 已指向发布 SHA 即完成，指向其他提交即停止。
@@ -457,7 +443,6 @@ jobs:
       # action 自带创建重试与按 tag 查找已有 Release，这里不再叠加重试；失败时由下一步给出补齐指引。
       - name: 创建 GitHub Release（stable / beta）
         id: gh-release
-        if: steps.ch.outputs.channel != 'nightly'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
@@ -479,7 +464,7 @@ jobs:
           RELEASE_SHA: ${{ steps.tag.outputs.release_sha }}
           ARTIFACT_NAME: release-packages-${{ steps.ver.outputs.version }}
           ARTIFACT_OUTCOME: ${{ steps.artifact.outcome }}
-          PUSH_OUTCOME: ${{ steps.ch.outputs.channel == 'nightly' && steps.push-gpr.outcome || steps.push-nuget.outcome }}
+          PUSH_OUTCOME: ${{ steps.push-nuget.outcome }}
           TAG_OUTCOME: ${{ steps.push-tag.outcome }}
           TAG_RESULT: ${{ steps.push-tag.outputs.result }}
           BRANCH_OUTCOME: ${{ steps.push-main.outcome }}

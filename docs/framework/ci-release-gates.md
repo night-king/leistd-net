@@ -35,6 +35,12 @@
 
 candidate 与 CI 分别查询 Actions API；失败、取消、进行中、缺失或 API/权限错误均完整验证。机器人或 [skip ci] 的 before 没有成功质量汇总，也按完整验证处理。发布基线另见[版本规范](./versioning.md#正式版发布全自动)。状态查询使用 GitHub 的[工作流运行接口](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow)和[指定运行尝试的作业接口](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run-attempt)。
 
+### develop 与正式版内容相同
+
+`release.yml` 的 candidate 对 develop push 先用本地 Git 取全局最高数值版本的 `vX.Y.Z`，再验证该 tag 是候选祖先且两者树相同。命中时冻结 `same_as_stable=true`，明确不发布，并整体跳过 quality；摘要记录 tag、提交与树。普通“不需要发布”的推送仍执行质量验证，PR、main 与手动运行不适用此例外。
+
+树相同只证明没有新的仓库内容；不代表原 stable 的最终产物步骤已全部完成，部分发布仍按原运行恢复。tag 缺失、非祖先、树不同或比较无法完成时继续原计划；不生成空质量计划，不伪造质量成功，也不改变 stable 的同树复用和发布放行责任。
+
 ## 编译器、分析器与静态闸门
 
 编译器和官方分析器能完整表达的规则优先在构建中执行，通过 `.editorconfig` 与 Release 的 `TreatWarningsAsErrors` 确保诊断会失败。例如公共 XML 缺失由 CS1591、命名空间由 IDE0130、无用 using 由 IDE0005 承担，不再建同义脚本。
@@ -73,7 +79,7 @@ PR 墙钟中位 ≤ 510 秒、各路径总交付成本中位低于基线的目�
 
 本次 `CandidateSha` 和发布基线不变；`QualityExecution=reuse`、`QualityReuse` 记录 RunId/Attempt/HeadSha/Tree/PlanArtifactId，Jobs、场景和容器责任保持完整。决定在计划作业完成远端核验后冻结；汇总核对被复用作业实际 skipped、见证匹配第二父提交和树，成功后才输出 `QualityValidated=true`。原始 current 分支继续逐项核对全部回执；错误或损坏的复用汇总失败关闭，重跑重新规划。
 
-前端依赖审计依赖实时漏洞库，stable 每次仍执行且须成功；最终 Framework/模板包的打包、隔离消费、来源证明、nuget.org 还原与升级闸门也保持现场执行，不复用包产物。两种 Release 正文均记录复用来源。beta、nightly、PR 与手动 stable 的验证责任不变。
+前端依赖审计依赖实时漏洞库，stable 每次仍执行且须成功；最终 Framework/模板包的打包、隔离消费、来源证明、nuget.org 还原与升级闸门也保持现场执行，不复用包产物。两种 Release 正文均记录复用来源。beta、PR 与手动 stable 的验证责任不变；develop push 与最高正式版同树的例外见[同内容判据](#develop-与正式版内容相同)。
 
 ### 成本观测
 
@@ -103,7 +109,7 @@ PostgreSQL/OIDC 的登记路径在计划器里，PR 只在命中时运行，否�
 
 包内容的输入闭包不含模板源码，已证明仅改模板前端或后端时不重复核对基线已验证的包内容；候选 Framework 仍重新打包，供场景与端到端从同一候选 feed 消费。随包文档同改时取责任并集，保留包内容验证。
 
-前后端各自省略的阶段要求实际生成输入保持不变。前端生产依赖审计不在场景片里，由独立的"前端依赖审计"作业执行（`scripts/audit-frontend-dependencies.ps1`）：两套锁文件各生成一次条件全开的最大闭包，核对它覆盖模板锁文件的全部依赖块，门槛 high/critical 为 0，只对网络类错误重试。计划字段 `DependencyAudit` 决定是否运行：stable 与手动运行恒执行（计划校验强制 stable 为真）；nightly 预览只发框架包，不执行；其余候选只在依赖闭包或审计本身的输入有改动（前端根下非源码文件、`template.json`、计划器、计划契约、审计脚本、`ci.yml`/`release.yml`）或无法证明输入差异时执行。依赖未变但漏洞库新增的公告不由 PR 承担，由 `scheduled-checks.yml` 每个工作日对 develop 全量审计发现；同一 workflow 扫描 NuGet 依赖（构建时 NU1900–NU1904 只告警，不阻断）并以 verify Fast 运行模板升级闸门。
+前后端各自省略的阶段要求实际生成输入保持不变。前端生产依赖审计不在场景片里，由独立的"前端依赖审计"作业执行（`scripts/audit-frontend-dependencies.ps1`）：两套锁文件各生成一次条件全开的最大闭包，核对它覆盖模板锁文件的全部依赖块，门槛 high/critical 为 0，只对网络类错误重试。计划字段 `DependencyAudit` 决定是否运行：stable 与手动运行恒执行（计划校验强制 stable 为真）；其余候选只在依赖闭包或审计本身的输入有改动（前端根下非源码文件、`template.json`、计划器、计划契约、审计脚本、`ci.yml`/`release.yml`）或无法证明输入差异时执行。依赖未变但漏洞库新增的公告不由 PR 承担，由 `scheduled-checks.yml` 每个工作日对 develop 全量审计发现；同一 workflow 扫描 NuGet 依赖（构建时 NU1900–NU1904 只告警，不阻断）并以 verify Fast 运行模板升级闸门。
 
 Framework 依赖闭包只裁剪各自含单一 PackageReference 的空 restore/build 消费项目；全包内容、源码包集、DLL/XML/文档、重复包、缺失候选依赖仍先核对。它不裁剪 Framework 用例、DI/反射/配置语义、模板或服务闭环；出现显式跨项目编译输入时回退全量。人工 `-PackageIds` 保持已有局部入口，CI 使用独立计划并仍要求完整候选 feed。
 
@@ -153,7 +159,7 @@ Framework 依赖闭包只裁剪各自含单一 PackageReference 的空 restore/b
 
 ## 放行责任
 
-放行候选（develop beta、main 正式版、夜间与手动发布，即计划 `ReleaseRequired=true`）在发布前必须证明下表每一项；本表是放行责任的唯一出处，其他文档只链接这里。计划器对放行候选无条件设置 `ContainerSmoke=true`，不论输入分类；计划验证拒绝放行计划中任何作业不适用（含 PostgreSQL 与 OIDC）或缺少容器责任。汇总 `template-matrix` 逐项核对，任一项缺失、失败、取消或计数为 0 都以非零退出。同树复用按[上述规则](#正式发布复用同树质量证据)承接这些代码责任，本次实时依赖审计仍须成功：
+放行候选（develop beta、main 正式版与手动发布，即计划 `ReleaseRequired=true`）在发布前必须证明下表每一项；本表是放行责任的唯一出处，其他文档只链接这里。计划器对放行候选无条件设置 `ContainerSmoke=true`，不论输入分类；计划验证拒绝放行计划中任何作业不适用（含 PostgreSQL 与 OIDC）或缺少容器责任。汇总 `template-matrix` 逐项核对，任一项缺失、失败、取消或计数为 0 都以非零退出。同树复用按[上述规则](#正式发布复用同树质量证据)承接这些代码责任，本次实时依赖审计仍须成功：
 
 | 责任 | 判据 | 汇总核对 |
 | --- | --- | --- |

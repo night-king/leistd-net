@@ -158,7 +158,7 @@ def main():
                 # The same unknown input stays full on every other trigger and publication channel.
                 head = git('rev-parse', 'HEAD')
                 for tier, event, candidate, channel in [('full', 'push', head, 'beta'), ('full', 'push', head, 'stable'),
-                                                        ('full', 'schedule', head, 'nightly'), ('full', 'workflow_dispatch', head, 'beta'),
+                                                        ('full', 'workflow_dispatch', head, 'beta'),
                                                         ('full', 'workflow_dispatch', head, 'stable'), ('full', 'push', '', ''),
                                                         ('core', 'workflow_dispatch', '', ''), ('core', 'pull_request', head, '')]:
                     other = planner.create_plan(tier, base, event, candidate, release_channel=channel)
@@ -166,8 +166,8 @@ def main():
                     assert set(other['Scenarios']) == registered and all(other['Jobs'].values()) and other['ContainerSmoke'], (label, event, channel)
                     assert other['FrameworkTestSelection'] == 'all' and other['ConsumerProjects'] is None, (label, event, channel)
                     assert other['ReleaseRequired'] == bool(channel), (label, event, channel, other['ReleaseReason'])
-                    # Stable and manual runs always audit; nightly previews never do (the scheduled checks audit daily).
-                    expected_audit = channel == 'stable' or event == 'workflow_dispatch' or (channel != 'nightly' and audits)
+                    # Stable and manual runs always audit; other candidates follow the inputs.
+                    expected_audit = channel == 'stable' or event == 'workflow_dispatch' or audits
                     assert other['DependencyAudit'] is expected_audit, (label, event, channel, other['DependencyAudit'])
             for tier, event, baseline, candidate in [('full','pull_request',base,''), ('core','workflow_dispatch',base,'')]:
                 conservative = planner.create_plan(tier, baseline, event, candidate)
@@ -348,7 +348,7 @@ def prove_release_reuse(planner, repo, base, out, run):
         fallback = planner.create_plan('full', base, 'push', head, release_channel='stable')
         assert fallback['QualityExecution'] == 'current' and all(fallback['Jobs'].values()) and fallback['ContainerSmoke'] and fallback['DependencyAudit']
         assert fallback['CandidateSha'] == head and 'ContainerSmoke' in fallback['Reason']
-        for event, channel in [('push', 'beta'), ('schedule', 'nightly'), ('workflow_dispatch', 'stable')]:
+        for event, channel in [('push', 'beta'), ('workflow_dispatch', 'stable')]:
             with mock.patch.object(planner, 'verified_release_quality', side_effect=AssertionError('Unexpected reuse query')):
                 ordinary = planner.create_plan('full', base, event, head, release_channel=channel)
                 assert ordinary['QualityExecution'] == 'current'
@@ -417,12 +417,10 @@ def prove_dependency_audit_inputs(planner):
                  'template/backend/src/CompanyName.ProjectName.Api/Program.cs', 'docs/README.md']
     for path in audited:
         assert planner.dependency_audit('', 'pull_request', [path]) and planner.dependency_audit('beta', 'push', [path]), path
-        assert not planner.dependency_audit('nightly', 'schedule', [path]), path
     for path in unaudited:
         assert not planner.dependency_audit('', 'pull_request', [path]) and not planner.dependency_audit('beta', 'push', [path]), path
         assert planner.dependency_audit('stable', 'push', [path]) and planner.dependency_audit('', 'workflow_dispatch', [path]), path
     assert planner.dependency_audit('', 'pull_request', None) and planner.dependency_audit('beta', 'push', None)
-    assert not planner.dependency_audit('nightly', 'schedule', None)
     print('PASS dependency audit inputs: closure, audit machinery, proof fallback and channel overrides', flush=True)
 
 
@@ -972,9 +970,9 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
     # Without publication the same documentation input carries no container responsibility.
     ordinary = planner.create_plan('full', base, 'push', '')
     assert not ordinary['ReleaseRequired'] and not ordinary['ContainerSmoke'], ordinary
-    plan = planner.create_plan('full', base, 'schedule', head, release_channel='nightly')
+    plan = planner.create_plan('full', base, 'workflow_dispatch', head, release_channel='beta')
     assert plan['ReleaseRequired'] and plan['Mode'] == 'full' and plan['ContainerSmoke'] and all(plan['Jobs'].values()), plan
-    assert not plan['DependencyAudit'], 'Nightly previews leave the dependency audit to the scheduled checks'
+    assert plan['DependencyAudit'], 'Manual publication always runs the dependency audit'
     core = [name for name, info in scenarios.items() if 'core' in info['Slices']]
     containers = [name for group in plan['Slices'] for name in group['Containers']]
     assert sorted(containers) == sorted(['standalone-external-login', 'resource-capabilities-03']), containers
@@ -1002,7 +1000,8 @@ def prove_release_responsibilities(repo, base, planner, scenarios, out, run, git
     assert stable['DependencyAudit'], stable
     plan_file.write_text(json.dumps(stable), encoding='utf-8'); run('stable-plan-valid', validator, repo)
     for name, mutate, message in [('stable-without-audit', lambda p: p.update(DependencyAudit=False), 'Stable publication requires the frontend dependency audit'),
-                                  ('missing-audit-field', lambda p: p.pop('DependencyAudit'), 'Invalid quality plan')]:
+                                  ('missing-audit-field', lambda p: p.pop('DependencyAudit'), 'Invalid quality plan'),
+                                  ('invalid-release-channel', lambda p: p.update(ReleaseChannel='invalid'), 'Invalid quality plan')]:
         invalid = json.loads(json.dumps(stable)); mutate(invalid)
         plan_file.write_text(json.dumps(invalid), encoding='utf-8')
         run('stable-plan-reject-' + name, validator, repo, False)

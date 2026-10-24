@@ -112,7 +112,7 @@ export const next = 1;
 
 场景、档位、分片及形态断言唯一维护在 `scripts/template-matrix-scenarios.ps1`。保留原有回归场景，同时覆盖最小本地身份、Resource 纯 API、单租户、日志模式、邮件关闭及通知/实时交互。
 
-档位与覆盖口径：`full` 档在合入后、夜间与每次放行前执行全部登记场景，登记场景覆盖全部可达条件行和有效能力两两取值，高阶交互由关键场景与真实端到端补齐；`core` 档是 PR 的代表场景，PR 只承担[增量保证](./quality-assurance.md#pr-增量保证)，执行规则见[模板矩阵](./quality-assurance.md#模板矩阵)。修改条件块或 `template.json` 前，按[本地验证配方](../framework/quality-assurance.md#本地验证配方)用选择器算出场景做 `-GenerateOnly`。
+档位与覆盖口径：`full` 档在合入后与每次放行前执行全部登记场景，登记场景覆盖全部可达条件行和有效能力两两取值，高阶交互由关键场景与真实端到端补齐；`core` 档是 PR 的代表场景，PR 只承担[增量保证](./quality-assurance.md#pr-增量保证)，执行规则见[模板矩阵](./quality-assurance.md#模板矩阵)。修改条件块或 `template.json` 前，按[本地验证配方](../framework/quality-assurance.md#本地验证配方)用选择器算出场景做 `-GenerateOnly`。
 
 登记 `Verify` 的场景（有/无前端、开/关本地化、三种 `Ci`）在完整阶段直接运行生成项目的 `verify.ps1` 完成构建与测试，矩阵补运行时冒烟、spec 发现范围与产物断言；其余场景与按前后端拆分的阶段由矩阵逐步执行。`verify -Fast` 是生成项目的本地快速检查（静态脚本、构建、单元测试与 lint），矩阵只用默认模式。每个场景都核对 `verify -List` 的两种模式：默认模式与矩阵阶段一致，`-Fast` 恰好是其中静态检查、还原、构建与风格检查、单元测试项目和前端 lint 组成的子序列，两处步骤不会漂移。`verify` 在构建之后含 `backend-format`（`dotnet format style --verify-no-changes --no-restore --diagnostics IDE0001 IDE0002`，补上构建期不执行的两条风格规则，`-Fast` 同样执行），但不含生产依赖审计：生成项目的 CI 在锁文件变化、定时和手动时单独运行（`npm audit --omit=dev --audit-level=high --package-lock-only`，有限重试），矩阵不审计依赖，由"前端依赖审计"作业（`scripts/audit-frontend-dependencies.ps1`）按计划字段 `DependencyAudit` 执行，规则见 [CI 与发布闸门](../framework/ci-release-gates.md)；测试诊断闸门在每个场景的生成检查中执行，不论是否走 `verify`。
 

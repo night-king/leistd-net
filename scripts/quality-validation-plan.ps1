@@ -9,6 +9,7 @@ function Read-QualityValidationPlan([string]$Path, [string]$ExpectedTier) {
     $jobNames = @('frontend-gates', 'framework-pack', 'package-consumption', 'template-generation', 'template-slices', 'test', 'postgresql-e2e', 'oidc-e2e')
     if ($LASTEXITCODE -ne 0 -or $plan.Version -ne 4 -or $plan.CandidateSha -cne $head -or $ExpectedTier -cnotin $MatrixTiers -or
         $plan.Tier -cne $ExpectedTier -or $plan.Mode -cnotin @('full', 'frontend', 'backend', 'documentation') -or
+        $plan.ReleaseChannel -cnotin @('', 'stable', 'beta') -or
         $plan.DocsOnly -isnot [bool] -or $plan.FrameworkTests -isnot [bool] -or $plan.ContainerSmoke -isnot [bool] -or
         $plan.ReleaseRequired -isnot [bool] -or $plan.GeneratedDocumentation -isnot [bool] -or $plan.PackageDocumentation -isnot [bool] -or
         $plan.DependencyAudit -isnot [bool] -or

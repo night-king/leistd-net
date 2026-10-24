@@ -16,7 +16,7 @@
 
 nuget.org 上的 `1.0.0-beta.14`–`22`（2026-07）按 SemVer 排序高于 `0.13.0-beta.*`，`--prerelease` 与浮动版本会解析到这批旧包。在 `VERSION` 抬到 `1.0.0` 并合入 `develop` 之前，预发布依赖写死全称，如 `0.13.0-beta.170`。之后新 beta 的 `<N>` 远大于 22，排序高于旧包，旧包无需 unlist。
 
-定时任务执行默认分支的 workflow；`release.yml` 合入 `main` 之前，nightly 仍按 `main` 上的旧规则推算版本。
+预发布消费使用 nuget.org 上的 beta。随时间变化的依赖审计、漏洞扫描与模板升级检查由 `scheduled-checks.yml` 每个工作日执行。
 
 - `framework/common.props` 在构建时自动读取 `VERSION` 作为 `VersionPrefix`，所有 `Leistd.*` 包同步该版本（无外部工具依赖）。
 - 模板 `template/backend/Directory.Build.props` 的 `<LeistdFrameworkVersion>` 是字面值副本（生成项目需自包含），由发布流水线 `release.yml` 在发版时回写。
@@ -81,14 +81,13 @@ PR 描述写三项：
 | --- | --- | --- | --- |
 | push `main` | `x.y.z`（正式，自动递增） | nuget.org | `release.yml`（stable 通道） |
 | push `develop` | `x.y.z-beta.<N>` | nuget.org（预发布） | `release.yml`（beta 通道） |
-| 每工作日定时（develop） | `x.y.z-preview.<yyyyMMdd>.<run_number>` | GitHub Packages（内部） | `release.yml`（nightly 通道） |
 | push `main`，与框架正式版同号 | `Leistd.Templates` `x.y.z`（tag `template-vx.y.z`） | nuget.org | `release.yml`（template 通道，见[模板版本与发布](../template/versioning.md)） |
 
-> 框架三个通道由**单个** `release.yml` 内部按 `github.ref` / `github.event_name` 自动判定；template 通道是同一 workflow 的 `template-release` 作业。
+> 框架 stable、beta 两个通道由单个 `release.yml` 按 `github.ref` 自动判定；template 通道是同一 workflow 的 `template-release` 作业。
 
 每个工作日另有 `scheduled-checks.yml` 对 develop 做与单次改动无关的检查（前端依赖全量审计、NuGet 漏洞扫描、模板升级闸门 verify Fast），不发布任何包，失败不阻塞 PR 与发布，见 [CI 与发布闸门](./ci-release-gates.md)。
 
-> 预发布后缀用**点分数字**（`-beta.12`、`-preview.20260623.123`），保证 NuGet 数值排序正确。
+> 预发布后缀用**点分数字**（如 `-beta.12`），保证 NuGet 数值排序正确。
 
 beta 由下游试点项目验收，试点项目按上文引用确切的 `-beta.<N>` 全称。
 
@@ -97,20 +96,22 @@ beta 由下游试点项目验收，试点项目按上文引用确切的 `-beta.<
 **push 到 `main` 即自动发布**，无需手动打 tag：
 
 1. 对同一候选提交复用 CI 的静态、Framework、Template 矩阵和真实 PostgreSQL 验证；全部通过后按提交推算新正式版本；
-2. 在本地回写 `VERSION`、同步模板，创建 `chore: 发布 vX.Y.Z [skip ci]` 提交和 tag（tag 只在此创建一次，beta/nightly 指向候选提交）；
+2. 在本地回写 `VERSION`、同步模板，创建 `chore: 发布 vX.Y.Z [skip ci]` 提交和 tag（tag 只在此创建一次，beta 指向候选提交）；
 3. 打包并隔离消费最终版本，为整组最终 nupkg 生成来源证明（见[来源证明](#来源证明)），把最终 nupkg、清单（版本、tag、发布 SHA、候选 SHA、包哈希）、发布说明与 tag bundle 上传为 Actions artifact `release-packages-<版本>`，随后经 Trusted Publishing 推 nuget.org；
 4. 包源写入后立即推送 tag，stable 再把版本提交快进到 main，记录已发布产物；
 5. 推送成功后直接创建 GitHub Release（自动生成 release notes，附件为全部 nupkg）。推送接口返回 201/202 即表示已接收，`dotnet nuget push` 据此以退出码判定；nuget.org 随后异步校验并建索引（官方说明通常 15 分钟内），校验失败由 nuget.org 邮件通知所有者，流水线不等待包可见。包内容与依赖在推送前已用同一批 `.nupkg` 隔离消费验证。
 6. 发布后经 PR 把 `main` 合回 `develop`，带回 `VERSION` 与模板默认 `LeistdFrameworkVersion` 的回写；之后合入 `main` 时不会在这两处冲突。
 
 机制要点：
-发布差异从本通道最近已发布且为候选祖先的 tag 起算，独立于本次 push before。stable 只认正式 tag；beta 认 beta/正式 tag，排除 nightly，按 Git 祖先距离选择，不按版本字符串大小。正式 tag 在 main 的 VERSION 回写提交上，不是 develop 祖先时 beta 使用最近 beta 基线。取消或失败的发布没有完成 tag，下一次文档推送仍纳入尚未发布的框架改动；找不到可靠基线时保守发布。
+发布差异从本通道最近已发布且为候选祖先的 tag 起算，独立于本次 push before。stable 只认正式 tag；beta 只认 beta/正式 tag（历史 preview tag 不作基线），按 Git 祖先距离选择，不按版本字符串大小。正式 tag 在 main 的 VERSION 回写提交上，不是 develop 祖先时 beta 使用最近 beta 基线。取消或失败的发布没有完成 tag，下一次文档推送仍纳入尚未发布的框架改动；找不到可靠基线时保守发布。
 
 框架生产源码与真实 Pack 文档（含 `framework/NuGet.md`）触发发布。明确共享发布输入包括 `VERSION`、`framework/common.props`、根 `Directory.Build.props`、`Directory.Packages.props`、`global.json` 与 `NuGet.config`；脚本、workflow、未知输入/打包规则保守发布。内部说明、仓库配置（`.github/dependabot.yml`、根 `.mcp.json`）、框架测试、模板与模板打包项目（`template/`、`template-package/`）的变化不触发框架 beta；`main` 上模板有变化时框架正式版与模板同号发布（见[模板版本与发布](../template/versioning.md#版本与发布时机)）。其余分类 stable/beta 相同。
 
 stable 的 main push 可按[同树质量证据规则](./ci-release-gates.md#正式发布复用同树质量证据)复用第二父提交的完整 develop 验证；缺证据照常 full。本次实时依赖审计和最终发布物验证仍执行，框架与模板 Release 正文记录来源 run、attempt、SHA 与 tree。
 
 candidate 与 CI 固定相同 SHA，显式传递质量和发布基线，CI 据此计算计划。发布必须取得成功汇总输出的 full 计划、`QualityValidated=true`、合法的 current/reuse 执行来源、全部发布责任和相同候选身份。非发布 push 也执行适用质量验证；轻量文档 push 的前次成功条件见[CI 质量计划与放行](./ci-release-gates.md#pr-的内部文档例外)。
+
+develop push 的候选与全局最高正式版 tag 同树且该 tag 为候选祖先时，没有新的仓库内容，整体跳过质量且不发布 beta，见[同内容判据](./ci-release-gates.md#develop-与正式版内容相同)。它不证明原 stable 已完成所有发布步骤；缺失步骤仍按原运行的部分发布恢复处理。PR、main 与手动运行不适用。
 - 回写提交带 `[skip ci]` 且过滤 `github-actions[bot]`，避免死循环。
 - ⚠️ NuGet 包不可删（只能 unlist）。框架或模板每次有效变更都会产出一个正式版，请把控合入 main 的节奏。
 
@@ -129,7 +130,7 @@ candidate 与 CI 固定相同 SHA，显式传递质量和发布基线，CI 据�
 包源、tag 与 Release 是相互独立的系统，推包也逐包进行，流水线无法让它们原子完成，只保证失败后可以按原身份补齐。
 
 - **tag 推送**：`scripts/push-release-ref.ps1` 只推送、不重建 tag，有限次短重试；每次推送前查询远端，同名 tag 已指向预期提交即视为完成，指向其他提交即停止，不 force、不删除。stable 的 main 回写单独推送，只允许从候选 SHA 快进到发布 SHA。git 退出码不区分权限错误与瞬时故障，重试不解析错误文字。Release 沿用 `softprops/action-gh-release` 自带的创建重试与按 tag 查找，不再叠加重试。
-- **恢复指引**：失败时 job summary 由 `scripts/write-release-recovery-summary.ps1` 按步骤 outcome 与推送结果判定阶段，写出版本、tag、实际发布 SHA 与通道对应的命令；推包未开始的失败不给补 tag 指引，nightly 没有 Release。不要整体重跑发布 job：它会重新推算并重打同一版本。
+- **恢复指引**：失败时 job summary 由 `scripts/write-release-recovery-summary.ps1` 按步骤 outcome 与推送结果判定阶段，写出版本、tag、实际发布 SHA 与通道对应的命令；推包未开始的失败不给补 tag 指引。不要整体重跑发布 job：它会重新推算并重打同一版本。
 - **从原产物补齐**：从失败 run 的 artifact `release-packages-<版本>` 取回原 nupkg、`manifest.json`、`release-notes.md` 与 `release.bundle`。按清单逐个核对包源，只推缺失的原包；tag 从 bundle 取回原对象，核对它解引用后等于清单的 `releaseSha` 再用上述脚本推送（stable 的版本提交只存在于 bundle 中，不能拿候选 SHA 代替）；Release 按 tag 查询实际状态，只补缺失的 Release 或附件（nupkg 取自原产物），不覆盖已有附件。
 - **不自动 unlist**：包完整上传且内容无误时，缺的只是 GitHub 元数据，补齐即可。unlist 只降低可发现性，不撤销发布，按精确版本仍可还原，版本号也不能再用。发现错误或不安全的包时，由维护者明确决定 unlist 或 deprecate。
 
@@ -153,7 +154,6 @@ stable 或模板版本发布后，按下游清单通知使用方（目前只有 
 | --- | --- |
 | 有可选指南 | 指向指南在本次 tag 下的地址，Release 正文追加同一链接 |
 | 无指南，stable / beta | 指向本次 GitHub Release |
-| 无指南，nightly | 指向该 tag 的提交页，nightly 不创建 Release |
 
 `python scripts/test-workflow-change-scope.py` 执行实际 workflow 步骤，验证三个渠道的有／无指南链接及夹具包 `.nuspec`、以及发布说明的 scope 分组。本地打包不设置 `PackageReleaseNotes`。
 
@@ -185,18 +185,6 @@ gh attestation verify Leistd.Core.<版本>.nupkg -R zengqinglei/leistd-net
 ## 鉴权
 
 - **nuget.org**（stable / beta）：Trusted Publishing（OIDC，免长期 API Key）。需在 nuget.org 配置信任策略（仓库 + 工作流文件名 `release.yml`），并设 `NUGET_USER` secret。
-- **GitHub Packages**（nightly）：用内置 `GITHUB_TOKEN`，无需额外配置。
-
-### 引用 nightly 包（内部测试）
-
-GitHub Packages 需认证拉取，即使公开仓库：
-
-```bash
-dotnet nuget add source "https://nuget.pkg.github.com/zengqinglei/index.json" --name leistd-nightly --username <你的GitHub用户名> --password <PAT，需 read:packages> --store-password-in-clear-text
-
-dotnet add package Leistd.Core --prerelease
-```
-
 ## 本地手动操作（不发布）
 
 ```bash
