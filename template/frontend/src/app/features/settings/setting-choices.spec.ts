@@ -1,4 +1,9 @@
-import { timeZoneGroups, timeZoneMatches, TimeZoneOption } from './setting-choices';
+import {
+  timeZoneGroups,
+  timeZoneMatches,
+  timeZoneOffsetLabel,
+  TimeZoneOption,
+} from './setting-choices';
 
 /**
  * 时区清单的合法性按能否渲染判定，不按 `Intl.supportedValuesOf('timeZone')` 过滤：它只列规范名，
@@ -64,6 +69,14 @@ describe('time zone choices', () => {
     expect(shanghai.offsetLabel).toBe('UTC+8');
     expect(timeZoneMatches(shanghai, 'UTC+8')).toBe(true);
     expect(timeZoneMatches(shanghai, 'GMT+8')).toBe(true);
+  });
+
+  // 零偏移与其他偏移同一形态；不是时区的文案（"跟随系统"之类占位）没有偏移
+  it('writes the zero offset as UTC+0 and gives non-zones no offset', () => {
+    expect(find('UTC')!.offsetLabel).toBe('UTC+0');
+    expect(timeZoneMatches(find('UTC')!, 'GMT')).toBe(true);
+    expect(timeZoneOffsetLabel('Asia/Tokyo')).toBe('UTC+9');
+    expect(timeZoneOffsetLabel('Follows your system')).toBe('');
   });
 
   it('matches place names and full IANA names but not unrelated terms', () => {

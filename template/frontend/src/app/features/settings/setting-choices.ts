@@ -92,7 +92,10 @@ function canonicalTimeZone(timeZone: string): string | undefined {
   }
 }
 
-/** 该时区此刻的偏移文案（`GMT+8` 改写为 `UTC+8`，两种写法都参与搜索）；取不到返回空串。 */
+/**
+ * 该时区此刻的偏移文案（`GMT+8` 改写为 `UTC+8`，两种写法都参与搜索）；零偏移写成 `UTC+0`，
+ * 与其他偏移同一形态，也不会在 `UTC` 时区上写出 `UTC · UTC`。取不到返回空串。
+ */
 function offsetLabel(timeZone: string): { label: string; alias: string } {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -100,10 +103,16 @@ function offsetLabel(timeZone: string): { label: string; alias: string } {
       timeZoneName: 'shortOffset',
     }).formatToParts(new Date());
     const alias = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
-    return { label: alias.replace(/^GMT/, 'UTC'), alias };
+    const label = alias === 'GMT' ? 'UTC+0' : alias.replace(/^GMT/, 'UTC');
+    return { label, alias };
   } catch {
     return { label: '', alias: '' };
   }
+}
+
+/** 该时区此刻的 UTC 偏移文案，如 `UTC+8`；不是有效时区（如"跟随系统"这类占位文案）时返回空串。 */
+export function timeZoneOffsetLabel(timeZone: string): string {
+  return offsetLabel(timeZone).label;
 }
 
 /** 该时区此刻的 UTC 偏移分钟数，用于组内排序；取不到按 0 处理。 */
