@@ -110,6 +110,89 @@ namespace CompanyName.ProjectName.Infrastructure.Persistence.Migrations.Identity
                 });
 #endif
 
+            modelBuilder.Entity("CompanyName.ProjectName.Domain.Auth.Entities.UserPasskey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("Aaguid")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatorId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<byte[]>("CredentialId")
+                        .IsRequired()
+                        .HasMaxLength(1023)
+                        .HasColumnType("bytea");
+
+                    b.Property<bool>("IsBackedUp")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsBackupEligible")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastUsedTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<byte[]>("PublicKey")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("bytea");
+
+                    b.Property<long>("SignCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Transports")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<byte[]>("UserHandle")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CredentialId")
+                        .IsUnique()
+                        .HasFilter("\"TenantId\" IS NULL");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "CredentialId")
+                        .IsUnique()
+                        .HasFilter("\"TenantId\" IS NOT NULL");
+
+                    b.ToTable("UserPasskeys", "companyname-projectname");
+                });
+
+            modelBuilder.Entity("CompanyName.ProjectName.Domain.Auth.Entities.UserPasskey", b =>
+                {
+                    b.HasOne("CompanyName.ProjectName.Domain.Users.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CompanyName.ProjectName.Domain.Auth.Entities.UserSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -274,6 +357,9 @@ namespace CompanyName.ProjectName.Infrastructure.Persistence.Migrations.Identity
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<int>("PasskeyCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -326,15 +412,18 @@ namespace CompanyName.ProjectName.Infrastructure.Persistence.Migrations.Identity
                                 .HasColumnType("boolean");
                         });
 
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "RecoveryCodes", "CompanyName.ProjectName.Domain.Users.Entities.User.RecoveryCodes#RecoveryCodeSet", b1 =>
+                        {
+                            b1.Property<string>("Hashes")
+                                .IsRequired()
+                                .HasMaxLength(1024)
+                                .HasColumnType("character varying(1024)");
+                        });
+
                     b.ComplexProperty(typeof(Dictionary<string, object>), "TwoFactor", "CompanyName.ProjectName.Domain.Users.Entities.User.TwoFactor#TwoFactorCredential", b1 =>
                         {
                             b1.Property<long>("LastUsedStep")
                                 .HasColumnType("bigint");
-
-                            b1.Property<string>("RecoveryCodes")
-                                .IsRequired()
-                                .HasMaxLength(1024)
-                                .HasColumnType("character varying(1024)");
 
                             b1.Property<string>("Secret")
                                 .IsRequired()

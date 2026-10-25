@@ -99,7 +99,14 @@ describe('WorkspaceDashboard', () => {
 
   //#if (LocalIdentity)
   beforeEach(() => {
-    twoFactor = () => of({ enabled: false, recoveryCodesLeft: 0, requiredByPolicy: false });
+    twoFactor = () =>
+      of({
+        enabled: false,
+        passkeys: [],
+        passkeysAvailable: true,
+        recoveryCodesLeft: 0,
+        requiredByPolicy: false,
+      });
     sessions = () => of([]);
   });
 
@@ -404,7 +411,14 @@ describe('WorkspaceDashboard', () => {
 
     fixture.destroy();
     TestBed.resetTestingModule();
-    twoFactor = () => of({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: false });
+    twoFactor = () =>
+      of({
+        enabled: true,
+        passkeys: [],
+        passkeysAvailable: true,
+        recoveryCodesLeft: 8,
+        requiredByPolicy: false,
+      });
     const enabled = await setup();
     expect(enabled.quickActions().map((action) => action.icon)).not.toContain('lucideLock');
   });
@@ -412,7 +426,14 @@ describe('WorkspaceDashboard', () => {
 
   // 不含邮件时没有邮箱验证能力：安全检查不把它算作未完成，也不给去不了的修复入口
   it('evaluates only two-factor when the project has no email', async () => {
-    twoFactor = () => of({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: false });
+    twoFactor = () =>
+      of({
+        enabled: true,
+        passkeys: [],
+        passkeysAvailable: true,
+        recoveryCodesLeft: 8,
+        requiredByPolicy: false,
+      });
     const dashboard = await setup();
 
     expect(dashboard.securityPassed()).toBe(true);
@@ -432,7 +453,14 @@ describe('WorkspaceDashboard', () => {
   });
 
   it('shows how many security checks pass', async () => {
-    twoFactor = () => of({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: false });
+    twoFactor = () =>
+      of({
+        enabled: true,
+        passkeys: [],
+        passkeysAvailable: true,
+        recoveryCodesLeft: 8,
+        requiredByPolicy: false,
+      });
     const dashboard = await setup();
 
     // 测试用户的邮箱未验证：有邮件能力时两项里通过一项，没有时只评价两步验证

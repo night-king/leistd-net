@@ -1,5 +1,10 @@
 #if (LocalIdentity)
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using CompanyName.ProjectName.Application.Auth.AppServices;
+using CompanyName.ProjectName.Application.Auth.Passkeys;
+using CompanyName.ProjectName.Application.Auth.Sessions;
+using CompanyName.ProjectName.Domain.Auth.Passkeys;
 using CompanyName.ProjectName.Application.Auth.SignIn;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Auth.Errors;
@@ -19,13 +24,21 @@ using Leistd.UnitOfWork;
 
 namespace CompanyName.ProjectName.Application.Auth.Policies;
 
-/// <summary>本次确认身份出示的凭证：当前口令或操作者本人身份验证器上的验证码，一次只出示一种；都为空表示只看会话是否刚认证过。</summary>
+/// <summary>本次确认身份出示的凭证：当前口令、操作者本人身份验证器上的验证码或通行密钥断言，一次只出示一种；都为空表示只看会话是否刚认证过。</summary>
 /// <param name="CurrentPassword">操作者本人的当前口令。</param>
 /// <param name="TwoFactorCode">操作者本人身份验证器上的 6 位验证码。</param>
-internal sealed record ReauthenticationProof(string? CurrentPassword, string? TwoFactorCode)
+/// <param name="Passkey">操作者本人通行密钥断言的 JSON 原文（先经确认身份的选项端点取选项）。</param>
+internal sealed record ReauthenticationProof(string? CurrentPassword, string? TwoFactorCode, string? Passkey = null)
 {
     /// <summary>没有出示任何凭证。</summary>
     public static ReauthenticationProof None { get; } = new(null, null);
+
+    /// <summary>由入参的三种凭证组成；通行密钥取断言原文。</summary>
+    public static ReauthenticationProof Of(string? currentPassword, string? twoFactorCode, JsonElement? passkey) =>
+        new(currentPassword, twoFactorCode, PasskeyCredentialJson.RawText(passkey));
+
+    /// <summary>出示了通行密钥。</summary>
+    public bool HasPasskey => !string.IsNullOrEmpty(Passkey);
 
     /// <summary>出示了口令。</summary>
     public bool HasPassword => !string.IsNullOrEmpty(CurrentPassword);
@@ -33,13 +46,25 @@ internal sealed record ReauthenticationProof(string? CurrentPassword, string? Tw
     /// <summary>出示了验证码。</summary>
     public bool HasTwoFactorCode => !string.IsNullOrWhiteSpace(TwoFactorCode);
 
-    /// <summary>入参 DTO 的互斥校验：两种都出示时返回字段错误（文案是本地化键）。</summary>
-    public static IEnumerable<ValidationResult> ValidateOneAtATime(string? currentPassword, string? twoFactorCode, string twoFactorCodeMember)
+    /// <summary>入参 DTO 的互斥校验：出示了不止一种时返回字段错误（文案是本地化键）。</summary>
+    public static IEnumerable<ValidationResult> ValidateOneAtATime(
+        string? currentPassword,
+        string? twoFactorCode,
+        JsonElement? passkey,
+        string twoFactorCodeMember)
     {
-        if (!string.IsNullOrEmpty(currentPassword) && !string.IsNullOrWhiteSpace(twoFactorCode))
+        var presented = (string.IsNullOrEmpty(currentPassword) ? 0 : 1)
+            + (string.IsNullOrWhiteSpace(twoFactorCode) ? 0 : 1)
+            + (PasskeyCredentialJson.IsPresented(passkey) ? 1 : 0);
+        if (presented > 1)
         {
             yield return new ValidationResult(
-                "Confirm with either your password or a verification code, not both.", [twoFactorCodeMember]);
+                "Confirm with only one of your password, a verification code, or a passkey.", [twoFactorCodeMember]);
+        }
+
+        foreach (var error in PasskeyCredentialJson.ValidateShape(passkey, "Passkey"))
+        {
+            yield return error;
         }
     }
 }
@@ -54,7 +79,10 @@ internal enum ReauthenticationMethod
     Password,
 
     /// <summary>出示了正确的验证码；这一步已用掉并提交，不能再用。</summary>
-    TwoFactorCode
+    TwoFactorCode,
+
+    /// <summary>出示了通过校验的通行密钥断言。</summary>
+    Passkey
 }
 
 /// <summary>再认证：已登录的人改动"谁能登进这个账号"之前，再证明一次是本人；失败按登录的同一套计数与锁定处理。</summary>
@@ -133,6 +161,9 @@ internal interface IReauthenticationGuard
 /// <inheritdoc cref="IReauthenticationGuard" />
 internal sealed class ReauthenticationGuard(
     IAccessFailureCounter accessFailureCounter,
+    IPasskeyProtocol passkeyProtocol,
+    PasskeyCeremonyStore passkeyCeremonies,
+    PasskeyAssertionVerifier passkeyVerifier,
     IOperationRecorder operationRecorder,
     UserDomainService userDomainService,
     TwoFactorDomainService twoFactorDomainService,
@@ -247,7 +278,7 @@ internal sealed class ReauthenticationGuard(
             throw new InvalidOperationException("Recent authentication is checked for the signed-in user only.");
         }
 
-        if (proof.HasPassword && proof.HasTwoFactorCode)
+        if ((proof.HasPassword ? 1 : 0) + (proof.HasTwoFactorCode ? 1 : 0) + (proof.HasPasskey ? 1 : 0) > 1)
         {
             // 入参 DTO 已以字段错误拒绝；走到这里是调用方拼错了凭证
             throw new ArgumentException("Present one proof at a time.", nameof(proof));
@@ -297,13 +328,39 @@ internal sealed class ReauthenticationGuard(
                 cancellationToken);
         }
 
+        if (proof.HasPasskey)
+        {
+            if (user.PasskeyCount == 0 || !passkeyProtocol.IsAvailable)
+            {
+                throw MethodUnavailable();
+            }
+
+            // 仪式按本人与会话保存：别的会话取的选项、凭据变过之后的选项都不认，不算猜错
+            var state = await passkeyCeremonies.TakeForSessionAsync(
+                PasskeyCeremonyPurpose.Reauthentication, user.Id, currentUser.GetSessionId(), user.SecurityStamp, cancellationToken)
+                ?? throw PasskeyAppService.CeremonyExpired();
+            var passkey = await passkeyVerifier.FindAsync(proof.Passkey!, cancellationToken);
+            if (passkey is not null && passkey.UserId == user.Id &&
+                await passkeyVerifier.VerifyAsync(passkey, state, proof.Passkey!, cancellationToken))
+            {
+                return ReauthenticationMethod.Passkey;
+            }
+
+            throw await RejectAsync(
+                user,
+                action,
+                AuthErrorCodes.PasskeyVerificationFailed,
+                "The passkey couldn't be verified. Try again.",
+                cancellationToken);
+        }
+
         if (IsRecentSession())
         {
             return ReauthenticationMethod.RecentSignIn;
         }
 
-        // 既没有口令也没开两步验证：拿不出任何凭证，只能重新走一遍外部登录得到新的认证时间
-        throw !user.HasLocalPassword && !user.TwoFactorEnabled
+        // 口令、身份验证器、通行密钥都没有：拿不出任何凭证，只能重新走一遍外部登录得到新的认证时间
+        throw !user.HasLocalPassword && !user.TwoFactorEnabled && user.PasskeyCount == 0
             ? new BusinessException(AuthErrorCodes.SignInAgainRequired, "Sign in again to continue.")
             : new BusinessException(AuthErrorCodes.ReauthenticationRequired, "Confirm it's you to continue.");
     }

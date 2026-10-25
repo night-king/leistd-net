@@ -283,19 +283,35 @@
 <!--#endif-->
     }
 
+    <!--
+      通行密钥、身份验证器与邮箱验证码各一节：任一节增减方式或改了默认，其余各节的"默认/设为默认"、
+      恢复码的归属（只有通行密钥时在通行密钥一节）与组织要求下能否去掉跟着刷新
+    -->
 <!--#if (Email)-->
-    <app-two-factor-settings
-      (sessionsChanged)="loginDevices()?.reload(); emailTwoFactor()?.reload()"
-      (defaultChanged)="emailTwoFactor()?.reload()"
+    <app-two-factor-passkey-settings
+      (sessionsChanged)="loginDevices()?.reload()"
+      (defaultChanged)="twoFactor()?.reload(); emailTwoFactor()?.reload()"
     />
 
-    <!-- 邮箱启停会改变"两种方式都能用"与默认方式：身份验证器一节的"默认/设为默认"跟着刷新 -->
+    <app-two-factor-settings
+      (sessionsChanged)="loginDevices()?.reload()"
+      (defaultChanged)="passkeys()?.reload(); emailTwoFactor()?.reload()"
+    />
+
     <app-two-factor-email-settings
-      (sessionsChanged)="loginDevices()?.reload(); twoFactor()?.reload()"
-      (defaultChanged)="twoFactor()?.reload()"
+      (sessionsChanged)="loginDevices()?.reload(); twoFactor()?.reload(); passkeys()?.reload()"
+      (defaultChanged)="twoFactor()?.reload(); passkeys()?.reload()"
     />
 <!--#else-->
-    <app-two-factor-settings (sessionsChanged)="loginDevices()?.reload()" />
+    <app-two-factor-passkey-settings
+      (sessionsChanged)="loginDevices()?.reload()"
+      (defaultChanged)="twoFactor()?.reload()"
+    />
+
+    <app-two-factor-settings
+      (sessionsChanged)="loginDevices()?.reload()"
+      (defaultChanged)="passkeys()?.reload()"
+    />
 <!--#endif-->
     <!--#if (ExternalLogin)-->
 
@@ -314,8 +330,11 @@
     [description]="t('account.setPassword.reauthDescription')"
     [hasPassword]="reauth.hasPassword()"
     [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [hasPasskeys]="reauth.hasPasskeys()"
+    [(passkeyFailure)]="reauth.passkeyFailure"
     [codeRejected]="reauth.codeRejected()"
     (confirmed)="reauth.confirm($event)"
+    (passkeyRequested)="reauth.confirmWithPasskey()"
     (signInAgain)="reauth.signInAgain()"
   />
   <!--#endif-->

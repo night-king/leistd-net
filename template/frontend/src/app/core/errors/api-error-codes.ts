@@ -42,6 +42,15 @@ export const API_ERROR_CODES = {
 
   /** 这种第二步方式此刻不能用（组织关闭、邮箱改为未验证、这次登录只认独立因子）：就地说明，改用其他方式。 */
   twoFactorMethodUnavailable: 'Auth:TwoFactorMethodUnavailable',
+
+  /** 通行密钥断言没通过（签名不对、不是本人的、计数器回退）：就地说明，可以再试一次。 */
+  passkeyVerificationFailed: 'Auth:PasskeyVerificationFailed',
+
+  /** 这次通行密钥仪式已失效（过期或被新的一次取代）：重新取选项再试，不算失败。 */
+  passkeyCeremonyExpired: 'Auth:PasskeyCeremonyExpired',
+
+  /** 部署没有配置通行密钥的依赖方：收起通行密钥的入口。 */
+  passkeyUnavailable: 'Auth:PasskeyUnavailable',
   //#if (Email)
 
   /** 第二步的邮箱验证码已失效（没发过、已过期、次数用完）：就地说明，重新获取，不算输错。 */

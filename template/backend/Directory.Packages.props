@@ -113,6 +113,11 @@
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.13" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="Microsoft.Extensions.Identity.Core" Version="10.0.13" />
+    <!--#if (LocalIdentity)-->
+    <!-- 通行密钥（WebAuthn）协议：ASP.NET Core Identity 内置的通行密钥只服务于 Identity 自己的用户存储、不作第二步，
+         官方文档对完整 WebAuthn 推荐 fido2-net-lib（.NET Foundation 项目）。选型依据见 docs/standards/tech-stack.md -->
+    <PackageVersion Include="Fido2" Version="4.3.1" />
+    <!--#endif-->
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="Refit" Version="16.4.0" />
     <PackageVersion Include="OpenIddict.Abstractions" Version="7.7.2" />

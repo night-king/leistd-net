@@ -36,6 +36,7 @@ import { TwoFactorStatusOutputDto } from '../../../../shared/dtos/account-securi
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
 import { AccountService } from '../../services/account-service';
+import { canChooseDefault } from '../../utils/two-factor-methods';
 import { RecoveryCodes } from '../recovery-codes/recovery-codes';
 import { TwoFactorSetup } from '../two-factor-setup/two-factor-setup';
 
@@ -87,10 +88,8 @@ export class TwoFactorSettings {
 
   /** 本人的其他会话被服务端撤销了（启用、停用两步验证时）。 */
   readonly sessionsChanged = output<void>();
-  //#if (Email)
-  /** 登录默认方式变了（这一节里"设为默认"）：面板据此刷新邮箱验证码一节。 */
+  /** 登录默认方式或可用方式变了（设为默认、启用、停用）：面板据此刷新其他各节。 */
   readonly defaultChanged = output<void>();
-  //#endif
 
   protected readonly status = signal<TwoFactorStatusOutputDto | null>(null);
   protected readonly loadFailed = signal(false);
@@ -113,13 +112,17 @@ export class TwoFactorSettings {
   protected readonly canDisable = computed(
     () => (!this.hasPassword() || !!this.password()) && this.codeValid() && !this.busy(),
   );
-  //#if (Email)
-  /** 身份验证器与邮箱验证码都能用：才有"默认"可言。 */
-  protected readonly bothMethodsUsable = computed(() => {
+  /** 身份验证器能用、还有别的方式可选（通行密钥、邮箱验证码）：才有"默认"可言。 */
+  protected readonly defaultChoice = computed(() =>
+    canChooseDefault(this.status(), 'authenticator'),
+  );
+  /**
+   * 组织要求两步验证、身份验证器又是最后一个独立因子（没有通行密钥）：不能停用。
+   */
+  protected readonly disableBlocked = computed(() => {
     const status = this.status();
-    return !!status?.enabled && !!status.emailEnabled && !status.emailUnavailableReason;
+    return !!status?.requiredByPolicy && status.passkeys.length === 0;
   });
-  //#endif
   /** 剩余恢复码不多：提醒里带"重新生成"，操作行里就不再重复这个按钮。 */
   protected readonly recoveryCodesLow = computed(() => {
     const status = this.status();
@@ -191,10 +194,12 @@ export class TwoFactorSettings {
     const replaced = this.mode() === 'replaceSetup';
     this.proof.set(null);
     this.codes.set(codes);
-    this.mode.set('codes');
+    // 已有通行密钥时恢复码不变，服务端不发新的：直接回到状态
+    this.mode.set(codes.length > 0 ? 'codes' : 'idle');
     this.reload();
     this.refreshCurrentUser();
     this.sessionsChanged.emit();
+    this.defaultChanged.emit();
     const message = replaced ? 'account.twoFactor.replacedToast' : 'account.twoFactor.enabledToast';
     //#if (IncludeLocalization)
     toast.success(this.transloco.translate(message));
@@ -227,6 +232,7 @@ export class TwoFactorSettings {
           this.reload();
           this.refreshCurrentUser();
           this.sessionsChanged.emit();
+          this.defaultChanged.emit();
           //#if (IncludeLocalization)
           toast.success(this.transloco.translate('account.twoFactor.disabledToast'));
           //#else
@@ -244,7 +250,7 @@ export class TwoFactorSettings {
 
     this.busy.set(true);
     this.accountService
-      .regenerateRecoveryCodes(this.code().replace(/\s/g, ''))
+      .regenerateRecoveryCodes({ code: this.code().replace(/\s/g, '') })
       .pipe(finalize(() => this.busy.set(false)))
       .subscribe({
         next: (result) => {
@@ -256,7 +262,6 @@ export class TwoFactorSettings {
       });
   }
 
-  //#if (Email)
   /** 登录时默认先给身份验证器；不增减方式，不要求确认身份。 */
   protected setAsDefault(): void {
     if (this.busy()) {
@@ -281,7 +286,6 @@ export class TwoFactorSettings {
       });
   }
 
-  //#endif
   // 顶栏等处读的是当前用户上的 isTwoFactorEnabled，跟着刷新
   private refreshCurrentUser(): void {
     this.authService.loadUser().subscribe({ error: () => undefined });
@@ -352,11 +356,9 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactor.useCode': 'Use an authenticator code instead',
   'account.twoFactor.recoveryCodeLabel': 'Recovery code',
   'account.twoFactor.continue': 'Continue',
-  //#if (Email)
   'account.twoFactor.default': 'Default',
   'account.twoFactor.setDefault': 'Set as default',
   'account.twoFactor.defaultToast': 'Saved. Sign-in will ask for this method first.',
-  //#endif
   'account.twoFactor.replacedToast':
     'Authenticator replaced. The old one and its recovery codes no longer work, and other devices were signed out.',
 };

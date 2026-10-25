@@ -5,6 +5,7 @@ import { AUTH_API } from './auth';
 //#if (IncludeMultiTenancy)
 import { TENANT_HEADER } from '../../src/app/core/tenancy/tenant-protocol';
 //#endif
+import { toBase64Url } from '../../src/app/core/webauthn/webauthn';
 import { MockException } from '../core/models';
 import { TENANT_SETTING_VALUES } from '../data/settings';
 import { DELETED_USERS, MockUser, USERS } from '../data/user';
@@ -994,4 +995,398 @@ describe('mock password reset', () => {
   });
 });
 //#endif
+/**
+ * 通行密钥：Mock 只记浏览器交回的凭据 Id，不校验签名；挑战只认最近一次、只用一次，
+ * 凭据只认已登记且（第二步、确认身份时）属于本人的。
+ */
+describe('mock passkeys', () => {
+  const securityConfig = AUTH_API['GET /api/v1/auth/security-config'] as Handler;
+  const status = AUTH_API['GET /api/v1/auth/me/two-factor'] as Handler;
+  const me = AUTH_API['GET /api/v1/auth/me'] as Handler;
+  const beginRegistration = AUTH_API['POST /api/v1/auth/me/two-factor/passkeys/options'] as Handler;
+  const completeRegistration = AUTH_API['POST /api/v1/auth/me/two-factor/passkeys'] as Handler;
+  const rename = AUTH_API['PUT /api/v1/auth/me/two-factor/passkeys/:id/name'] as Handler;
+  const remove = AUTH_API['POST /api/v1/auth/me/two-factor/passkeys/:id/remove'] as Handler;
+  const reauthOptions = AUTH_API[
+    'POST /api/v1/auth/me/reauthentication/passkey-options'
+  ] as Handler;
+  const regenerate = AUTH_API['POST /api/v1/auth/me/two-factor/recovery-codes'] as Handler;
+  const signInOptions = AUTH_API['POST /api/v1/auth/passkey-login/options'] as Handler;
+  const signIn = AUTH_API['POST /api/v1/auth/passkey-login'] as Handler;
+  const sessionLogin = AUTH_API['POST /api/v1/auth/session-login'] as Handler;
+  const twoFactorOptions = AUTH_API['POST /api/v1/auth/two-factor/passkey-options'] as Handler;
+  const completeTwoFactor = AUTH_API['POST /api/v1/auth/two-factor'] as Handler;
+  const profile = AUTH_API['PUT /api/v1/auth/me'] as Handler;
+  const headers = new HttpHeaders();
+  const zihang = USERS.find((u) => u.username === 'zihang')!;
+  const jiayi = USERS.find((u) => u.username === 'jiayi.lin')!;
+  let snapshot: MockUser[];
+
+  beforeEach(() => {
+    snapshot = structuredClone(USERS);
+    setMockSessionUserId(zihang.id);
+  });
+
+  // 原地复原：其他用例组持有的是这些用户对象本身
+  afterEach(() => {
+    setMockSessionUserId(null);
+    USERS.forEach((item, index) => {
+      for (const key of Object.keys(item)) {
+        delete (item as unknown as Record<string, unknown>)[key];
+      }
+      Object.assign(item, snapshot[index]);
+    });
+    TENANT_SETTING_VALUES.delete('host:Security.RequireTwoFactor');
+  });
+
+  function user(id: string): MockUser {
+    return USERS.find((u) => u.id === id)!;
+  }
+
+  function encode(value: string | number[]): string {
+    const bytes =
+      typeof value === 'string' ? new TextEncoder().encode(value) : Uint8Array.from(value);
+    return toBase64Url(bytes);
+  }
+
+  function clientData(type: string, challenge: string): string {
+    return encode(JSON.stringify({ type, challenge, origin: 'http://localhost:4200' }));
+  }
+
+  /** 浏览器 `create()` 交回的凭据：证明对象里只放 Mock 要读的 `authData`（标志位在第 33 字节）。 */
+  function attestation(id: string, challenge: string, flags = 0x05 | 0x08 | 0x10) {
+    const authData = Array.from({ length: 37 }, (_, i) => (i === 32 ? flags : 0));
+    const key = (text: string) => [0x60 + text.length, ...new TextEncoder().encode(text)];
+    const attestationObject = [
+      0xa3,
+      ...key('fmt'),
+      ...key('none'),
+      ...key('attStmt'),
+      0xa0,
+      ...key('authData'),
+      0x58,
+      authData.length,
+      ...authData,
+    ];
+    return {
+      id,
+      rawId: id,
+      type: 'public-key',
+      response: {
+        clientDataJSON: clientData('webauthn.create', challenge),
+        attestationObject: encode(attestationObject),
+        transports: ['internal'],
+      },
+      clientExtensionResults: {},
+    };
+  }
+
+  function assertion(id: string, challenge: string) {
+    return {
+      id,
+      rawId: id,
+      type: 'public-key',
+      response: {
+        clientDataJSON: clientData('webauthn.get', challenge),
+        authenticatorData: encode('auth-data'),
+        signature: encode('signature'),
+        userHandle: null,
+      },
+      clientExtensionResults: {},
+    };
+  }
+
+  function challengeOf(result: unknown): string {
+    return (result as { options: { challenge: string } }).options.challenge;
+  }
+
+  function register(id: string, name = 'macOS · Chrome') {
+    const challenge = challengeOf(beginRegistration({ body: {} }));
+    return completeRegistration({ body: { credential: attestation(id, challenge), name } }) as {
+      passkey: { id: string; isBackupEligible: boolean; isBackedUp: boolean };
+      recoveryCodes: string[];
+    };
+  }
+
+  it('tells the sign-in page that passkeys are available', () => {
+    expect(securityConfig({ headers })).toMatchObject({ passkeysAvailable: true });
+  });
+
+  it('registers the first passkey with recovery codes and reports it everywhere', () => {
+    const options = beginRegistration({ body: {} }) as {
+      options: { excludeCredentials: unknown[]; authenticatorSelection: unknown };
+    };
+    expect(options.options.excludeCredentials).toEqual([]);
+    expect(options.options.authenticatorSelection).toMatchObject({ userVerification: 'required' });
+
+    const result = completeRegistration({
+      body: { credential: attestation('cred-a', challengeOf(options)), name: ' My laptop ' },
+    }) as ReturnType<typeof register>;
+
+    expect(result.recoveryCodes).toHaveLength(10);
+    expect(result.passkey).toMatchObject({ isBackupEligible: true, isBackedUp: true });
+    expect(status({})).toMatchObject({
+      enabled: false,
+      passkeysAvailable: true,
+      recoveryCodesLeft: 10,
+      defaultMethod: 'passkey',
+      passkeys: [expect.objectContaining({ name: 'My laptop', lastUsedTime: null })],
+    });
+    expect(me({})).toMatchObject({ hasPasskeys: true, isTwoFactorEnabled: false });
+
+    // 第二把不再发恢复码，排除列表里有第一把
+    const again = beginRegistration({ body: {} }) as { options: { excludeCredentials: unknown[] } };
+    expect(again.options.excludeCredentials).toEqual([{ type: 'public-key', id: 'cred-a' }]);
+    const second = completeRegistration({
+      body: { credential: attestation('cred-b', challengeOf(again), 0x05), name: 'Key' },
+    }) as ReturnType<typeof register>;
+    expect(second.recoveryCodes).toEqual([]);
+    expect(second.passkey).toMatchObject({ isBackupEligible: false, isBackedUp: false });
+  });
+
+  it('accepts each registration challenge once and rejects a credential already registered', () => {
+    register('cred-a');
+
+    const challenge = challengeOf(beginRegistration({ body: {} }));
+    expect(
+      rejectionOf(() =>
+        completeRegistration({ body: { credential: attestation('cred-a', challenge), name: 'x' } }),
+      ).error.code,
+    ).toBe('Auth:PasskeyAlreadyRegistered');
+    // 挑战已经用掉：同一份选项不能再完成一次
+    expect(
+      rejectionOf(() =>
+        completeRegistration({ body: { credential: attestation('cred-c', challenge), name: 'x' } }),
+      ).error.code,
+    ).toBe('Auth:PasskeyCeremonyExpired');
+
+    // 取了新的选项，交回的却是旧挑战
+    beginRegistration({ body: {} });
+    expect(
+      rejectionOf(() =>
+        completeRegistration({ body: { credential: attestation('cred-c', 'stale'), name: 'x' } }),
+      ).error.code,
+    ).toBe('Auth:PasskeyVerificationFailed');
+  });
+
+  it('asks a stale session to confirm before registering', () => {
+    expireMockSessionAuthentication();
+
+    expect(rejectionOf(() => beginRegistration({ body: {} })).error.code).toBe(
+      'Auth:ReauthenticationRequired',
+    );
+    expect(challengeOf(beginRegistration({ body: { password: zihang.password } }))).toBeTruthy();
+  });
+
+  it('signs in without a password from a registered passkey, once per ceremony', () => {
+    register('cred-a');
+    setMockSessionUserId(null);
+
+    const options = signInOptions({ headers }) as {
+      options: { challenge: string };
+      ceremony: string;
+    };
+    const attempt = (id: string) =>
+      rejectionOf(() =>
+        signIn({
+          headers,
+          body: {
+            ceremony: options.ceremony,
+            credential: assertion(id, options.options.challenge),
+          },
+        }),
+      ).error.code;
+    expect(attempt('nobody')).toBe('Auth:PasskeyVerificationFailed');
+    // 仪式只认一次：用过（哪怕失败）之后同一份选项不能再完成
+    expect(attempt('cred-a')).toBe('Auth:PasskeyCeremonyExpired');
+
+    const fresh = signInOptions({ headers }) as {
+      options: { challenge: string };
+      ceremony: string;
+    };
+    signIn({
+      headers,
+      body: { ceremony: fresh.ceremony, credential: assertion('cred-a', fresh.options.challenge) },
+    });
+
+    expect(getMockSessionUserId()).toBe(zihang.id);
+    expect(user(zihang.id).passkeys![0]!.lastUsedTime).toBeTruthy();
+  });
+
+  it('rejects an unknown credential and a disabled account at passwordless sign-in', () => {
+    register('cred-a');
+    setMockSessionUserId(null);
+
+    let options = signInOptions({ headers }) as {
+      options: { challenge: string };
+      ceremony: string;
+    };
+    expect(
+      rejectionOf(() =>
+        signIn({
+          headers,
+          body: {
+            ceremony: options.ceremony,
+            credential: assertion('unknown', options.options.challenge),
+          },
+        }),
+      ).error.code,
+    ).toBe('Auth:PasskeyVerificationFailed');
+
+    user(zihang.id).isActive = false;
+    options = signInOptions({ headers }) as { options: { challenge: string }; ceremony: string };
+    const error = rejectionOf(() =>
+      signIn({
+        headers,
+        body: {
+          ceremony: options.ceremony,
+          credential: assertion('cred-a', options.options.challenge),
+        },
+      }),
+    );
+    expect(error.status).toBe(401);
+    expect(error.error.code).toBe('Auth:UserDisabled');
+    expect(getMockSessionUserId()).toBeNull();
+  });
+
+  it('offers the passkey first at the second step and accepts only this user’s passkey', () => {
+    register('cred-a');
+    user(zihang.id).twoFactorEnabled = true;
+    setMockSessionUserId(jiayi.id);
+    register('cred-jiayi');
+    setMockSessionUserId(null);
+
+    const first = sessionLogin({
+      headers,
+      body: { usernameOrEmail: 'zihang', password: zihang.password },
+    }) as { twoFactorToken: string; twoFactorMethods: string[]; defaultTwoFactorMethod: string };
+    expect(first.twoFactorMethods).toEqual(['passkey', 'authenticator', 'recoveryCode']);
+    expect(first.defaultTwoFactorMethod).toBe('passkey');
+    const token = first.twoFactorToken;
+
+    // 还没取过选项：不算猜错
+    expect(
+      rejectionOf(() =>
+        completeTwoFactor({ headers, body: { token, passkey: assertion('cred-a', 'x') } }),
+      ).error.code,
+    ).toBe('Auth:PasskeyCeremonyExpired');
+
+    const challenge = challengeOf(twoFactorOptions({ headers, body: { token } }));
+    expect(
+      rejectionOf(() =>
+        completeTwoFactor({
+          headers,
+          body: { token, passkey: assertion('cred-jiayi', challenge) },
+        }),
+      ).error.code,
+    ).toBe('Auth:PasskeyVerificationFailed');
+
+    completeTwoFactor({ headers, body: { token, passkey: assertion('cred-a', challenge) } });
+    expect(getMockSessionUserId()).toBe(zihang.id);
+  });
+
+  it('rejects a second step that presents a passkey together with a code', () => {
+    register('cred-a');
+    setMockSessionUserId(null);
+    const { twoFactorToken: token } = sessionLogin({
+      headers,
+      body: { usernameOrEmail: 'zihang', password: zihang.password },
+    }) as { twoFactorToken: string };
+
+    const error = rejectionOf(() =>
+      completeTwoFactor({
+        headers,
+        body: { token, code: '123456', passkey: assertion('cred-a', 'x') },
+      }),
+    );
+    expect(error.status).toBe(400);
+    expect(error.error.code).toBeUndefined();
+  });
+
+  it('confirms identity with a passkey for any operation that needs it', () => {
+    register('cred-a');
+    expireMockSessionAuthentication();
+    const change = (passkey: unknown) =>
+      profile({ body: { username: zihang.username, email: 'zihang@new.example.com', passkey } });
+
+    expect(rejectionOf(() => change(assertion('cred-a', 'x'))).error.code).toBe(
+      'Auth:PasskeyCeremonyExpired',
+    );
+    const challenge = challengeOf(reauthOptions({}));
+    expect(rejectionOf(() => change(assertion('cred-other', challenge))).error.code).toBe(
+      'Auth:PasskeyVerificationFailed',
+    );
+
+    change(assertion('cred-a', challengeOf(reauthOptions({}))));
+    expect(user(zihang.id).email).toBe('zihang@new.example.com');
+  });
+
+  it('refuses passkey confirmation to an account without passkeys', () => {
+    expect(rejectionOf(() => reauthOptions({})).error.code).toBe(
+      'Auth:ReauthenticationMethodUnavailable',
+    );
+  });
+
+  it('renames a passkey and validates the name', () => {
+    const { passkey } = register('cred-a');
+
+    expect(rename({ params: { id: passkey.id }, body: { name: 'Work laptop' } })).toMatchObject({
+      name: 'Work laptop',
+    });
+    expect(
+      rejectionOf(() => rename({ params: { id: passkey.id }, body: { name: ' ' } })).status,
+    ).toBe(400);
+    expect(
+      rejectionOf(() => rename({ params: { id: 'missing' }, body: { name: 'x' } })).error.code,
+    ).toBe('Auth:PasskeyNotFound');
+  });
+
+  it('voids the recovery codes and the preference with the last independent factor', () => {
+    const { passkey } = register('cred-a');
+    AUTH_API['PUT /api/v1/auth/me/two-factor/preferred-method']({
+      body: { method: 'passkey' },
+    } as never);
+
+    remove({ params: { id: passkey.id }, body: {} });
+
+    expect(status({})).toMatchObject({ passkeys: [], recoveryCodesLeft: 0, defaultMethod: null });
+    expect(user(zihang.id).preferredTwoFactorMethod).toBeUndefined();
+  });
+
+  // 受限会话（组织要求两步验证、本人还没有独立因子）登记一把通行密钥即解除限制，并拿到恢复码
+  it('lifts a restricted session once the first passkey is registered', () => {
+    TENANT_SETTING_VALUES.set('host:Security.RequireTwoFactor', 'true');
+    expect(me({})).toMatchObject({ twoFactorSetupRequired: true });
+
+    const { recoveryCodes } = register('cred-a');
+
+    expect(recoveryCodes).toHaveLength(10);
+    expect(me({})).toMatchObject({ twoFactorSetupRequired: false, hasPasskeys: true });
+  });
+
+  it('keeps the last passkey where the organization requires two-factor authentication', () => {
+    const { passkey } = register('cred-a');
+    TENANT_SETTING_VALUES.set('host:Security.RequireTwoFactor', 'true');
+
+    const error = rejectionOf(() => remove({ params: { id: passkey.id }, body: {} }));
+
+    expect(error.status).toBe(403);
+    expect(error.error.code).toBe('Auth:TwoFactorRequiredByPolicy');
+    expect(me({})).toMatchObject({ hasPasskeys: true, twoFactorSetupRequired: false });
+  });
+
+  it('regenerates recovery codes with a passkey for an account without an authenticator', () => {
+    register('cred-a');
+    user(zihang.id).recoveryCodes = ['one-left'];
+
+    expect(rejectionOf(() => regenerate({ body: { code: '123456' } })).error.code).toBe(
+      'Auth:TwoFactorCodeInvalid',
+    );
+    const result = regenerate({
+      body: { passkey: assertion('cred-a', challengeOf(reauthOptions({}))) },
+    }) as { recoveryCodes: string[] };
+
+    expect(result.recoveryCodes).toHaveLength(10);
+  });
+});
 //#endif

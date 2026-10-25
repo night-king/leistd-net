@@ -13,6 +13,7 @@ import {
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../i18n/transloco.testing';
 //#endif
+import { WebAuthnFailure } from '../../webauthn/webauthn-error';
 
 /**
  * 确认是本人：按出示者的账号状态给出可选方式，只交出当前所选的那一种凭证；
@@ -28,7 +29,10 @@ import { provideTranslocoTesting } from '../../i18n/transloco.testing';
       [codeRejected]="codeRejected()"
       [hasPassword]="hasPassword()"
       [twoFactorEnabled]="twoFactorEnabled()"
+      [hasPasskeys]="hasPasskeys()"
+      [(passkeyFailure)]="passkeyFailure"
       (confirmed)="confirmed.push($event)"
+      (passkeyRequested)="passkeyRequests = passkeyRequests + 1"
       (signInAgain)="signInAgainCount = signInAgainCount + 1"
     />
   `,
@@ -40,7 +44,10 @@ class HostComponent {
   readonly codeRejected = signal(false);
   readonly hasPassword = signal(true);
   readonly twoFactorEnabled = signal(false);
+  readonly hasPasskeys = signal(false);
+  readonly passkeyFailure = signal<WebAuthnFailure | null>(null);
   readonly confirmed: ReauthenticationProof[] = [];
+  passkeyRequests = 0;
   signInAgainCount = 0;
 }
 
@@ -60,9 +67,14 @@ describe('ReauthenticateDialog', () => {
     return document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
   }
 
-  async function render(state: { hasPassword: boolean; twoFactorEnabled: boolean }) {
+  async function render(state: {
+    hasPassword: boolean;
+    twoFactorEnabled: boolean;
+    hasPasskeys?: boolean;
+  }) {
     host.hasPassword.set(state.hasPassword);
     host.twoFactorEnabled.set(state.twoFactorEnabled);
+    host.hasPasskeys.set(state.hasPasskeys ?? false);
     await fixture.whenStable();
   }
 
@@ -342,5 +354,90 @@ describe('ReauthenticateDialog', () => {
     expect(host.error()).toBeNull();
     expect(reauthenticateMethod()).toBe('password');
     expect(passwordInput()!.value).toBe('');
+  });
+
+  describe('passkey', () => {
+    function switches(): string[] {
+      return Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[data-testid="reauthenticate-switch"]'),
+      ).map((element) => element.getAttribute('data-method')!);
+    }
+
+    // 抗钓鱼的在前：登记了通行密钥就先给它，口令与验证码作备选
+    it('starts with the passkey and offers the other methods as alternatives', async () => {
+      await render({ hasPassword: true, twoFactorEnabled: true, hasPasskeys: true });
+
+      expect(reauthenticateMethod()).toBe('passkey');
+      expect(passwordInput()).toBeNull();
+      expect(switches()).toEqual(['password', 'code']);
+    });
+
+    it('asks the caller to run the ceremony on click and hands over no proof itself', async () => {
+      await render({ hasPassword: true, twoFactorEnabled: false, hasPasskeys: true });
+
+      button('reauthenticate-submit')!.click();
+      await fixture.whenStable();
+
+      expect(host.passkeyRequests).toBe(1);
+      expect(host.confirmed).toEqual([]);
+    });
+
+    it('does not ask again while the retry is in flight', async () => {
+      await render({ hasPassword: true, twoFactorEnabled: false, hasPasskeys: true });
+      host.saving.set(true);
+      await fixture.whenStable();
+
+      expect(button('reauthenticate-submit')!.disabled).toBe(true);
+    });
+
+    it('explains a cancelled prompt neutrally and a failed one as an error', async () => {
+      await render({ hasPassword: true, twoFactorEnabled: false, hasPasskeys: true });
+
+      host.passkeyFailure.set('cancelled');
+      await fixture.whenStable();
+      expect(button('reauthenticate-passkey-cancelled')).not.toBeNull();
+      expect(reauthenticateErrorText()).toBe('');
+
+      host.passkeyFailure.set('failed');
+      await fixture.whenStable();
+      expect(button('reauthenticate-passkey-cancelled')).toBeNull();
+      expect(reauthenticateErrorText()).not.toBe('');
+    });
+
+    it('shows the server reason and clears it when switching to the password', async () => {
+      await render({ hasPassword: true, twoFactorEnabled: false, hasPasskeys: true });
+      host.error.set("The passkey couldn't be verified.");
+      await settle();
+
+      expect(reauthenticateErrorText()).toBe("The passkey couldn't be verified.");
+
+      document
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="reauthenticate-switch"][data-method="password"]',
+        )!
+        .click();
+      await settle();
+
+      expect(reauthenticateMethod()).toBe('password');
+      expect(host.error()).toBeNull();
+      await confirmWithPassword(fixture, 'secret');
+      expect(host.confirmed).toEqual([{ password: 'secret' }]);
+    });
+
+    // 没有口令、只有通行密钥：也给"重新登录"的后路
+    it('keeps signing in again reachable for a passkey-only account', async () => {
+      await render({ hasPassword: false, twoFactorEnabled: false, hasPasskeys: true });
+
+      expect(reauthenticateMethod()).toBe('passkey');
+      expect(button('reauthenticate-sign-in-again-link')).not.toBeNull();
+    });
+
+    it('switches to the code from the passkey with the testing helper', async () => {
+      await render({ hasPassword: false, twoFactorEnabled: true, hasPasskeys: true });
+
+      await confirmWithCode(fixture, '123456');
+
+      expect(host.confirmed).toEqual([{ twoFactorCode: '123456' }]);
+    });
   });
 });

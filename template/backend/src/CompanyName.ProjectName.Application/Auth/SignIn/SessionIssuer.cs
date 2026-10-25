@@ -91,6 +91,10 @@ internal sealed class SessionIssuer(
                 throw new BusinessException(
                     AuthErrorCodes.TwoFactorIndependentFactorRequired,
                     "This way of signing in needs your authenticator app or a recovery code. Sign in with your password instead.");
+            case TwoFactorSignInRefusal.PasskeyUnavailable:
+                throw new BusinessException(
+                    AuthErrorCodes.PasskeyUnavailable,
+                    "Passkeys aren't available on this site right now. Contact your administrator.");
 #if (Email)
             case TwoFactorSignInRefusal.DeliveryUnavailable:
                 logger.LogError(

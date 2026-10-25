@@ -71,6 +71,8 @@ public sealed class ApiExceptionMappingsTests(ProjectWebApplicationFactory facto
 #if (LocalIdentity)
     [InlineData(AuthErrorCodes.InvalidCredentials, StatusCodes.Status401Unauthorized)]
     [InlineData(AuthErrorCodes.TwoFactorRequiredByPolicy, StatusCodes.Status403Forbidden)]
+    [InlineData(AuthErrorCodes.PasskeyNotFound, StatusCodes.Status404NotFound)]
+    [InlineData(AuthErrorCodes.PasskeyAlreadyRegistered, StatusCodes.Status409Conflict)]
 #endif
     [InlineData(SettingErrorCodes.IdentityCannotOperate, StatusCodes.Status403Forbidden)]
 #if (IncludeNotifications)

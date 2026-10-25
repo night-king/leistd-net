@@ -17,8 +17,8 @@
               t('account.twoFactorEmail.on')
             }}</span>
           }
-          @if (bothMethodsUsable() && status()?.defaultMethod === 'email') {
-            <!-- 两种方式都能用时标出登录先给哪一种；另一种的操作里有"设为默认" -->
+          @if (defaultChoice() && status()?.defaultMethod === 'email') {
+            <!-- 有别的方式可选时标出登录先给哪一种；其他方式的操作里有"设为默认" -->
             <span hlmBadge variant="outline" data-testid="two-factor-email-default">{{
               t('account.twoFactor.default')
             }}</span>
@@ -31,7 +31,7 @@
       @if (status(); as s) {
         @if (s.emailEnabled) {
           <div class="flex shrink-0 flex-wrap gap-2 self-start">
-            @if (bothMethodsUsable() && s.defaultMethod !== 'email') {
+            @if (defaultChoice() && s.defaultMethod !== 'email') {
               <button
                 hlmBtn
                 variant="outline"
@@ -156,8 +156,11 @@
     [description]="t('account.twoFactorEmail.reauthDescription')"
     [hasPassword]="reauth.hasPassword()"
     [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [hasPasskeys]="reauth.hasPasskeys()"
+    [(passkeyFailure)]="reauth.passkeyFailure"
     [codeRejected]="reauth.codeRejected()"
     (confirmed)="reauth.confirm($event)"
+    (passkeyRequested)="reauth.confirmWithPasskey()"
     (signInAgain)="reauth.signInAgain()"
   />
 </ng-container>

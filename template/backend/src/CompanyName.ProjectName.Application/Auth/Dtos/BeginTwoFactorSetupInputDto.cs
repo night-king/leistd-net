@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using CompanyName.ProjectName.Application.Auth.Policies;
 
 namespace CompanyName.ProjectName.Application.Auth.Dtos;
@@ -27,8 +28,11 @@ public sealed record BeginTwoFactorSetupInputDto : IValidatableObject
     [StringLength(64, ErrorMessage = "{0} cannot exceed {1} characters.")]
     public string? RecoveryCode { get; init; }
 
+    /// <summary>通行密钥断言的 JSON 形式（先经 <c>me/reauthentication/passkey-options</c> 取选项），与其他凭证三选一；会话刚认证过时不用带。</summary>
+    public JsonElement? Passkey { get; init; }
+
     /// <inheritdoc />
     /// <remarks>验证码本身就是确认身份的凭证，与口令一次只出示一种。</remarks>
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
-        ReauthenticationProof.ValidateOneAtATime(Password, Code, nameof(Code));
+        ReauthenticationProof.ValidateOneAtATime(Password, Code, Passkey, nameof(Code));
 }

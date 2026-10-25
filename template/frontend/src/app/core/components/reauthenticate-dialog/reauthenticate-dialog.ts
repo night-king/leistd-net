@@ -18,6 +18,8 @@ import { form, FormField, maxLength, required, validate } from '@angular/forms/s
 //#if (IncludeLocalization)
 import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideFingerprint } from '@ng-icons/lucide';
 import { BrnDialogState } from '@spartan-ng/brain/dialog';
 import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmDialogImports } from '@spartan-ng/helm/dialog';
@@ -26,18 +28,37 @@ import { HlmInput } from '@spartan-ng/helm/input';
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 
 import { OtpCodeInput } from '../../../shared/components/otp-code-input/otp-code-input';
+import { WebAuthnJson } from '../../../shared/dtos/account-security.dto';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
 import { PASSWORD_MAX_LENGTH } from '../../validation/password-rule';
+import { WebAuthnFailure } from '../../webauthn/webauthn-error';
 
 /** 本人出示的凭证：恰好一种，调用方按各自接口的字段名带上后重试原操作。 */
 export type ReauthenticationProof =
-  | { readonly password: string; readonly twoFactorCode?: undefined }
-  | { readonly twoFactorCode: string; readonly password?: undefined };
+  | {
+      readonly password: string;
+      readonly twoFactorCode?: undefined;
+      readonly passkey?: undefined;
+    }
+  | {
+      readonly twoFactorCode: string;
+      readonly password?: undefined;
+      readonly passkey?: undefined;
+    }
+  | {
+      /** 通行密钥断言（`getPasskey` 的结果），各接口的字段名都是 `passkey`。 */
+      readonly passkey: WebAuthnJson;
+      readonly password?: undefined;
+      readonly twoFactorCode?: undefined;
+    };
+
+/** 对话框能收的凭证。 */
+type ProofMethod = 'passkey' | 'password' | 'code';
 
 /** 对话框当前收哪种凭证；`signInAgain` 表示账号没有可出示的凭证，只能重新登录。 */
-type Method = 'password' | 'code' | 'signInAgain';
+type Method = ProofMethod | 'signInAgain';
 
 const CODE_PATTERN = /^\d{6}$/;
 const PASSWORD_INPUT_ID = 'reauthenticate-password';
@@ -45,14 +66,21 @@ const CODE_INPUT_ID = 'reauthenticate-code';
 const CODE_DESCRIPTION_ID = 'reauthenticate-code-description';
 const CODE_ERROR_ID = 'reauthenticate-code-error';
 const CODE_REUSE_HINT_ID = 'reauthenticate-code-reuse-hint';
+const PASSKEY_BUTTON_ID = 'reauthenticate-passkey';
+const PASSKEY_ERROR_ID = 'reauthenticate-passkey-error';
+const METHOD_FOCUS_IDS: Record<ProofMethod, string> = {
+  passkey: PASSKEY_BUTTON_ID,
+  password: PASSWORD_INPUT_ID,
+  code: CODE_INPUT_ID,
+};
 
 /**
  * 确认是本人：改邮箱、设置口令、设置或换绑两步验证、绑定或解绑外部账号、重置他人的口令或两步验证这类操作
  * 在会话不够新时由服务端要求。调用方先不带凭证提交，收到要求后打开它，再带上交出的凭证重试。
  *
  * 只负责输入、错误与提交状态，不取用户信息、不调业务接口。能出示什么由调用方按**当前用户**（管理员操作他人时
- * 是操作者本人）传入：有口令时以口令为主，已开两步验证时可改用验证码；没有口令时只收验证码，另给
- * "重新登录"的后路；两者都没有时只能重新登录。凭证对不对由服务端判定，被拒的原因由调用方经 {@link error}
+ * 是操作者本人）传入：登记了通行密钥时以它为主（点一下由调用方调起浏览器），其次口令，已开两步验证时
+ * 可改用验证码；没有口令时另给"重新登录"的后路；三者都没有时只能重新登录。凭证对不对由服务端判定，被拒的原因由调用方经 {@link error}
  * 交回，就地显示、对话框保持打开。只交出当前所选的那一种；切换方式、关闭或成功后清掉已输入的内容。
  */
 @Component({
@@ -65,6 +93,7 @@ const CODE_REUSE_HINT_ID = 'reauthenticate-code-reuse-hint';
     HlmButton,
     HlmInput,
     HlmSpinner,
+    NgIcon,
     OtpCodeInput,
     ...HlmDialogImports,
     ...HlmFieldImports,
@@ -72,6 +101,7 @@ const CODE_REUSE_HINT_ID = 'reauthenticate-code-reuse-hint';
     TranslocoDirective,
     //#endif
   ],
+  providers: [provideIcons({ lucideFingerprint })],
   templateUrl: './reauthenticate-dialog.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -91,6 +121,8 @@ export class ReauthenticateDialog {
   readonly hasPassword = input(true);
   /** 出示凭证的人（当前用户）是否已开两步验证。 */
   readonly twoFactorEnabled = input(false);
+  /** 出示凭证的人（当前用户）是否登记了通行密钥。 */
+  readonly hasPasskeys = input(false);
   /** 服务端拒绝凭证的原因，显示在输入框下方；本人改动输入时清掉。 */
   readonly error = model<string | null>(null);
   /**
@@ -98,21 +130,37 @@ export class ReauthenticateDialog {
    * 此时在错误下方提示等待新码。
    */
   readonly codeRejected = input(false);
+  /** 通行密钥在浏览器这一侧没成（取消或失败）：按归类显示本地化说明；本人切换方式或再试时清掉。 */
+  readonly passkeyFailure = model<WebAuthnFailure | null>(null);
   readonly confirmed = output<ReauthenticationProof>();
+  /**
+   * 本人选择用通行密钥确认（在点击里发出）：调用方取断言选项、调起浏览器，再带着断言重试
+   * （`Reauthentication.confirmWithPasskey`）。对话框不调接口。
+   */
+  readonly passkeyRequested = output<void>();
   /** 本人选择重新登录（没有可出示的凭证，或用不了身份验证器）。 */
   readonly signInAgain = output<void>();
 
-  /** 有口令且已开两步验证时，本人改用验证码。 */
-  private readonly useCode = signal(false);
+  /** 本人具备的方式，按默认顺序：抗钓鱼的通行密钥在前，其次口令，最后身份验证器上的验证码。 */
+  protected readonly methods = computed<ProofMethod[]>(() => [
+    ...(this.hasPasskeys() ? (['passkey'] as const) : []),
+    ...(this.hasPassword() ? (['password'] as const) : []),
+    ...(this.twoFactorEnabled() ? (['code'] as const) : []),
+  ]);
+
+  /** 本人改选的方式；不在可选方式里（账号状态变了）时回到默认。 */
+  private readonly chosen = signal<ProofMethod | null>(null);
 
   protected readonly method = computed<Method>(() => {
-    if (!this.hasPassword()) {
-      return this.twoFactorEnabled() ? 'code' : 'signInAgain';
-    }
-    return this.twoFactorEnabled() && this.useCode() ? 'code' : 'password';
+    const methods = this.methods();
+    const chosen = this.chosen();
+    return chosen && methods.includes(chosen) ? chosen : (methods[0] ?? 'signInAgain');
   });
 
-  protected readonly canSwitch = computed(() => this.hasPassword() && this.twoFactorEnabled());
+  /** 可以改用的其余方式，按默认顺序。 */
+  protected readonly alternatives = computed(() =>
+    this.methods().filter((method) => method !== this.method()),
+  );
 
   private readonly formModel = signal({ password: '' });
   // 只做必填与长度的快速反馈；口令对不对由服务端判定，被拒的原因作为该字段的错误显示，
@@ -137,6 +185,8 @@ export class ReauthenticateDialog {
   protected readonly codeDescriptionId = CODE_DESCRIPTION_ID;
   protected readonly codeErrorId = CODE_ERROR_ID;
   protected readonly codeReuseHintId = CODE_REUSE_HINT_ID;
+  protected readonly passkeyButtonId = PASSKEY_BUTTON_ID;
+  protected readonly passkeyErrorId = PASSKEY_ERROR_ID;
   protected readonly showCodeReuseHint = computed(() => !!this.error() && this.codeRejected());
   protected readonly codeDescribedBy = computed(() => {
     if (!this.error()) {
@@ -168,9 +218,10 @@ export class ReauthenticateDialog {
     const open = state === 'open';
     this.visible.set(open);
     if (!open) {
-      this.useCode.set(false);
+      this.chosen.set(null);
       this.clearInputs();
       this.error.set(null);
+      this.passkeyFailure.set(null);
     }
   }
 
@@ -178,10 +229,11 @@ export class ReauthenticateDialog {
     this.visible.set(false);
   }
 
-  protected toggleMethod(): void {
-    this.useCode.update((value) => !value);
+  protected selectMethod(method: ProofMethod): void {
+    this.chosen.set(method);
     this.error.set(null);
-    this.focus(this.method() === 'code' ? CODE_INPUT_ID : PASSWORD_INPUT_ID);
+    this.passkeyFailure.set(null);
+    this.focus(METHOD_FOCUS_IDS[method]);
   }
 
   protected onPasswordInput(): void {
@@ -205,6 +257,9 @@ export class ReauthenticateDialog {
       case 'code':
         this.submitCode();
         return;
+      case 'passkey':
+        this.requestPasskey();
+        return;
       case 'signInAgain':
         this.signInAgain.emit();
         return;
@@ -220,6 +275,15 @@ export class ReauthenticateDialog {
       return;
     }
     this.confirmed.emit({ password: this.formModel().password });
+  }
+
+  private requestPasskey(): void {
+    if (this.saving()) {
+      return;
+    }
+    this.error.set(null);
+    this.passkeyFailure.set(null);
+    this.passkeyRequested.emit();
   }
 
   protected submitCode(): void {
@@ -243,6 +307,9 @@ export class ReauthenticateDialog {
       case 'code':
         this.clearCode();
         this.focus(CODE_INPUT_ID);
+        return;
+      case 'passkey':
+        this.focus(PASSKEY_BUTTON_ID);
         return;
     }
   }
@@ -280,9 +347,18 @@ const ENGLISH: Record<string, string> = {
   'common.twoFactorCodeReuseHint': 'If you just used this code, wait for a new one.',
   'common.reauthenticate.useCode': 'Use an authenticator code instead',
   'common.reauthenticate.usePassword': 'Use your password instead',
+  'common.reauthenticate.usePasskeyInstead': 'Use a passkey instead',
+  'common.reauthenticate.passkeyHint':
+    'Use the passkey saved on this device, your phone or a security key.',
+  'common.reauthenticate.usePasskey': 'Use passkey',
+  'common.reauthenticate.passkeyCancelled':
+    'The passkey request was cancelled. Try again when ready.',
+  'common.reauthenticate.passkeyFailed':
+    "The passkey couldn't be used. Try again, or choose another way.",
   'common.reauthenticate.cannotUseAuthenticator': "Can't use your authenticator? Sign in again",
+  'common.reauthenticate.cannotUsePasskey': "Can't use your passkey? Sign in again",
   'common.reauthenticate.signInAgainHint':
-    'Your account has no password or authenticator to confirm with. Sign in again to continue.',
+    'Your account has no password, passkey or authenticator to confirm with. Sign in again to continue.',
   'common.reauthenticate.signInAgain': 'Sign in again',
   'common.reauthenticate.confirm': 'Confirm',
   'common.cancel': 'Cancel',

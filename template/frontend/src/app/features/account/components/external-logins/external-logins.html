@@ -101,8 +101,11 @@
     [description]="t('account.externalLogins.unlinkReauthDescription')"
     [hasPassword]="reauth.hasPassword()"
     [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [hasPasskeys]="reauth.hasPasskeys()"
+    [(passkeyFailure)]="reauth.passkeyFailure"
     [codeRejected]="reauth.codeRejected()"
     (confirmed)="reauth.confirm($event)"
+    (passkeyRequested)="reauth.confirmWithPasskey()"
     (signInAgain)="reauth.signInAgain()"
   />
 </ng-container>

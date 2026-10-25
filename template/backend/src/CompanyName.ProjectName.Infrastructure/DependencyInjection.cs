@@ -45,6 +45,9 @@ using CompanyName.ProjectName.Domain.Shared.Security.PasswordHash;
 using Leistd.Security.OneTimeCodes;
 #endif
 #if (LocalIdentity)
+using CompanyName.ProjectName.Domain.Auth.Passkeys;
+using CompanyName.ProjectName.Infrastructure.Auth.Passkeys;
+using Microsoft.Extensions.Options;
 using CompanyName.ProjectName.Infrastructure.Shared.Security.PasswordHash;
 using Microsoft.AspNetCore.Identity;
 #endif
@@ -114,6 +117,10 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.TryAddTransient<IPasswordHasher<object>, PasswordHasher<object>>();
         services.TryAddTransient<IPasswordHasher, IdentityPasswordHasher>();
+        // 通行密钥的依赖方是部署值：不配时功能不可用、照常启动；配了就在启动期校验 RP ID 与来源对得上
+        services.AddOptions<PasskeyOptions>().BindConfiguration(PasskeyOptions.SectionName).ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<PasskeyOptions>, PasskeyOptionsValidator>());
+        services.TryAddSingleton<IPasskeyProtocol, Fido2PasskeyProtocol>();
 #endif
 #if (Email)
         services.AddVerificationCodeDigest();

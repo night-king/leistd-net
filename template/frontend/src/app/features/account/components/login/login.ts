@@ -2,9 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
+  effect,
   inject,
   OnInit,
   signal,
+  untracked,
 } from '@angular/core';
 import { form, minLength, maxLength, required, FormField } from '@angular/forms/signals';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -13,7 +16,7 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 // prettier-ignore
-import { lucideBuilding2, lucideCircleAlert, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
+import { lucideBuilding2, lucideCircleAlert, lucideFingerprint, lucideInfo, lucideEye, lucideEyeOff } from '@ng-icons/lucide';
 import { toast } from '@spartan-ng/brain/sonner';
 import { HlmAlertImports } from '@spartan-ng/helm/alert';
 import { HlmButton } from '@spartan-ng/helm/button';
@@ -27,6 +30,7 @@ import {
 import { HlmSpinner } from '@spartan-ng/helm/spinner';
 import { lastValueFrom } from 'rxjs';
 
+import { API_ERROR_CODES } from '../../../../core/errors/api-error-codes';
 import {
   ApplicationHttpError,
   applicationErrorMessage,
@@ -41,9 +45,21 @@ import { SessionContextService } from '../../../../core/services/session-context
 import { TenantContextService } from '../../../../core/services/tenant-context-service';
 //#endif
 import { PASSWORD_MAX_LENGTH } from '../../../../core/validation/password-rule';
+import {
+  getPasskey,
+  isConditionalMediationAvailable,
+  passkeySupport,
+} from '../../../../core/webauthn/webauthn';
+import {
+  classifyWebAuthnError,
+  isWebAuthnError,
+  WebAuthnFailure,
+} from '../../../../core/webauthn/webauthn-error';
+import { WebAuthnJson } from '../../../../shared/dtos/account-security.dto';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
+import { AccountService } from '../../services/account-service';
 //#if (IncludeMultiTenancy)
 import { hostTenantProbe } from '../../utils/host-tenant-probe';
 //#endif
@@ -86,6 +102,7 @@ import {
     provideIcons({
       lucideBuilding2,
       lucideCircleAlert,
+      lucideFingerprint,
       lucideInfo,
       lucideEye,
       lucideEyeOff,
@@ -109,9 +126,9 @@ export class Login implements OnInit {
   //#else
   protected readonly t = englishText(ENGLISH);
   //#endif
-//#if (IncludeMultiTenancy)
+  //#if (IncludeMultiTenancy)
   protected readonly tenantContext = inject(TenantContextService);
-//#endif
+  //#endif
 
   private _isLoading = signal(false);
   public readonly isLoading = this._isLoading.asReadonly();
@@ -171,9 +188,48 @@ export class Login implements OnInit {
     )?.twoFactorPrompt ?? null,
   );
 
+  private readonly accountService = inject(AccountService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** 这一次收到 `Auth:PasskeyUnavailable`（部署此刻没配）：收起通行密钥的入口。 */
+  private readonly passkeyWithdrawn = signal(false);
+  /**
+   * 给出"用通行密钥登录"与用户名框里的条件式自动填充：部署配了依赖方（注册摘要的 `passkeysAvailable`），
+   * 且浏览器支持、在安全上下文里。取回摘要前不给，免得给了又收。
+   */
+  protected readonly showPasskey = computed(
+    () =>
+      passkeySupport() === 'supported' &&
+      this.securityConfig.config()?.passkeysAvailable === true &&
+      !this.passkeyWithdrawn(),
+  );
+  /** 通行密钥登录在途（按钮发起，或从自动填充选中后提交断言）。 */
+  protected readonly passkeyBusy = signal(false);
+  /** 通行密钥在浏览器这一侧没成：按归类就地说明，不显示浏览器原文；改动输入或再试时清掉。 */
+  protected readonly passkeyFailure = signal<WebAuthnFailure | null>(null);
+  /** 进行中的条件式请求；换成按钮发起、进入第二步或离开页面时中止。 */
+  private conditionalRequest: AbortController | null = null;
+
   constructor() {
-    // 进入登录页时取当前注册策略，决定是否给出注册入口
+    // 进入登录页时取当前注册策略，决定是否给出注册入口与通行密钥
     this.securityConfig.refresh();
+
+    // 条件式界面：用户名框在场、入口可用、没有别的通行密钥请求在途时挂一个请求，等本人在自动填充里选中。
+    // 仪式在取选项时绑定租户，换了租户就重新挂
+    effect(() => {
+      const ready =
+        this.showPasskey() && !this.twoFactorPrompt() && !this.authBlocked() && !this.passkeyBusy();
+      //#if (IncludeMultiTenancy)
+      this.tenantContext.current();
+      //#endif
+      untracked(() => {
+        this.stopConditionalRequest();
+        if (ready) {
+          void this.startConditionalRequest();
+        }
+      });
+    });
+    this.destroyRef.onDestroy(() => this.stopConditionalRequest());
   }
 
   ngOnInit(): void {
@@ -289,6 +345,108 @@ export class Login implements OnInit {
   /** 改动任一输入：上一次被拒的原因不再对应当前填写的内容。 */
   protected clearLoginError(): void {
     this.loginError.set(null);
+    this.passkeyFailure.set(null);
+  }
+
+  /** 本人点"用通行密钥登录"：先中止条件式请求（浏览器同一时刻只认一个），再取选项、调起浏览器。 */
+  protected async signInWithPasskey(): Promise<void> {
+    if (this.passkeyBusy() || this.isLoading() || this.authBlocked()) {
+      return;
+    }
+
+    this.stopConditionalRequest();
+    this.passkeyBusy.set(true);
+    this.loginError.set(null);
+    this.passkeyFailure.set(null);
+    try {
+      const { options, ceremony } = await lastValueFrom(this.accountService.beginPasskeySignIn());
+      const credential = await getPasskey(options);
+      await this.completePasskeySignIn(ceremony ?? '', credential);
+    } catch (error) {
+      this.showPasskeyError(error);
+    } finally {
+      this.passkeyBusy.set(false);
+    }
+  }
+
+  private async startConditionalRequest(): Promise<void> {
+    const controller = new AbortController();
+    this.conditionalRequest = controller;
+    if (!(await isConditionalMediationAvailable()) || controller.signal.aborted) {
+      return;
+    }
+
+    let ceremony: string;
+    let credential: WebAuthnJson;
+    try {
+      const result = await lastValueFrom(this.accountService.beginPasskeySignIn());
+      if (controller.signal.aborted) {
+        return;
+      }
+      ceremony = result.ceremony ?? '';
+      credential = await getPasskey(result.options, {
+        mediation: 'conditional',
+        signal: controller.signal,
+      });
+    } catch (error) {
+      // 自动填充只是捷径：取不到选项、浏览器失败都不打扰本人，按钮照样可用；部署没配时收起入口
+      if (!controller.signal.aborted && this.isPasskeyUnavailable(error)) {
+        this.passkeyWithdrawn.set(true);
+      }
+      return;
+    }
+    if (this.conditionalRequest === controller) {
+      this.conditionalRequest = null;
+    }
+
+    this.passkeyBusy.set(true);
+    this.loginError.set(null);
+    this.passkeyFailure.set(null);
+    try {
+      await this.completePasskeySignIn(ceremony, credential);
+    } catch (error) {
+      this.showPasskeyError(error);
+    } finally {
+      this.passkeyBusy.set(false);
+    }
+  }
+
+  private stopConditionalRequest(): void {
+    this.conditionalRequest?.abort();
+    this.conditionalRequest = null;
+  }
+
+  /** 交回断言；通过即下发会话，之后与第二步通过后同一条收尾（不再要求第二步）。 */
+  private async completePasskeySignIn(ceremony: string, credential: WebAuthnJson): Promise<void> {
+    await lastValueFrom(this.accountService.completePasskeySignIn({ ceremony, credential }));
+    await this.onTwoFactorCompleted();
+  }
+
+  private showPasskeyError(error: unknown): void {
+    if (isWebAuthnError(error)) {
+      this.passkeyFailure.set(classifyWebAuthnError(error));
+      return;
+    }
+    if (this.isPasskeyUnavailable(error)) {
+      this.passkeyWithdrawn.set(true);
+    }
+    if (isRejection(error)) {
+      this.loginError.set(applicationErrorMessage(error));
+      return;
+    }
+    //#if (IncludeLocalization)
+    toast.error(this.transloco.translate('account.login.loginFailed'), {
+      description: applicationErrorMessage(error),
+    });
+    //#else
+    toast.error('Login failed', { description: applicationErrorMessage(error) });
+    //#endif
+  }
+
+  private isPasskeyUnavailable(error: unknown): boolean {
+    return (
+      error instanceof ApplicationHttpError && error.code === API_ERROR_CODES.passkeyUnavailable
+    );
   }
 
   //#if (IncludeMultiTenancy)
@@ -393,6 +551,10 @@ const ENGLISH: Record<string, string> = {
   'account.login.noAccount': "Don't have an account? ",
   'account.login.registerNow': 'Sign up',
   'account.login.submit': 'Sign in',
+  'account.login.passkey': 'Sign in with a passkey',
+  'account.login.passkeyCancelled': 'The passkey request was cancelled. Try again when ready.',
+  'account.login.passkeyFailed':
+    "The passkey couldn't be used. Try again, or sign in with your password.",
   //#if (ExternalLogin)
   'account.login.or': 'Or continue with',
   //#endif

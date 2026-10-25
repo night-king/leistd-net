@@ -1,12 +1,14 @@
+import { PasskeyOutputDto, WebAuthnJson } from '../../../shared/dtos/account-security.dto';
+
 export interface RegisterInputDto {
   username: string;
   email: string;
   password: string;
   captchaCode?: string;
   captchaToken?: string;
-//#if (Email)
+  //#if (Email)
   emailVerification?: EmailVerificationInputDto;
-//#endif
+  //#endif
   displayName?: string;
 }
 
@@ -19,8 +21,53 @@ export interface TwoFactorLoginInputDto {
   /** 发到邮箱的验证码。 */
   emailCode?: string;
   //#endif
+  /** 通行密钥断言（先经 `two-factor/passkey-options` 取选项）。 */
+  passkey?: WebAuthnJson;
   recoveryCode?: string;
 }
+
+/** 免口令登录：取选项时拿到的仪式凭据与浏览器交回的断言。 */
+export interface PasskeySignInInputDto {
+  ceremony: string;
+  credential: WebAuthnJson;
+}
+
+/**
+ * 开始登记通行密钥：会话不够新时带上本人的一种凭证（当前口令、身份验证器上的验证码或通行密钥断言，
+ * 三选一）；会话刚认证过时都不带。
+ */
+export interface BeginPasskeyRegistrationInputDto {
+  password?: string;
+  twoFactorCode?: string;
+  passkey?: WebAuthnJson;
+}
+
+/** 删除通行密钥：会话不够新时带上本人的一种凭证，规则同开始登记。 */
+export interface RemovePasskeyInputDto {
+  password?: string;
+  twoFactorCode?: string;
+  passkey?: WebAuthnJson;
+}
+
+/** 完成登记：浏览器创建的凭据与本人起的名称。 */
+export interface CompletePasskeyRegistrationInputDto {
+  credential: WebAuthnJson;
+  name: string;
+}
+
+/** 登记结果：它是第一个独立因子时一并给出新发的恢复码，否则恢复码为空。 */
+export interface PasskeyRegistrationOutputDto {
+  passkey: PasskeyOutputDto;
+  recoveryCodes: string[];
+}
+
+export interface RenamePasskeyInputDto {
+  name: string;
+}
+
+/** 重新生成恢复码：出示一个独立因子，身份验证器上的验证码或通行密钥断言，恰好一种。 */
+export type RegenerateRecoveryCodesInputDto =
+  { code: string; passkey?: undefined } | { passkey: WebAuthnJson; code?: undefined };
 //#if (Email)
 
 /** 登录第二步的邮箱验证码已发出。 */
@@ -31,10 +78,11 @@ export interface TwoFactorEmailCodeOutputDto {
   retryAfterSeconds: number;
 }
 
-/** 开启或关闭邮箱验证码：会话不够新时带上本人的当前口令或验证码（二选一）。 */
+/** 开启或关闭邮箱验证码：会话不够新时带上本人的当前口令、验证码或通行密钥断言（三选一）。 */
 export interface EmailTwoFactorChangeInputDto {
   password?: string;
   twoFactorCode?: string;
+  passkey?: WebAuthnJson;
 }
 //#endif
 
@@ -46,6 +94,8 @@ export interface BeginTwoFactorSetupInputDto {
   password?: string;
   code?: string;
   recoveryCode?: string;
+  /** 会话不够新时以通行密钥确认身份（与口令二选一）。 */
+  passkey?: WebAuthnJson;
 }
 
 export interface TwoFactorSetupOutputDto {
@@ -112,8 +162,10 @@ export interface UpdateCurrentUserInputDto {
   phoneNumber?: string;
   /** 本人的当前口令：换邮箱而会话不够新时带上，与 `twoFactorCode` 二选一。 */
   currentPassword?: string;
-  /** 本人身份验证器上的 6 位验证码：换邮箱而会话不够新时带上，与 `currentPassword` 二选一。 */
+  /** 本人身份验证器上的 6 位验证码：换邮箱而会话不够新时带上，与其余两种凭证三选一。 */
   twoFactorCode?: string;
+  /** 本人的通行密钥断言：换邮箱而会话不够新时带上，与其余两种凭证三选一。 */
+  passkey?: WebAuthnJson;
 }
 
 /** 设置自己的头像：图片的 data URL（浏览器端已裁剪缩放）；`null` 清除。 */
@@ -128,23 +180,28 @@ export interface ChangePasswordInputDto {
 }
 //#if (ExternalLogin)
 
-/** 没有本地口令的账号设置第一个口令；会话不够新时带上身份验证器上的验证码（账号没有口令可出示）。 */
+/**
+ * 没有本地口令的账号设置第一个口令；会话不够新时带上身份验证器上的验证码或通行密钥断言（账号没有口令可出示）。
+ */
 export interface SetPasswordInputDto {
   newPassword: string;
   confirmPassword: string;
   twoFactorCode?: string;
+  passkey?: WebAuthnJson;
 }
 
-/** 外部授权回来后完成绑定：会话不够新时带上本人的当前口令或验证码（二选一）。 */
+/** 外部授权回来后完成绑定：会话不够新时带上本人的当前口令、验证码或通行密钥断言（三选一）。 */
 export interface CompleteExternalLinkInputDto {
   password?: string;
   twoFactorCode?: string;
+  passkey?: WebAuthnJson;
 }
 
-/** 解绑外部账号：会话不够新时带上本人的当前口令或验证码（二选一）。 */
+/** 解绑外部账号：会话不够新时带上本人的当前口令、验证码或通行密钥断言（三选一）。 */
 export interface UnlinkExternalLoginInputDto {
   password?: string;
   twoFactorCode?: string;
+  passkey?: WebAuthnJson;
 }
 
 /** 部署已配置的外部登录提供商。 */

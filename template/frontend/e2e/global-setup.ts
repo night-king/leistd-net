@@ -85,7 +85,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     });
 
     const port = await freePort();
-    const baseURL = `http://127.0.0.1:${port}`;
+    // 通行密钥的 RP ID 只能是域名、不能是 IP，页面走 localhost（浏览器视同安全上下文，http 也能用）
+    const baseURL = `http://localhost:${port}`;
     mkdirSync(outputDir, { recursive: true });
     log = createWriteStream(join(outputDir, 'api.log'));
     api = spawn('dotnet', [apiDll], {
@@ -102,6 +103,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         DataProtection__KeysPath: keysPath,
         DefaultAdmin__Password: admin().password,
         Leistd__Security__VerificationCodes__Key: randomBytes(32).toString('base64'),
+        Passkeys__RelyingPartyId: 'localhost',
+        Passkeys__Origins__0: baseURL,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

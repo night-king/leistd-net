@@ -62,6 +62,9 @@
 <!--#if (ExternalLogin)-->
 - 外部登录提供商（`ExternalAuth:Github`、`ExternalAuth:Google`）默认关闭，`Enabled`（compose 的 `GITHUB_LOGIN_ENABLED`、`GOOGLE_LOGIN_ENABLED`）打开且 `ClientId`、`ClientSecret` 都提供时才生效；缺一项不阻止启动，只是不提供该入口并记警告日志。宿主管理员也可在「系统设置 → 外部登录」运行期覆盖开关与凭据，清除覆盖值即回到这里的部署配置。从只填凭据的旧版本升级时，要显式打开开关才会继续提供入口。提供商后台登记的回调地址是 `https://<站点对外地址>/api/v1/external-auth/{github,google}/signin`，设置页的状态部件按当前请求地址显示。
 <!--#endif-->
+<!--#if (LocalIdentity)-->
+- 通行密钥的依赖方在 `Passkeys`：`RelyingPartyId` 是站点的可注册域名（不含协议与端口），`Origins` 列出浏览器页面的来源（协议 + 域名 + 端口，须落在 RP ID 之下，除环回地址外只收 https）；compose 的 `PASSKEY_RP_ID`、`PASSKEY_ORIGIN`。两项都不填时通行密钥不可用、照常启动；填了却不合法即启动失败并指出键名。登记过的通行密钥绑定 RP ID，部署后改它会让已登记的全部失效；多租户按子域名部署时 RP ID 取共同的父域。
+<!--#endif-->
 
 ## 生产边界
 

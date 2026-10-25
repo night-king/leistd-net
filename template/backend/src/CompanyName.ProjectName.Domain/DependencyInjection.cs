@@ -21,6 +21,7 @@ public static class DependencyInjection
 #if (LocalIdentity)
         services.TryAddTransient<TwoFactorDomainService>();
         services.TryAddTransient<UserSessionDomainService>();
+        services.TryAddTransient<PasskeyDomainService>();
 #endif
 
 #if (ExternalLogin)

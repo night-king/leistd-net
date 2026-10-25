@@ -5,6 +5,9 @@ public record SecurityConfigOutputDto
 {
     /// <summary>是否开放自助注册。</summary>
     public bool RegistrationEnabled { get; init; }
+
+    /// <summary>部署配置了通行密钥的依赖方：登录页据此给出"用通行密钥登录"与条件式自动填充。</summary>
+    public bool PasskeysAvailable { get; init; }
 #if (Email)
 
     /// <summary>注册时是否要求邮箱验证。</summary>

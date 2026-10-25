@@ -96,7 +96,7 @@ internal sealed class UserSessionValidator(
                 // 空闲时限不在这里收敛：缓存命中不查会话，过期仍按上次实际校验的结论
                 restricted = restrictable &&
                     policy.RequireTwoFactor &&
-                    await userRepository.GetByIdAsync(userId, cancellationToken) is { TwoFactorEnabled: false };
+                    await userRepository.GetByIdAsync(userId, cancellationToken) is { HasIndependentFactor: false };
             }
             else
             {
@@ -111,7 +111,7 @@ internal sealed class UserSessionValidator(
                 if (user is null || !user.AllowsExistingSessions(now))
                     return SessionValidationResult.Invalid;
 
-                restricted = restrictable && policy.RequireTwoFactor && !user.TwoFactorEnabled;
+                restricted = restrictable && policy.RequireTwoFactor && !user.HasIndependentFactor;
                 idleTimeout = policy.SessionIdleTimeout;
 
                 if (session.Touch(now, clientInfo.IpAddress))

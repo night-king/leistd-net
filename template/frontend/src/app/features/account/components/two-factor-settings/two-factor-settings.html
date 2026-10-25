@@ -15,14 +15,12 @@
               t('account.twoFactor.on')
             }}</span>
           }
-<!--#if (Email)-->
-          @if (bothMethodsUsable() && status()?.defaultMethod === 'authenticator') {
-            <!-- 两种方式都能用时标出登录先给哪一种；另一种的操作行里有"设为默认" -->
+          @if (defaultChoice() && status()?.defaultMethod === 'authenticator') {
+            <!-- 有别的方式可选时标出登录先给哪一种；其他方式的操作里有"设为默认" -->
             <span hlmBadge variant="outline" data-testid="two-factor-default">{{
               t('account.twoFactor.default')
             }}</span>
           }
-<!--#endif-->
         </div>
         <p class="text-muted-foreground text-sm">
           {{
@@ -265,8 +263,7 @@
                 t('account.twoFactor.recoveryCodesLeft', { count: s.recoveryCodesLeft })
               }}</span>
               <div class="flex flex-wrap gap-2">
-<!--#if (Email)-->
-                @if (bothMethodsUsable() && s.defaultMethod !== 'authenticator') {
+                @if (defaultChoice() && s.defaultMethod !== 'authenticator') {
                   <button
                     hlmBtn
                     variant="outline"
@@ -278,7 +275,6 @@
                     {{ t('account.twoFactor.setDefault') }}
                   </button>
                 }
-<!--#endif-->
                 <button
                   hlmBtn
                   variant="outline"
@@ -299,7 +295,7 @@
                     {{ t('account.twoFactor.regenerate') }}
                   </button>
                 }
-                @if (!s.requiredByPolicy) {
+                @if (!disableBlocked()) {
                   <button
                     hlmBtn
                     variant="outline"
@@ -312,7 +308,7 @@
                 }
               </div>
             </div>
-            @if (s.requiredByPolicy) {
+            @if (disableBlocked()) {
               <p class="text-muted-foreground text-xs">
                 {{ t('account.twoFactor.requiredByPolicy') }}
               </p>

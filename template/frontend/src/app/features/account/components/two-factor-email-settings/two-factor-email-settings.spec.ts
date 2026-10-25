@@ -30,6 +30,8 @@ describe('TwoFactorEmailSettings', () => {
 
   const OFF: TwoFactorStatusOutputDto = {
     enabled: true,
+    passkeys: [],
+    passkeysAvailable: true,
     recoveryCodesLeft: 8,
     requiredByPolicy: false,
     defaultMethod: 'authenticator',

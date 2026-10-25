@@ -9,6 +9,7 @@ using Leistd.MultiTenancy.Context;
 #endif
 using Leistd.UnitOfWork;
 #if (LocalIdentity)
+using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.Sessions;
@@ -62,6 +63,7 @@ internal sealed class UserAppService(
 #if (LocalIdentity)
     UserSortingValidator userSortingValidator,
     UserAccessRevoker accessRevoker,
+    PasskeyDomainService passkeyDomainService,
     ILocalEventBus localEventBus,
     IDistributedLock distributedLock,
     IReauthenticationGuard reauthenticationGuard,
@@ -290,7 +292,7 @@ internal sealed class UserAppService(
         if (IsSensitiveManagementChange(target, input))
         {
             await reauthenticationGuard.EnsureRecentInOwnLockAsync(
-                new ReauthenticationProof(input.Password, input.TwoFactorCode),
+                ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
                 OperationRecordActions.UserUpdated,
                 cancellationToken);
             confirmed = true;
@@ -460,7 +462,7 @@ internal sealed class UserAppService(
     public async Task ResetPasswordAsync(Guid id, ResetUserPasswordInputDto input, CancellationToken cancellationToken = default)
     {
         await reauthenticationGuard.EnsureRecentInOwnLockAsync(
-            new ReauthenticationProof(input.CurrentPassword, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.CurrentPassword, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.UserPasswordReset,
             cancellationToken);
 
@@ -538,7 +540,7 @@ internal sealed class UserAppService(
         var actorId = currentUser.Id!.Value;
         EnsureTwoFactorResettable(await GetUserOrThrowAsync(id, cancellationToken), actorId);
         await reauthenticationGuard.EnsureRecentInOwnLockAsync(
-            new ReauthenticationProof(input.Password, input.TwoFactorCode),
+            ReauthenticationProof.Of(input.Password, input.TwoFactorCode, input.Passkey),
             OperationRecordActions.UserTwoFactorReset,
             cancellationToken);
 
@@ -554,7 +556,7 @@ internal sealed class UserAppService(
             return;
         }
 
-        user.ResetSecondFactors();
+        await passkeyDomainService.ResetSecondFactorsAsync(user, cancellationToken);
         await userRepository.UpdateAsync(user, cancellationToken);
 
         await localEventBus.PublishAsync(

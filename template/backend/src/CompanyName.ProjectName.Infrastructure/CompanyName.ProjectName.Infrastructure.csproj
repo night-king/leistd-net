@@ -18,6 +18,7 @@
   <ItemGroup>
 <!--#if (LocalIdentity)-->
     <PackageReference Include="Microsoft.Extensions.Identity.Core" />
+    <PackageReference Include="Fido2" />
 <!--#endif-->
 <!--#if (OpenIddictServer)-->
     <PackageReference Include="OpenIddict.EntityFrameworkCore" />

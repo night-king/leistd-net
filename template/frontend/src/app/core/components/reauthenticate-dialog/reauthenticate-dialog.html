@@ -79,6 +79,30 @@
               }
             </div>
           }
+          @case ('passkey') {
+            <div class="flex flex-col gap-2" data-testid="reauthenticate-passkey-method">
+              <p class="text-muted-foreground text-sm">
+                {{ t('common.reauthenticate.passkeyHint') }}
+              </p>
+              @if (error(); as message) {
+                <hlm-field-error forceShow [id]="passkeyErrorId">{{ message }}</hlm-field-error>
+              } @else if (passkeyFailure() === 'cancelled') {
+                <!-- 本人取消不是错误：中性说明，再点一次即可 -->
+                <p
+                  class="text-muted-foreground text-sm"
+                  role="status"
+                  data-testid="reauthenticate-passkey-cancelled"
+                  [id]="passkeyErrorId"
+                >
+                  {{ t('common.reauthenticate.passkeyCancelled') }}
+                </p>
+              } @else if (passkeyFailure()) {
+                <hlm-field-error forceShow [id]="passkeyErrorId">{{
+                  t('common.reauthenticate.passkeyFailed')
+                }}</hlm-field-error>
+              }
+            </div>
+          }
           @case ('signInAgain') {
             <p class="text-muted-foreground text-sm" data-testid="reauthenticate-sign-in-again">
               {{ t('common.reauthenticate.signInAgainHint') }}
@@ -86,37 +110,53 @@
           }
         }
 
-        @if (canSwitch()) {
-          <button
-            hlmBtn
-            type="button"
-            variant="link"
-            size="sm"
-            class="self-start px-0"
-            data-testid="reauthenticate-switch"
-            [disabled]="saving()"
-            (click)="toggleMethod()"
-          >
-            {{
-              method() === 'code'
-                ? t('common.reauthenticate.usePassword')
-                : t('common.reauthenticate.useCode')
-            }}
-          </button>
-        } @else if (method() === 'code') {
-          <!-- 没有口令又用不了身份验证器：重新登录（登录第二步可用恢复码）后再回来 -->
-          <button
-            hlmBtn
-            type="button"
-            variant="link"
-            size="sm"
-            class="self-start px-0"
-            data-testid="reauthenticate-sign-in-again-link"
-            [disabled]="saving()"
-            (click)="signInAgain.emit()"
-          >
-            {{ t('common.reauthenticate.cannotUseAuthenticator') }}
-          </button>
+        @if (alternatives().length > 0 || (!hasPassword() && method() !== 'signInAgain')) {
+          <div class="flex flex-col items-start gap-1">
+            @for (alternative of alternatives(); track alternative) {
+              <button
+                hlmBtn
+                type="button"
+                variant="link"
+                size="sm"
+                class="px-0"
+                data-testid="reauthenticate-switch"
+                [attr.data-method]="alternative"
+                [disabled]="saving()"
+                (click)="selectMethod(alternative)"
+              >
+                @switch (alternative) {
+                  @case ('passkey') {
+                    {{ t('common.reauthenticate.usePasskeyInstead') }}
+                  }
+                  @case ('password') {
+                    {{ t('common.reauthenticate.usePassword') }}
+                  }
+                  @default {
+                    {{ t('common.reauthenticate.useCode') }}
+                  }
+                }
+              </button>
+            }
+            @if (!hasPassword() && method() !== 'signInAgain') {
+              <!-- 没有口令又用不了手上的方式：重新登录（登录第二步可用恢复码）后再回来 -->
+              <button
+                hlmBtn
+                type="button"
+                variant="link"
+                size="sm"
+                class="px-0"
+                data-testid="reauthenticate-sign-in-again-link"
+                [disabled]="saving()"
+                (click)="signInAgain.emit()"
+              >
+                {{
+                  method() === 'passkey'
+                    ? t('common.reauthenticate.cannotUsePasskey')
+                    : t('common.reauthenticate.cannotUseAuthenticator')
+                }}
+              </button>
+            }
+          </div>
         }
 
         <hlm-dialog-footer>
@@ -132,6 +172,23 @@
           @if (method() === 'signInAgain') {
             <button hlmBtn type="submit" data-testid="reauthenticate-sign-in-again-submit">
               {{ t('common.reauthenticate.signInAgain') }}
+            </button>
+          } @else if (method() === 'passkey') {
+            <!-- 点击即调起浏览器（要用户手势）：不自动弹出 -->
+            <button
+              hlmBtn
+              type="submit"
+              data-testid="reauthenticate-submit"
+              [id]="passkeyButtonId"
+              [attr.aria-describedby]="error() || passkeyFailure() ? passkeyErrorId : null"
+              [disabled]="saving()"
+            >
+              @if (saving()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              } @else {
+                <ng-icon name="lucideFingerprint" data-icon="inline-start" />
+              }
+              {{ t('common.reauthenticate.usePasskey') }}
             </button>
           } @else {
             <button

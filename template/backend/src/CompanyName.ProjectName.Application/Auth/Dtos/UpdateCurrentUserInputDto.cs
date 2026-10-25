@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Domain.Users.Constants;
 
@@ -37,8 +38,11 @@ public record UpdateCurrentUserInputDto : IValidatableObject
     [RegularExpression(@"^\s*\d{3}\s?\d{3}\s*$", ErrorMessage = "The verification code must contain exactly 6 digits.")]
     public string? TwoFactorCode { get; init; }
 
+    /// <summary>通行密钥断言的 JSON 形式（先经 <c>me/reauthentication/passkey-options</c> 取选项），与其他凭证三选一；会话刚认证过时不用带。</summary>
+    public JsonElement? Passkey { get; init; }
+
     /// <inheritdoc />
     /// <remarks>一次只出示一种凭证：两种都给时不猜用哪个，按字段错误拒绝。</remarks>
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
-        ReauthenticationProof.ValidateOneAtATime(CurrentPassword, TwoFactorCode, nameof(TwoFactorCode));
+        ReauthenticationProof.ValidateOneAtATime(CurrentPassword, TwoFactorCode, Passkey, nameof(TwoFactorCode));
 }

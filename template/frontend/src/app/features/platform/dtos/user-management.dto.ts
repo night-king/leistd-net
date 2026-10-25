@@ -1,4 +1,7 @@
 import { RoleBriefDto } from './role.dto';
+//#if (LocalIdentity)
+import { WebAuthnJson } from '../../../shared/dtos/account-security.dto';
+//#endif
 import { PagedRequestDto } from '../../../shared/dtos/paged-request.dto';
 
 export interface UserManagementOutputDto {
@@ -63,23 +66,28 @@ export interface UpdateUserInputDto {
   displayName?: string;
   avatar?: string;
   isEmailVerified: boolean;
-  /** 管理员本人的当前口令：改邮箱或标为已验证而会话不够新时带上，与 `twoFactorCode` 二选一。 */
+  /** 管理员本人的当前口令：改邮箱或标为已验证而会话不够新时带上，与其余两种凭证三选一。 */
   password?: string;
-  /** 管理员本人身份验证器上的 6 位验证码，与 `password` 二选一。 */
+  /** 管理员本人身份验证器上的 6 位验证码，与其余两种凭证三选一。 */
   twoFactorCode?: string;
+  /** 管理员本人的通行密钥断言，与其余两种凭证三选一。 */
+  passkey?: WebAuthnJson;
 }
 export interface ResetUserPasswordInputDto {
   /** 给对方设的新口令。 */
   password: string;
-  /** 管理员本人的当前口令：会话不够新时带上，不是对方的口令；与 `twoFactorCode` 二选一。 */
+  /** 管理员本人的当前口令：会话不够新时带上，不是对方的口令；与其余两种凭证三选一。 */
   currentPassword?: string;
-  /** 管理员本人身份验证器上的 6 位验证码，与 `currentPassword` 二选一。 */
+  /** 管理员本人身份验证器上的 6 位验证码，与其余两种凭证三选一。 */
   twoFactorCode?: string;
+  /** 管理员本人的通行密钥断言，与其余两种凭证三选一。 */
+  passkey?: WebAuthnJson;
 }
-/** 重置他人的两步验证：会话不够新时带上管理员本人的当前口令或验证码（二选一）。 */
+/** 重置他人的两步验证：会话不够新时带上管理员本人的当前口令、验证码或通行密钥断言（三选一）。 */
 export interface ResetUserTwoFactorInputDto {
   password?: string;
   twoFactorCode?: string;
+  passkey?: WebAuthnJson;
 }
 //#endif
 

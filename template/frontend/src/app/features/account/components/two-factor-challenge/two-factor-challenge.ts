@@ -18,6 +18,7 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
   lucideArrowLeft,
+  lucideFingerprint,
   lucideKeyRound,
   lucideMail,
   lucideShieldCheck,
@@ -35,6 +36,12 @@ import {
   ApplicationHttpError,
   applicationErrorMessage,
 } from '../../../../core/errors/application-http-error';
+import { getPasskey, passkeySupport } from '../../../../core/webauthn/webauthn';
+import {
+  classifyWebAuthnError,
+  isWebAuthnError,
+  WebAuthnFailure,
+} from '../../../../core/webauthn/webauthn-error';
 import { OtpCodeInput } from '../../../../shared/components/otp-code-input/otp-code-input';
 import { SessionLoginOutputDto, TwoFactorMethod } from '../../../../shared/dtos/auth.dto';
 //#if (!IncludeLocalization)
@@ -77,6 +84,7 @@ export function twoFactorPromptOf(
 }
 
 const INPUT_IDS: Record<TwoFactorMethod, string> = {
+  passkey: 'two-factor-passkey',
   authenticator: 'two-factor-code',
   email: 'two-factor-email-code',
   recoveryCode: 'two-factor-recovery-code',
@@ -94,17 +102,21 @@ const REUSE_HINT_ID = 'two-factor-code-reuse-hint';
 
 /** 各方式在"换一种验证方式"列表里的图标。 */
 const METHOD_ICONS: Record<TwoFactorMethod, string> = {
+  passkey: 'lucideFingerprint',
   authenticator: 'lucideSmartphone',
   email: 'lucideMail',
   recoveryCode: 'lucideKeyRound',
 };
 
 /**
- * 登录第二步：直接给出默认方式（本人首选，否则按 身份验证器 → 邮箱验证码 的顺序），不先让本人选；
+ * 登录第二步：直接给出默认方式（本人首选，否则按 通行密钥 → 身份验证器 → 邮箱验证码 的顺序），不先让本人选；
  * 通过后由登录页建立会话上下文，凭据过期或次数用完时回到密码那一步。
  *
  * 换方式的入口在下方：只有一种备选时直接写明（如"改用恢复码"），两种以上时折叠成"换一种验证方式"，
  * 展开后列出其余方式，恢复码在最后。邮箱验证码在用到时才发：默认就是它，或本人切换过来。
+ *
+ * 通行密钥只给一个按钮，本人点了才调起浏览器（不自动弹出：浏览器要求用户手势，也不该一进来就弹系统对话框）；
+ * 每次点击重新取一份断言选项。没通过、本人取消或这次仪式已失效时就地说明，可以再点一次或换一种方式。
  *
  * 码不对时就地说明（服务端给出的原因，例如同一个码刚用过、要等下一个），清空输入并把焦点放回去；
  * 说明留到本人开始重输。输满 6 位自动提交，同一个码只交一次。
@@ -126,6 +138,7 @@ const METHOD_ICONS: Record<TwoFactorMethod, string> = {
   providers: [
     provideIcons({
       lucideArrowLeft,
+      lucideFingerprint,
       lucideKeyRound,
       lucideMail,
       lucideShieldCheck,
@@ -176,6 +189,11 @@ export class TwoFactorChallenge {
   protected readonly resend = resendCountdown();
   //#endif
 
+  /** 通行密钥在浏览器这一侧没成（本人取消或认证器失败）：按归类给出说明，不显示浏览器原文。 */
+  protected readonly passkeyFailure = signal<WebAuthnFailure | null>(null);
+  /** 浏览器此刻能不能用通行密钥（不支持或不在安全上下文时按钮不可用，并说明原因）。 */
+  protected readonly passkeySupport = passkeySupport();
+
   protected readonly inputIds = INPUT_IDS;
   protected readonly methodIcons = METHOD_ICONS;
   protected readonly errorId = ERROR_ID;
@@ -194,7 +212,7 @@ export class TwoFactorChallenge {
 
   protected readonly canSubmit = computed(() => {
     const value = this.value().replace(/\s/g, '');
-    if (this.submitting()) {
+    if (this.submitting() || this.method() === 'passkey') {
       return false;
     }
 
@@ -212,7 +230,6 @@ export class TwoFactorChallenge {
   }
   //#endif
 
-  //#if (Email)
   /** 展开其余方式：按钮随之换成列表，焦点落到列表第一项，读屏与键盘不会落到页面顶部。 */
   protected expandAlternatives(): void {
     this.showAlternatives.set(true);
@@ -225,7 +242,6 @@ export class TwoFactorChallenge {
     );
   }
 
-  //#endif
   /** 换到另一种方式：清掉输入与说明，收起列表，焦点落到新方式的输入框。 */
   protected selectMethod(method: TwoFactorMethod): void {
     this.method.set(method);
@@ -233,6 +249,7 @@ export class TwoFactorChallenge {
     this.setValue('');
     this.error.set(null);
     this.codeRejected.set(false);
+    this.passkeyFailure.set(null);
     //#if (Email)
     if (method === 'email' && !this.emailSent()) {
       void this.sendEmailCode();
@@ -318,6 +335,39 @@ export class TwoFactorChallenge {
     }
   }
 
+  /** 用通行密钥完成第二步：本人点击后取断言选项、调起浏览器，再交回断言。 */
+  protected async verifyWithPasskey(): Promise<void> {
+    if (this.submitting() || this.passkeySupport !== 'supported') {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.error.set(null);
+    this.passkeyFailure.set(null);
+    const token = this.prompt().token;
+    try {
+      const { options } = await lastValueFrom(this.accountService.beginTwoFactorPasskey(token));
+      const passkey = await getPasskey(options);
+      await lastValueFrom(this.accountService.completeTwoFactorLogin({ token, passkey }));
+      this.completed.emit();
+    } catch (error) {
+      const code = error instanceof ApplicationHttpError ? error.code : undefined;
+      if (code !== undefined && SECOND_STEP_ENDED.has(code)) {
+        this.leave(error);
+        return;
+      }
+      if (isWebAuthnError(error)) {
+        this.passkeyFailure.set(classifyWebAuthnError(error));
+      } else {
+        // 没通过、这次仪式已失效（再点一次即换一份选项）、方式此刻不能用、网络问题：挑战仍有效，就地说明
+        this.error.set(applicationErrorMessage(error));
+      }
+      this.focusInput();
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
   private loginInput(): TwoFactorLoginInputDto {
     const token = this.prompt().token;
     const value = this.value().trim();
@@ -377,6 +427,24 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactorLogin.submit': 'Verify',
   'account.twoFactorLogin.useRecovery': "Can't use your authenticator? Use a recovery code",
   'account.twoFactorLogin.useCode': 'Use an authenticator code instead',
+  'account.twoFactorLogin.usePasskey': 'Use a passkey instead',
+  'account.twoFactorLogin.useRecoveryForPasskey': "Can't use your passkey? Use a recovery code",
+  'account.twoFactorLogin.passkeyHint': 'Use your passkey to finish signing in.',
+  'account.twoFactorLogin.passkeySubmit': 'Use passkey',
+  'account.twoFactorLogin.passkeyCancelled':
+    'The passkey request was cancelled. Try again when ready.',
+  'account.twoFactorLogin.passkeyFailed':
+    "The passkey couldn't be used. Try again, or try another way.",
+  'account.twoFactorLogin.passkeyUnsupported':
+    "This browser can't use passkeys here. Try another way.",
+  'account.twoFactorLogin.otherMethods': 'Try another way',
+  'account.twoFactorLogin.otherMethodsLabel': 'Other verification methods',
+  'account.twoFactorLogin.methods.passkey.name': 'Passkey',
+  'account.twoFactorLogin.methods.passkey.hint': 'Use your fingerprint, face or screen lock',
+  'account.twoFactorLogin.methods.authenticator.name': 'Authenticator app',
+  'account.twoFactorLogin.methods.authenticator.hint': 'Enter the 6-digit code from the app',
+  'account.twoFactorLogin.methods.recoveryCode.name': 'Recovery code',
+  'account.twoFactorLogin.methods.recoveryCode.hint': 'Use one of the codes you saved',
   // 输入框标签的三元式在两种形态下都在：不随邮件能力裁剪
   'account.twoFactorLogin.emailLabel': 'Email verification code',
   //#if (Email)
@@ -386,14 +454,8 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactorLogin.resend': 'Resend code',
   'account.twoFactorLogin.resendIn': 'Resend in {{seconds}}s',
   'account.twoFactorLogin.useEmail': 'Use a code sent to your email instead',
-  'account.twoFactorLogin.otherMethods': 'Try another way',
-  'account.twoFactorLogin.otherMethodsLabel': 'Other verification methods',
-  'account.twoFactorLogin.methods.authenticator.name': 'Authenticator app',
-  'account.twoFactorLogin.methods.authenticator.hint': 'Enter the 6-digit code from the app',
   'account.twoFactorLogin.methods.email.name': 'Email verification code',
   'account.twoFactorLogin.methods.email.hint': 'Send a code to {{email}}',
-  'account.twoFactorLogin.methods.recoveryCode.name': 'Recovery code',
-  'account.twoFactorLogin.methods.recoveryCode.hint': 'Use one of the codes you saved',
   //#endif
   'account.twoFactorLogin.back': 'Back to sign in',
   'common.twoFactorCodeReuseHint': 'If you just used this code, wait for a new one.',

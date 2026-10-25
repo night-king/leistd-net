@@ -24,6 +24,9 @@
 | 后端框架 | .NET / ASP.NET Core | 10+ | API 与业务服务 |
 | ORM | EF Core | 10+ | 数据访问 |
 | 动态查询 | System.Linq.Dynamic.Core | 中央包版本 | 应用层动态排序；规则见 [API 规范 §5](./api.md#5-分页规范) |
+<!--#if (LocalIdentity)-->
+| 通行密钥 | Fido2NetLib（`Fido2`） | 中央包版本 | WebAuthn 注册与断言的协议校验，只在 Infrastructure 的 `IPasskeyProtocol` 适配器里使用；ASP.NET Core Identity 的通行密钥绑定其自身存储且不作第二步，故不采用 |
+<!--#endif-->
 | 架构 | DDD 分层 | 项目约定 | Api/Application/Domain/Infrastructure |
 | 数据库 | PostgreSQL | 15+ | 默认主数据存储，可覆盖 |
 | 缓存 | Redis | 7+ | 可选缓存/队列 |

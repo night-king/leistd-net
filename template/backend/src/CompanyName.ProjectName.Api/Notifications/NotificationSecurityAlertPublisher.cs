@@ -98,6 +98,8 @@ public sealed class NotificationSecurityAlertPublisher(
             SecurityAlertKind.TwoFactorReset => ("Two-factor authentication was reset by an administrator", "Set it up again from your security settings."),
             SecurityAlertKind.LockedOut => ("Your account was locked", "There were too many failed sign-in attempts. It unlocks at {Until}."),
             SecurityAlertKind.EmailChanged => ("Your account email address was changed", "If you didn't do this, contact your administrator right away."),
+            SecurityAlertKind.PasskeyAdded => ("Passkey added", "A passkey was added to your account. If you didn't do this, remove it and change your password right away."),
+            SecurityAlertKind.PasskeyRemoved => ("Passkey removed", "A passkey was removed from your account. If you didn't do this, contact your administrator."),
 #if (Email)
             SecurityAlertKind.PasswordRecovered => ("Your password was reset with an email code", "All devices were signed out. If you didn't do this, contact your administrator right away."),
             SecurityAlertKind.TwoFactorEmailEnabled => ("Email verification codes turned on", "Signing in can now use a code sent to your email. If you didn't do this, change your password right away."),

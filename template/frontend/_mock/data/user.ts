@@ -2,6 +2,20 @@ import { ROLES } from './authorization';
 import { UserManagementOutputDto } from '../../src/app/features/platform/dtos/user-management.dto';
 import { UserOutputDto } from '../../src/app/shared/dtos/auth.dto';
 
+//#if (LocalIdentity)
+/** 一把已登记的通行密钥：Mock 只记浏览器交回的凭据 Id 与展示字段，不存公钥、不校验签名。 */
+export interface MockPasskey {
+  id: string;
+  /** 浏览器交回的凭据 Id（base64url），验证时只认它。 */
+  credentialId: string;
+  name: string;
+  creationTime: string;
+  lastUsedTime?: string | null;
+  isBackupEligible: boolean;
+  isBackedUp: boolean;
+}
+
+//#endif
 export interface MockUser {
   id: string;
   username: string;
@@ -25,12 +39,14 @@ export interface MockUser {
   //#if (LocalIdentity)
   /** 已启用两步验证；登录第二步、管理员重置都读写这一项。 */
   twoFactorEnabled?: boolean;
-  /** 尚未用过的恢复码，个数即"剩余恢复码"。 */
+  /** 登记的通行密钥。 */
+  passkeys?: MockPasskey[];
+  /** 尚未用过的恢复码，个数即"剩余恢复码"；挂在账号上，有任一独立因子（身份验证器或通行密钥）才有。 */
   recoveryCodes?: string[];
   /** 开启了邮箱验证码作为登录第二步（能否使用还看邮箱已验证与组织开关）。 */
   emailTwoFactorEnabled?: boolean;
   /** 本人指定的首选第二步方式。 */
-  preferredTwoFactorMethod?: 'authenticator' | 'email';
+  preferredTwoFactorMethod?: 'passkey' | 'authenticator' | 'email';
   /** 当前口令经邮件找回设置、还没用独立因子完成过第二步：登录第二步只认身份验证器与恢复码。 */
   passwordSetByEmailRecovery?: boolean;
   //#endif
@@ -165,6 +181,14 @@ export const USERS: MockUser[] = [
 /** Mock 下身份验证器上的验证码固定为这一个：登录第二步、确认身份与两步验证设置共用。 */
 export const MOCK_TWO_FACTOR_CODE = '123456';
 
+/** Mock 部署视为配置了通行密钥的依赖方（RP ID 取当前页面的域名）。 */
+export const MOCK_PASSKEYS_AVAILABLE = true;
+
+/** 有独立因子（身份验证器或至少一把通行密钥）：满足组织"要求两步验证"，并持有恢复码。 */
+export function hasIndependentFactor(user: MockUser): boolean {
+  return user.twoFactorEnabled === true || (user.passkeys?.length ?? 0) > 0;
+}
+
 /**
  * 已删除的用户：不出现在任何列表与查询里，但仍占着用户名和邮箱。
  * 与后端一致：唯一索引不排除软删除行，查重关掉了软删除过滤。
@@ -236,6 +260,7 @@ export function toUserOutput(user: MockUser): UserOutputDto {
     isEmailVerified: user.isEmailVerified,
     //#if (LocalIdentity)
     isTwoFactorEnabled: user.twoFactorEnabled === true,
+    hasPasskeys: (user.passkeys?.length ?? 0) > 0,
     hasPassword: !!user.password,
     //#endif
     isSuperAdmin: user.isSuperAdmin,
@@ -272,8 +297,11 @@ export function toUserManagementOutput(user: MockUser): UserManagementOutputDto 
       user.lockoutEnd === null ||
       (user.lockoutEnd !== undefined && new Date(user.lockoutEnd).getTime() > Date.now()),
     lockoutEnd: user.lockoutEnd ?? null,
-    // 与后端一致：任一种第二步方式（身份验证器或邮箱验证码）都算，有就能重置
-    isTwoFactorEnabled: user.twoFactorEnabled === true || user.emailTwoFactorEnabled === true,
+    // 与后端一致：任一种第二步方式（身份验证器、通行密钥或邮箱验证码）都算，有就能重置
+    isTwoFactorEnabled:
+      user.twoFactorEnabled === true ||
+      (user.passkeys?.length ?? 0) > 0 ||
+      user.emailTwoFactorEnabled === true,
     //#endif
   };
 }

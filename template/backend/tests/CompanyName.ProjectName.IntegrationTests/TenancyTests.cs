@@ -1062,6 +1062,7 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
                 nameof(Role),
                 nameof(SettingRecord),
                 nameof(User),
+                nameof(UserPasskey),
                 nameof(UserRole),
                 nameof(UserSession)
             },
@@ -1100,6 +1101,7 @@ public sealed class TenancyTests : IClassFixture<ProjectWebApplicationFactory>, 
             Assert.Empty(await db.Set<OperationRecord>().ToListAsync());
 #endif
             Assert.Empty(await db.Set<UserSession>().ToListAsync());
+            Assert.Empty(await db.Set<UserPasskey>().ToListAsync());
 #if (ExternalLogin)
             Assert.Empty(await db.Set<ExternalLoginConnection>().ToListAsync());
 #endif

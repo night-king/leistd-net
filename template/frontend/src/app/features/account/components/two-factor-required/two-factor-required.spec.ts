@@ -1,4 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
+import { signal, WritableSignal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
@@ -6,6 +7,11 @@ import { toast } from '@spartan-ng/brain/sonner';
 import { EMPTY, of, throwError } from 'rxjs';
 
 import { TwoFactorRequired } from './two-factor-required';
+import {
+  confirmWithPassword,
+  reauthenticateMethod,
+} from '../../../../core/components/reauthenticate-dialog/reauthenticate-dialog.testing';
+import { ApplicationHttpError } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
@@ -14,7 +20,10 @@ import { ReturnUrlService } from '../../../../core/routing/return-url-service';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
+import { SecurityConfigService } from '../../../../core/services/security-config-service';
 import { SessionContextService } from '../../../../core/services/session-context-service';
+import { CREATION_OPTIONS, fakeAttestation } from '../../../../core/webauthn/webauthn.testing';
+import { SecurityConfigOutputDto } from '../../../../shared/dtos/account-security.dto';
 import { AccountService } from '../../services/account-service';
 import { RecoveryCodes } from '../recovery-codes/recovery-codes';
 import { TwoFactorSetup } from '../two-factor-setup/two-factor-setup';
@@ -31,6 +40,13 @@ describe('TwoFactorRequired', () => {
   let navigateByUrl: Mock;
   /** 设置页地址上的查询参数；页面在离开时才读，用例可以在那之前设定。 */
   let queryParams: Record<string, string>;
+  /** 注册摘要：默认部署没配通行密钥，页面只给身份验证器（与改造前一致）。 */
+  let config: WritableSignal<SecurityConfigOutputDto | null | undefined>;
+  let account: {
+    beginTwoFactorSetup: () => unknown;
+    beginPasskeyRegistration: Mock;
+    completePasskeyRegistration: Mock;
+  };
 
   function setup(): TwoFactorSetup | undefined {
     return fixture.debugElement.query(By.directive(TwoFactorSetup))?.componentInstance as
@@ -63,6 +79,17 @@ describe('TwoFactorRequired', () => {
     establish = vi.fn(async () => undefined);
     canAccessPlatform = vi.fn(() => false);
     queryParams = {};
+    config = signal<SecurityConfigOutputDto | null | undefined>({
+      registrationEnabled: true,
+      passkeysAvailable: false,
+    } as SecurityConfigOutputDto);
+    account = {
+      beginTwoFactorSetup: () => EMPTY,
+      beginPasskeyRegistration: vi.fn(() => of({ options: CREATION_OPTIONS })),
+      completePasskeyRegistration: vi.fn(() =>
+        of({ passkey: { id: 'passkey-1' }, recoveryCodes: ['code-1', 'code-2'] }),
+      ),
+    };
     vi.spyOn(toast, 'error').mockImplementation(() => '');
 
     TestBed.configureTestingModule({
@@ -77,7 +104,8 @@ describe('TwoFactorRequired', () => {
         { provide: AuthorizationService, useValue: { canAccessPlatform } },
         { provide: SessionContextService, useValue: { establish } },
         // 设置组件只需能完成首次加载，它自己的流程由它的用例负责
-        { provide: AccountService, useValue: { beginTwoFactorSetup: () => EMPTY } },
+        { provide: AccountService, useValue: account },
+        { provide: SecurityConfigService, useValue: { config, refresh: vi.fn() } },
         {
           provide: ActivatedRoute,
           useValue: { get snapshot() { return { queryParamMap: convertToParamMap(queryParams) }; } },
@@ -198,5 +226,128 @@ describe('TwoFactorRequired', () => {
     signOut.click();
 
     expect(auth.logout).toHaveBeenCalledOnce();
+  });
+
+  describe('with passkeys available', () => {
+    function byTestId(id: string): HTMLButtonElement | null {
+      return (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        `[data-testid="${id}"]`,
+      );
+    }
+
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 3; i++) {
+        await fixture.whenStable();
+        fixture.detectChanges();
+      }
+    }
+
+    beforeEach(async () => {
+      config.set({ registrationEnabled: true, passkeysAvailable: true } as SecurityConfigOutputDto);
+      await settle();
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    // 首选通行密钥：一步完成；第一个独立因子带来恢复码，保存之后才离开
+    it('offers creating a passkey first and shows the recovery codes it brings', async () => {
+      const create = vi
+        .spyOn(navigator.credentials, 'create')
+        .mockResolvedValue(fakeAttestation('cred-1'));
+      expect(setup()).toBeUndefined();
+
+      byTestId('two-factor-required-create-passkey')!.click();
+      await settle();
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(account.completePasskeyRegistration).toHaveBeenCalledExactlyOnceWith({
+        credential: expect.objectContaining({ id: 'cred-1' }),
+        name: expect.any(String),
+      });
+      expect(recoveryCodes()!.codes()).toEqual(['code-1', 'code-2']);
+      expect(auth.loadUser).not.toHaveBeenCalled();
+
+      await confirmCodesSaved();
+
+      expect(auth.loadUser).toHaveBeenCalledOnce();
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(['/workspace']);
+    });
+
+    it('continues right away when no recovery codes come back', async () => {
+      vi.spyOn(navigator.credentials, 'create').mockResolvedValue(fakeAttestation());
+      account.completePasskeyRegistration.mockReturnValue(
+        of({ passkey: { id: 'passkey-1' }, recoveryCodes: [] }),
+      );
+
+      byTestId('two-factor-required-create-passkey')!.click();
+      await settle();
+
+      expect(recoveryCodes()).toBeUndefined();
+      expect(auth.loadUser).toHaveBeenCalledOnce();
+      expect(navigate).toHaveBeenCalledExactlyOnceWith(['/workspace']);
+    });
+
+    // 会话不够新：确认身份之后停在"创建通行密钥"，本人再点一次才调起浏览器
+    it('waits for another click after confirming identity', async () => {
+      const create = vi.spyOn(navigator.credentials, 'create').mockResolvedValue(fakeAttestation());
+      account.beginPasskeyRegistration
+        .mockReturnValueOnce(
+          throwError(() =>
+            ApplicationHttpError.from(
+              new HttpErrorResponse({
+                status: 400,
+                error: { status: 400, code: 'Auth:ReauthenticationRequired', detail: 'Confirm.' },
+              }),
+              { method: 'POST' },
+            ),
+          ),
+        )
+        .mockReturnValueOnce(of({ options: CREATION_OPTIONS }));
+
+      byTestId('two-factor-required-create-passkey')!.click();
+      await settle();
+      expect(reauthenticateMethod()).toBe('password');
+
+      await confirmWithPassword(fixture, 'Secret#123456');
+      await settle();
+
+      expect(account.beginPasskeyRegistration).toHaveBeenLastCalledWith({
+        password: 'Secret#123456',
+        twoFactorCode: undefined,
+        passkey: undefined,
+      });
+      expect(create).not.toHaveBeenCalled();
+      expect(byTestId('two-factor-required-passkey-continue')).not.toBeNull();
+
+      byTestId('two-factor-required-create-passkey')!.click();
+      await settle();
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(recoveryCodes()).toBeDefined();
+    });
+
+    it('switches to the authenticator setup and back', async () => {
+      byTestId('two-factor-required-use-authenticator')!.click();
+      await settle();
+
+      expect(setup()).toBeDefined();
+      expect(byTestId('two-factor-required-create-passkey')).toBeNull();
+
+      byTestId('two-factor-required-use-passkey')!.click();
+      await settle();
+
+      expect(setup()).toBeUndefined();
+      expect(byTestId('two-factor-required-create-passkey')).not.toBeNull();
+    });
+
+    it('offers only the authenticator when the deployment has no passkeys', async () => {
+      config.set({
+        registrationEnabled: true,
+        passkeysAvailable: false,
+      } as SecurityConfigOutputDto);
+      await settle();
+
+      expect(setup()).toBeDefined();
+      expect(byTestId('two-factor-required-use-passkey')).toBeNull();
+    });
   });
 });

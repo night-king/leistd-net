@@ -1,0 +1,325 @@
+<!--#if (IncludeLocalization)-->
+<ng-container *transloco="let t">
+<!--#else-->
+<ng-container>
+<!--#endif-->
+  <section class="flex flex-col gap-5" data-testid="security-passkeys">
+    <header
+      class="flex flex-col gap-3 @md/panel:flex-row @md/panel:items-start @md/panel:justify-between border-b pb-3"
+    >
+      <div class="flex flex-col gap-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <h4 class="text-sm leading-none font-semibold">{{ t('account.passkeys.header') }}</h4>
+          @if (passkeys().length > 0) {
+            <span hlmBadge appStatusDot variant="success" data-testid="passkeys-on">{{
+              t('account.passkeys.on')
+            }}</span>
+          }
+          @if (defaultChoice() && status()?.defaultMethod === 'passkey') {
+            <!-- 有别的方式可选时标出登录先给哪一种；其他方式的操作里有"设为默认" -->
+            <span hlmBadge variant="outline" data-testid="passkeys-default">{{
+              t('account.twoFactor.default')
+            }}</span>
+          }
+        </div>
+        <p class="text-muted-foreground text-sm">{{ t('account.passkeys.subtitle') }}</p>
+      </div>
+      @if (status(); as s) {
+        <div class="flex shrink-0 flex-wrap gap-2 self-start">
+          @if (defaultChoice() && s.defaultMethod !== 'passkey') {
+            <button
+              hlmBtn
+              variant="outline"
+              size="sm"
+              data-testid="passkeys-set-default"
+              [disabled]="working()"
+              (click)="setAsDefault()"
+            >
+              {{ t('account.twoFactor.setDefault') }}
+            </button>
+          }
+          <button
+            hlmBtn
+            size="sm"
+            data-testid="passkeys-add"
+            [attr.aria-describedby]="unavailableReason() ? 'passkeys-unavailable' : null"
+            [disabled]="working() || !!unavailableReason() || registration.awaitingGesture()"
+            (click)="registration.start()"
+          >
+            @if (registration.adding()) {
+              <hlm-spinner class="text-base" data-icon="inline-start" />
+            } @else {
+              <ng-icon name="lucidePlus" data-icon="inline-start" />
+            }
+            {{ t('account.passkeys.add') }}
+          </button>
+        </div>
+      }
+    </header>
+
+    @if (loadFailed()) {
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-muted-foreground">{{ t('account.passkeys.loadFailed') }}</span>
+        <button hlmBtn variant="link" size="sm" class="px-0" (click)="reload()">
+          {{ t('common.retry') }}
+        </button>
+      </div>
+    } @else if (status(); as s) {
+      @if (unavailableReason(); as reason) {
+        <p
+          id="passkeys-unavailable"
+          class="text-muted-foreground text-sm"
+          data-testid="passkeys-unavailable"
+          [attr.data-reason]="reason"
+        >
+          {{ t('account.passkeys.unavailable.' + reason) }}
+        </p>
+      }
+
+      @if (codes().length > 0) {
+        <app-recovery-codes [codes]="codes()" (done)="finishCodes()" />
+      } @else {
+        @if (registration.awaitingGesture()) {
+          <!-- 确认身份之后：浏览器要求创建发生在本人的点击里，所以再点一次 -->
+          <div hlmAlert [attr.role]="'status'" data-testid="passkeys-continue">
+            <ng-icon name="lucideFingerprint" />
+            <div hlmAlertDescription class="flex flex-col items-start gap-3">
+              <span>{{ t('account.passkeys.continueHint') }}</span>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  hlmBtn
+                  size="sm"
+                  id="passkey-continue"
+                  data-testid="passkeys-continue-submit"
+                  [disabled]="working()"
+                  (click)="registration.continue()"
+                >
+                  {{ t('account.passkeys.continue') }}
+                </button>
+                <button
+                  hlmBtn
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  (click)="registration.cancel()"
+                >
+                  {{ t('common.cancel') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        }
+
+        @if (onlyPasskeys()) {
+          <div hlmAlert [attr.role]="'note'" data-testid="passkeys-only-hint">
+            <ng-icon name="lucideInfo" />
+            <p hlmAlertDescription>{{ t('account.passkeys.onlyPasskeysHint') }}</p>
+          </div>
+        }
+
+        @if (passkeys().length > 0) {
+          <div hlmItemGroup class="gap-2" data-testid="passkeys-list">
+            @for (passkey of passkeys(); track passkey.id) {
+              <div
+                hlmItem
+                variant="outline"
+                size="sm"
+                data-testid="passkey-row"
+                [attr.data-passkey-id]="passkey.id"
+              >
+                <div hlmItemMedia variant="icon">
+                  <ng-icon name="lucideFingerprint" />
+                </div>
+                @if (renamingId() === passkey.id) {
+                  <form
+                    novalidate
+                    class="flex min-w-0 flex-1 flex-wrap items-start gap-2"
+                    data-testid="passkey-rename-form"
+                    (submit)="$event.preventDefault(); saveRename(passkey)"
+                    (keydown.escape)="cancelRename()"
+                  >
+                    <div hlmField class="min-w-0 flex-1 basis-48">
+                      <label hlmFieldLabel class="sr-only" [for]="renameInputId">{{
+                        t('account.passkeys.nameLabel')
+                      }}</label>
+                      <input
+                        hlmInput
+                        autocomplete="off"
+                        data-testid="passkey-rename-input"
+                        [id]="renameInputId"
+                        [formField]="renameForm.name"
+                      />
+                      @for (error of renameForm.name().errors(); track error.kind) {
+                        <hlm-field-error [validator]="error.kind">{{
+                          t('validation.' + error.kind, error)
+                        }}</hlm-field-error>
+                      }
+                    </div>
+                    <div class="flex gap-2">
+                      <button
+                        hlmBtn
+                        type="submit"
+                        size="sm"
+                        data-testid="passkey-rename-save"
+                        [disabled]="working()"
+                      >
+                        @if (working()) {
+                          <hlm-spinner class="text-base" data-icon="inline-start" />
+                        }
+                        {{ t('common.save') }}
+                      </button>
+                      <button
+                        hlmBtn
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        (click)="cancelRename()"
+                      >
+                        {{ t('common.cancel') }}
+                      </button>
+                    </div>
+                  </form>
+                } @else {
+                  <div hlmItemContent class="min-w-0">
+                    <div hlmItemTitle class="flex-wrap">
+                      <span class="wrap-anywhere" data-testid="passkey-name">{{
+                        passkey.name
+                      }}</span>
+                      <!-- 备份状态是分类，不是告警：中性徽标、不带圆点 -->
+                      @if (passkey.isBackedUp) {
+                        <span hlmBadge variant="secondary" data-testid="passkey-backup">{{
+                          t('account.passkeys.synced')
+                        }}</span>
+                      } @else if (passkey.isBackupEligible) {
+                        <span hlmBadge variant="outline" data-testid="passkey-backup">{{
+                          t('account.passkeys.notSynced')
+                        }}</span>
+                      } @else {
+                        <span hlmBadge variant="outline" data-testid="passkey-backup">{{
+                          t('account.passkeys.deviceBound')
+                        }}</span>
+                      }
+                    </div>
+                    <p hlmItemDescription class="break-words" data-testid="passkey-meta">
+                      {{
+                        t('account.passkeys.addedAt', {
+                          time:
+                            (passkey.creationTime
+                            | appDate: 'short' : displayTimeZone() : displayLocale()),
+                        })
+                      }}
+                      ·
+                      @if (passkey.lastUsedTime) {
+                        {{
+                          t('account.passkeys.lastUsed', {
+                            time:
+                              (passkey.lastUsedTime
+                              | appDate: 'short' : displayTimeZone() : displayLocale()),
+                          })
+                        }}
+                      } @else {
+                        {{ t('account.passkeys.neverUsed') }}
+                      }
+                    </p>
+                  </div>
+                  <div
+                    hlmItemActions
+                    role="group"
+                    [attr.aria-label]="t('account.passkeys.actions', { name: passkey.name })"
+                  >
+                    <button
+                      hlmBtn
+                      variant="ghost"
+                      size="sm"
+                      data-testid="passkey-rename"
+                      [disabled]="working()"
+                      (click)="beginRename(passkey)"
+                    >
+                      {{ t('account.passkeys.rename') }}
+                    </button>
+                    <button
+                      hlmBtn
+                      variant="ghost"
+                      size="sm"
+                      data-testid="passkey-remove"
+                      [attr.aria-describedby]="removalBlocked() ? 'passkeys-removal-blocked' : null"
+                      [disabled]="working() || removalBlocked()"
+                      (click)="remove(passkey)"
+                    >
+                      @if (removingId() === passkey.id) {
+                        <hlm-spinner class="text-base" data-icon="inline-start" />
+                      }
+                      {{ t('account.passkeys.remove') }}
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+          @if (removalBlocked()) {
+            <p
+              id="passkeys-removal-blocked"
+              class="text-muted-foreground text-xs"
+              data-testid="passkeys-removal-blocked"
+            >
+              {{ t('account.passkeys.removalBlocked') }}
+            </p>
+          }
+        } @else if (!unavailableReason()) {
+          <p class="text-muted-foreground text-sm" data-testid="passkeys-empty">
+            {{ t('account.passkeys.empty') }}
+          </p>
+        }
+
+        @if (onlyPasskeys()) {
+          <!-- 没有身份验证器：账号级恢复码在这一节查看与重新生成，用通行密钥证明 -->
+          @if (recoveryCodesLow()) {
+            <div hlmAlert [attr.role]="'status'" data-testid="passkeys-recovery-codes-low">
+              <ng-icon name="lucideTriangleAlert" class="text-warning" />
+              <p hlmAlertDescription>
+                {{ t('account.passkeys.recoveryCodesLow', { count: s.recoveryCodesLeft }) }}
+              </p>
+            </div>
+          }
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <span
+              class="text-muted-foreground text-sm"
+              data-testid="passkeys-recovery-codes-left"
+              >{{ t('account.twoFactor.recoveryCodesLeft', { count: s.recoveryCodesLeft }) }}</span
+            >
+            <button
+              hlmBtn
+              variant="outline"
+              size="sm"
+              data-testid="passkeys-regenerate"
+              [disabled]="working() || !s.passkeysAvailable"
+              (click)="regenerate()"
+            >
+              {{ t('account.twoFactor.regenerate') }}
+            </button>
+          </div>
+        }
+      }
+    } @else {
+      <div class="flex justify-center py-6">
+        <hlm-spinner class="text-muted-foreground text-xl" />
+      </div>
+    }
+  </section>
+
+  <app-reauthenticate-dialog
+    [visible]="reauth.visible()"
+    (visibleChange)="onReauthVisibleChange($event)"
+    [saving]="reauth.saving()"
+    [(error)]="reauth.error"
+    [description]="t('account.passkeys.reauthDescription')"
+    [hasPassword]="reauth.hasPassword()"
+    [twoFactorEnabled]="reauth.twoFactorEnabled()"
+    [hasPasskeys]="reauth.hasPasskeys()"
+    [(passkeyFailure)]="reauth.passkeyFailure"
+    [codeRejected]="reauth.codeRejected()"
+    (confirmed)="reauth.confirm($event)"
+    (passkeyRequested)="reauth.confirmWithPasskey()"
+    (signInAgain)="reauth.signInAgain()"
+  />
+</ng-container>

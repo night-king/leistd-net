@@ -64,18 +64,54 @@ describe('TwoFactorSettings', () => {
   });
 
   it('offers enable but not disable when not enabled', async () => {
-    const host = await render({ enabled: false, recoveryCodesLeft: 0, requiredByPolicy: false });
+    const host = await render({
+      enabled: false,
+      passkeys: [],
+      passkeysAvailable: true,
+      recoveryCodesLeft: 0,
+      requiredByPolicy: false,
+    });
 
     expect(host.querySelector('[data-testid="two-factor-turn-on"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="two-factor-turn-off"]')).toBeNull();
   });
 
   it('offers no disable entry when the organization requires two-factor', async () => {
-    const host = await render({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: true });
+    const host = await render({
+      enabled: true,
+      passkeys: [],
+      passkeysAvailable: true,
+      recoveryCodesLeft: 8,
+      requiredByPolicy: true,
+    });
 
     expect(host.querySelector('[data-testid="two-factor-on"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="two-factor-turn-off"]')).toBeNull();
     expect(host.querySelector('[data-testid="recovery-codes-left"]')).not.toBeNull();
+  });
+
+  // 还有通行密钥时身份验证器不是最后一个独立因子：组织要求两步验证也能停用
+  it('offers disable under the requirement when a passkey remains', async () => {
+    const host = await render({
+      enabled: true,
+      passkeys: [
+        {
+          id: 'passkey-1',
+          name: 'Laptop',
+          creationTime: '2026-10-01T00:00:00Z',
+          isBackupEligible: true,
+          isBackedUp: true,
+        },
+      ],
+      passkeysAvailable: true,
+      recoveryCodesLeft: 8,
+      requiredByPolicy: true,
+      defaultMethod: 'passkey',
+    });
+
+    expect(host.querySelector('[data-testid="two-factor-turn-off"]')).not.toBeNull();
+    // 通行密钥与身份验证器都能用：可以把身份验证器设为默认
+    expect(host.querySelector('[data-testid="two-factor-set-default"]')).not.toBeNull();
   });
 
   // 验证器丢了：用一个恢复码开始换绑，不经过"停用"，组织强制两步验证时同样可用
@@ -87,7 +123,13 @@ describe('TwoFactorSettings', () => {
         otpAuthUri: 'otpauth://totp/App:alice',
       }),
     );
-    const host = await render({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: true });
+    const host = await render({
+      enabled: true,
+      passkeys: [],
+      passkeysAvailable: true,
+      recoveryCodesLeft: 8,
+      requiredByPolicy: true,
+    });
 
     host.querySelector<HTMLButtonElement>('[data-testid="two-factor-replace"]')!.click();
     fixture.detectChanges();
@@ -115,7 +157,13 @@ describe('TwoFactorSettings', () => {
 
   // 恢复码不多：提醒里带"重新生成"，操作行里不再重复同名按钮；够用时只在操作行里
   it('warns when few recovery codes are left and offers regenerating only there', async () => {
-    let host = await render({ enabled: true, recoveryCodesLeft: 3, requiredByPolicy: false });
+    let host = await render({
+      enabled: true,
+      passkeys: [],
+      passkeysAvailable: true,
+      recoveryCodesLeft: 3,
+      requiredByPolicy: false,
+    });
 
     expect(host.querySelector('[data-testid="recovery-codes-low"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="recovery-codes-low-regenerate"]')).not.toBeNull();
@@ -126,7 +174,13 @@ describe('TwoFactorSettings', () => {
     expect(host.querySelector('[data-testid="two-factor-regenerate-form"]')).not.toBeNull();
 
     fixture.destroy();
-    host = await render({ enabled: true, recoveryCodesLeft: 4, requiredByPolicy: false });
+    host = await render({
+      enabled: true,
+      passkeys: [],
+      passkeysAvailable: true,
+      recoveryCodesLeft: 4,
+      requiredByPolicy: false,
+    });
 
     expect(host.querySelector('[data-testid="recovery-codes-low"]')).toBeNull();
     expect(host.querySelector('[data-testid="two-factor-regenerate"]')).not.toBeNull();
@@ -134,7 +188,13 @@ describe('TwoFactorSettings', () => {
 
   // 换绑改用恢复码：可见标签"恢复码"，切换后焦点落在恢复码输入框
   it('labels the recovery code input and focuses it after switching', async () => {
-    const host = await render({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: false });
+    const host = await render({
+      enabled: true,
+      passkeys: [],
+      passkeysAvailable: true,
+      recoveryCodesLeft: 8,
+      requiredByPolicy: false,
+    });
     host.querySelector<HTMLButtonElement>('[data-testid="two-factor-replace"]')!.click();
     fixture.detectChanges();
 
@@ -152,6 +212,8 @@ describe('TwoFactorSettings', () => {
   it('marks the authenticator as default or offers making it the default when both methods work', async () => {
     const both: TwoFactorStatusOutputDto = {
       enabled: true,
+      passkeys: [],
+      passkeysAvailable: true,
       recoveryCodesLeft: 8,
       requiredByPolicy: false,
       emailEnabled: true,
@@ -182,7 +244,13 @@ describe('TwoFactorSettings', () => {
     afterEach(() => currentUser.set({ hasPassword: true, isTwoFactorEnabled: true }));
 
     async function openDisableForm(): Promise<HTMLElement> {
-      const host = await render({ enabled: true, recoveryCodesLeft: 8, requiredByPolicy: false });
+      const host = await render({
+        enabled: true,
+        passkeys: [],
+        passkeysAvailable: true,
+        recoveryCodesLeft: 8,
+        requiredByPolicy: false,
+      });
       host.querySelector<HTMLButtonElement>('[data-testid="two-factor-turn-off"]')!.click();
       fixture.detectChanges();
       return host;

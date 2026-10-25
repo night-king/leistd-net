@@ -183,6 +183,7 @@ export class ExternalAuthCallback implements OnInit {
         this.accountService.linkExternalLogin(provider, {
           password: proof?.password,
           twoFactorCode: proof?.twoFactorCode,
+          passkey: proof?.passkey,
         }),
       );
       //#if (IncludeLocalization)

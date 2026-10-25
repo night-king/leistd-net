@@ -29,8 +29,10 @@ public sealed class UserSortingValidator
         protected override Expression VisitMember(MemberExpression node)
         {
             if (node.Member.DeclaringType == typeof(TwoFactorCredential) ||
+                node.Member.DeclaringType == typeof(RecoveryCodeSet) ||
                 (node.Member.DeclaringType == typeof(User) &&
-                 node.Member.Name is nameof(User.PasswordHash) or nameof(User.SecurityStamp) or nameof(User.TwoFactor)))
+                 node.Member.Name is nameof(User.PasswordHash) or nameof(User.SecurityStamp) or nameof(User.TwoFactor)
+                     or nameof(User.RecoveryCodes)))
             {
                 throw new BusinessException(UserErrorCodes.SortingCredentialsForbidden,
                     "Sorting by user credentials is forbidden.");

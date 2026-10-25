@@ -28,7 +28,7 @@ public interface ITwoFactorAppService : IAppService
     Task DisableAsync(DisableTwoFactorInputDto input, CancellationToken cancellationToken = default);
 
     /// <summary>重新生成恢复码（要验证码），旧的全部作废。</summary>
-    Task<TwoFactorRecoveryCodesOutputDto> RegenerateRecoveryCodesAsync(TwoFactorCodeInputDto input, CancellationToken cancellationToken = default);
+    Task<TwoFactorRecoveryCodesOutputDto> RegenerateRecoveryCodesAsync(RegenerateRecoveryCodesInputDto input, CancellationToken cancellationToken = default);
 #if (Email)
 
     /// <summary>

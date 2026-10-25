@@ -21,11 +21,13 @@ internal static class AuthExceptionMappings
             AuthErrorCodes.RegistrationDisabled,
             AuthErrorCodes.TwoFactorSetupRequired,
             AuthErrorCodes.TwoFactorRequiredByPolicy);
+        options.MapCode(AuthErrorCodes.PasskeyNotFound, StatusCodes.Status404NotFound);
         ApiExceptionMappings.Map(options, StatusCodes.Status409Conflict,
             AuthErrorCodes.CannotRevokeCurrentSession,
 #if (Email)
             AuthErrorCodes.EmailAlreadyVerified,
 #endif
+            AuthErrorCodes.PasskeyAlreadyRegistered,
             AuthErrorCodes.TwoFactorAlreadyEnabled,
             AuthErrorCodes.TwoFactorNotEnabled);
 #if (Email)

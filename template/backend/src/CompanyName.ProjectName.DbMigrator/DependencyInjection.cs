@@ -137,6 +137,7 @@ public static class DependencyInjection
 #endif
         services.AddApplicationDefinitions();
         services.TryAddTransient<UserSessionDomainService>();
+        services.TryAddTransient<PasskeyDomainService>();
         // 与 API 共享 Redis 时，作业里撤销的会话立即作废 API 的校验缓存；不共享时 API 最多滞后一个校验间隔
         services.AddUserSessionCacheEviction();
         services.AddScoped<TwoFactorResetRunner>();

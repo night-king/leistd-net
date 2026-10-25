@@ -2,17 +2,19 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injector, runInInjectionContext, signal, WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { injectReauthentication, Reauthentication } from './reauthentication';
 import { ApplicationHttpError } from '../../errors/application-http-error';
 import { AuthService } from '../../services/auth-service';
+import { fakeAssertion, REQUEST_OPTIONS, webAuthnError } from '../../webauthn/webauthn.testing';
 
 import type { Mock } from 'vitest';
 
 interface AccountState {
   hasPassword?: boolean;
   isTwoFactorEnabled?: boolean;
+  hasPasskeys?: boolean;
 }
 
 /**
@@ -24,6 +26,7 @@ describe('injectReauthentication', () => {
   let currentUser: WritableSignal<AccountState | null>;
   let loadUser: Mock;
   let signInAgain: Mock;
+  let beginPasskeyReauthentication: Mock;
 
   function failure(code: string, status = 400, detail = code): ApplicationHttpError {
     return ApplicationHttpError.from(new HttpErrorResponse({ status, error: { code, detail } }));
@@ -36,9 +39,13 @@ describe('injectReauthentication', () => {
     });
     loadUser = vi.fn(() => of(undefined));
     signInAgain = vi.fn();
+    beginPasskeyReauthentication = vi.fn(() => of({ options: REQUEST_OPTIONS }));
     TestBed.configureTestingModule({
       providers: [
-        { provide: AuthService, useValue: { currentUser, loadUser, signInAgain } },
+        {
+          provide: AuthService,
+          useValue: { currentUser, loadUser, signInAgain, beginPasskeyReauthentication },
+        },
         { provide: Router, useValue: { url: '/workspace/settings/profile' } },
       ],
     });
@@ -166,5 +173,103 @@ describe('injectReauthentication', () => {
 
     expect(reauth.hasPassword()).toBe(false);
     expect(reauth.twoFactorEnabled()).toBe(true);
+  });
+
+  describe('confirmWithPasskey', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    /** 等异步的取选项与浏览器仪式落定。 */
+    async function flush(): Promise<void> {
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+    }
+
+    it('fetches the options, runs the ceremony and retries with the assertion', async () => {
+      vi.spyOn(navigator.credentials, 'get').mockResolvedValue(fakeAssertion('cred-1'));
+      const retry = vi.fn();
+      reauth.handleError(failure('Auth:ReauthenticationRequired'), undefined, retry);
+
+      reauth.confirmWithPasskey();
+      expect(reauth.saving()).toBe(true);
+      await flush();
+
+      expect(beginPasskeyReauthentication).toHaveBeenCalledTimes(1);
+      expect(retry).toHaveBeenCalledExactlyOnceWith({
+        passkey: expect.objectContaining({ id: 'cred-1', type: 'public-key' }),
+      });
+    });
+
+    it('keeps the dialog open with a classified failure when the browser prompt fails', async () => {
+      vi.spyOn(navigator.credentials, 'get').mockRejectedValue(webAuthnError('NotAllowedError'));
+      const retry = vi.fn();
+      reauth.handleError(failure('Auth:ReauthenticationRequired'), undefined, retry);
+
+      reauth.confirmWithPasskey();
+      await flush();
+
+      expect(retry).not.toHaveBeenCalled();
+      expect(reauth.saving()).toBe(false);
+      expect(reauth.visible()).toBe(true);
+      expect(reauth.passkeyFailure()).toBe('cancelled');
+      expect(reauth.error()).toBeNull();
+    });
+
+    it('refreshes the account when passkeys can no longer be used to confirm', async () => {
+      beginPasskeyReauthentication.mockReturnValue(
+        throwError(() => failure('Auth:ReauthenticationMethodUnavailable', 400, 'Not available.')),
+      );
+      reauth.handleError(failure('Auth:ReauthenticationRequired'), undefined, vi.fn());
+
+      reauth.confirmWithPasskey();
+      await flush();
+
+      expect(reauth.error()).toBe('Not available.');
+      expect(loadUser).toHaveBeenCalled();
+    });
+
+    it('drops a late result after the dialog was closed', async () => {
+      let resolve!: (credential: PublicKeyCredential) => void;
+      vi.spyOn(navigator.credentials, 'get').mockReturnValue(
+        new Promise((done) => (resolve = done)),
+      );
+      const retry = vi.fn();
+      reauth.handleError(failure('Auth:ReauthenticationRequired'), undefined, retry);
+
+      reauth.confirmWithPasskey();
+      await flush();
+      reauth.setVisible(false);
+      resolve(fakeAssertion());
+      await flush();
+
+      expect(retry).not.toHaveBeenCalled();
+      expect(reauth.saving()).toBe(false);
+    });
+
+    it('keeps a rejected passkey inside the dialog with the reason from the server', () => {
+      reauth.handleError(failure('Auth:ReauthenticationRequired'), undefined, vi.fn());
+      const proof = { passkey: { id: 'cred-1' } };
+      reauth.confirm(proof);
+
+      expect(
+        reauth.handleError(
+          failure('Auth:PasskeyVerificationFailed', 400, "The passkey couldn't be verified."),
+          proof,
+          vi.fn(),
+        ),
+      ).toBe(true);
+      expect(reauth.error()).toBe("The passkey couldn't be verified.");
+      expect(reauth.visible()).toBe(true);
+    });
+
+    it('asks to sign in again only when the account has no password, code or passkey', () => {
+      currentUser.set({ hasPassword: false, isTwoFactorEnabled: false, hasPasskeys: true });
+
+      reauth.handleError(failure('Auth:SignInAgainRequired'), undefined, vi.fn());
+
+      // 本地还有通行密钥，与"要求重新登录"不符：以服务端为准刷新当前用户
+      expect(loadUser).toHaveBeenCalled();
+      expect(reauth.hasPasskeys()).toBe(true);
+    });
   });
 });

@@ -111,9 +111,9 @@ interface EmailChallenge {
 export class ProfilePanel {
   private readonly authService = inject(AuthService);
   private readonly accountService = inject(AccountService);
-//#if (Email)
+  //#if (Email)
   private readonly securityConfig = inject(SecurityConfigService);
-//#endif
+  //#endif
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -173,7 +173,7 @@ export class ProfilePanel {
    * 部署能不能发邮箱验证码（验证码摘要密钥是否已配置）。取回之前按"能"处理：
    * 多数部署都配了，先藏起按钮再冒出来反而闪一下；真不能时发送端也会给出明确原因。
    */
-//#if (Email)
+  //#if (Email)
   readonly emailVerificationAvailable = computed(
     () => this.securityConfig.config()?.emailVerificationAvailable ?? true,
   );
@@ -188,7 +188,7 @@ export class ProfilePanel {
   /** 倒计时针对的地址：服务端按地址限频，换了地址的倒计时不再适用。 */
   private resendEmail: string | null = null;
 
-//#endif
+  //#endif
   readonly profileForm = form(this.formModel, (path) => {
     required(path.username);
     pattern(path.username, /^[a-zA-Z0-9_]{3,64}$/, { error: { kind: 'usernamePattern' } });
@@ -201,10 +201,10 @@ export class ProfilePanel {
   });
 
   constructor() {
-//#if (Email)
+    //#if (Email)
     // 进入面板时取当前的验证码发送前提
     this.securityConfig.refresh();
-//#endif
+    //#endif
     // 当前用户的资料一变（首次取回、保存成功后写回）就按它重填；表单模型不参与追踪，
     // 否则每敲一个字都会触发重填，把输入抹掉。
     effect(() => {
@@ -217,7 +217,7 @@ export class ProfilePanel {
   reset(): void {
     const saved = this.savedProfile();
     this.formModel.set({ ...saved });
-//#if (Email)
+    //#if (Email)
     // 已保存的邮箱变了（改邮箱后保存），手里那个挑战是发给旧地址的，作废
     if (this.emailChallenge()?.email !== saved.email) {
       this.emailChallenge.set(null);
@@ -227,7 +227,7 @@ export class ProfilePanel {
     if (this.resendEmail !== null && this.resendEmail !== saved.email) {
       this.stopResendCountdown();
     }
-//#endif
+    //#endif
   }
 
   /** 选完图片即处理并上传：裁成正方形、缩到 256，失败原因就地说清。 */
@@ -288,7 +288,7 @@ export class ProfilePanel {
       });
   }
 
-//#if (Email)
+  //#if (Email)
   /** 给已保存的邮箱发验证码，并开始重发倒计时。 */
   sendEmailCode(): void {
     const email = this.user()?.email;
@@ -355,7 +355,7 @@ export class ProfilePanel {
     this.resendEmail = null;
   }
 
-//#endif
+  //#endif
   /**
    * 保存资料。先不带凭证提交；换邮箱而会话不够新时服务端要求确认身份，弹出对话框，带上本人交出的
    * 口令或验证码重试**这一次提交时的资料**：等确认期间当前用户可能被刷新、表单可能被重填，重试不再读表单。
@@ -383,6 +383,7 @@ export class ProfilePanel {
         ...profile,
         currentPassword: proof?.password,
         twoFactorCode: proof?.twoFactorCode,
+        passkey: proof?.passkey,
       })
       .pipe(finalize(() => this.saving.set(false)))
       .subscribe({

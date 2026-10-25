@@ -8,14 +8,17 @@ namespace CompanyName.ProjectName.Domain.Users.ValueObjects;
 /// </remarks>
 public enum TwoFactorMethod
 {
-    /// <summary>身份验证器应用上的验证码；唯一满足组织"必须启用两步验证"要求的方式。</summary>
+    /// <summary>身份验证器应用上的验证码；独立因子，满足组织"必须启用两步验证"。</summary>
     Authenticator = 1,
 
     /// <summary>发到已验证邮箱的验证码。</summary>
     Email = 2,
 
-    /// <summary>启用身份验证器时发下的恢复码。</summary>
-    RecoveryCode = 3
+    /// <summary>开启第一个独立因子时发下的账号级恢复码。</summary>
+    RecoveryCode = 3,
+
+    /// <summary>通行密钥（WebAuthn）：要求用户验证，抗钓鱼；独立因子，满足组织"必须启用两步验证"。</summary>
+    Passkey = 4
 }
 
 /// <summary>验证方式的属性。</summary>
@@ -27,6 +30,6 @@ public static class TwoFactorMethods
     /// 第一步经邮箱通道得来（邮件找回的口令、按邮箱自动关联的外部登录）或组织要求两步验证时，第二步只认独立因子。
     /// </remarks>
     public static bool IsIndependent(this TwoFactorMethod method) =>
-        method is TwoFactorMethod.Authenticator or TwoFactorMethod.RecoveryCode;
+        method is TwoFactorMethod.Passkey or TwoFactorMethod.Authenticator or TwoFactorMethod.RecoveryCode;
 }
 #endif

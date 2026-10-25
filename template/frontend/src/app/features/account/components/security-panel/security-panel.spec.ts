@@ -145,6 +145,8 @@ describe('SecurityPanel', () => {
   it('refreshes the authenticator default mark when email codes are turned on', async () => {
     const status = (emailEnabled: boolean): TwoFactorStatusOutputDto => ({
       enabled: true,
+      passkeys: [],
+      passkeysAvailable: true,
       recoveryCodesLeft: 8,
       requiredByPolicy: false,
       emailEnabled,

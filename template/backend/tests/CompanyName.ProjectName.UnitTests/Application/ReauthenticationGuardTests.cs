@@ -198,8 +198,14 @@ public class ReauthenticationGuardTests
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
             guard.VerifyAsync(user, new ReauthenticationProof(CorrectPassword, CurrentCode()), Action));
-        Assert.Single(ReauthenticationProof.ValidateOneAtATime(CorrectPassword, CurrentCode(), "twoFactorCode"));
-        Assert.Empty(ReauthenticationProof.ValidateOneAtATime(CorrectPassword, " ", "twoFactorCode"));
+        Assert.Single(ReauthenticationProof.ValidateOneAtATime(CorrectPassword, CurrentCode(), null, "twoFactorCode"));
+        Assert.Empty(ReauthenticationProof.ValidateOneAtATime(CorrectPassword, " ", null, "twoFactorCode"));
+        // 通行密钥同样只能单独出示
+        var passkey = System.Text.Json.JsonDocument.Parse("{\"id\":\"x\"}").RootElement;
+        Assert.Single(ReauthenticationProof.ValidateOneAtATime(CorrectPassword, null, passkey, "twoFactorCode"));
+        Assert.Empty(ReauthenticationProof.ValidateOneAtATime(null, null, passkey, "twoFactorCode"));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            guard.VerifyAsync(user, ReauthenticationProof.Of(null, CurrentCode(), passkey), Action));
     }
 
     // 锁定期内先拒绝：不比对、不计数，被盗会话不能借再认证继续猜
@@ -258,6 +264,9 @@ public class ReauthenticationGuardTests
 
         return new ReauthenticationGuard(
             accessFailureCounter: counter!,
+            passkeyProtocol: null!,
+            passkeyCeremonies: null!,
+            passkeyVerifier: null!,
             operationRecorder: null!,
             new UserDomainService(null!, null!, null!, new PrefixPasswordHasher(), NullLogger<UserDomainService>.Instance),
             new TwoFactorDomainService(DataProtection),

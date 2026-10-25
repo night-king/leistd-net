@@ -16,8 +16,63 @@
 
     @if (codes(); as recoveryCodes) {
       <app-recovery-codes [codes]="recoveryCodes" (done)="continue()" />
+    } @else if (method() === 'passkey') {
+      <!-- 首选通行密钥：点了才调起浏览器；确认身份之后要本人再点一次 -->
+      <div class="flex flex-col gap-4" data-testid="two-factor-required-passkey">
+        @if (registration.awaitingGesture()) {
+          <div hlmAlert [attr.role]="'status'" data-testid="two-factor-required-passkey-continue">
+            <ng-icon name="lucideFingerprint" />
+            <p hlmAlertDescription>{{ t('account.twoFactorRequired.continueHint') }}</p>
+          </div>
+        } @else {
+          <p class="text-muted-foreground text-sm">
+            {{ t('account.twoFactorRequired.passkeyHint') }}
+          </p>
+        }
+        <button
+          hlmBtn
+          type="button"
+          class="w-full"
+          id="two-factor-required-passkey"
+          data-testid="two-factor-required-create-passkey"
+          [disabled]="registration.adding()"
+          (click)="createPasskey()"
+        >
+          @if (registration.adding()) {
+            <hlm-spinner class="text-base" data-icon="inline-start" />
+          } @else {
+            <ng-icon name="lucideFingerprint" data-icon="inline-start" />
+          }
+          {{ t('account.twoFactorRequired.createPasskey') }}
+        </button>
+        <button
+          hlmBtn
+          variant="link"
+          size="sm"
+          class="self-start px-0"
+          type="button"
+          data-testid="two-factor-required-use-authenticator"
+          [disabled]="registration.adding()"
+          (click)="switchMethod(true)"
+        >
+          {{ t('account.twoFactorRequired.useAuthenticator') }}
+        </button>
+      </div>
     } @else {
       <app-two-factor-setup [cancellable]="false" (enabled)="codes.set($event)" />
+      @if (passkeyOffered()) {
+        <button
+          hlmBtn
+          variant="link"
+          size="sm"
+          class="self-start px-0"
+          type="button"
+          data-testid="two-factor-required-use-passkey"
+          (click)="switchMethod(false)"
+        >
+          {{ t('account.twoFactorRequired.usePasskey') }}
+        </button>
+      }
     }
 
     <button
@@ -31,4 +86,20 @@
       {{ t('account.twoFactorRequired.signOut') }}
     </button>
   </app-auth-shell>
+
+  <app-reauthenticate-dialog
+    [visible]="registration.reauth.visible()"
+    (visibleChange)="registration.setReauthVisible($event)"
+    [saving]="registration.reauth.saving()"
+    [(error)]="registration.reauth.error"
+    [description]="t('account.twoFactorRequired.reauthDescription')"
+    [hasPassword]="registration.reauth.hasPassword()"
+    [twoFactorEnabled]="registration.reauth.twoFactorEnabled()"
+    [hasPasskeys]="registration.reauth.hasPasskeys()"
+    [(passkeyFailure)]="registration.reauth.passkeyFailure"
+    [codeRejected]="registration.reauth.codeRejected()"
+    (confirmed)="registration.reauth.confirm($event)"
+    (passkeyRequested)="registration.reauth.confirmWithPasskey()"
+    (signInAgain)="registration.reauth.signInAgain()"
+  />
 </ng-container>

@@ -109,7 +109,7 @@
           <input
             hlmInput
             id="usernameOrEmail"
-            autocomplete="username"
+            autocomplete="username webauthn"
             class="w-full"
             [formField]="loginForm.usernameOrEmail"
             [placeholder]="t('account.login.usernameOrEmailPlaceholder')"
@@ -171,12 +171,59 @@
           </div>
         }
 
-        <button hlmBtn type="submit" class="w-full" [disabled]="isLoading() || authBlocked()">
+        <button
+          hlmBtn
+          type="submit"
+          class="w-full"
+          [disabled]="isLoading() || passkeyBusy() || authBlocked()"
+        >
           @if (isLoading()) {
             <hlm-spinner class="text-base" data-icon="inline-start" />
           }
           {{ t('account.login.submit') }}
         </button>
+        @if (showPasskey()) {
+          <!-- 免口令、免用户名：点了才调起浏览器；用户名框的自动填充里也会列出通行密钥 -->
+          <div class="flex flex-col gap-2">
+            <button
+              hlmBtn
+              type="button"
+              variant="outline"
+              class="w-full"
+              data-testid="passkey-sign-in"
+              [attr.aria-describedby]="passkeyFailure() ? 'passkey-sign-in-failure' : null"
+              [disabled]="isLoading() || passkeyBusy() || authBlocked()"
+              (click)="signInWithPasskey()"
+            >
+              @if (passkeyBusy()) {
+                <hlm-spinner class="text-base" data-icon="inline-start" />
+              } @else {
+                <ng-icon name="lucideFingerprint" data-icon="inline-start" />
+              }
+              {{ t('account.login.passkey') }}
+            </button>
+            @if (passkeyFailure() === 'cancelled') {
+              <!-- 本人取消不是错误：中性说明 -->
+              <p
+                id="passkey-sign-in-failure"
+                class="text-muted-foreground text-center text-sm"
+                role="status"
+                data-testid="passkey-sign-in-cancelled"
+              >
+                {{ t('account.login.passkeyCancelled') }}
+              </p>
+            } @else if (passkeyFailure()) {
+              <p
+                id="passkey-sign-in-failure"
+                class="text-destructive text-center text-sm"
+                role="alert"
+                data-testid="passkey-sign-in-failed"
+              >
+                {{ t('account.login.passkeyFailed') }}
+              </p>
+            }
+          </div>
+        }
       </form>
       <!--#if (ExternalLogin)-->
       <!-- 账号密码是主路径，外部登录作为替代放在表单之后 -->

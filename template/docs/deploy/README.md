@@ -16,7 +16,7 @@
 | 管理员把自己锁在门外 | [管理员恢复](../operations/runbooks/admin-recovery.md) |
 <!--#endif-->
 <!--#if (LocalIdentity)-->
-| 验证器与恢复码都丢失、在线无人能重置 | [两步验证的部署级重置](../operations/runbooks/two-factor-reset.md) |
+| 验证器、通行密钥与恢复码都丢失、在线无人能重置 | [两步验证的部署级重置](../operations/runbooks/two-factor-reset.md) |
 <!--#endif-->
 
 上表列出模板自带的运维手册；项目自己的运维操作同样写在 `docs/operations/runbooks/`，一个操作一份。

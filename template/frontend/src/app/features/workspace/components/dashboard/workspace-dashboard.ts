@@ -223,7 +223,8 @@ export class WorkspaceDashboard {
       //#if (Email)
       emailVerified: this.authService.currentUser()?.isEmailVerified === true,
       //#endif
-      twoFactorEnabled: status?.enabled ?? null,
+      // 有独立因子（身份验证器或通行密钥）即算开启，与组织"要求两步验证"同一判定
+      twoFactorEnabled: status ? status.enabled || status.passkeys.length > 0 : null,
     };
   });
 
@@ -340,7 +341,7 @@ export class WorkspaceDashboard {
   readonly quickActions = computed<WorkbenchLink[]>(() => {
     const actions: WorkbenchLink[] = [];
     //#if (LocalIdentity)
-    if (this.twoFactor()?.enabled === false) {
+    if (this.securityChecks().twoFactorEnabled === false) {
       actions.push({
         //#if (IncludeLocalization)
         label: 'workspace.dashboard.actions.enableTwoFactor',

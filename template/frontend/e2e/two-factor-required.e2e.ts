@@ -57,10 +57,12 @@ test(
     await expect(page.getByTestId('tenant-row')).toContainText(tenant);
     await page.getByLabel('Username or Email').fill(username);
     await page.getByLabel('Password', { exact: true }).fill(password);
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
-    // 受限会话只能去设置页；密钥取自页面，验证码按 RFC 6238 现算
+    // 受限会话只能去设置页；部署配了通行密钥时页面先给通行密钥，这里改用身份验证器。
+    // 密钥取自页面，验证码按 RFC 6238 现算
     await expect(page).toHaveURL(/\/auth\/two-factor-setup/);
+    await page.getByRole('button', { name: 'Use an authenticator app instead' }).click();
     const secret = await page.getByTestId('two-factor-secret').textContent();
     await page.locator('#two-factor-setup-code').fill(await freshTotp(secret ?? ''));
     await page.getByTestId('two-factor-enable').click();
