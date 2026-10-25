@@ -425,10 +425,9 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactorLogin.codeLabel': 'Verification code',
   'account.twoFactorLogin.recoveryLabel': 'Recovery code',
   'account.twoFactorLogin.submit': 'Verify',
-  'account.twoFactorLogin.useRecovery': "Can't use your authenticator? Use a recovery code",
-  'account.twoFactorLogin.useCode': 'Use an authenticator code instead',
-  'account.twoFactorLogin.usePasskey': 'Use a passkey instead',
-  'account.twoFactorLogin.useRecoveryForPasskey': "Can't use your passkey? Use a recovery code",
+  'account.twoFactorLogin.useRecovery': 'Use a recovery code',
+  'account.twoFactorLogin.useCode': 'Use authenticator app',
+  'account.twoFactorLogin.usePasskey': 'Use a passkey',
   'account.twoFactorLogin.passkeyHint': 'Use your passkey to finish signing in.',
   'account.twoFactorLogin.passkeySubmit': 'Use passkey',
   'account.twoFactorLogin.passkeyCancelled':
@@ -453,7 +452,7 @@ const ENGLISH: Record<string, string> = {
   'account.twoFactorLogin.emailSending': 'Sending a code to {{email}}…',
   'account.twoFactorLogin.resend': 'Resend code',
   'account.twoFactorLogin.resendIn': 'Resend in {{seconds}}s',
-  'account.twoFactorLogin.useEmail': 'Use a code sent to your email instead',
+  'account.twoFactorLogin.useEmail': 'Use an email code',
   'account.twoFactorLogin.methods.email.name': 'Email verification code',
   'account.twoFactorLogin.methods.email.hint': 'Send a code to {{email}}',
   //#endif

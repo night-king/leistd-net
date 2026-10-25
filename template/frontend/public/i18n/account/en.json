@@ -84,10 +84,9 @@
     "codeLabel": "Verification code",
     "recoveryLabel": "Recovery code",
     "submit": "Verify",
-    "useRecovery": "Can't use your authenticator? Use a recovery code",
-    "useCode": "Use an authenticator code instead",
-    "usePasskey": "Use a passkey instead",
-    "useRecoveryForPasskey": "Can't use your passkey? Use a recovery code",
+    "useRecovery": "Use a recovery code",
+    "useCode": "Use authenticator app",
+    "usePasskey": "Use a passkey",
     "passkeyHint": "Use your passkey to finish signing in.",
     "passkeySubmit": "Use passkey",
     "passkeyCancelled": "The passkey request was cancelled. Try again when ready.",
@@ -122,7 +121,7 @@
     "emailPending": "A code will be sent to {{email}}.",
     "resend": "Resend code",
     "resendIn": "Resend in {{seconds}}s",
-    "useEmail": "Use a code sent to your email instead",
+    "useEmail": "Use an email code",
 //#endif
     "back": "Back to sign in"
   },

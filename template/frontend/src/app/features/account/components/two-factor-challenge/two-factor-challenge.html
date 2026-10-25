@@ -181,7 +181,56 @@
       </form>
     }
 
-    <div class="flex flex-col items-start gap-2 text-sm">
+    @if (alternatives().length > 1 && showAlternatives()) {
+      <!-- 两种以上备选：展开后列出其余方式，恢复码在最后 -->
+      <div
+        class="flex flex-col gap-2"
+        role="group"
+        data-testid="two-factor-methods"
+        [attr.aria-label]="t('account.twoFactorLogin.otherMethodsLabel')"
+      >
+        @for (alternative of alternatives(); track alternative) {
+          <button
+            hlmBtn
+            variant="outline"
+            class="h-auto w-full justify-start gap-3 py-2.5 text-start"
+            type="button"
+            [attr.data-testid]="'two-factor-method-' + alternative"
+            (click)="selectMethod(alternative)"
+          >
+            <ng-icon class="text-muted-foreground shrink-0" [name]="methodIcons[alternative]" />
+            <span class="flex min-w-0 flex-col">
+              <span class="font-medium">{{
+                t('account.twoFactorLogin.methods.' + alternative + '.name')
+              }}</span>
+              <span class="text-muted-foreground text-xs font-normal wrap-anywhere">{{
+                t('account.twoFactorLogin.methods.' + alternative + '.hint', {
+                  email: prompt().maskedEmail,
+                })
+              }}</span>
+            </span>
+          </button>
+        }
+      </div>
+    }
+
+    <!--
+      主按钮下一行左右分置：左边退回上一步（淡色），右边换一种方式（主色）。
+      放不下时右边整体换到下一行，仍靠右
+    -->
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+      <button
+        hlmBtn
+        variant="link"
+        size="sm"
+        class="text-muted-foreground px-0"
+        type="button"
+        data-testid="two-factor-back"
+        (click)="cancelled.emit()"
+      >
+        <ng-icon name="lucideArrowLeft" />
+        {{ t('account.twoFactorLogin.back') }}
+      </button>
       @if (alternatives().length === 1) {
         <!-- 只有一种备选：直接写明换成什么 -->
         @let alternative = alternatives()[0];
@@ -189,7 +238,7 @@
           hlmBtn
           variant="link"
           size="sm"
-          class="px-0"
+          class="ms-auto px-0"
           type="button"
           data-testid="two-factor-toggle-mode"
           [attr.data-method]="alternative"
@@ -197,11 +246,7 @@
         >
           @switch (alternative) {
             @case ('recoveryCode') {
-              {{
-                method() === 'passkey'
-                  ? t('account.twoFactorLogin.useRecoveryForPasskey')
-                  : t('account.twoFactorLogin.useRecovery')
-              }}
+              {{ t('account.twoFactorLogin.useRecovery') }}
             }
             @case ('passkey') {
               {{ t('account.twoFactorLogin.usePasskey') }}
@@ -216,64 +261,19 @@
             }
           }
         </button>
+      } @else if (alternatives().length > 1 && !showAlternatives()) {
+        <button
+          hlmBtn
+          variant="link"
+          size="sm"
+          class="ms-auto px-0"
+          type="button"
+          data-testid="two-factor-other-methods"
+          (click)="expandAlternatives()"
+        >
+          {{ t('account.twoFactorLogin.otherMethods') }}
+        </button>
       }
-      @if (alternatives().length > 1) {
-        <!-- 两种以上备选：收成一行，展开后列出其余方式，恢复码在最后 -->
-        @if (showAlternatives()) {
-          <div
-            class="flex w-full flex-col gap-2"
-            role="group"
-            data-testid="two-factor-methods"
-            [attr.aria-label]="t('account.twoFactorLogin.otherMethodsLabel')"
-          >
-            @for (alternative of alternatives(); track alternative) {
-              <button
-                hlmBtn
-                variant="outline"
-                class="h-auto w-full justify-start gap-3 py-2.5 text-start"
-                type="button"
-                [attr.data-testid]="'two-factor-method-' + alternative"
-                (click)="selectMethod(alternative)"
-              >
-                <ng-icon class="text-muted-foreground shrink-0" [name]="methodIcons[alternative]" />
-                <span class="flex min-w-0 flex-col">
-                  <span class="font-medium">{{
-                    t('account.twoFactorLogin.methods.' + alternative + '.name')
-                  }}</span>
-                  <span class="text-muted-foreground text-xs font-normal wrap-anywhere">{{
-                    t('account.twoFactorLogin.methods.' + alternative + '.hint', {
-                      email: prompt().maskedEmail,
-                    })
-                  }}</span>
-                </span>
-              </button>
-            }
-          </div>
-        } @else {
-          <button
-            hlmBtn
-            variant="link"
-            size="sm"
-            class="px-0"
-            type="button"
-            data-testid="two-factor-other-methods"
-            (click)="expandAlternatives()"
-          >
-            {{ t('account.twoFactorLogin.otherMethods') }}
-          </button>
-        }
-      }
-      <button
-        hlmBtn
-        variant="link"
-        size="sm"
-        class="text-muted-foreground px-0"
-        type="button"
-        (click)="cancelled.emit()"
-      >
-        <ng-icon name="lucideArrowLeft" data-icon="inline-start" />
-        {{ t('account.twoFactorLogin.back') }}
-      </button>
     </div>
   </div>
 </ng-container>

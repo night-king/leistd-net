@@ -45,46 +45,53 @@
           }
           {{ t('account.twoFactorRequired.createPasskey') }}
         </button>
-        <button
-          hlmBtn
-          variant="link"
-          size="sm"
-          class="self-start px-0"
-          type="button"
-          data-testid="two-factor-required-use-authenticator"
-          [disabled]="registration.adding()"
-          (click)="switchMethod(true)"
-        >
-          {{ t('account.twoFactorRequired.useAuthenticator') }}
-        </button>
       </div>
     } @else {
       <app-two-factor-setup [cancellable]="false" (enabled)="codes.set($event)" />
-      @if (passkeyOffered()) {
-        <button
-          hlmBtn
-          variant="link"
-          size="sm"
-          class="self-start px-0"
-          type="button"
-          data-testid="two-factor-required-use-passkey"
-          (click)="switchMethod(false)"
-        >
-          {{ t('account.twoFactorRequired.usePasskey') }}
-        </button>
-      }
     }
 
-    <button
-      hlmBtn
-      variant="link"
-      size="sm"
-      class="text-muted-foreground self-start px-0"
-      type="button"
-      (click)="logout()"
-    >
-      {{ t('account.twoFactorRequired.signOut') }}
-    </button>
+    <!-- 与登录第二步同一排法：左边退出（淡色），右边换一种方式（主色）；保存恢复码时只剩退出 -->
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+      <button
+        hlmBtn
+        variant="link"
+        size="sm"
+        class="text-muted-foreground px-0"
+        type="button"
+        data-testid="two-factor-required-sign-out"
+        (click)="logout()"
+      >
+        {{ t('account.twoFactorRequired.signOut') }}
+      </button>
+      @if (!codes()) {
+        @if (method() === 'passkey') {
+          <button
+            hlmBtn
+            variant="link"
+            size="sm"
+            class="ms-auto px-0"
+            type="button"
+            data-testid="two-factor-required-use-authenticator"
+            [disabled]="registration.adding()"
+            (click)="switchMethod(true)"
+          >
+            {{ t('account.twoFactorRequired.useAuthenticator') }}
+          </button>
+        } @else if (passkeyOffered()) {
+          <button
+            hlmBtn
+            variant="link"
+            size="sm"
+            class="ms-auto px-0"
+            type="button"
+            data-testid="two-factor-required-use-passkey"
+            (click)="switchMethod(false)"
+          >
+            {{ t('account.twoFactorRequired.usePasskey') }}
+          </button>
+        }
+      }
+    </div>
   </app-auth-shell>
 
   <app-reauthenticate-dialog

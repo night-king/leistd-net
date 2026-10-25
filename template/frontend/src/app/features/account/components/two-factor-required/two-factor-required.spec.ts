@@ -220,7 +220,7 @@ describe('TwoFactorRequired', () => {
 
   it('signs out from the sign-out button', async () => {
     const signOut = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
-      'button[variant="link"]',
+      '[data-testid="two-factor-required-sign-out"]',
     )!;
 
     signOut.click();
