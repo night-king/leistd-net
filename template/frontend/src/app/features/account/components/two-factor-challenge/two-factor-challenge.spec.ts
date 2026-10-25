@@ -290,10 +290,19 @@ describe('TwoFactorChallenge', () => {
     );
     //#else
     expect(byTestId('two-factor-toggle-mode')?.textContent?.trim()).toBe(
-      "Can't use your authenticator? Use a recovery code",
+      'Use a recovery code',
     );
     //#endif
     expect(byTestId('two-factor-other-methods')).toBeNull();
+  });
+
+  // 主按钮下一行：左边返回、右边换方式，读屏与 Tab 顺序同视觉顺序
+  it('puts going back and switching method on one row, back first', () => {
+    const back = byTestId('two-factor-back')!;
+    const toggle = byTestId('two-factor-toggle-mode')!;
+
+    expect(back.parentElement).toBe(toggle.parentElement);
+    expect(back.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
   //#if (Email)
 

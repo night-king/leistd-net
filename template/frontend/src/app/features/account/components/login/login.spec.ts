@@ -455,6 +455,25 @@ describe('Login', () => {
     ).not.toBeNull();
   });
 
+  // 开发环境的测试账号只用于填账号口令：第二步不再显示
+  it('shows the development test account only on the credentials step', async () => {
+    await setUp();
+    component.isMockEnabled.set(true);
+    fixture.detectChanges();
+    const hint = () =>
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="login-test-account"]');
+    expect(hint()).not.toBeNull();
+
+    authService.login.mockReturnValue(
+      of({ requiresTwoFactor: true, twoFactorToken: 'challenge-token' }) as never,
+    );
+    fillValidCredentials();
+    await component.onSubmit();
+    fixture.detectChanges();
+
+    expect(hint()).toBeNull();
+  });
+
   it('sends a restricted session (organization requires two-factor) straight to the setup page without establishing session context', async () => {
     queryParams = { returnUrl: '/platform/users?offset=20' };
     await setUp();

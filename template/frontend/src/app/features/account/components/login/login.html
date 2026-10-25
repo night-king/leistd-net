@@ -248,10 +248,11 @@
       }
     }
 
-    <!-- 开发环境的测试账号：表单下方一行淡色提示，与真正的登录表单分开 -->
-    @if (isMockEnabled()) {
+    <!-- 开发环境的测试账号：只在填账号口令的第一步提示，第二步用不上 -->
+    @if (isMockEnabled() && !twoFactorPrompt()) {
       <p
         authShellFooter
+        data-testid="login-test-account"
         class="bg-muted text-muted-foreground flex flex-wrap items-center gap-2 rounded-md px-3 py-2 text-xs"
       >
         <ng-icon name="lucideInfo" />
