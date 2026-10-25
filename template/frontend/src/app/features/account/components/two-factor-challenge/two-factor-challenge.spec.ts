@@ -289,9 +289,7 @@ describe('TwoFactorChallenge', () => {
       'account.twoFactorLogin.useRecovery',
     );
     //#else
-    expect(byTestId('two-factor-toggle-mode')?.textContent?.trim()).toBe(
-      'Use a recovery code',
-    );
+    expect(byTestId('two-factor-toggle-mode')?.textContent?.trim()).toBe('Use a recovery code');
     //#endif
     expect(byTestId('two-factor-other-methods')).toBeNull();
   });
