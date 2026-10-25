@@ -803,8 +803,8 @@ describe('SettingSection display placeholders', () => {
     const fixture = await render('account', timeZone({ tenantValue: 'Asia/Tokyo' }));
     const view = readRow(fixture.nativeElement);
 
-    expect(view.text).toBe('Asia/Tokyo');
-    expect(view.title).toBe('Asia/Tokyo');
+    expect(view.text).toBe('Asia/Tokyo · UTC+9');
+    expect(view.title).toBe('Asia/Tokyo · UTC+9');
     expect(view.source).toMatch(ORGANIZATION);
     // 来源在本行常驻描述里，读屏经控件的 aria-describedby 读到它
     expect(view.description).toMatch(ORGANIZATION);
@@ -814,7 +814,7 @@ describe('SettingSection display placeholders', () => {
     const fixture = await render('account', timeZone({ defaultValue: 'Asia/Tokyo' }));
     const view = readRow(fixture.nativeElement);
 
-    expect(view.text).toBe('Asia/Tokyo');
+    expect(view.text).toBe('Asia/Tokyo · UTC+9');
     expect(view.source).toMatch(ORGANIZATION);
   });
 
@@ -822,7 +822,9 @@ describe('SettingSection display placeholders', () => {
     const fixture = await render('account', timeZone({}));
     const view = readRow(fixture.nativeElement);
 
-    expect(view.text).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(view.text.startsWith(`${Intl.DateTimeFormat().resolvedOptions().timeZone} · UTC`)).toBe(
+      true,
+    );
     expect(view.source).toMatch(SYSTEM);
   });
 
@@ -830,7 +832,7 @@ describe('SettingSection display placeholders', () => {
     const fixture = await render('system', timeZone({ defaultValue: 'Asia/Tokyo' }));
     const view = readRow(fixture.nativeElement);
 
-    expect(view.text).toBe('Asia/Tokyo');
+    expect(view.text).toBe('Asia/Tokyo · UTC+9');
     expect(view.source).toMatch(DEPLOYMENT);
   });
 
@@ -843,16 +845,16 @@ describe('SettingSection display placeholders', () => {
     expect(view.source).toBe('');
   });
 
-  // 时区只写 IANA 名：带上偏移后多数时区名在设置页的固定宽度里放不下，偏移在候选列表里
-  it('shows only the zone name for an own value and drops the inherited source', async () => {
+  // 时区名后接此刻的偏移（巴黎随夏令时在 +1 与 +2 之间变）
+  it('shows the zone name with its offset for an own value and drops the inherited source', async () => {
     const fixture = await render(
       'account',
       timeZone({ tenantValue: 'Asia/Tokyo', userValue: 'Europe/Paris' }),
     );
     const view = readRow(fixture.nativeElement);
 
-    expect(view.text).toBe('Europe/Paris');
-    expect(view.title).toBe('Europe/Paris');
+    expect(view.text).toMatch(/^Europe\/Paris · UTC\+[12]$/);
+    expect(view.title).toBe(view.text);
     expect(view.source).toBe('');
   });
 });
@@ -958,20 +960,40 @@ describe('SettingSection long values', () => {
     expect(icon.right).toBeLessThanOrEqual(box.right + 0.5);
   }
 
-  it('truncates a long inherited time zone inside the combobox', async () => {
-    const host = await render([timeZone({ tenantValue: LONG })]);
+  /** 候选里最长的时区名：设置页固定宽度里放不下，偏移得照样完整可见。 */
+  const LONG_ZONE = 'America/Argentina/Rio_Gallegos';
+
+  /** 时区只省略名字：名字溢出且带省略号，偏移完整、不压箭头，箭头在控件内。 */
+  function expectZoneNameTruncated(button: HTMLElement) {
+    const [name, offset] = Array.from(
+      button.querySelectorAll<HTMLElement>('[data-testid="time-zone-value"] > span'),
+    );
+    const icon = button.querySelector('ng-icon')!.getBoundingClientRect();
+    const box = button.getBoundingClientRect();
+    expect(box.width).toBeCloseTo(256, 0);
+    expect(getComputedStyle(name).textOverflow).toBe('ellipsis');
+    expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+    expect(offset.textContent?.trim()).toMatch(/^· UTC[+-]\d+$/);
+    expect(offset.scrollWidth).toBeLessThanOrEqual(offset.clientWidth);
+    expect(offset.getBoundingClientRect().right).toBeLessThanOrEqual(icon.left + 0.5);
+    expect(icon.right).toBeLessThanOrEqual(box.right + 0.5);
+  }
+
+  it('truncates only the name of a long inherited time zone and keeps its offset', async () => {
+    const host = await render([timeZone({ tenantValue: LONG_ZONE })]);
     const button = host.querySelector<HTMLElement>('button#Display\\.TimeZone')!;
 
-    expectTruncatedInside(button, 'combobox-value');
-    expect(host.querySelector('hlm-combobox-trigger')!.getAttribute('title')).toBe(LONG);
+    expectZoneNameTruncated(button);
+    expect(host.querySelector('hlm-combobox-trigger')!.getAttribute('title')).toBe(
+      'America/Argentina/Rio_Gallegos · UTC-3',
+    );
   });
 
-  it('truncates a long own time zone inside the combobox', async () => {
-    const host = await render([timeZone({ userValue: LONG })]);
+  it('truncates only the name of a long own time zone and keeps its offset', async () => {
+    const host = await render([timeZone({ userValue: LONG_ZONE })]);
     const button = host.querySelector<HTMLElement>('button#Display\\.TimeZone')!;
 
-    expectTruncatedInside(button, 'combobox-value');
-    expect(host.querySelector('hlm-combobox-trigger')!.getAttribute('title')).toBe(LONG);
+    expectZoneNameTruncated(button);
   });
 
   it('truncates a long value inside the select with an ellipsis', async () => {
@@ -996,7 +1018,7 @@ describe('SettingSection long values', () => {
       logLevel({ userValue: null, tenantValue: null }),
     ]);
     const zone = host.querySelector<HTMLElement>(
-      'button#Display\\.TimeZone [data-slot="combobox-value"]',
+      'button#Display\\.TimeZone [data-testid="time-zone-value"] > span',
     )!;
     const level = host.querySelector<HTMLElement>('button#Logging\\.MinimumLevel')!;
 
@@ -1022,6 +1044,59 @@ describe('SettingSection long values', () => {
       return width === 0 || city.scrollWidth > city.clientWidth;
     });
     expect(clipped.map((city) => city.textContent?.trim())).toEqual([]);
+  });
+});
+
+/** 展开时区列表即定位到当前值：几百项里停在顶部就看不到它。 */
+describe('SettingSection time zone list position', () => {
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  async function open(setting: Partial<SettingOutputDto>) {
+    TestBed.configureTestingModule({
+      imports: [SettingSection],
+      providers: [...pageProviders()],
+    });
+    const fixture = TestBed.createComponent(SettingSection);
+    fixture.componentRef.setInput('scope', 'account');
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController)
+      .expectOne('/api/v1/settings')
+      .flush([row({ name: 'Display.TimeZone', group: 'Display', defaultValue: null, ...setting })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLElement>('button#Display\\.TimeZone')!
+      .click();
+    await TestBed.inject(ApplicationRef).whenStable();
+    // 定位在展开后的下一帧完成
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    const list = document.querySelector<HTMLElement>('[data-slot="combobox-list"]')!;
+    const option = list.querySelector<HTMLElement>(
+      '[role="option"][data-value="Pacific/Auckland"]',
+    )!;
+    const listBox = list.getBoundingClientRect();
+    const optionBox = option.getBoundingClientRect();
+    return {
+      // 选中项完整落在列表可视区内，且列表确实滚动过（它排在很后面）
+      visible: optionBox.top >= listBox.top - 0.5 && optionBox.bottom <= listBox.bottom + 0.5,
+      scrolled: list.scrollTop > 0,
+      highlighted: option.hasAttribute('data-highlighted'),
+      selected: option.getAttribute('aria-selected'),
+    };
+  }
+
+  it('scrolls to and highlights the own value', async () => {
+    const view = await open({ userValue: 'Pacific/Auckland' });
+
+    expect(view).toEqual({ visible: true, scrolled: true, highlighted: true, selected: 'true' });
+  });
+
+  // 继承来的值只是占位：定位并高亮，但不标成已选
+  it('scrolls to the inherited value without marking it selected', async () => {
+    const view = await open({ tenantValue: 'Pacific/Auckland' });
+
+    expect(view).toEqual({ visible: true, scrolled: true, highlighted: true, selected: 'false' });
   });
 });
 

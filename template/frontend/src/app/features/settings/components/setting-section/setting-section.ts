@@ -38,6 +38,7 @@ import { SettingService } from '../../../../core/settings/setting-service';
 import { SETTINGS } from '../../../../core/settings/setting.constants';
 import { SettingOutputDto } from '../../../../core/settings/setting.dto';
 import { InfoHint } from '../../../../shared/components/info-hint/info-hint';
+import { ComboboxRevealSelected } from '../../../../shared/directives/combobox-reveal-selected';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
@@ -49,6 +50,7 @@ import {
   SettingChoice,
   timeZoneGroups,
   timeZoneMatches,
+  timeZoneOffsetLabel,
 } from '../../setting-choices';
 // prettier-ignore
 import {
@@ -121,6 +123,7 @@ export const SAVING_MIN_MS = 400;
     ...HlmTooltipImports,
     TranslocoDirective,
     AppearanceSetting,
+    ComboboxRevealSelected,
     InfoHint,
     //#if (Email)
     EmailTest,
@@ -143,6 +146,7 @@ export const SAVING_MIN_MS = 400;
     ...HlmSwitchImports,
     ...HlmTooltipImports,
     AppearanceSetting,
+    ComboboxRevealSelected,
     InfoHint,
     //#if (Email)
     EmailTest,
@@ -294,11 +298,21 @@ export class SettingSection {
     return option ? timeZoneMatches(option, search) : false;
   };
 
-  /**
-   * 选中项在触发器上的文案：只写 IANA 名，与继承来的占位同一写法。偏移留在候选列表里：带上它，
-   * 多数时区名在设置页的固定宽度里放不下，被省略的正是值本身。
-   */
+  /** 选项的文案取 IANA 名：存的就是它，偏移由触发器另行拼接（见 {@link timeZoneTextOf}）。 */
   protected readonly timeZoneToString = (value: unknown): string => String(value ?? '');
+
+  /**
+   * 时区在触发器上分两段写：`Asia/Shanghai · UTC+8`。放不下时只省略时区名，偏移始终可见——
+   * 确认时区多半看的是偏移。选中值与继承来的占位同一写法；占位是"跟随系统"这类文案时没有偏移。
+   */
+  protected timeZoneTextOf(
+    setting: SettingOutputDto,
+    scope: SettingScope,
+    labels: InheritedSourceLabels,
+  ): { name: string; offset: string } {
+    const name = this.displayTextOf(setting, scope, labels);
+    return { name, offset: timeZoneOffsetLabel(name) };
+  }
 
   /** 这一项当前的写入状态；没有即常态。 */
   protected stateOf(setting: SettingOutputDto, scope: SettingScope): RowState | undefined {

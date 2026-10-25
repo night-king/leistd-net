@@ -170,22 +170,35 @@
             (valueChange)="onSelect(setting, scope(), $event)"
           >
             <!-- justify-between + font-normal 是官方用法：触发器是 hlmBtn，默认居中且加粗。 -->
-            <!-- 值放不下时单行省略（styles.css 统一处理），悬停提示给出全文 -->
+            <!-- 时区名与偏移分两段：放不下时只省略时区名，偏移始终可见，悬停提示给出全文。不用
+                 hlm-combobox-value：它只写一段纯文本，选中值与占位也走两条路。占位的淡色由触发器的
+                 data-placeholder 给出。 -->
+            @let zoneText = timeZoneTextOf(setting, scope(), sourceLabels);
             <hlm-combobox-trigger
               [buttonId]="setting.name"
               class="w-full justify-between font-normal"
-              [attr.title]="displayTextOf(setting, scope(), sourceLabels) || null"
+              [attr.title]="
+                (zoneText.offset ? zoneText.name + ' · ' + zoneText.offset : zoneText.name) || null
+              "
             >
-              <hlm-combobox-value
-                [placeholder]="inheritedLabelOf(setting, scope(), sourceLabels)"
-              />
+              <!-- 间隔写成文字里的不换行空格，不用 gap：读屏读到的名称里也要有分隔 -->
+              <span class="flex min-w-0 items-center" data-testid="time-zone-value">
+                <span class="truncate">{{ zoneText.name }}</span>
+                @if (zoneText.offset) {
+                  <span class="shrink-0">&nbsp;· {{ zoneText.offset }}</span>
+                }
+              </span>
             </hlm-combobox-trigger>
             <hlm-combobox-content *hlmComboboxPortal>
               <hlm-combobox-input
                 [placeholder]="t('settings.timeZoneSearch')"
                 [triggerAriaLabel]="t('settings.timeZoneToggle')"
               />
-              <div hlmComboboxList>
+              <!-- 展开即定位到当前值；没有本层值时定位到继承来的生效值 -->
+              <div
+                hlmComboboxList
+                [appComboboxRevealSelected]="inheritedLabelOf(setting, scope(), sourceLabels)"
+              >
                 <hlm-combobox-empty>{{ t('settings.timeZoneEmpty') }}</hlm-combobox-empty>
                 @for (group of timeZones; track group.region) {
                   <div hlmComboboxGroup>
