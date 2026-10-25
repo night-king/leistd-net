@@ -35,7 +35,7 @@ internal sealed record ReauthenticationProof(string? CurrentPassword, string? Tw
 
     /// <summary>由入参的三种凭证组成；通行密钥取断言原文。</summary>
     public static ReauthenticationProof Of(string? currentPassword, string? twoFactorCode, JsonElement? passkey) =>
-        new(currentPassword, twoFactorCode, passkey is { ValueKind: JsonValueKind.Object } value ? value.GetRawText() : null);
+        new(currentPassword, twoFactorCode, PasskeyCredentialJson.RawText(passkey));
 
     /// <summary>出示了通行密钥。</summary>
     public bool HasPasskey => !string.IsNullOrEmpty(Passkey);
@@ -55,11 +55,16 @@ internal sealed record ReauthenticationProof(string? CurrentPassword, string? Tw
     {
         var presented = (string.IsNullOrEmpty(currentPassword) ? 0 : 1)
             + (string.IsNullOrWhiteSpace(twoFactorCode) ? 0 : 1)
-            + (passkey is { ValueKind: JsonValueKind.Object } ? 1 : 0);
+            + (PasskeyCredentialJson.IsPresented(passkey) ? 1 : 0);
         if (presented > 1)
         {
             yield return new ValidationResult(
                 "Confirm with only one of your password, a verification code, or a passkey.", [twoFactorCodeMember]);
+        }
+
+        foreach (var error in PasskeyCredentialJson.ValidateShape(passkey, "Passkey"))
+        {
+            yield return error;
         }
     }
 }

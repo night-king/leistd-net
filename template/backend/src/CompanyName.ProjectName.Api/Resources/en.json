@@ -102,6 +102,7 @@
     "Outcome": "Outcome",
     "Parent permission": "Parent permission",
     "Passkey ceremony": "Passkey ceremony",
+    "The passkey response must be the credential returned by the browser.": "The passkey response must be the credential returned by the browser.",
     "Passkey name": "Passkey name",
     "Password": "Password",
     "Permission name": "Permission name",

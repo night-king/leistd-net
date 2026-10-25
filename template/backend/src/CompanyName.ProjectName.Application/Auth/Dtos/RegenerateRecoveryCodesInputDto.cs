@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using CompanyName.ProjectName.Application.Auth.Passkeys;
 
 namespace CompanyName.ProjectName.Application.Auth.Dtos;
 
@@ -18,10 +19,13 @@ public sealed record RegenerateRecoveryCodesInputDto : IValidatableObject
     /// <inheritdoc />
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        var presented = (string.IsNullOrWhiteSpace(Code) ? 0 : 1) + (Passkey is { ValueKind: JsonValueKind.Object } ? 1 : 0);
+        var presented = (string.IsNullOrWhiteSpace(Code) ? 0 : 1) + (PasskeyCredentialJson.IsPresented(Passkey) ? 1 : 0);
         if (presented == 0)
             yield return new ValidationResult("Enter the verification code or a recovery code.", [nameof(Code)]);
         else if (presented > 1)
             yield return new ValidationResult("Enter only one kind of code.", [nameof(Code)]);
+
+        foreach (var error in PasskeyCredentialJson.ValidateShape(Passkey, nameof(Passkey)))
+            yield return error;
     }
 }

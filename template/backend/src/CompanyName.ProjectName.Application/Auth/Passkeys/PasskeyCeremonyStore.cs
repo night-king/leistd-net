@@ -3,6 +3,7 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Leistd.Lock.Abstractions;
 using Leistd.Timing;
 using Microsoft.Extensions.Caching.Distributed;
 
@@ -13,9 +14,11 @@ namespace CompanyName.ProjectName.Application.Auth.Passkeys;
 /// <para>仪式状态里有挑战：只能放在服务端，交给浏览器的只有选项。完成时取出并删除，同一份状态只认一次。</para>
 /// <para>登记与确认身份按"本人 + 会话"一个槽位：重新开始即覆盖旧的，别的会话拿不到。
 /// 免口令登录还没有用户，按服务端签发的随机凭据保存，绑定发起时的租户。登录第二步的状态记在第二步挑战上，不在这里。</para>
+/// <para>取出与删除在按仪式加的分布式锁内完成：缓存没有原子的取删，只靠先读后删，并发的两次提交会读到同一份状态，
+/// 而计数器始终为 0 的认证器又让同一断言两次都校验得过。这把锁只包住取删，持有期间不再取别的锁。</para>
 /// <para>有效期从开始那一刻算起，按注入的时钟判定；缓存条目的过期只负责回收。</para>
 /// </remarks>
-internal sealed class PasskeyCeremonyStore(IDistributedCache cache, IClock clock)
+internal sealed class PasskeyCeremonyStore(IDistributedCache cache, IDistributedLock distributedLock, IClock clock)
 {
     /// <summary>仪式的有效期。</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
@@ -68,14 +71,21 @@ internal sealed class PasskeyCeremonyStore(IDistributedCache cache, IClock clock
 
     private async Task<StoredCeremony?> TakeAsync(string key, CancellationToken cancellationToken)
     {
-        var json = await cache.GetStringAsync(key, cancellationToken);
+        await using var held = await distributedLock.LockAsync(LockKey(key), cancellationToken);
+        using var lockScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, held.LockLost);
+        var json = await cache.GetStringAsync(key, lockScope.Token);
         if (json is null)
             return null;
 
-        await cache.RemoveAsync(key, cancellationToken);
+        await cache.RemoveAsync(key, lockScope.Token);
         var stored = JsonSerializer.Deserialize<StoredCeremony>(json);
         return stored is not null && stored.ExpiresAt > clock.Now ? stored : null;
     }
+
+    /// <summary>一次免口令登录的仪式锁键（取删在它之内）。</summary>
+    internal static string SignInLockKey(string token) => LockKey(SignInKey(token));
+
+    private static string LockKey(string key) => key + ":lock";
 
     private static string SessionKey(PasskeyCeremonyPurpose purpose, Guid userId, Guid? sessionId) =>
         $"{KeyPrefix}{purpose.ToString().ToLowerInvariant()}:{userId:N}:{sessionId?.ToString("N") ?? "-"}";

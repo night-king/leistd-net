@@ -88,6 +88,28 @@ public sealed class PasskeyReauthenticationTests(ProjectWebApplicationFactory fa
         Assert.Equal(10, (await regenerated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("recoveryCodes").GetArrayLength());
     }
 
+    // 校验、选分支与转成证明用同一个判据：非对象的值若在校验里算"没给"、在分支里算"给了"，
+    // 就成了一份空证明，近期会话随之放行，不经任何独立因子换出一组新恢复码
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("\"assertion\"")]
+    [InlineData("1")]
+    [InlineData("true")]
+    public async Task A_malformed_passkey_does_not_regenerate_recovery_codes(string passkey)
+    {
+        var (host, _) = CreateHost();
+        using var __ = host;
+        var (_, session, _) = await CreateUserWithPasskeyAsync(host, "pkr_shape");
+
+        using var content = new StringContent($$"""{"code":"000000","passkey":{{passkey}}}""", System.Text.Encoding.UTF8, "application/json");
+        using var response = await session.PostAsync("/api/v1/auth/me/two-factor/recovery-codes", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var alone = new StringContent($$"""{"passkey":{{passkey}}}""", System.Text.Encoding.UTF8, "application/json");
+        using var aloneResponse = await session.PostAsync("/api/v1/auth/me/two-factor/recovery-codes", alone);
+        Assert.Equal(HttpStatusCode.BadRequest, aloneResponse.StatusCode);
+    }
+
     private (WebApplicationFactory<Program> Host, FakeTimeProvider Clock) CreateHost()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);

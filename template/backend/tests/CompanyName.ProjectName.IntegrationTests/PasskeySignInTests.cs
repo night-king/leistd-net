@@ -3,7 +3,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CompanyName.ProjectName.Application.Auth.Passkeys;
 using CompanyName.ProjectName.Application.Settings.Provider;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace CompanyName.ProjectName.IntegrationTests;
 
@@ -45,6 +49,38 @@ public sealed class PasskeySignInTests(ProjectWebApplicationFactory factory)
 
         using var replay = await CompleteSignInAsync(client, ceremony, assertion);
         Assert.Equal("Auth:PasskeyCeremonyExpired", await ErrorCodeAsync(replay));
+    }
+
+    // 计数器始终为 0 的认证器（合规、常见于可同步的通行密钥）让同一断言两次都校验得过：只认一次只能靠仪式本身。
+    // 第一次提交停在读出仪式状态那一刻，另一次同时提交同一份断言，必须挡在仪式锁上，而不是也读到同一份状态
+    [Fact]
+    public async Task Concurrent_completions_of_one_ceremony_sign_in_at_most_once()
+    {
+        var gate = new InterleavingGate();
+        var waits = new LockWaitProbe();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            InterleavingGate.Wrap<IDistributedCache>(services, inner => new SignInCeremonyReadGate(gate, inner));
+            waits.Install(services);
+        }));
+        var (_, passkey) = await CreateUserWithPasskeyAsync("pks_race", host);
+        using var first = ProjectWebApplicationFactory.CreateProjectClient(host);
+        using var second = ProjectWebApplicationFactory.CreateProjectClient(host);
+        var (ceremony, options) = await BeginSignInAsync(first);
+        var assertion = passkey.Sign(options, signCount: 0);
+
+        gate.Arm();
+        var firstCompletion = CompleteSignInAsync(first, ceremony, JsonNode.Parse(assertion.ToJsonString())!.AsObject());
+        await gate.Entered;
+        waits.Arm(PasskeyCeremonyStore.SignInLockKey(ceremony));
+        var secondCompletion = CompleteSignInAsync(second, ceremony, JsonNode.Parse(assertion.ToJsonString())!.AsObject());
+        await waits.AssertWaitingAsync(secondCompletion);
+        gate.Release();
+
+        using var firstResponse = await firstCompletion;
+        using var secondResponse = await secondCompletion;
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal("Auth:PasskeyCeremonyExpired", await ErrorCodeAsync(secondResponse));
     }
 
     [Fact]
@@ -145,10 +181,12 @@ public sealed class PasskeySignInTests(ProjectWebApplicationFactory factory)
         }
     }
 
-    private async Task<(string Username, SoftwarePasskey Passkey)> CreateUserWithPasskeyAsync(string prefix)
+    private async Task<(string Username, SoftwarePasskey Passkey)> CreateUserWithPasskeyAsync(
+        string prefix, WebApplicationFactory<Program>? host = null)
     {
+        host ??= factory;
         var username = $"{prefix}_{Guid.NewGuid():N}"[..30];
-        using (var admin = await ProjectWebApplicationFactory.LoginAsync(factory, "admin", ProjectWebApplicationFactory.TestAdminPassword))
+        using (var admin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword))
         using (var create = await admin.Client.PostAsJsonAsync("/api/v1/users", new
         {
             Username = username,
@@ -161,9 +199,35 @@ public sealed class PasskeySignInTests(ProjectWebApplicationFactory factory)
             Assert.Equal(HttpStatusCode.OK, create.StatusCode);
         }
 
-        using var session = await ProjectWebApplicationFactory.LoginAsync(factory, username, Password);
+        using var session = await ProjectWebApplicationFactory.LoginAsync(host, username, Password);
         var (_, passkey) = await PasskeyRequests.RegisterAsync(session.Client);
         return (username, passkey);
+    }
+
+    // 拦免口令登录仪式的第一次读取：此刻持着仪式锁（若有），读到的状态还没删
+    private sealed class SignInCeremonyReadGate(InterleavingGate gate, IDistributedCache inner) : IDistributedCache
+    {
+        public byte[]? Get(string key) => inner.Get(key);
+
+        public async Task<byte[]?> GetAsync(string key, CancellationToken token = default)
+        {
+            if (key.Contains(":sign-in:", StringComparison.Ordinal))
+                await gate.PassAsync();
+            return await inner.GetAsync(key, token);
+        }
+
+        public void Set(string key, byte[] value, DistributedCacheEntryOptions options) => inner.Set(key, value, options);
+
+        public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default) =>
+            inner.SetAsync(key, value, options, token);
+
+        public void Refresh(string key) => inner.Refresh(key);
+
+        public Task RefreshAsync(string key, CancellationToken token = default) => inner.RefreshAsync(key, token);
+
+        public void Remove(string key) => inner.Remove(key);
+
+        public Task RemoveAsync(string key, CancellationToken token = default) => inner.RemoveAsync(key, token);
     }
 
     private static async Task<(string Ceremony, JsonElement Options)> BeginSignInAsync(HttpClient client)

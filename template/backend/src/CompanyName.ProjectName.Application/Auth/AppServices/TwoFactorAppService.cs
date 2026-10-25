@@ -12,6 +12,7 @@ using CompanyName.ProjectName.Application.Auth.EmailVerification;
 using Leistd.Redaction;
 #endif
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
+using CompanyName.ProjectName.Application.Auth.Passkeys;
 using CompanyName.ProjectName.Domain.Auth.Passkeys;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Users.Entities;
@@ -324,13 +325,21 @@ internal sealed class TwoFactorAppService(
 
         // 重发恢复码同样是再认证：拿到恢复码等于拿到一组可绕过两步验证的凭据。
         // 只认独立因子（身份验证器验证码或通行密钥），不认口令与恢复码：恢复码不能用来换出一组新的恢复码
-        if (input.Passkey is { } passkey)
+        if (PasskeyCredentialJson.IsPresented(input.Passkey))
         {
-            // 通行密钥的仪式与校验收在守卫里；守卫在自己的工作单元里提交，这里重读用户再改
-            await reauthenticationGuard.EnsureRecentAsync(
-                ReauthenticationProof.Of(null, null, passkey),
+            // 通行密钥的仪式与校验收在守卫里；守卫在自己的工作单元里提交，这里重读用户再改。
+            // 只认当场校验过的断言：会话刚认证过不能代替（入参校验已挡掉非对象的值，这里再按结果把一道关）
+            var method = await reauthenticationGuard.EnsureRecentAsync(
+                ReauthenticationProof.Of(null, null, input.Passkey),
                 OperationRecordActions.AuthTwoFactorRecoveryCodesRegenerated,
                 cancellationToken);
+            if (method != ReauthenticationMethod.Passkey)
+            {
+                throw new BusinessException(
+                    AuthErrorCodes.PasskeyVerificationFailed,
+                    "The passkey couldn't be verified. Try again.");
+            }
+
             user = await GetCurrentUserEntityAsync(cancellationToken);
         }
         else
