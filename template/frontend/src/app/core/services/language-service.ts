@@ -80,7 +80,7 @@ export class LanguageService {
   private readonly inlineLoads = new Map<string, Promise<Translation>>();
 
   readonly activeLang = this.activeLangState.asReadonly();
-  readonly options = LANG_OPTIONS;
+  readonly options: readonly (typeof LANG_OPTIONS)[number][] = LANG_OPTIONS;
   readonly currentMeta = computed(
     () => LANG_OPTIONS.find((o) => o.id === this.activeLang()) ?? LANG_OPTIONS[0],
   );

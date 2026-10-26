@@ -211,7 +211,16 @@ export class SettingSection {
 
   /** 分组由后端下发的分组标识驱动，前端不另列清单，否则漏登记的新设置会从界面上静默消失。 */
   protected readonly groups = computed<SettingGroup[]>(() => {
+    //#if (IncludeLocalization)
+    // 只支持一种语言时界面语言无从选择，不出这一行
+    const settings = settingsInScope(this.settings(), this.scope()).filter(
+      (setting) =>
+        setting.name !== SETTINGS.display.language || this.languageService.options.length > 1,
+    );
+    const groups = groupSettings(settings);
+    //#else
     const groups = groupSettings(settingsInScope(this.settings(), this.scope()));
+    //#endif
     const only = this.group();
     if (only) {
       return groups.filter((group) => groupPath(group.key) === only);

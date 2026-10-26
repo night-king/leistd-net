@@ -146,4 +146,37 @@ describe('LanguageSwitcher', () => {
     await vi.waitFor(() => expect(TestBed.inject(LanguageService).activeLang()).toBe('zh-CN'));
     expect(settingService.setForCurrentUser).not.toHaveBeenCalled();
   });
+
+  // 只支持一种语言时没有可切换的：整个切换器隐藏，不在操作区留空位
+  it('hides itself when only one language is supported', () => {
+    TestBed.configureTestingModule({
+      imports: [LanguageSwitcher],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthService, useValue: { isAuthenticated: () => false } },
+        ...provideTranslocoTesting(['en']),
+      ],
+    });
+    const languages = TestBed.inject(LanguageService);
+    Object.defineProperty(languages, 'options', { value: [languages.options[0]] });
+
+    const fixture = TestBed.createComponent(LanguageSwitcher);
+    fixture.detectChanges();
+
+    // 断言实际样式而非类名：两个设 display 的类同时存在时，类名在、按钮却照样显示
+    const host = fixture.nativeElement as HTMLElement;
+    expect(getComputedStyle(host).display).toBe('none');
+    expect(host.getBoundingClientRect().width).toBe(0);
+  });
+
+  it('shows itself when more than one language is supported', () => {
+    setUp(false);
+    const fixture = TestBed.createComponent(LanguageSwitcher);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(getComputedStyle(host).display).toBe('inline-flex');
+    expect(host.getBoundingClientRect().width).toBeGreaterThan(0);
+  });
 });

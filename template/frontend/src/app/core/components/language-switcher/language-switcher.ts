@@ -19,13 +19,18 @@ interface LangOption {
   active: boolean;
 }
 
-/** 语言切换器：图标按钮弹出下拉菜单，当前语言打勾；用于各布局右上角操作区。 */
+/** 语言切换器：图标按钮弹出下拉菜单，当前语言打勾；用于各布局右上角操作区。只支持一种语言时不显示。 */
 @Component({
   selector: 'app-language-switcher',
   standalone: true,
   imports: [HlmButton, NgIcon, TranslocoDirective, ...HlmDropdownMenuImports],
   providers: [provideIcons({ lucideGlobe, lucideCheck })],
-  host: { class: 'inline-flex items-center' },
+  // 显示方式二选一：inline-flex 与 hidden 都设 display，同时存在时 Tailwind 生成顺序靠后的 inline-flex 生效
+  host: {
+    class: 'items-center',
+    '[class.inline-flex]': 'selectable',
+    '[class.hidden]': '!selectable',
+  },
   template: `
     <button
       *transloco="let t"
@@ -62,6 +67,9 @@ export class LanguageSwitcher {
   private readonly settingService = inject(SettingService);
   private readonly sessionContext = inject(SessionContextService);
   private readonly transloco = inject(TranslocoService);
+
+  /** 只有一种语言时没有可切换的，隐藏整个切换器（含它在操作区里占的位置）。 */
+  protected readonly selectable = this.languageService.options.length > 1;
 
   /** 当前语言的短标识（EN / 中），显示在全球化图标右侧；随语言切换响应式更新。 */
   readonly shortLabel = computed(() => this.languageService.currentMeta().short);
