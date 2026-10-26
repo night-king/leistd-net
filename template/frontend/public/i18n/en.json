@@ -115,7 +115,7 @@
   },
   "language": {
     "label": "Language",
-    "saveFailed": "Switched for now, but your account preference was not saved"
+    "saveFailed": "Language wasn't saved; kept as before"
   },
   "layout": {
     "sidebar": {
@@ -176,6 +176,7 @@
   "theme": {
     "toggle": "Switch theme",
     "current": "Theme: {{mode}}",
+    "saveFailed": "Appearance wasn't saved; kept as before",
     "mode": {
       "light": "Light",
       "system": "System",

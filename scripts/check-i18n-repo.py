@@ -27,6 +27,9 @@ _spec = importlib.util.spec_from_file_location('check_i18n', REPO / 'template/sc
 project = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(project)
 
+# 组件包随包分发的默认译文只有这两种；项目加语言时在宿主资源里补，不改组件包。
+FRAMEWORK_LOCALES = ('en', 'zh-CN')
+
 # 宿主确要改写组件文案的键，逐条写明原因。
 HOST_OVERRIDE_ALLOWED = {
     # 补充模板自带的迁移入口（ConnectionStrings:MigrationTarget、DbMigrator --apply）：组件不知道宿主用什么迁移工具
@@ -60,7 +63,7 @@ def check_framework(repo):
     errors = []
     components = repo / 'framework/components'
     resource_dirs = sorted(d for d in components.rglob('Resources')
-                           if d.is_dir() and all((d / f'{lang}.json').is_file() for lang in project.LOCALES)
+                           if d.is_dir() and all((d / f'{lang}.json').is_file() for lang in FRAMEWORK_LOCALES)
                            and not {'bin', 'obj'} & set(d.relative_to(components).parts))
     if not resource_dirs:
         return ['framework: no component resource directory found; the enumeration is probably wrong']
@@ -81,7 +84,7 @@ def check_framework(repo):
         if package is None:
             errors.append(f'{name}: error code file is not inside a package (no *.csproj above it)')
             continue
-        for lang in project.LOCALES:
+        for lang in FRAMEWORK_LOCALES:
             resource = package / 'Resources' / f'{lang}.json'
             if resource not in package_texts:
                 package_texts[resource] = project.read_resource(resource, lang)[0] if resource.is_file() else None
@@ -93,10 +96,12 @@ def check_framework(repo):
                 errors.append(f'{name}: error code {code} has no resource entry in {shown}')
 
     host_dir = next(template_src.glob('*.Api/Resources'), None)
-    host_texts = project.compare_resource_pair('host', host_dir)[0] if host_dir else None
+    locales, problems = project.declared_locales(repo / 'template')
+    errors += problems
+    host_texts = project.compare_resources('host', host_dir, locales)[0] if host_dir and locales else None
     for directory in resource_dirs:
         label = f'framework {directory.parent.name}'
-        texts, problems = project.compare_resource_pair(label, directory)
+        texts, problems = project.compare_resources(label, directory, FRAMEWORK_LOCALES, label)
         errors += problems
         if texts is None:
             continue
@@ -107,7 +112,10 @@ def check_framework(repo):
 
 
 def check_english_tables(frontend):
-    en, _, errors = project.load_frontend_catalog(frontend)
+    locales, errors = project.declared_locales(frontend.parent)
+    if errors:
+        return []  # 清单问题由分发脚本报告，这里不重复
+    en, _, errors = project.load_frontend_catalog(frontend, locales)
     if errors:
         return []  # 词条本身的问题由分发脚本报告，这里不重复
     errors = []
@@ -174,9 +182,9 @@ def self_test():
     def host_copies(key):
         def apply(root):
             edit(host_en, '"User:NotFound"', f'"{key}": "x",\n    "User:NotFound"')(root)
-            edit(host_zh, '"User:NotFound"', f'"{key}": "x", "User:NotFound"')(root)
-            for lang in ('en', 'zh-CN'):
-                edit(f'{component}/Resources/{lang}.json', '"texts": {', f'"texts": {{"{key}": "y", ')(root)
+            edit(host_zh, '"User:NotFound"', f'"{key}": "甲", "User:NotFound"')(root)
+            for lang, text in (('en', 'y'), ('zh-CN', '乙')):
+                edit(f'{component}/Resources/{lang}.json', '"texts": {', f'"texts": {{"{key}": "{text}", ')(root)
         return apply
 
     valid = [
@@ -200,7 +208,10 @@ def self_test():
         ('host entry does not count', lambda root: [write(f'{component}/Errors/SettingFailureCodes.cs', 'public static class SettingFailureCodes { public const string Locked = "Setting:Locked"; }')(root), edit(host_en, '"User:NotFound"', '"Setting:Locked": "x",\n    "User:NotFound"')(root), edit(host_zh, '"User:NotFound"', '"Setting:Locked": "x", "User:NotFound"')(root)], 'error code Setting:Locked has no resource entry'),
         ('English value', edit(page, "'Users'", "'Wrong'"), 'English table differs for users.title'),
         ('English coverage', edit(page, "  'title': 'Users',\n", ''), 'English table missing title'),
-        ('validation table coverage', lambda root: [write(f'template/frontend/public/i18n/{lang}.json', json.dumps({'validation': {'required': 'Required', 'email': 'Invalid email'}, 'common': {'save': 'Save'}}))(root) for lang in project.LOCALES], 'validation table missing validation.email'),
+        ('validation table coverage', lambda root: [write(f'template/frontend/public/i18n/{lang}.json', json.dumps(texts))(root) for lang, texts in (
+            ('en', {'validation': {'required': 'Required', 'email': 'Invalid email'}, 'common': {'save': 'Save'}}),
+            ('zh-CN', {'validation': {'required': '必填', 'email': '邮箱格式不正确'}, 'common': {'save': '保存'}}))],
+         'validation table missing validation.email'),
         ('validation table', write('template/frontend/src/util.ts', ''), 'missing ENGLISH_VALIDATION table'),
     ]
     failures = []

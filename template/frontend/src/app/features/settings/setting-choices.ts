@@ -1,12 +1,16 @@
 //#if (IncludeLocalization)
 import { LANG_OPTIONS } from '../../core/services/language-service';
 //#endif
+import { THEME_MODES } from '../../core/services/theme-service';
 import { SETTINGS } from '../../core/settings/setting.constants';
 
 /** 一个可选值及其展示文案。 */
 export interface SettingChoice {
   value: string;
+  /** 不随界面语言变化的文案；给了 {@link labelKey} 时不用。 */
   label: string;
+  /** 随界面语言变化的文案取这个词条。 */
+  labelKey?: string;
 }
 
 /**
@@ -42,6 +46,12 @@ export const SETTING_CHOICES: Readonly<Record<string, readonly SettingChoice[]>>
   // 文案用语言自身的本地名，因此不随界面语言变化，也不需要词条。
   [SETTINGS.display.language]: LANG_OPTIONS.map((o) => ({ value: o.id, label: o.label })),
   //#endif
+  // 与页头的主题切换同一组词条，两处写法一致
+  [SETTINGS.display.theme]: THEME_MODES.map((mode) => ({
+    value: mode,
+    label: mode,
+    labelKey: `theme.mode.${mode}`,
+  })),
   [SETTINGS.logging.minimumLevel]: LOG_LEVEL_CHOICES,
   [SETTINGS.logging.requestLevel]: LOG_LEVEL_CHOICES,
 };

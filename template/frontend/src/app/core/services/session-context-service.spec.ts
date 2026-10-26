@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { firstValueFrom, of, Subject } from 'rxjs';
 
 import { AuthService } from './auth-service';
 import { AuthorizationService } from './authorization-service';
@@ -8,6 +9,8 @@ import { AuthorizationService } from './authorization-service';
 import { LanguageService } from './language-service';
 //#endif
 import { SessionContextService } from './session-context-service';
+import { ThemeService } from './theme-service';
+import { UserOutputDto } from '../../shared/dtos/auth.dto';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../i18n/transloco.testing';
 //#endif
@@ -26,6 +29,24 @@ function timeZoneSetting(userValue: string | null): SettingOutputDto {
     tenantValue: null,
     defaultValue: 'Asia/Shanghai',
     allowsTenantScope: true,
+    allowsUserScope: true,
+    allowsHostScope: false,
+    minimum: null,
+    maximum: null,
+    canManage: false,
+  };
+}
+
+function themeSetting(userValue: string | null): SettingOutputDto {
+  return {
+    name: 'Display.Theme',
+    displayName: '外观',
+    group: 'Display',
+    groupDisplayName: '显示',
+    userValue,
+    tenantValue: null,
+    defaultValue: 'system',
+    allowsTenantScope: false,
     allowsUserScope: true,
     allowsHostScope: false,
     minimum: null,
@@ -58,7 +79,10 @@ function languageSetting(userValue: string | null): SettingOutputDto {
 describe('SessionContextService', () => {
   let service: SessionContextService;
   let settingContext: SettingContextService;
-  let authService: Pick<MockedObject<AuthService>, 'clearAuthData'>;
+  let authService: Pick<
+    MockedObject<AuthService>,
+    'clearAuthData' | 'isAuthenticated' | 'fetchUser' | 'setCurrentUser' | 'revision'
+  >;
   let http: HttpTestingController;
 
   beforeEach(() => {
@@ -66,8 +90,19 @@ describe('SessionContextService', () => {
     // 显式定住本设备语言，否则初始语言跟随运行测试那台机器的系统语言。
     localStorage.setItem(LanguageService.STORAGE_KEY, 'en');
     //#endif
+    // 写入序号与真实服务一致：写入或清空当前用户都加一
+    let userRevision = 0;
     authService = {
-      clearAuthData: vi.fn().mockName('AuthService.clearAuthData'),
+      clearAuthData: vi.fn(() => void userRevision++).mockName('AuthService.clearAuthData'),
+      isAuthenticated: vi.fn().mockName('AuthService.isAuthenticated').mockReturnValue(true),
+      fetchUser: vi
+        .fn()
+        .mockName('AuthService.fetchUser')
+        .mockReturnValue(of({ username: 'admin' } as UserOutputDto)),
+      setCurrentUser: vi.fn(() => void userRevision++).mockName('AuthService.setCurrentUser'),
+      get revision() {
+        return userRevision;
+      },
     };
     TestBed.configureTestingModule({
       //#if (IncludeLocalization)
@@ -96,6 +131,8 @@ describe('SessionContextService', () => {
 
   afterEach(() => {
     http.verify();
+    localStorage.removeItem(ThemeService.STORAGE_KEY);
+    document.documentElement.classList.remove('dark');
     //#if (IncludeLocalization)
     localStorage.removeItem(LanguageService.STORAGE_KEY);
     //#endif
@@ -140,6 +177,42 @@ describe('SessionContextService', () => {
     await second;
 
     expect(settingContext.timeZone()).toBeUndefined();
+  });
+
+  // 外观同样从设置派生：断言生效模式真的换了，而不只是快照里有值
+  it('applies the account appearance from settings', async () => {
+    const theme = TestBed.inject(ThemeService);
+    expect(theme.mode()).toBe('system');
+
+    const establish = service.establish();
+    await flushEstablish([themeSetting('dark')]);
+    await establish;
+
+    expect(theme.mode()).toBe('dark');
+  });
+
+  // 外观不含个人信息：主体离开后留着最近一次值，登录页与下次首帧不闪回另一种主题
+  it('keeps the last appearance when the subject leaves', async () => {
+    const theme = TestBed.inject(ThemeService);
+    const establish = service.establish();
+    await flushEstablish([themeSetting('dark')]);
+    await establish;
+
+    service.clear();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(theme.mode()).toBe('dark');
+  });
+
+  it('does not apply an appearance that answers after the subject leaves', async () => {
+    const theme = TestBed.inject(ThemeService);
+
+    const refresh = service.refreshSettings();
+    service.clear();
+    http.expectOne('/api/v1/settings').flush([themeSetting('dark')]);
+    await refresh;
+
+    expect(theme.mode()).toBe('system');
   });
 
   //#if (IncludeLocalization)
@@ -278,5 +351,116 @@ describe('SessionContextService', () => {
     expect(authService.clearAuthData).toHaveBeenCalled();
     expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
     expect(settingContext.timeZone()).toBeUndefined();
+  });
+
+  describe('when the tab becomes visible', () => {
+    const becomeVisible = () => document.dispatchEvent(new Event('visibilitychange'));
+    const permissionsOf = (...permissions: string[]) => ({
+      permissions,
+      isSuperAdmin: false,
+      versionToken: permissions.join(','),
+    });
+
+    // 别处改了权限、偏好或已经退出：页签回到前台时三份状态都要重查
+    it('re-reads the current user, permissions and settings', async () => {
+      becomeVisible();
+      http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
+      http.expectOne('/api/v1/settings').flush([timeZoneSetting('Asia/Tokyo')]);
+      await vi.waitFor(() => expect(settingContext.timeZone()).toBe('Asia/Tokyo'));
+
+      expect(authService.fetchUser).toHaveBeenCalledOnce();
+      expect(authService.setCurrentUser).toHaveBeenCalledWith({ username: 'admin' });
+      expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
+    });
+
+    it('does nothing without a signed-in subject', () => {
+      authService.isAuthenticated.mockReturnValue(false);
+
+      becomeVisible();
+
+      http.expectNone('/api/v1/settings');
+      expect(authService.fetchUser).not.toHaveBeenCalled();
+    });
+
+    // 页签来回切换：在途时不重复发
+    it('does not start a second round while one is in flight', () => {
+      becomeVisible();
+      becomeVisible();
+
+      const permissions = http.match('/api/v1/permissions/current');
+      const settings = http.match('/api/v1/settings');
+      expect(permissions).toHaveLength(1);
+      expect(settings).toHaveLength(1);
+      expect(authService.fetchUser).toHaveBeenCalledOnce();
+      permissions.forEach((request) => request.flush(permissionsOf()));
+      settings.forEach((request) => request.flush([]));
+    });
+
+    // 后台动作，用户没有发起任何操作：失败不提示，也不把现有权限清掉
+    it('keeps the current permissions when the re-read fails', async () => {
+      TestBed.inject(AuthorizationService).setPermissions(permissionsOf('Users.Read'));
+
+      becomeVisible();
+      http
+        .expectOne('/api/v1/permissions/current')
+        .flush('boom', { status: 500, statusText: 'Server Error' });
+      http.expectOne('/api/v1/settings').flush('boom', { status: 500, statusText: 'Server Error' });
+      await service.revalidate();
+
+      expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
+    });
+
+    // 重查途中主体离开：晚到的结果属于上一个人，不能把权限和用户写回去
+    it('does not apply results that answer after the subject leaves', async () => {
+      const user = new Subject<UserOutputDto>();
+      authService.fetchUser.mockReturnValue(user);
+
+      becomeVisible();
+      service.clear();
+      user.next({ username: 'admin' } as UserOutputDto);
+      user.complete();
+      http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
+      http.expectOne('/api/v1/settings').flush([timeZoneSetting('Asia/Tokyo')]);
+      await service.revalidate();
+      await new Promise((resolve) => setTimeout(resolve));
+
+      expect(authService.setCurrentUser).not.toHaveBeenCalled();
+      expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
+      expect(settingContext.timeZone()).toBeUndefined();
+    });
+
+    // 重查途中本人保存了资料：迟到的旧 /me 不能把新资料盖回去
+    it('keeps a profile saved while the re-read was in flight', async () => {
+      const user = new Subject<UserOutputDto>();
+      authService.fetchUser.mockReturnValue(user);
+
+      becomeVisible();
+      authService.setCurrentUser({ username: 'saved' } as UserOutputDto);
+      user.next({ username: 'before-save' } as UserOutputDto);
+      user.complete();
+      http.expectOne('/api/v1/permissions/current').flush(permissionsOf());
+      http.expectOne('/api/v1/settings').flush([]);
+      await service.revalidate();
+
+      expect(authService.setCurrentUser).toHaveBeenCalledOnce();
+      expect(authService.setCurrentUser).toHaveBeenLastCalledWith({ username: 'saved' });
+    });
+
+    // 重查途中显式刷新了权限：迟到的旧权限不能让已撤销的入口重新出现
+    it('keeps permissions reloaded while the re-read was in flight', async () => {
+      const authorization = TestBed.inject(AuthorizationService);
+
+      becomeVisible();
+      const reload = firstValueFrom(authorization.reload());
+      const [background, explicit] = http.match('/api/v1/permissions/current');
+      explicit.flush(permissionsOf('Roles.Read'));
+      await reload;
+      background.flush(permissionsOf('Users.Read'));
+      http.expectOne('/api/v1/settings').flush([]);
+      await service.revalidate();
+
+      expect(authorization.has('Roles.Read')).toBe(true);
+      expect(authorization.has('Users.Read')).toBe(false);
+    });
   });
 });

@@ -43,6 +43,12 @@ export class AuthService {
 
   private readonly _currentUser = signal<User | null>(null);
   public readonly currentUser = this._currentUser.asReadonly();
+  private _revision = 0;
+
+  /** 当前用户每写入或清空一次加一：后台读取据此判断发出之后是否已有更新的写入（见 `SessionContextService.revalidate`）。 */
+  get revision(): number {
+    return this._revision;
+  }
 
   isAuthenticated(): boolean {
     return this._currentUser() !== null;
@@ -62,16 +68,20 @@ export class AuthService {
   }
 
   loadUser(): Observable<UserOutputDto> {
+    return this.fetchUser().pipe(tap((user) => this.setCurrentUser(user)));
+  }
+
+  /** 只取不应用：调用方确认主体没变之后再 {@link setCurrentUser}（见 `SessionContextService.revalidate`）。 */
+  fetchUser(): Observable<UserOutputDto> {
     // 标记为静默认证：/me 探测的 401 由 Guard（负责 returnUrl）与登录流各自本地处理，
     // 不触发 HTTP 拦截器的全局跳转，避免启动阶段覆盖 Guard 的 returnUrl。
-    return this.http
-      .get<UserOutputDto>('/api/v1/auth/me', {
-        context: new HttpContext().set(SILENT_AUTH, true),
-      })
-      .pipe(tap((user) => this.setCurrentUser(user)));
+    return this.http.get<UserOutputDto>('/api/v1/auth/me', {
+      context: new HttpContext().set(SILENT_AUTH, true),
+    });
   }
 
   setCurrentUser(user: UserOutputDto): void {
+    this._revision++;
     this._currentUser.set(new User(user));
     //#if (RemoteTokenAuth)
     //#if (IncludeMultiTenancy)
@@ -85,6 +95,7 @@ export class AuthService {
    * `logout()` 之后整页跳转，不必再走一遍。
    */
   clearAuthData(): void {
+    this._revision++;
     this._currentUser.set(null);
     //#if (RemoteTokenAuth)
     //#if (IncludeMultiTenancy)

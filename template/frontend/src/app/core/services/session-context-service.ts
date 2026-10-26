@@ -1,21 +1,26 @@
-import { Injectable, inject } from '@angular/core';
+import { DOCUMENT, isPlatformBrowser } from '@angular/common';
+import { DestroyRef, Injectable, PLATFORM_ID, inject } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 
 import { AuthService } from './auth-service';
 import { AuthorizationService } from './authorization-service';
 //#if (IncludeLocalization)
 import { SUPPORTED_LANGS, Lang, LanguageService } from './language-service';
 //#endif
+import { ThemeService } from './theme-service';
 import { SettingContextService } from '../settings/setting-context-service';
-//#if (IncludeLocalization)
 import { SETTINGS } from '../settings/setting.constants';
-//#endif
 import { SettingOutputDto } from '../settings/setting.dto';
 
 /**
  * 认证会话上下文：主体确立与离开的唯一入口。当前用户、权限、设置三份状态跟着主体一起建立、
- * 一起清空；已应用出去的设置（如语言）不在快照里，须显式退回（见 {@link clearSettings}）。
+ * 一起清空；已应用出去的设置（如语言）不在快照里，须显式退回（见 {@link clearSettings}）。外观例外：
+ * 它不含个人信息，主体离开后保留最近一次值，作为登录页与下次首帧的主题（见 {@link ThemeService}）。
  * 主体的建立与离开一律走 {@link establish} 与 {@link clear}，设置刷新走 {@link refreshSettings}，
  * 不单独调下层的 load/clear。
+ *
+ * 页签回到前台时重查一遍（见 {@link revalidate}）：别处改了权限或偏好、或者已经退出，打开着的页签
+ * 否则要等下一次操作撞上才知道。
  */
 @Injectable({ providedIn: 'root' })
 export class SessionContextService {
@@ -25,8 +30,28 @@ export class SessionContextService {
   //#if (IncludeLocalization)
   private readonly languageService = inject(LanguageService);
   //#endif
+  private readonly themeService = inject(ThemeService);
   /** 每次刷新与清理都换一代：只有最新一次刷新能应用派生状态，晚到的旧刷新与主体离开前发出的刷新一律作废。 */
   private generation = 0;
+  /** 在途的重查：页签反复切换时不重复发请求。 */
+  private revalidating: Promise<void> | undefined;
+
+  constructor() {
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+      return;
+    }
+
+    const document = inject(DOCUMENT);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void this.revalidate();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    inject(DestroyRef).onDestroy(() =>
+      document.removeEventListener('visibilitychange', onVisibilityChange),
+    );
+  }
 
   /**
    * 主体确立后建立会话上下文：权限与设置就位，并应用由设置派生的界面状态。
@@ -55,12 +80,45 @@ export class SessionContextService {
     if (generation !== this.generation) {
       return settings;
     }
+
+    this.themeService.applyAccountMode(this.settingContext.valueOf(SETTINGS.display.theme));
     //#if (IncludeLocalization)
     // 等账户语言的词条到达再返回：启动流结束外壳才渲染，这样首帧就是账户语言且带着词条——
     // 不等的话外壳先空白一下，渲染后立即发出的一次性提示（如退出模拟）还会取到裸键。
     await this.applyLanguageSetting();
     //#endif
     return settings;
+  }
+
+  /**
+   * 重查当前用户、权限与设置，只在已登录时进行。设置请求不是静默的：会话已失效（401）时由 HTTP 拦截器
+   * 清理并转去登录；其余失败保持现有状态、不提示，这是后台动作，用户没有发起任何操作。
+   */
+  revalidate(): Promise<void> {
+    if (this.revalidating || !this.authService.isAuthenticated()) {
+      return this.revalidating ?? Promise.resolve();
+    }
+
+    // 只在发出之后没有更新的写入时才应用：期间保存了资料、刷新了权限或主体离开，后台读到的都是旧值
+    const userRevision = this.authService.revision;
+    const permissionRevision = this.authorizationService.revision;
+    this.revalidating = Promise.allSettled([
+      firstValueFrom(this.authService.fetchUser()).then((user) => {
+        if (this.authService.revision === userRevision) {
+          this.authService.setCurrentUser(user);
+        }
+      }),
+      firstValueFrom(this.authorizationService.fetch()).then((permissions) => {
+        if (this.authorizationService.revision === permissionRevision) {
+          this.authorizationService.setPermissions(permissions);
+        }
+      }),
+      // 自带代次：主体离开后才返回的快照不会应用
+      this.refreshSettings(),
+    ]).then(() => {
+      this.revalidating = undefined;
+    });
+    return this.revalidating;
   }
 
   /** 主体离开：认证数据、权限、设置一起清掉。`logout()` 例外：之后整页跳转，内存状态随页面重建。 */

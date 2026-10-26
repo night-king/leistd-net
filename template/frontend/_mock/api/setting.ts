@@ -1,4 +1,8 @@
 import { hasPermission, requirePermission } from './authorization';
+//#if (IncludeLocalization)
+import { SUPPORTED_LANGS } from '../../src/app/core/services/language-service';
+//#endif
+import { THEME_MODES, ThemeMode } from '../../src/app/core/services/theme-service';
 //#if (ExternalLogin)
 import { ExternalLoginStatusOutputDto } from '../../src/app/core/settings/setting.dto';
 //#endif
@@ -28,8 +32,6 @@ import {
 import { StoredMap } from '../utils/stored-map';
 
 //#if (IncludeLocalization)
-const SUPPORTED_LANGUAGES = ['en', 'zh-CN'];
-
 /**
  * 显示名按请求语言给出，与真实后端一致：后端按 Accept-Language 查 `Setting:{name}` /
  * `SettingGroup:{group}` 词条，切换语言后设置页会重新取一次。请求头不是受支持语言时用英文。
@@ -178,7 +180,7 @@ function assertValidValue(definition: MockSettingDefinition, value: string | nul
   }
 
   //#if (IncludeLocalization)
-  if (name === 'Display.Language' && !SUPPORTED_LANGUAGES.includes(value)) {
+  if (name === 'Display.Language' && !(SUPPORTED_LANGS as readonly string[]).includes(value)) {
     throw new MockException(400, {
       code: 'Setting:ValueNotAllowed',
       message: `'${value}' is not a supported language.`,
@@ -186,6 +188,13 @@ function assertValidValue(definition: MockSettingDefinition, value: string | nul
   }
 
   //#endif
+  if (name === 'Display.Theme' && !THEME_MODES.includes(value as ThemeMode)) {
+    throw new MockException(400, {
+      code: 'Setting:ValueNotAllowed',
+      message: `'${value}' is not a supported appearance.`,
+    });
+  }
+
   if (name === 'Display.TimeZone') {
     try {
       // 与后端的 HasIanaId 判定对齐：Windows 时区 ID 后端认、浏览器不认，两端都要拒。

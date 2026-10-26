@@ -21,8 +21,8 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// 存键会让界面直接显示 <c>Setting:Display.Language</c> 这样的内部标识。
 /// 本地化项目按 <c>Setting:{name}</c> 查词条翻译，查不到才回落到这里的文案——
 /// 键由名称推导，不必在定义里再抄一遍。</para>
-/// <para>设置页的面板顺序取接口里各分组首次出现的先后，接口按这里的定义顺序返回。显示（语言与时区）在最前：
-/// 它同时是个人偏好的第一段；系统设置其余各段按管理员的使用频率排：注册、登录与会话、外部登录、邮件发送，
+/// <para>设置页的面板顺序取接口里各分组首次出现的先后，接口按这里的定义顺序返回。显示（语言、时区、外观）在最前：
+/// 它同时是个人偏好的第一段，组内先放影响能否读懂的语言，再放影响数据解读的时区，最后是外观；系统设置其余各段按管理员的使用频率排：注册、登录与会话、外部登录、邮件发送，
 /// 运维与数据保留在最后。</para>
 /// </remarks>
 /// <para>值域（布尔、整数区间、候选值）声明在定义上：设置组件在写入端据此校验，设置页据此渲染控件。
@@ -72,6 +72,16 @@ public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayD
             scopes: SettingScopes.All,
             displayName: "Time zone",
             group: SettingConstant.Groups.Display).IsVisibleToClients = true;
+
+        // 外观跟账户走，换设备也是同一主题；默认跟随系统，按设备亮暗实时切换。
+        context.Add(
+            SettingConstant.Display.Theme,
+            defaultValue: "system",
+            scopes: SettingScopes.User,
+            displayName: "Appearance",
+            group: SettingConstant.Groups.Display)
+            .WithAllowedValues(SettingConstant.Display.ThemeModes)
+            .IsVisibleToClients = true;
 
 #if (LocalIdentity)
 

@@ -46,7 +46,16 @@ ACTIONS_SOURCE = _single(
     os.path.join('backend', 'src', '*.Application', 'OperationRecords', 'Provider',
                  'OperationRecordActions.cs'), '动作码定义')
 I18N_DIR = os.path.join(ROOT, 'frontend', 'public', 'i18n')
-LOCALES = ('en', 'zh-CN')
+LANGUAGE_SERVICE = os.path.join(ROOT, 'frontend', 'src', 'app', 'core', 'services', 'language-service.ts')
+
+
+def declared_locales():
+    """前端 `LANG_OPTIONS` 里的语言；它与后端清单是否一致由 check-i18n.py 检查。不启用多语言时没有这个文件。"""
+    if not os.path.isfile(LANGUAGE_SERVICE):
+        return ()
+    with open(LANGUAGE_SERVICE, encoding='utf-8') as handle:
+        found = re.search(r'export const LANG_OPTIONS\s*=\s*\[(.*?)\]\s*as const', handle.read(), re.S)
+    return tuple(re.findall(r"\bid:\s*'([^']+)'", found[1])) if found else ()
 
 # 不启用多语言的场景没有词条文件（template.json 在 !IncludeLocalization 时整个排除
 # public/i18n/**），句子只能内联在组件里。于是同一批英文句子有了**两个事实源**，
@@ -295,7 +304,11 @@ def main():
         return self_test()
 
     require_inline = IS_TEMPLATE_SOURCE or not os.path.isdir(I18N_DIR)
-    problems = check(ACTIONS_SOURCE, I18N_DIR, LOCALES, TABLE_SOURCE, require_inline)
+    locales = declared_locales()
+    if os.path.isdir(I18N_DIR) and not locales:
+        print(f'❌ 找不到语言清单：{LANGUAGE_SERVICE} 的 LANG_OPTIONS')
+        return 1
+    problems = check(ACTIONS_SOURCE, I18N_DIR, locales, TABLE_SOURCE, require_inline)
     if problems:
         print(f'❌ 动作码句子模板检查失败（共 {len(problems)} 项）：')
         for problem in sorted(problems):
@@ -310,9 +323,9 @@ def main():
     if not os.path.isdir(I18N_DIR):
         scope = '仅内联英文句子表：本项目未启用多语言'
     elif require_inline:
-        scope = f'{len(LOCALES)} 种语言，并与内联英文句子表一一对应'
+        scope = f'{len(locales)} 种语言，并与内联英文句子表一一对应'
     else:
-        scope = f'{len(LOCALES)} 种语言'
+        scope = f'{len(locales)} 种语言'
     print(f'✅ 动作码句子模板检查通过（{len(codes)} 个动作码 × {scope}）。')
     return 0
 

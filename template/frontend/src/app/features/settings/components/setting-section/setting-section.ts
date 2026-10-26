@@ -1,7 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 //#if (IncludeLocalization)
-import { TranslocoDirective } from '@jsverse/transloco';
+import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideCircleCheck, lucideCircleX, lucideRotateCcw } from '@ng-icons/lucide';
@@ -16,7 +16,6 @@ import { HlmSwitchImports } from '@spartan-ng/helm/switch';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { firstValueFrom } from 'rxjs';
 
-import { AppearanceSetting } from './widgets/appearance-setting/appearance-setting';
 //#if (Email)
 import { EmailTest } from './widgets/email-test/email-test';
 //#endif
@@ -122,7 +121,6 @@ export const SAVING_MIN_MS = 400;
     ...HlmSwitchImports,
     ...HlmTooltipImports,
     TranslocoDirective,
-    AppearanceSetting,
     ComboboxRevealSelected,
     InfoHint,
     //#if (Email)
@@ -145,7 +143,6 @@ export const SAVING_MIN_MS = 400;
     ...HlmSelectImports,
     ...HlmSwitchImports,
     ...HlmTooltipImports,
-    AppearanceSetting,
     ComboboxRevealSelected,
     InfoHint,
     //#if (Email)
@@ -166,6 +163,7 @@ export class SettingSection {
   private readonly pageState = inject(SettingsPageState);
   //#if (IncludeLocalization)
   private readonly languageService = inject(LanguageService);
+  private readonly transloco = inject(TranslocoService);
   //#else
   protected readonly t = englishText(ENGLISH);
   //#endif
@@ -200,13 +198,6 @@ export class SettingSection {
   protected readonly settings = this.pageState.settings;
   protected readonly drafts = signal<Record<string, string>>({});
   private readonly labelFns = new Map<string, (value: unknown) => string>();
-
-  /**
-   * 个人偏好的"显示"分组顶部给外观：外观存在本设备、不是账户设置，但用户在设置页里找偏好时应当找得到它，
-   * 页头的切换只是快捷入口。
-   */
-  protected readonly showAppearanceIn = (group: { key: string }) =>
-    this.scope() === 'account' && !this.group() && group.key === 'Display';
 
   /** 发信参数的面板底部给"发送测试邮件"：改完参数最想确认的就是能否收到。 */
   protected readonly showEmailTest = computed(
@@ -378,15 +369,37 @@ export class SettingSection {
 
   /** 候选项的展示文案；没有匹配项时退回原始值。 */
   protected labelOf(setting: SettingOutputDto, value: string): string {
-    return this.choicesOf(setting)?.find((c) => c.value === value)?.label ?? value;
+    const choice = this.choicesOf(setting)?.find((c) => c.value === value);
+    return choice ? this.choiceLabelOf(choice) : value;
   }
 
-  /** 下拉的取名函数按设置名缓存：每轮新建闭包会让 `itemToString` 输入变化，触发反复重算。 */
+  /** 一个候选项的文案：带词条的按当前语言翻译。 */
+  protected choiceLabelOf(choice: SettingChoice): string {
+    if (!choice.labelKey) {
+      return choice.label;
+    }
+
+    //#if (IncludeLocalization)
+    return this.transloco.translate(choice.labelKey);
+    //#else
+    return this.t(choice.labelKey);
+    //#endif
+  }
+
+  /**
+   * 下拉的取名函数按设置名（与界面语言）缓存：每轮新建闭包会让 `itemToString` 输入变化，触发反复重算；
+   * 换了语言则要换一个新函数，选中项的文字才会跟着变。
+   */
   protected labelFnOf(setting: SettingOutputDto): (value: unknown) => string {
-    let fn = this.labelFns.get(setting.name);
+    //#if (IncludeLocalization)
+    const key = `${this.languageService.activeLang()}:${setting.name}`;
+    //#else
+    const key = setting.name;
+    //#endif
+    let fn = this.labelFns.get(key);
     if (!fn) {
       fn = (value: unknown) => this.labelOf(setting, String(value ?? ''));
-      this.labelFns.set(setting.name, fn);
+      this.labelFns.set(key, fn);
     }
 
     return fn;
@@ -674,6 +687,9 @@ const ENGLISH: Record<string, string> = {
   'settings.saved': 'Saved',
   'settings.empty': 'No configurable items in this section',
   'settings.loadFailed': "Couldn't load settings",
+  'theme.mode.light': 'Light',
+  'theme.mode.system': 'System',
+  'theme.mode.dark': 'Dark',
   'common.retry': 'Retry',
   'settings.logLevelHints.Verbose':
     'Logs everything, including every SQL statement and request detail. For short troubleshooting only; left on, it fills the disk quickly.',

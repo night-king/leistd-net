@@ -222,6 +222,7 @@
     "Setting:Audit.RetentionDays": "操作记录保留天数",
     "Setting:Audit.RetentionEnabled": "到期操作记录搬入归档",
     "Setting:Display.Language": "界面语言",
+    "Setting:Display.Theme": "外观",
     "Setting:Display.TimeZone": "时区",
     "Setting:Email.DefaultFromAddress": "发件地址",
     "Setting:Email.DefaultFromName": "发件人名称",

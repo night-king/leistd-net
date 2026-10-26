@@ -20,24 +20,28 @@ import {
 } from '@jsverse/transloco';
 import { take } from 'rxjs';
 
-export const SUPPORTED_LANGS = ['en', 'zh-CN'] as const;
-export type Lang = (typeof SUPPORTED_LANGS)[number];
-
-export const DEFAULT_LANG: Lang = 'en';
-
 interface LangMeta {
-  id: Lang;
+  id: string;
   /** 该语言自身的本地名（下拉项文字），不依赖当前 culture。 */
   label: string;
-  /** 触发按钮上的短码（如 EN / 中）。 */
+  /** 触发按钮上的短码（如 EN / 中），显式写出，不从语言代码推导。 */
   short: string;
 }
 
-/** 语言选择器展示元数据。 */
-export const LANG_OPTIONS: LangMeta[] = [
+/**
+ * 前端支持的语言，本端唯一的一份：其余列表都由它推导。首项是默认与回落语言。
+ * 与后端 `SettingConstant.Display.SupportedLanguages` 须同集同序，`scripts/check-i18n.py` 核对两边。
+ */
+export const LANG_OPTIONS = [
   { id: 'en', label: 'English', short: 'EN' },
   { id: 'zh-CN', label: '中文', short: '中' },
-];
+] as const satisfies readonly LangMeta[];
+
+export type Lang = (typeof LANG_OPTIONS)[number]['id'];
+
+export const SUPPORTED_LANGS: readonly Lang[] = LANG_OPTIONS.map((option) => option.id);
+
+export const DEFAULT_LANG: Lang = LANG_OPTIONS[0].id;
 
 /**
  * 语言服务：管理活动语言并驱动 Transloco 文案。

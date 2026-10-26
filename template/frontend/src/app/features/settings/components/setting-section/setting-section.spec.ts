@@ -627,22 +627,6 @@ describe('SettingSection groups', () => {
 
     expect(sectionsOf(host)).toEqual(['Display', 'Operations']);
   });
-
-  // 外观是设备偏好：只出现在个人偏好面板（个人作用域、不指定分组）的"显示"分组顶部
-  it('shows appearance only at the top of the personal display group', async () => {
-    const appearanceGroup = (host: HTMLElement) =>
-      host
-        .querySelector('[data-testid="appearance-setting"]')
-        ?.closest<HTMLElement>('[data-testid="settings-group-section"]')?.dataset['group'];
-
-    expect(appearanceGroup(await render({}))).toBe('Display');
-  });
-
-  it('leaves appearance out of system settings and single-group panels', async () => {
-    expect(
-      (await render({ scope: 'system' })).querySelector('[data-testid="appearance-setting"]'),
-    ).toBeNull();
-  });
 });
 
 /**
@@ -1443,3 +1427,39 @@ describe('SettingSection language', () => {
   });
 });
 //#endif
+
+/** 外观：账户级的个人设置，与语言、时区同一套行与写入链。 */
+describe('SettingSection appearance', () => {
+  // 外观是普通的个人设置行：候选项文案取主题词条，未设置时占位写正在生效的"跟随系统"
+  it('renders appearance as a personal setting row with translated modes', async () => {
+    TestBed.configureTestingModule({ imports: [SettingSection], providers: [...pageProviders()] });
+    const fixture = TestBed.createComponent(SettingSection);
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne('/api/v1/settings').flush([
+      row({
+        name: 'Display.Theme',
+        group: 'Display',
+        groupDisplayName: '显示',
+        defaultValue: 'system',
+        allowsTenantScope: false,
+      }),
+    ]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const trigger = host.querySelector<HTMLElement>('[data-testid="setting-select-Display.Theme"]');
+    // 单测词条为空、文案回落成键名：断言到键，即证明走的是主题词条而不是原始取值
+    //#if (IncludeLocalization)
+    expect(trigger?.textContent?.trim()).toBe('theme.mode.system');
+    //#else
+    expect(trigger?.textContent?.trim()).toBe('System');
+    //#endif
+
+    fixture.componentRef.setInput('scope', 'system');
+    fixture.detectChanges();
+    expect(hasRow(host, 'Display.Theme')).toBe(false);
+    http.verify();
+  });
+});

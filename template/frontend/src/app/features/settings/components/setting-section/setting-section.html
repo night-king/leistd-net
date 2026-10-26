@@ -31,9 +31,6 @@
           />
         }
         <!--#endif-->
-        @if (showAppearanceIn(group)) {
-          <app-appearance-setting />
-        }
         @if (group.rows.length > 0) {
           <ng-container *ngTemplateOutlet="rowList; context: { $implicit: group.rows }" />
         }
@@ -240,7 +237,9 @@
             </hlm-select-trigger>
             <hlm-select-content *hlmSelectPortal>
               @for (choice of choices; track choice.value) {
-                <hlm-select-item [value]="choice.value">{{ choice.label }}</hlm-select-item>
+                <hlm-select-item [value]="choice.value">
+                  {{ choiceLabelOf(choice) }}
+                </hlm-select-item>
               }
             </hlm-select-content>
           </hlm-select>

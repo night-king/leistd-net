@@ -5,6 +5,7 @@ export const SETTINGS = {
     language: 'Display.Language',
     //#endif
     timeZone: 'Display.TimeZone',
+    theme: 'Display.Theme',
   },
   logging: {
     minimumLevel: 'Logging.MinimumLevel',

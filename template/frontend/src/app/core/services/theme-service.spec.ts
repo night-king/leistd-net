@@ -94,7 +94,7 @@ describe('ThemeService', () => {
       });
     const service = create();
 
-    service.toggleTheme();
+    service.transitionTo(service.nextMode());
 
     // 三态按 light → system → dark 循环，默认 system 的下一档是 dark
     expect(startViewTransition).not.toHaveBeenCalled();
@@ -111,9 +111,32 @@ describe('ThemeService', () => {
       });
     const service = create();
 
-    service.toggleTheme();
+    service.transitionTo(service.nextMode());
 
     expect(startViewTransition).toHaveBeenCalledTimes(1);
     expect(service.mode()).toBe('dark');
+  });
+
+  it('applies the account appearance and keeps it as the first-frame cache', () => {
+    const service = create();
+
+    service.applyAccountMode('dark');
+    TestBed.tick();
+
+    expect(service.mode()).toBe('dark');
+    // 首帧前 index.html 读这份缓存：账户值不写进去的话，下次打开会先闪一下旧主题
+    expect(JSON.parse(localStorage.getItem(ThemeService.STORAGE_KEY) ?? '{}')).toEqual({
+      mode: 'dark',
+    });
+  });
+
+  it('keeps the current mode when the account value is missing or unknown', () => {
+    const service = create();
+    service.setMode('light');
+
+    service.applyAccountMode(undefined);
+    service.applyAccountMode('sepia');
+
+    expect(service.mode()).toBe('light');
   });
 });

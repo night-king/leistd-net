@@ -115,7 +115,7 @@
   },
   "language": {
     "label": "语言",
-    "saveFailed": "本次已切换，但账户偏好未保存"
+    "saveFailed": "语言未保存，已保持原样"
   },
   "layout": {
     "sidebar": {
@@ -176,6 +176,7 @@
   "theme": {
     "toggle": "切换主题",
     "current": "主题：{{mode}}",
+    "saveFailed": "外观未保存，已保持原样",
     "mode": {
       "light": "浅色",
       "system": "跟随系统",

@@ -1,8 +1,4 @@
 {
-  "appearance": {
-    "label": "外观",
-    "hint": "只对本设备生效"
-  },
   "reset": "恢复默认",
   "empty": "此分组下没有可配置项",
   "loadFailed": "设置加载失败",
@@ -58,7 +54,7 @@
     },
     "preferences": {
       "title": "偏好",
-      "description": "语言、时区与外观。语言与时区只对你生效，留空即跟随组织设置；组织和部署都未设置时跟随系统"
+      "description": "语言、时区与外观，换设备也一样。语言与时区留空即跟随组织设置，组织和部署都未设置时跟随系统"
     }
   },
   "groupDescriptions": {
