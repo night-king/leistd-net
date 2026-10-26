@@ -11,7 +11,7 @@
 | 令牌签名与加密证书的轮换和泄露处置 | [令牌证书轮换](../operations/runbooks/token-certificate-rotation.md) |
 <!--#endif-->
 | 换 PostgreSQL、Redis 主版本 | [大版本升级](../operations/runbooks/postgres-redis-major-upgrade.md) |
-| 发布后把新权限授给已有角色 | [升级后新增的权限](../operations/runbooks/grant-new-permissions.md) |
+| 发布后新权限怎样到达已有角色 | [升级后新增的权限](../operations/runbooks/grant-new-permissions.md) |
 <!--#if (RemoteTokenAuth || (LocalIdentity && IncludeMultiTenancy))-->
 | 管理员把自己锁在门外 | [管理员恢复](../operations/runbooks/admin-recovery.md) |
 <!--#endif-->

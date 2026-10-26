@@ -3,6 +3,9 @@ using CompanyName.ProjectName.DbMigrator.Runners;
 #if (RemoteTokenAuth || LocalIdentity)
 using Leistd.DependencyInjection.DynamicProxy.Registration;
 #endif
+#if (IncludeMultiTenancy)
+using Microsoft.Extensions.Configuration;
+#endif
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -170,6 +173,8 @@ if (restoreTenant.HasValue)
 else
 #endif
 {
+    // 迁移后的 Admin 补齐同样走正式写入路径
+    builder.ConfigureContainer(containerFactory);
     builder.Services.AddMigratorServices(builder.Configuration, builder.Environment);
 }
 
@@ -222,10 +227,30 @@ try
 
     WriteReport(report, apply);
 #if (IncludeMultiTenancy)
-    return report.Succeeded ? 0 : 1;
-#else
-    return 0;
+    if (!report.Succeeded)
+    {
+        Console.WriteLine("Admin permission top-up skipped: fix the failed targets above and run again.");
+        return 1;
+    }
+
+    // 单库模式只为还没登记的租户建表，库里还没有角色
+    if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("MigrationTarget")))
+    {
+        return 0;
+    }
 #endif
+    // 预演时有待执行的迁移：授权表可能还不存在或结构未更新，补齐在施加之后才能算准
+    if (!apply && report.Plans.Any(plan => plan.PendingMigrations.Count > 0))
+    {
+        Console.WriteLine("Admin permission top-up is checked after the pending migrations are applied.");
+        return 0;
+    }
+
+    var topUp = await scope.ServiceProvider
+        .GetRequiredService<AdminGrantTopUpRunner>()
+        .RunAsync(apply);
+    WriteTopUpReport(topUp, apply);
+    return topUp.Succeeded ? 0 : 1;
 }
 catch (OperationCanceledException)
 {
@@ -273,6 +298,29 @@ static void WriteUsage()
     Console.WriteLine("  --restore-tenant-admin <tenant-id>  Preview restoring the tenant's original administrator account,");
     Console.WriteLine("                 its Admin membership and the shared Admin role's missing permissions; add --apply to persist.");
 #endif
+}
+
+static void WriteTopUpReport(AdminGrantTopUpRunner.TopUpReport report, bool apply)
+{
+    Console.WriteLine(apply ? "=== Admin permissions topped up ===" : "=== Dry run: Admin permissions to top up ===");
+    foreach (var failure in report.Failures)
+    {
+        Console.WriteLine($"  FAILED {Scope(failure.TenantId)}: {failure.Reason}");
+    }
+
+    var gaps = report.Admins.Where(admin => admin.Permissions.Count > 0).ToList();
+    if (gaps.Count == 0)
+    {
+        Console.WriteLine($"All {report.Admins.Count} Admin role(s) already hold every available permission.");
+        return;
+    }
+
+    foreach (var admin in gaps)
+    {
+        Console.WriteLine($"  {Scope(admin.TenantId)}: {(apply ? "granted" : "would grant")} {admin.Permissions.Count}: {string.Join(", ", admin.Permissions)}");
+    }
+
+    static string Scope(Guid? tenantId) => tenantId is { } id ? $"tenant {id}" : "host";
 }
 
 static void WriteReport(DatabaseMigrationRunner.MigrationReport report, bool apply)

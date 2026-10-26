@@ -41,14 +41,26 @@ public static class DependencyInjection
         IConfiguration configuration,
         IHostEnvironment environment)
     {
-        // 只注册持久化：迁移目标枚举（ITenantMigrationTargetProvider）随租户连接解析一起注册。
+        // 持久化：迁移目标枚举（ITenantMigrationTargetProvider）随租户连接解析一起注册。
         // 运行期组件依赖只在 API 里注册的当前用户与权限主体，这里用不上
+        services.AddAmbientContext();
+        services.AddCorrelationIdCore();
         services.AddPersistenceServices(configuration);
 #if (LocalIdentity && IncludeMultiTenancy)
         // 独立库连接串在控制库里加密存储：必须与 API 共享同一密钥环，否则解不开、迁移作业整体停下
         services.AddMyProjectDataProtection(configuration, environment);
 #endif
+        // 迁移后的 Admin 补齐：授权与操作记录的存储（权限与动作定义依赖它们）、应用层的权限定义
+        services.AddPermissionAuthorizationEfCore<MyProjectDbContext>();
+#if (IncludeOperationRecords)
+        services.AddOperationRecordsEfCore<MyProjectDbContext>();
+#else
+        services.AddOperationRecordsLogging();
+        services.AddLogging(logging => logging.AddFilter("Leistd.OperationRecords", LogLevel.Information));
+#endif
+        services.AddApplicationDefinitions();
         services.AddScoped<DatabaseMigrationRunner>();
+        services.AddScoped<AdminGrantTopUpRunner>();
         return services;
     }
 #if (RemoteTokenAuth)
