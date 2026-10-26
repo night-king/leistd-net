@@ -480,6 +480,7 @@
             "backend/src/CompanyName.ProjectName.Application/Users/Dtos/ResetUserTwoFactorInputDto.cs",
             "backend/src/CompanyName.ProjectName.DbMigrator/Runners/TwoFactorResetRunner.cs",
             "backend/tests/CompanyName.ProjectName.IntegrationTests/TwoFactorResetCommandTests.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/AdminGrantTopUpTests.cs",
             "backend/src/CompanyName.ProjectName.Application/Users/Dtos/CreateUserInputDto.cs",
             "backend/src/CompanyName.ProjectName.Application/Users/Dtos/UpdateUserInputDto.cs",
             "backend/src/CompanyName.ProjectName.Application/Users/Validators/UserSortingValidator.cs",

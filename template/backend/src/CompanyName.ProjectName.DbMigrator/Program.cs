@@ -3,9 +3,7 @@ using CompanyName.ProjectName.DbMigrator.Runners;
 #if (RemoteTokenAuth || LocalIdentity)
 using Leistd.DependencyInjection.DynamicProxy.Registration;
 #endif
-#if (IncludeMultiTenancy)
 using Microsoft.Extensions.Configuration;
-#endif
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -232,13 +230,13 @@ try
         Console.WriteLine("Admin permission top-up skipped: fix the failed targets above and run again.");
         return 1;
     }
-
-    // 单库模式只为还没登记的租户建表，库里还没有角色
+#endif
+    // 单库模式（MigrationTarget）只为一个库建表，不枚举其他库，也不补齐
     if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("MigrationTarget")))
     {
         return 0;
     }
-#endif
+
     // 预演时有待执行的迁移：授权表可能还不存在或结构未更新，补齐在施加之后才能算准
     if (!apply && report.Plans.Any(plan => plan.PendingMigrations.Count > 0))
     {

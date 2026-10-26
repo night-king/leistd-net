@@ -139,7 +139,7 @@ ConnectionStrings__MigrationTarget='<migration connection string>' \
   dotnet run --project src/CompanyName.ProjectName.DbMigrator -- --apply
 ```
 
-`MigrationTarget` 模式只迁移该服务的业务 schema，不迁移 Identity Control schema，也不枚举已登记租户。它用于打破“先登记租户才能枚举目标、但租户初始化前又必须先有表”的首次建库循环；日常发布仍使用不带该配置的全目标模式。
+`MigrationTarget` 模式只迁移该服务的业务 schema，不迁移 Identity Control schema，也不枚举已登记租户、不补齐 Admin 权限。它用于打破“先登记租户才能枚举目标、但租户初始化前又必须先有表”的首次建库循环；日常发布仍使用不带该配置的全目标模式。
 <!--#endif-->
 
 修改 EF Core 模型后生成并审查迁移文件：
