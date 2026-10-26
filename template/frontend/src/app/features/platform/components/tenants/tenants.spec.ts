@@ -15,9 +15,9 @@ import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { StartupService } from '../../../../core/services/startup-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 import { CreateTenantInputDto, GetTenantsInputDto, TenantOutputDto } from '../../dtos/tenant.dto';
 import { TenantService } from '../../services/tenant-service';
@@ -119,7 +119,7 @@ describe('Tenants page query and write flow', () => {
     });
 
     // 先建好设置上下文（连带语言服务），否则首帧渲染途中创建它会让结构指令重入。
-    TestBed.inject(SettingContextService);
+    TestBed.inject(AccountPreferencesService);
     fixture = TestBed.createComponent(Tenants);
     component = fixture.componentInstance;
     fixture.detectChanges();

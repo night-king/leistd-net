@@ -18,7 +18,7 @@ import { HlmTableImports } from '@spartan-ng/helm/table';
 import { ColumnDef, PaginationState } from '@tanstack/angular-table';
 
 import { injectOperationActionSentence } from './operation-action-sentence';
-import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../../../core/services/account-preferences-service';
 import { TablePaginator } from '../../../../../../shared/components/table-paginator/table-paginator';
 import { ColumnValue } from '../../../../../../shared/directives/column-value';
 import { StatusDot } from '../../../../../../shared/directives/status-dot';
@@ -74,8 +74,8 @@ import { operationRecordActor } from '../operation-record-detail/operation-recor
 })
 export class OperationRecordTable {
   // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间。
-  protected readonly displayTimeZone = inject(SettingContextService).timeZone;
-  protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  protected readonly displayTimeZone = inject(AccountPreferencesService).timeZone;
+  protected readonly displayLocale = inject(AccountPreferencesService).displayLocale;
   //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif

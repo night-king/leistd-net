@@ -15,8 +15,8 @@ import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthService } from '../../../../core/services/auth-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import {
   CREATION_OPTIONS,
   fakeAssertion,
@@ -146,7 +146,7 @@ describe('TwoFactorPasskeySettings', () => {
         { provide: AuthService, useValue: auth },
         { provide: ConfirmService, useValue: { open: () => Promise.resolve(confirmed) } },
         {
-          provide: SettingContextService,
+          provide: AccountPreferencesService,
           useValue: { timeZone: signal<string | undefined>('UTC'), displayLocale: signal('en') },
         },
         { provide: Router, useValue: { url: '/workspace/settings/security' } },

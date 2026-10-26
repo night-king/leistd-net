@@ -4,7 +4,7 @@
 .SYNOPSIS
     从当前模板生成四个服务，以真实 PostgreSQL 和 OpenIddict 验证跨进程认证。
 .DESCRIPTION
-    运行 S2–S8、S10；生成项目、隔离包源、日志和临时凭据位于 .tmp/oidc-e2e/<run>。
+    运行 S2–S8、S10、S11；生成项目、隔离包源、日志和临时凭据位于 .tmp/oidc-e2e/<run>。
     依赖 PowerShell 7、.NET 10 SDK 和 Docker，不依赖 Python、OpenSSL 或宿主 psql。
     默认不等待令牌真实到期；-IncludeExpiryWait 以快速档（访问令牌 90 秒）执行撤销到期与交换令牌到期边界，CI 在 full 档传入。
     只放跨进程才能证明的链路，多个 Resource 共用的框架实现只验一个服务；协议规则的变体在集成测试里，
@@ -409,7 +409,7 @@ function New-Application([string]$ClientId, [string[]]$Scopes, [switch]$Public, 
     $permissions = if ($Public) { @("ept:token", "gt:authorization_code", "ept:authorization", "ept:end_session", "rst:code") }
         else { @("ept:token", "gt:client_credentials") }
     if ($BrowserService) { $permissions = @("ept:token", "gt:authorization_code", "gt:refresh_token", "ept:authorization", "ept:end_session", "rst:code") }
-    if ($Exchange) { $permissions += @("gt:urn:ietf:params:oauth:grant-type:token-exchange", "aud:billing-api") }
+    if ($Exchange) { $permissions += @("gt:urn:ietf:params:oauth:grant-type:token-exchange", "aud:billing-api", "aud:e2e-idp-api") }
     $permissions += @($Scopes | ForEach-Object { "scp:$_" })
     # 只有服务端会话（BFF）跟随 Identity 登录会话收敛；SPA 公共客户端与机器客户端不绑定
     $body = @{ clientId = $ClientId; applicationType = $(if ($Public -or $BrowserService) { "web" } else { "service" })
@@ -652,7 +652,10 @@ function Initialize-Environment {
             $environment.Authentication__Issuer = $issuer
             $environment.Authentication__Audience = "$name-api"
             $environment.Leistd__ServiceClients__Identity__BaseAddress = $urls.idp
-            $environment.Leistd__ServiceClients__Identity__Scope = "tenant-routing.read"
+            # 机器身份回源租户路由与按用户读账户偏好；代表本人写偏好经 Token Exchange 换 Identity 自身 API 的令牌
+            $environment.Leistd__ServiceClients__Identity__Scope = "tenant-routing.read account-preferences.read"
+            $environment.Leistd__ServiceClients__Identity__TokenExchange__Audience = "e2e-idp-api"
+            $environment.Leistd__ServiceClients__Identity__TokenExchange__Scope = "e2e-idp-api"
             $environment.Leistd__ServiceAuth__Authority = $urls.idp
             $environment.Leistd__MultiTenancy__Routing__CacheLifetime = "00:00:01"
         }
@@ -696,7 +699,7 @@ function Initialize-Environment {
     New-Application "orders-web" @("openid", "profile", "email", "roles", "orders-api") -Public | Out-Null
     New-Application "billing-web" @("openid", "profile", "email", "roles", "billing-api") -Public | Out-Null
     New-Application "idp-web" @("openid", "profile", "email", "roles", "e2e-idp-api") -Public | Out-Null
-    $script:exchangeClient = New-Application "orders-api" @("billing-api", "tenant-routing.read") -Exchange
+    $script:exchangeClient = New-Application "orders-api" @("billing-api", "e2e-idp-api", "tenant-routing.read", "account-preferences.read") -Exchange
     $script:machine = New-Application "orders-machine" @("orders-api", "billing-api", "tenant-routing.read")
     $script:plainClient = New-Application "orders-only" @("orders-api")
     $script:noDelegateClient = New-Application "no-delegate" @("orders-api", "billing-api")
@@ -1009,6 +1012,29 @@ function Test-S10 {
     }
 }
 
+# S11 账户偏好跨进程：资源服务的 /me 以机器身份按租户回源 Identity（共享库与独立库两个租户），
+# 资源服务的 PATCH 以 Token Exchange 代表本人转交 Identity，Identity 的 /me 随之变化
+function Test-S11 {
+    foreach ($case in @(@{ Tenant = $sharedTenant; TimeZone = "Asia/Tokyo"; Theme = "dark" },
+            @{ Tenant = $dedicatedTenant; TimeZone = "Europe/Paris"; Theme = "light" })) {
+        $name = $case.Tenant.name
+        $user = if ($case.Tenant -eq $sharedTenant -and $sharedToken) { @{ Session = $sharedSession; Token = $sharedToken } } else { Get-TenantToken $case.Tenant }
+        Assert-Http "idp-preference-write-$name" 200 ($urls.idp + "/api/v1/auth/me/preferences") -Method PATCH `
+            -Body @{ timeZone = $case.TimeZone } -Session $user.Session | Out-Null
+        $me = (Assert-Http "resource-me-preferences-$name" 200 ($urls.orders + "/api/v1/auth/me") -Token $user.Token).Data
+        Assert-Value "resource-me-reads-identity-$name" $case.TimeZone $me.preferences.timeZone
+        $written = (Assert-Http "resource-preference-forward-$name" 200 ($urls.orders + "/api/v1/auth/me/preferences") -Method PATCH `
+            -Body @{ theme = $case.Theme } -Token $user.Token).Data
+        Assert-Value "resource-forward-representation-$name" $case.Theme $written.preferences.theme
+        $identityMe = (Assert-Http "idp-me-after-forward-$name" 200 ($urls.idp + "/api/v1/auth/me") -Session $user.Session).Data
+        Assert-Value "identity-holds-forwarded-write-$name" $case.Theme $identityMe.preferenceOverrides.theme
+    }
+    # 本地能判定的非法值在转交前就拒绝，错误码与 Identity 一致
+    $rejected = Assert-Http "resource-preference-invalid-value" 400 ($urls.orders + "/api/v1/auth/me/preferences") -Method PATCH `
+        -Body @{ timeZone = "Mars/Olympus" } -Token $sharedToken
+    Assert-Value "resource-preference-invalid-code" "AppSetting:TimeZoneInvalid" $rejected.Data.code
+}
+
 function Invoke-Scenario([string]$Name, [scriptblock]$Action) {
     Write-Host "Running $Name"
     try {
@@ -1040,6 +1066,7 @@ try {
     Invoke-Scenario "S6" { Test-S6 }
     Invoke-Scenario "S8" { Test-S8 }
     Invoke-Scenario "S10" { Test-S10 }
+    Invoke-Scenario "S11" { Test-S11 }
     if ($IncludeExpiryWait) {
         Invoke-Scenario "exchange-expiry" {
             $expires = (Read-TokenClaims $delegatedExpiryToken).exp + 1

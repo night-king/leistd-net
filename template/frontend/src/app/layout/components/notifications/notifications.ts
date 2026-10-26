@@ -23,12 +23,12 @@ import { interval } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../core/feedback/confirm-service';
+import { AccountPreferencesService } from '../../../core/services/account-preferences-service';
 import { AuthService } from '../../../core/services/auth-service';
 import {
   NOTIFICATION_ICONS,
   NotificationService,
 } from '../../../core/services/notification-service';
-import { SettingContextService } from '../../../core/settings/setting-context-service';
 import { NotificationItem } from '../../../shared/components/notification-item/notification-item';
 import { RelativeTimeLabel } from '../../../shared/components/relative-time-label/relative-time-label';
 import { PopoverAria } from '../../../shared/directives/popover-aria';
@@ -74,13 +74,13 @@ export class Notifications implements OnInit {
   private readonly router = inject(Router);
   private readonly authService = inject(AuthService);
   // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间；设置里的时区当前运行时用不了时回落到浏览器时区。
-  private readonly displayTimeZoneSetting = inject(SettingContextService).timeZone;
+  private readonly displayTimeZoneSetting = inject(AccountPreferencesService).timeZone;
   protected readonly displayTimeZone = computed(() =>
     resolveDisplayTimeZone(this.displayTimeZoneSetting()),
   );
   /** 分钟级时钟："多久以前"随它更新，组件销毁时停止。 */
   protected readonly now = signal(Date.now());
-  protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  protected readonly displayLocale = inject(AccountPreferencesService).displayLocale;
   private readonly confirmService = inject(ConfirmService);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);

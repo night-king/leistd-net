@@ -1,4 +1,3 @@
-using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Infrastructure.Persistence;
 using Leistd.EventBus.EventHandlers;
 using Leistd.Lock.Abstractions;
@@ -38,7 +37,7 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
         var userId = Guid.NewGuid().ToString("N");
         var afterCommit = new AfterCommitCounter(userId);
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<IEventHandler<SettingChangedEvent>>(afterCommit)));
+            services.AddSingleton<ISettingDefinitionProvider, SampleUserSetting>().AddSingleton<IEventHandler<SettingChangedEvent>>(afterCommit)));
 
         await using (var scope = host.Services.CreateAsyncScope())
         {
@@ -56,14 +55,14 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
             await outer.SaveChangesAsync();
 
             await services.GetRequiredService<ISettingManager>()
-                .SetAsync(SettingConstant.Display.TimeZone, "Asia/Tokyo", SettingScopes.User, userId);
+                .SetAsync(SampleUserSetting.Name, "Asia/Tokyo", SettingScopes.User, userId);
             Assert.Equal(1, afterCommit.Count);
 
             await outer.RollbackAsync();
         }
 
         var rows = await RowsAsync(host, userId);
-        Assert.Equal("Asia/Tokyo", Assert.Single(rows, row => row.Name == SettingConstant.Display.TimeZone).Value);
+        Assert.Equal("Asia/Tokyo", Assert.Single(rows, row => row.Name == SampleUserSetting.Name).Value);
         Assert.DoesNotContain(rows, row => row.Name == MarkerName);
         Assert.Equal(1, afterCommit.Count);
     }
@@ -77,6 +76,7 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
         var afterCommit = new AfterCommitCounter(userId);
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
+            services.AddSingleton<ISettingDefinitionProvider, SampleUserSetting>();
             services.ConfigureDbContext<MyProjectDbContext>(options => options.AddInterceptors(new SavedSettingRecorder(userId, journal)));
             services.AddSingleton<IEventHandler<SettingChangedEvent>>(new FailingBeforeCommit(userId, journal));
             services.AddSingleton<IEventHandler<SettingChangedEvent>>(afterCommit);
@@ -86,7 +86,7 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
         {
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => scope.ServiceProvider
                 .GetRequiredService<ISettingManager>()
-                .SetAsync(SettingConstant.Display.TimeZone, "Asia/Tokyo", SettingScopes.User, userId));
+                .SetAsync(SampleUserSetting.Name, "Asia/Tokyo", SettingScopes.User, userId));
             Assert.Equal(FailingBeforeCommit.Message, error.Message);
         }
 
@@ -108,7 +108,7 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
         var userId = Guid.NewGuid().ToString("N");
         var failing = new FailingAfterCommit(userId);
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<IEventHandler<SettingChangedEvent>>(failing)));
+            services.AddSingleton<ISettingDefinitionProvider, SampleUserSetting>().AddSingleton<IEventHandler<SettingChangedEvent>>(failing)));
 
         await using (var scope = host.Services.CreateAsyncScope())
         {
@@ -118,7 +118,7 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
                 : null;
 
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => services.GetRequiredService<ISettingManager>()
-                .SetAsync(SettingConstant.Display.TimeZone, "Asia/Tokyo", SettingScopes.User, userId));
+                .SetAsync(SampleUserSetting.Name, "Asia/Tokyo", SettingScopes.User, userId));
             Assert.Equal(FailingAfterCommit.Message, error.Message);
             Assert.Equal(1, failing.Calls);
 
@@ -148,6 +148,15 @@ public sealed class SettingWriteTransactionTests(ProjectWebApplicationFactory fa
     }
 
     // 未标注阶段即提交后处理器
+    // 只验证设置组件的事务语义，与具体业务设置无关：各形态都有这一项用户层设置（资源服务没有用户层的业务设置）
+    private sealed class SampleUserSetting : ISettingDefinitionProvider
+    {
+        public const string Name = "IntegrationTests.UserSample";
+
+        public void Define(ISettingDefinitionContext context)
+            => context.Add(Name, defaultValue: null, scopes: SettingScopes.User, displayName: "Sample", group: "IntegrationTests");
+    }
+
     private sealed class AfterCommitCounter(string userId) : IEventHandler<SettingChangedEvent>
     {
         private int _count;

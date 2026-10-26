@@ -8,15 +8,12 @@ using System.Net;
 using CompanyName.ProjectName.Application.Auth.Events;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 #if (Email && IncludeLocalization)
-using CompanyName.ProjectName.Application.Settings.Provider;
+using CompanyName.ProjectName.Application.Settings.Preferences;
 #endif
 #if (Email)
 using Leistd.Email.Abstractions;
 #endif
 using Leistd.EventBus.EventHandlers;
-#if (Email && IncludeLocalization)
-using Leistd.Settings.Resolution;
-#endif
 #if (Email)
 using Microsoft.Extensions.Logging;
 #endif
@@ -39,7 +36,7 @@ namespace CompanyName.ProjectName.Application.Auth.EventHandlers;
 internal sealed class EmailChangedEventHandler(
     IEmailSender emailSender,
 #if (IncludeLocalization)
-    ISettingProvider settingProvider,
+    IAccountPreferenceStore preferenceStore,
     IStringLocalizer localizer,
 #endif
     ISecurityAlertPublisher securityAlerts,
@@ -94,7 +91,7 @@ internal sealed class EmailChangedEventHandler(ISecurityAlertPublisher securityA
     // 文案按收件人的界面语言渲染：本人设过语言就用它，否则用组织默认或部署基线，都没有才用本次请求的语言
     private async Task<(string Subject, string Content)> RenderAsync(Guid userId, CancellationToken cancellationToken)
     {
-        var language = await settingProvider.GetOrNullForUserAsync(SettingConstant.Display.Language, userId.ToString(), cancellationToken);
+        var language = (await preferenceStore.GetForUserAsync(userId, cancellationToken))?.Preferences.Language;
 
         var previous = CultureInfo.CurrentUICulture;
         try

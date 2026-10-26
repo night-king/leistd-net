@@ -1,6 +1,11 @@
-using CompanyName.ProjectName.Application.Settings.Provider;
+using System.Security.Claims;
+using CompanyName.ProjectName.Application.Settings.Dtos;
+using CompanyName.ProjectName.Application.Settings.Preferences;
 using CompanyName.ProjectName.Application.Settings.Timing;
+using Leistd.Security.Users;
+#if (!RemoteTokenAuth)
 using Leistd.Settings.Resolution;
+#endif
 
 namespace CompanyName.ProjectName.UnitTests.Application;
 
@@ -12,8 +17,18 @@ namespace CompanyName.ProjectName.UnitTests.Application;
 /// </remarks>
 public class UserTimeZoneProviderTests
 {
+    private static readonly Guid CurrentUserId = Guid.CreateVersion7();
+
+    // 当前用户的时区来自账户偏好：生效值由持有方按 个人 → 组织 → 部署基线 算好
     private static UserTimeZoneProvider ProviderWith(string? timeZoneId)
-        => new(new FixedSettingProvider(timeZoneId));
+        => Create(new PreferenceStore(new Dictionary<Guid, string?> { [CurrentUserId] = timeZoneId }), CurrentUserId);
+
+    private static UserTimeZoneProvider Create(IAccountPreferenceStore store, Guid? currentUserId)
+#if (!RemoteTokenAuth)
+        => new(store, new FixedCurrentUser(currentUserId), new FixedSettingProvider(null));
+#else
+        => new(store, new FixedCurrentUser(currentUserId));
+#endif
 
     [Fact]
     public async Task A_configured_time_zone_is_used()
@@ -88,38 +103,91 @@ public class UserTimeZoneProviderTests
 
     // 收件人不是当前用户（例如登录前的锁定提醒）：按目标用户读，不能落到当前用户身上
     [Fact]
-    public async Task A_named_user_is_resolved_by_their_own_setting_not_the_current_users()
+    public async Task A_named_user_is_resolved_by_their_own_preference_not_the_current_users()
     {
         var target = Guid.CreateVersion7();
-        var provider = new UserTimeZoneProvider(new PerUserSettingProvider(
-            current: "America/New_York",
-            perUser: new Dictionary<string, string> { [target.ToString()] = "Asia/Tokyo" }));
+        var provider = Create(
+            new PreferenceStore(new Dictionary<Guid, string?> { [CurrentUserId] = "America/New_York", [target] = "Asia/Tokyo" }),
+            CurrentUserId);
 
         Assert.Equal("Asia/Tokyo", (await provider.GetForUserAsync(target)).Id);
         Assert.Equal(TimeZoneInfo.Utc.Id, (await provider.GetForUserAsync(Guid.CreateVersion7())).Id);
     }
 
-    private sealed class PerUserSettingProvider(string current, IReadOnlyDictionary<string, string> perUser) : ISettingProvider
+    // 资源服务回源失败且没有旧值时读取器返回 null：同样回落 UTC，不报错
+    [Fact]
+    public async Task Unavailable_preferences_fall_back_to_UTC()
     {
-        public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default)
-            => Task.FromResult(name == SettingConstant.Display.TimeZone ? current : null);
+        var provider = Create(new PreferenceStore(new Dictionary<Guid, string?>(), unavailable: true), CurrentUserId);
 
-        public Task<string?> GetOrNullForUserAsync(string name, string userId, CancellationToken cancellationToken = default)
-            => Task.FromResult(name == SettingConstant.Display.TimeZone && perUser.TryGetValue(userId, out var id) ? id : null);
-
-        public Task<T?> GetAsync<T>(string name, CancellationToken cancellationToken = default)
-            => Task.FromResult<T?>(default);
-
-        public Task<IReadOnlyDictionary<string, string?>> GetAllAsync(
-            bool visibleToClientsOnly = false,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>());
+        Assert.Equal(TimeZoneInfo.Utc.Id, (await provider.GetAsync()).Id);
     }
+#if (!RemoteTokenAuth)
+
+    // 没有当前用户（如匿名请求）时按组织值或部署基线
+    [Fact]
+    public async Task Without_a_current_user_the_organization_value_is_used()
+    {
+        var provider = new UserTimeZoneProvider(
+            new PreferenceStore(new Dictionary<Guid, string?>()),
+            new FixedCurrentUser(null),
+            new FixedSettingProvider("Asia/Tokyo"));
+
+        Assert.Equal("Asia/Tokyo", (await provider.GetAsync()).Id);
+    }
+#else
+
+    // 资源服务不持有偏好：没有当前用户时没有可读的组织值
+    [Fact]
+    public async Task Without_a_current_user_the_resource_service_uses_UTC()
+    {
+        var provider = Create(new PreferenceStore(new Dictionary<Guid, string?>()), null);
+
+        Assert.Equal(TimeZoneInfo.Utc.Id, (await provider.GetAsync()).Id);
+    }
+#endif
+
+    private sealed class PreferenceStore(IReadOnlyDictionary<Guid, string?> timeZones, bool unavailable = false) : IAccountPreferenceStore
+    {
+        public Task<AccountPreferencesOutputDto?> GetForCurrentUserAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("The time zone provider reads preferences by user id.");
+
+        public Task<AccountPreferencesOutputDto?> GetForUserAsync(Guid userId, CancellationToken cancellationToken = default)
+            => Task.FromResult(unavailable
+                ? null
+                : new AccountPreferencesOutputDto
+                {
+                    Preferences = new AccountPreferenceValuesDto { TimeZone = timeZones.GetValueOrDefault(userId) },
+                    PreferenceOverrides = new AccountPreferenceValuesDto(),
+                });
+
+        public Task<AccountPreferencesOutputDto> SetForCurrentUserAsync(
+            Guid userId,
+            string field,
+            string? value,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("The time zone provider only reads preferences.");
+    }
+
+    private sealed class FixedCurrentUser(Guid? id) : ICurrentUser
+    {
+        public bool IsAuthenticated => Id is not null;
+        public string? SubjectId => Id?.ToString();
+        public Guid? Id { get; } = id;
+        public Guid? TenantId => null;
+        public string? Username => null;
+        public string? Name => null;
+        public string? Email => null;
+        public Claim? FindClaim(string claimType) => null;
+        public IReadOnlyList<Claim> FindClaims(string claimType) => [];
+        public bool IsInRole(string role) => false;
+    }
+#if (!RemoteTokenAuth)
 
     private sealed class FixedSettingProvider(string? timeZoneId) : ISettingProvider
     {
         public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default)
-            => Task.FromResult(name == SettingConstant.Display.TimeZone ? timeZoneId : null);
+            => Task.FromResult(name == CompanyName.ProjectName.Application.Settings.Provider.SettingConstant.Display.TimeZone ? timeZoneId : null);
 
         public Task<string?> GetOrNullForUserAsync(string name, string userId, CancellationToken cancellationToken = default)
             => GetOrNullAsync(name, cancellationToken);
@@ -132,4 +200,5 @@ public class UserTimeZoneProviderTests
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>());
     }
+#endif
 }

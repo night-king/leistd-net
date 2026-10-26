@@ -28,8 +28,16 @@ using Role = CompanyName.ProjectName.Domain.Users.Entities.Role;
 using Leistd.MultiTenancy;
 #if (RemoteTokenAuth && IncludeMultiTenancy)
 using Leistd.MultiTenancy.ServiceClient;
+#endif
+#if (RemoteTokenAuth)
+using CompanyName.ProjectName.Domain.Users.Abstractions;
+using CompanyName.ProjectName.Infrastructure.AccountPreferences;
 using Leistd.ServiceClient.OAuth;
 using Leistd.ServiceClient.OAuth.Options;
+using Leistd.ServiceClient.Refit;
+#endif
+#if (RemoteTokenAuth && !LocalIdentity)
+using Microsoft.Extensions.Options;
 #endif
 #if (LocalIdentity && IncludeMultiTenancy)
 using CompanyName.ProjectName.Infrastructure.TenantConnections.Provider;
@@ -83,6 +91,10 @@ public static class DependencyInjection
 
         services.AddSingleton<InfrastructureRegistrationMarker>();
         services.AddPersistenceServices(configuration);
+#if (RemoteTokenAuth)
+        // 账户偏好只在 API 里用到，迁移作业不注册：它没有用户请求，也不该被偏好客户端的启动校验拦住
+        AddIdentityAccountPreferences(services, configuration);
+#endif
 
 #if (LocalIdentity && IncludeMultiTenancy)
         // 开通失败的数据库错误翻译：SQLSTATE 表是 PostgreSQL 方言，属本项目的技术适配。
@@ -210,7 +222,7 @@ public static class DependencyInjection
         // 远端存储由框架提供，回源 Identity 经 MapTenantConnections 暴露的机器端点（配置节 Leistd:ServiceClients:Identity）。
         services.AddRemoteTenantConnectionResolution();
         var identityClient = services.AddRemoteTenantConnectionStore("Identity");
-        if (configuration.GetSection(ServiceAuthenticationOptions.SectionName).Exists())
+        if (HasServiceAuthentication(configuration))
         {
             services.AddServiceAuthentication();
             identityClient.AddClientCredentials();
@@ -309,4 +321,42 @@ public static class DependencyInjection
     private sealed class InfrastructureRegistrationMarker;
 
     private sealed class PersistenceRegistrationMarker;
+#if (RemoteTokenAuth)
+
+    private static bool HasServiceAuthentication(IConfiguration configuration)
+        => configuration.GetSection(ServiceAuthenticationOptions.SectionName).Exists();
+
+    /// <summary>账户偏好归 Identity：读用本服务的机器身份（给收件人产出文本时没有用户令牌），写用 Token Exchange 代表本人。</summary>
+    /// <remarks>
+    /// 两个命名客户端共用 <c>Leistd:ServiceClients:Identity</c> 的地址：读取的 scope 与租户回源同节，
+    /// 写入的 Audience 与 Scope 在其下的 <c>TokenExchange</c>。每个命名客户端只挂一种认证。
+    /// 写入不加重试：交给调用方决定，失败时前端提示未能确认保存，由下次读取对齐。
+    /// </remarks>
+    private static void AddIdentityAccountPreferences(IServiceCollection services, IConfiguration configuration)
+    {
+        const string identitySection = "Leistd:ServiceClients:Identity";
+
+        services.AddOptions<AccountPreferencesClientOptions>()
+            .BindConfiguration(AccountPreferencesClientOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<AccountPreferencesClientOptions>, AccountPreferencesClientOptionsValidator>());
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IdentityAccountPreferenceCache>();
+        services.TryAddTransient<IIdentityAccountPreferences, IdentityAccountPreferences>();
+
+        var read = services.AddRefitServiceClient<IIdentityAccountPreferencesReadApi, IdentityAccountPreferencesReadClientOptions>(
+            "IdentityAccountPreferences", configSectionPath: identitySection);
+        var write = services.AddRefitServiceClient<IIdentityAccountPreferencesWriteApi, IdentityAccountPreferencesWriteClientOptions>(
+            "IdentityAccountPreferencesUser", configSectionPath: identitySection);
+        // 工作负载身份与租户回源共用一份（重复注册幂等）；测试宿主不配置时不挂认证处理器
+        if (HasServiceAuthentication(configuration))
+        {
+            services.AddServiceAuthentication();
+            read.AddClientCredentials(configSectionPath: identitySection);
+            write.AddTokenExchange(configSectionPath: $"{identitySection}:TokenExchange");
+        }
+
+        read.AddStandardResilienceHandler();
+    }
+#endif
 }

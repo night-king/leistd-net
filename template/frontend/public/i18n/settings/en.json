@@ -9,6 +9,13 @@
   "followSystem": "Follows your system",
   "followOrganization": "Follows your organization",
   "deploymentDefault": "Deployment default",
+  "preferences": {
+    "group": "Display",
+    "language": "Language",
+    "timeZone": "Time zone",
+    "theme": "Appearance",
+    "unavailable": "Your preferences can't be loaded right now. Try again later"
+  },
   "hostScope": {
     //#if (IncludeMultiTenancy)
     "note": ". Applies to all tenants",

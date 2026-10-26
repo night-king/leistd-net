@@ -173,6 +173,9 @@
       "unreadAria": "Notifications ({{count}} unread)"
     }
   },
+  "preferences": {
+    "saveUnconfirmed": "Couldn't confirm the change was saved"
+  },
   "theme": {
     "toggle": "Switch theme",
     "current": "Theme: {{mode}}",

@@ -7,7 +7,7 @@ import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { UserSessionOutputDto } from '../../../../shared/dtos/account-security.dto';
 import { AccountService } from '../../services/account-service';
 
@@ -57,7 +57,7 @@ describe('LoginDevices', () => {
         { provide: AccountService, useValue: account },
         { provide: ConfirmService, useValue: { open: () => Promise.resolve(confirmed) } },
         {
-          provide: SettingContextService,
+          provide: AccountPreferencesService,
           useValue: { timeZone: signal<string | undefined>('UTC'), displayLocale: signal('en') },
         },
         //#if (IncludeLocalization)

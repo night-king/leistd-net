@@ -5,8 +5,8 @@ import { TranslocoService } from '@jsverse/transloco';
 //#endif
 import { BrnCalendarI18n, injectBrnCalendarI18n } from '@spartan-ng/brain/calendar';
 
-import { SettingContextService } from './setting-context-service';
 import { firstDayOfWeek } from '../../shared/utils/locale-week';
+import { AccountPreferencesService } from '../services/account-preferences-service';
 
 /** 任取一个周日（2026-10-11）推出一周七天的名称，下标 0 = 周日，与日历组件的约定一致。 */
 const A_SUNDAY = Date.UTC(2026, 9, 11);
@@ -19,7 +19,7 @@ const A_SUNDAY = Date.UTC(2026, 9, 11);
 export function provideAppCalendarLocale() {
   return provideEnvironmentInitializer(() => {
     const i18n = injectBrnCalendarI18n();
-    const displayLocale = inject(SettingContextService).displayLocale;
+    const displayLocale = inject(AccountPreferencesService).displayLocale;
     //#if (IncludeLocalization)
     // toSignal 包住 selectTranslate 让它随语言切换重算——静态字符串会固定在启动时的语言上
     const transloco = inject(TranslocoService);

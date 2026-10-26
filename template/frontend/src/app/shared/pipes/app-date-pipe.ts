@@ -186,8 +186,8 @@ function optionsFor(format: AppDateFormat, writing: Writing): Intl.DateTimeForma
  * 按指定 IANA 时区渲染时刻。不用 Angular 的 `date` 管道：传 IANA 名会静默回落到浏览器时区，
  * 固定偏移也表达不了夏令时；`Intl.DateTimeFormat` 直接接受 IANA 名。
  *
- * `format` 是语义槽位，由调用点决定；`timeZone` 决定哪一刻，来自 `SettingContextService.timeZone`；
- * `locale` 决定怎么写，来自 `SettingContextService.displayLocale`（界面语言），不由时区推导：
+ * `format` 是语义槽位，由调用点决定；`timeZone` 决定哪一刻，来自 `AccountPreferencesService.timeZone`；
+ * `locale` 决定怎么写，来自 `AccountPreferencesService.displayLocale`（界面语言），不由时区推导：
  * 时区与地区不是一一对应（`Europe/Zurich` 有三种写法，`UTC` 没有国家）。两者由调用方传入，
  * 管道保持 pure。
  */

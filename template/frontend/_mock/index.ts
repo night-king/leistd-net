@@ -11,6 +11,7 @@
 //#if (LocalIdentity)
 export * from './api/auth';
 //#endif
+export * from './api/account-preferences';
 export * from './api/user';
 export * from './api/authorization';
 export * from './api/setting';

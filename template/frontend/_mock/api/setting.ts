@@ -107,6 +107,14 @@ function requireHeld(permission: string): void {
 
 /** 与后端端点同一判据：能写租户级或进程级、持有入口权限，且持有该分组登记的子权限。 */
 function canManage(definition: MockSettingDefinition): boolean {
+  //#if (RemoteTokenAuth)
+  // 资源服务不持有账户偏好：组织默认在身份服务维护，真实后端的资源服务没有这几项定义。
+  // Mock 共用一份定义表，在这里让它们不进系统设置页。
+  if (definition.group === 'Display') {
+    return false;
+  }
+
+  //#endif
   const groupPermission = GROUP_PERMISSIONS[definition.group];
   return (
     (definition.allowsTenantScope || (definition.allowsHostScope ?? false)) &&

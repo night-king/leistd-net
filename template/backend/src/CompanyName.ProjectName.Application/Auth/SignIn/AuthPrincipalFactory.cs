@@ -5,6 +5,7 @@ using CompanyName.ProjectName.Application.Auth.OAuth;
 using CompanyName.ProjectName.Domain.Auth.Entities;
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Auth.Options;
+using CompanyName.ProjectName.Application.Settings.Preferences;
 using CompanyName.ProjectName.Domain.Users.Repositories;
 using CompanyName.ProjectName.Domain.Users.Policies;
 using CompanyName.ProjectName.Domain.Users.ValueObjects;
@@ -35,7 +36,8 @@ public class AuthPrincipalFactory(
 #if (IncludeMultiTenancy)
     ITenantStore tenantStore,
 #endif
-    IUnitOfWorkManager unitOfWorkManager) : IAuthPrincipalFactory
+    IUnitOfWorkManager unitOfWorkManager,
+    IAccountPreferenceStore preferenceStore) : IAuthPrincipalFactory
 {
     /// <inheritdoc />
     public async Task<ClaimsPrincipal?> CreateFromTokenAsync(
@@ -95,6 +97,11 @@ public class AuthPrincipalFactory(
             identity.SetClaim(Claims.Picture, user.Avatar!);
         }
 
+        // OIDC 标准声明：给第三方依赖方的界面语言与时区；本系统的资源服务不读它们（令牌刷新前是旧值），走偏好接口
+        var preferences = (await preferenceStore.GetForUserAsync(user.Id, cancellationToken))?.Preferences;
+        identity.SetClaim(Claims.Locale, preferences?.Language);
+        identity.SetClaim(Claims.Zoneinfo, preferences?.TimeZone);
+
         identity.SetClaims(Claims.Role, roleNames.ToImmutableArray());
         identity.SetClaim(CustomClaimTypes.IsSuperAdmin, user.IsSuperAdmin ? "true" : "false");
         // 租户 claim：多租户解析链以它定案已登录用户的租户
@@ -145,6 +152,18 @@ public class AuthPrincipalFactory(
             if (AvatarPolicy.IsExternalUrl(user.Avatar))
             {
                 claims[Claims.Picture] = user.Avatar!;
+            }
+
+            // 生效值（个人 → 组织 → 部署基线）；三层都没有时不发，交给依赖方自己回落
+            var preferences = (await preferenceStore.GetForUserAsync(user.Id, cancellationToken))?.Preferences;
+            if (preferences?.Language is { } locale)
+            {
+                claims[Claims.Locale] = locale;
+            }
+
+            if (preferences?.TimeZone is { } zoneinfo)
+            {
+                claims[Claims.Zoneinfo] = zoneinfo;
             }
         }
 
@@ -214,6 +233,11 @@ public class AuthPrincipalFactory(
                 when claim.Subject?.HasScope(Scopes.Profile) == true =>
             [
                 Destinations.AccessToken,
+                Destinations.IdentityToken
+            ],
+            // 偏好声明只给 id_token：访问令牌不承载展示偏好
+            Claims.Locale or Claims.Zoneinfo when claim.Subject?.HasScope(Scopes.Profile) == true =>
+            [
                 Destinations.IdentityToken
             ],
             Claims.Email when claim.Subject?.HasScope(Scopes.Email) == true =>

@@ -7,11 +7,9 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { HlmDropdownMenuImports } from '@spartan-ng/helm/dropdown-menu';
 
 import { applicationErrorMessage } from '../../errors/application-http-error';
+import { AccountPreferencesService } from '../../services/account-preferences-service';
 import { AuthService } from '../../services/auth-service';
 import { Lang, LanguageService } from '../../services/language-service';
-import { SessionContextService } from '../../services/session-context-service';
-import { SettingService } from '../../settings/setting-service';
-import { SETTINGS } from '../../settings/setting.constants';
 
 interface LangOption {
   id: Lang;
@@ -64,8 +62,7 @@ interface LangOption {
 export class LanguageSwitcher {
   private readonly languageService = inject(LanguageService);
   private readonly authService = inject(AuthService);
-  private readonly settingService = inject(SettingService);
-  private readonly sessionContext = inject(SessionContextService);
+  private readonly preferences = inject(AccountPreferencesService);
   private readonly transloco = inject(TranslocoService);
 
   /** 只有一种语言时没有可切换的，隐藏整个切换器（含它在操作区里占的位置）。 */
@@ -84,24 +81,22 @@ export class LanguageSwitcher {
   });
 
   select(lang: Lang): void {
-    // 已登录的选择属于账户：先写回设置、成功后再切换，否则设置页的重取会早于写入完成；
-    // 会话建立时以账户设置为准，不写回的话下次登录就被覆盖。
+    // 已登录的选择属于账户：写入成功后由偏好状态按响应切换；写入排在偏好队列里，
+    // 与偏好面板、主题切换的写入不会乱序。
     if (this.authService.isAuthenticated()) {
-      this.settingService
-        .setForCurrentUser({ name: SETTINGS.display.language, value: lang })
-        .subscribe({
-          next: () => {
-            void this.languageService.applyAccountLang(lang);
-            // 设置快照跟着刷新，否则偏好页与按快照解析的消费端仍停在旧值（组织默认存在时尤其明显）。
-            // 刷新失败不回退：账户里已经存好了，界面也已是这门语言，下次会话建立时快照自然对齐
-            this.sessionContext.refreshSettings().catch(() => undefined);
-          },
-          // 保存失败就不切换，并且说出来：静默吞掉的话，用户会以为账户偏好存好了。
-          error: (error: unknown) =>
-            toast.error(this.transloco.translate('language.saveFailed'), {
-              description: applicationErrorMessage(error),
-            }),
-        });
+      void this.preferences.write('language', lang).then((outcome) => {
+        // 保存失败就不切换，并且说出来：静默吞掉的话，用户会以为账户偏好存好了。
+        if (outcome.status === 'rejected') {
+          toast.error(this.transloco.translate('language.saveFailed'), {
+            description: applicationErrorMessage(outcome.error),
+          });
+        } else if (outcome.status === 'unconfirmed') {
+          // 可能已经保存，不重放；下次重查账户偏好时对齐
+          toast.warning(this.transloco.translate('preferences.saveUnconfirmed'), {
+            description: applicationErrorMessage(outcome.error),
+          });
+        }
+      });
       return;
     }
 

@@ -1,7 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 //#if (IncludeLocalization)
-import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
+import { TranslocoDirective, TranslocoService, translateObjectSignal } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideCircleCheck, lucideCircleX, lucideRotateCcw } from '@ng-icons/lucide';
@@ -30,6 +30,14 @@ import {
 //#endif
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 //#if (IncludeLocalization)
+import { textAt } from '../../../../core/i18n/translation-text';
+//#endif
+// prettier-ignore
+import {
+  AccountPreferences,
+  AccountPreferencesService,
+} from '../../../../core/services/account-preferences-service';
+//#if (IncludeLocalization)
 import { LanguageService } from '../../../../core/services/language-service';
 //#endif
 import { SessionContextService } from '../../../../core/services/session-context-service';
@@ -38,6 +46,7 @@ import { SETTINGS } from '../../../../core/settings/setting.constants';
 import { SettingOutputDto } from '../../../../core/settings/setting.dto';
 import { InfoHint } from '../../../../shared/components/info-hint/info-hint';
 import { ComboboxRevealSelected } from '../../../../shared/directives/combobox-reveal-selected';
+import { AccountPreferenceField } from '../../../../shared/dtos/account-preferences.dto';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
 //#endif
@@ -67,13 +76,30 @@ import {
  */
 interface RowState {
   status: 'saving' | 'saved' | 'error';
+  /** 已成文的说明（服务端给出的本地化原因）。 */
   message?: string;
+  /** 本地词条键：留在界面上的文案存键，由模板按当前语言取，切换语言后跟着变。 */
+  messageKey?: string;
 }
+
+/** 个人页的账户偏好分组：行由会话偏好（`/me`）提供，不取设置快照，三种部署形态一致。 */
+const PREFERENCES_GROUP = 'Display';
+
+/** 账户偏好对应的设置名（与后端设置定义同名，候选项、时区控件与占位规则按名字复用）→ 偏好字段。 */
+const PREFERENCE_FIELDS: Readonly<Record<string, AccountPreferenceField>> = {
+  //#if (IncludeLocalization)
+  [SETTINGS.display.language]: 'language',
+  //#endif
+  [SETTINGS.display.timeZone]: 'timeZone',
+  [SETTINGS.display.theme]: 'theme',
+};
 
 /** 一个分组的渲染内容：分组本身加上按专属布局拆走之后剩下的普通行。 */
 interface GroupView extends SettingGroup {
   /** 按通用网格渲染的行。 */
   rows: SettingOutputDto[];
+  /** 账户偏好暂时读不到：分组里不出行，只说明原因（不能显示成"没有覆盖"）。 */
+  preferencesUnavailable: boolean;
   /** 整组都是进程级设置：生效范围在分组顶部说一次，不在每行重复。 */
   hostScopeOnce: boolean;
   //#if (ExternalLogin)
@@ -161,9 +187,16 @@ export class SettingSection {
   private readonly settingService = inject(SettingService);
   private readonly sessionContext = inject(SessionContextService);
   private readonly pageState = inject(SettingsPageState);
+  private readonly preferences = inject(AccountPreferencesService);
   //#if (IncludeLocalization)
   private readonly languageService = inject(LanguageService);
   private readonly transloco = inject(TranslocoService);
+  /** 账户偏好分组与三行的显示名：整段取成对象，词条到达与语言切换时随之重算。 */
+  private readonly preferenceTexts = translateObjectSignal(
+    'settings.preferences',
+    {},
+    { scope: 'settings' },
+  );
   //#else
   protected readonly t = englishText(ENGLISH);
   //#endif
@@ -211,16 +244,30 @@ export class SettingSection {
 
   /** 分组由后端下发的分组标识驱动，前端不另列清单，否则漏登记的新设置会从界面上静默消失。 */
   protected readonly groups = computed<SettingGroup[]>(() => {
+    let settings = settingsInScope(this.settings(), this.scope());
+    if (this.scope() === 'account') {
+      // 个人页的账户偏好取会话偏好，不取设置快照：资源服务没有这几项设置，持有方的快照也不是偏好的来源
+      settings = [
+        ...this.preferenceRows(),
+        ...settings.filter((setting) => !(setting.name in PREFERENCE_FIELDS)),
+      ];
+    }
     //#if (IncludeLocalization)
     // 只支持一种语言时界面语言无从选择，不出这一行
-    const settings = settingsInScope(this.settings(), this.scope()).filter(
+    settings = settings.filter(
       (setting) =>
         setting.name !== SETTINGS.display.language || this.languageService.options.length > 1,
     );
-    const groups = groupSettings(settings);
-    //#else
-    const groups = groupSettings(settingsInScope(this.settings(), this.scope()));
     //#endif
+    const groups = groupSettings(settings);
+    // 偏好读不到时分组照常出现，由视图说明原因；设置也没载入成功时让位给载入失败的说明与重试
+    if (this.scope() === 'account' && !this.preferences.known() && !this.loadError()) {
+      groups.unshift({
+        key: PREFERENCES_GROUP,
+        label: this.preferenceText('group'),
+        settings: [],
+      });
+    }
     const only = this.group();
     if (only) {
       return groups.filter((group) => groupPath(group.key) === only);
@@ -236,6 +283,10 @@ export class SettingSection {
       const view: GroupView = {
         ...group,
         rows: group.settings,
+        preferencesUnavailable:
+          this.scope() === 'account' &&
+          group.key === PREFERENCES_GROUP &&
+          !this.preferences.known(),
         hostScopeOnce: isHostScopeOnly(group.settings),
         //#if (ExternalLogin)
         externalLoginProviders: [],
@@ -384,15 +435,65 @@ export class SettingSection {
 
   /** 一个候选项的文案：带词条的按当前语言翻译。 */
   protected choiceLabelOf(choice: SettingChoice): string {
-    if (!choice.labelKey) {
-      return choice.label;
+    return choice.labelKey ? this.text(choice.labelKey) : choice.label;
+  }
+
+  private preferenceText(key: 'group' | AccountPreferenceField): string {
+    //#if (IncludeLocalization)
+    // 词条未到时与模板 t 一致回落成完整键，不出空标题
+    return textAt(this.preferenceTexts(), key) ?? `settings.preferences.${key}`;
+    //#else
+    return this.t(`settings.preferences.${key}`);
+    //#endif
+  }
+
+  private text(key: string): string {
+    //#if (IncludeLocalization)
+    return this.transloco.translate(key);
+    //#else
+    return this.t(key);
+    //#endif
+  }
+
+  /**
+   * 账户偏好的三行，按设置行的形状给出，候选项、时区控件与占位规则与普通设置行共用。没有个人覆盖时
+   * 生效值作为继承值（占位）展示，来源写"跟随组织"；生效值也没有时按设备探测值，写"跟随系统"。
+   * 偏好未知时为空，分组由 {@link groups} 补上并说明原因。
+   */
+  private preferenceRows(): SettingOutputDto[] {
+    const preferences = this.preferences.preferences();
+    const overrides = this.preferences.overrides();
+    if (!preferences || !overrides) {
+      return [];
     }
 
-    //#if (IncludeLocalization)
-    return this.transloco.translate(choice.labelKey);
-    //#else
-    return this.t(choice.labelKey);
-    //#endif
+    const groupLabel = this.preferenceText('group');
+    const row = (
+      name: string,
+      field: AccountPreferenceField,
+      defaultValue: string | null,
+    ): SettingOutputDto => ({
+      name,
+      displayName: this.preferenceText(field),
+      group: PREFERENCES_GROUP,
+      groupDisplayName: groupLabel,
+      userValue: overrides[field],
+      tenantValue: overrides[field] === null ? preferences[field] : null,
+      defaultValue,
+      allowsTenantScope: false,
+      allowsUserScope: true,
+      allowsHostScope: false,
+      canManage: false,
+    });
+
+    // 顺序：先影响能否读懂的语言，再影响数据解读的时区，最后外观
+    return [
+      //#if (IncludeLocalization)
+      row(SETTINGS.display.language, 'language', null),
+      //#endif
+      row(SETTINGS.display.timeZone, 'timeZone', null),
+      row(SETTINGS.display.theme, 'theme', 'system'),
+    ];
   }
 
   /**
@@ -551,8 +652,33 @@ export class SettingSection {
 
     // 串行：两条链并发时 GET 响应可能乱序，旧快照会覆盖新快照。
     const startedAt = Date.now();
+    const preferenceField = scope === 'account' ? PREFERENCE_FIELDS[setting.name] : undefined;
     this.enqueue(async () => {
       try {
+        if (preferenceField) {
+          // 账户偏好写 /me/preferences，成功时偏好状态已按响应更新，不必重取设置快照
+          const outcome = await this.preferences.write(
+            preferenceField,
+            value as AccountPreferences[typeof preferenceField],
+          );
+          if (outcome.status === 'rejected') {
+            throw outcome.error;
+          }
+
+          if (outcome.status === 'unconfirmed') {
+            // 可能已经保存，不重放；下次重查账户偏好时对齐。草稿保留，界面不退回旧值
+            await this.publishRowState(key, generation, startedAt, {
+              status: 'error',
+              messageKey: 'preferences.saveUnconfirmed',
+            });
+            return;
+          }
+
+          this.dropDraft(key, value, isLatest);
+          await this.publishRowState(key, generation, startedAt, { status: 'saved' });
+          return;
+        }
+
         const request =
           scope === 'account'
             ? this.settingService.setForCurrentUser({ name: setting.name, value })
@@ -570,20 +696,8 @@ export class SettingSection {
         // 本页的快照就是会话快照，刷新完即已更新。
         await this.sessionContext.refreshSettings();
 
-        // 快照到手后才丢草稿，否则 PUT 成功而 GET 失败时界面会退回旧值。只丢最后一次写入、且仍等于
-        // 本次写入值的草稿：之后又排了写入时草稿属于那一次（A→B→A 里两个 A 不是同一份意图）；
-        // 回车提交后用户可以接着改，尚未提交的新输入也不能被抹掉。
-        if (isLatest()) {
-          this.drafts.update((drafts) => {
-            if (drafts[key] !== (value ?? '')) {
-              return drafts;
-            }
-
-            const next = { ...drafts };
-            delete next[key];
-            return next;
-          });
-        }
+        // 快照到手后才丢草稿，否则 PUT 成功而 GET 失败时界面会退回旧值
+        this.dropDraft(key, value, isLatest);
 
         await this.publishRowState(key, generation, startedAt, { status: 'saved' });
       } catch (error: unknown) {
@@ -593,6 +707,27 @@ export class SettingSection {
           message: applicationErrorMessage(error),
         });
       }
+    });
+  }
+
+  /**
+   * 写入落定后丢掉草稿，让控件显示快照或偏好里的值。只丢最后一次写入、且仍等于本次写入值的草稿：
+   * 之后又排了写入时草稿属于那一次（A→B→A 里两个 A 不是同一份意图）；回车提交后用户可以接着改，
+   * 尚未提交的新输入也不能被抹掉。
+   */
+  private dropDraft(key: string, value: string | null, isLatest: () => boolean): void {
+    if (!isLatest()) {
+      return;
+    }
+
+    this.drafts.update((drafts) => {
+      if (drafts[key] !== (value ?? '')) {
+        return drafts;
+      }
+
+      const next = { ...drafts };
+      delete next[key];
+      return next;
     });
   }
 
@@ -679,6 +814,12 @@ function isHostScopeOnly(settings: readonly SettingOutputDto[]): boolean {
 
 /** 不含本地化时的界面文案，与 `en.json` 同步。 */
 const ENGLISH: Record<string, string> = {
+  'settings.preferences.group': 'Display',
+  'settings.preferences.language': 'Language',
+  'settings.preferences.timeZone': 'Time zone',
+  'settings.preferences.theme': 'Appearance',
+  'settings.preferences.unavailable': "Your preferences can't be loaded right now. Try again later",
+  'preferences.saveUnconfirmed': "Couldn't confirm the change was saved",
   'settings.followSystem': 'Follows your system',
   'settings.followOrganization': 'Follows your organization',
   'settings.deploymentDefault': 'Deployment default',

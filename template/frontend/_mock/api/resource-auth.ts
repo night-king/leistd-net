@@ -1,4 +1,5 @@
 //#if (RemoteTokenAuth)
+import { currentAccountPreferences } from './account-preferences';
 import { MockException } from '../core/models';
 import { USERS, toUserOutput } from '../data/user';
 import {
@@ -18,7 +19,12 @@ export const RESOURCE_AUTH_API = {
     const user = getCurrentUser();
     if (!user) throw new MockException(401, 'No active session');
     const tenantId = getMockSessionTenantKey();
-    return { ...toUserOutput(user), tenantId: tenantId === 'host' ? null : tenantId };
+    // 偏好由身份服务持有、资源服务转交；Mock 读同一份数据
+    return {
+      ...toUserOutput(user),
+      tenantId: tenantId === 'host' ? null : tenantId,
+      ...currentAccountPreferences(),
+    };
   },
   'POST /api/v1/auth/logout': () => {
     setMockSessionUserId(null);

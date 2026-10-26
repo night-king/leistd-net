@@ -9,6 +9,13 @@
   "followSystem": "跟随系统",
   "followOrganization": "跟随组织",
   "deploymentDefault": "部署默认",
+  "preferences": {
+    "group": "显示",
+    "language": "界面语言",
+    "timeZone": "时区",
+    "theme": "外观",
+    "unavailable": "暂时无法读取偏好，请稍后重试"
+  },
   "hostScope": {
     //#if (IncludeMultiTenancy)
     "note": "。对所有租户生效",

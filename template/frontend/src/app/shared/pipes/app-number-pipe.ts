@@ -59,7 +59,7 @@ function supported(locale: string | undefined): locale is string {
 }
 
 /**
- * 按界面语言书写数字。`locale` 来自 `SettingContextService.displayLocale`，由调用方传入，管道保持 pure。
+ * 按界面语言书写数字。`locale` 来自 `AccountPreferencesService.displayLocale`，由调用方传入，管道保持 pure。
  *
  * ```html
  * {{ total | appNumber: 'integer' : displayLocale() }}

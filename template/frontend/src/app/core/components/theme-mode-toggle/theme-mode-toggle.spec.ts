@@ -1,38 +1,27 @@
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { toast } from '@spartan-ng/brain/sonner';
-import { of, Subject, throwError } from 'rxjs';
+import { of } from 'rxjs';
 
 import { ThemeModeToggle } from './theme-mode-toggle';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../i18n/transloco.testing';
 //#endif
 import { AuthService } from '../../services/auth-service';
-import { SessionContextService } from '../../services/session-context-service';
 import { ThemeService } from '../../services/theme-service';
-import { SettingService } from '../../settings/setting-service';
 
-import type { MockedObject } from 'vitest';
+const URL = '/api/v1/auth/me/preferences';
+const NONE = { language: null, timeZone: null, theme: null };
 
-/** 外观的归属由切换器决定：已登录的选择写回账户设置，未登录的只记在本设备。 */
+/** 外观的归属由切换器决定：已登录的选择写进账户偏好，未登录的只记在本设备。 */
 describe('ThemeModeToggle', () => {
   let component: ThemeModeToggle;
   let theme: ThemeService;
-  let settingService: Pick<MockedObject<SettingService>, 'setForCurrentUser'>;
-  let sessionContext: Pick<MockedObject<SessionContextService>, 'refreshSettings'>;
+  let http: HttpTestingController;
 
   function setUp(authenticated: boolean): void {
-    settingService = {
-      setForCurrentUser: vi.fn().mockName('SettingService.setForCurrentUser'),
-    };
-    settingService.setForCurrentUser.mockReturnValue(of(undefined));
-    sessionContext = {
-      refreshSettings: vi.fn().mockName('SessionContextService.refreshSettings'),
-    };
-    sessionContext.refreshSettings.mockResolvedValue([]);
-
     TestBed.configureTestingModule({
       imports: [ThemeModeToggle],
       providers: [
@@ -40,8 +29,6 @@ describe('ThemeModeToggle', () => {
         provideHttpClientTesting(),
         // 真实 AuthService 会拉起认证栈；这里只关心「已登录还是没登录」
         { provide: AuthService, useValue: { isAuthenticated: () => authenticated } },
-        { provide: SettingService, useValue: settingService },
-        { provide: SessionContextService, useValue: sessionContext },
         // 系统偏好恒为亮色、不减少动效：用例与运行测试那台机器的设置无关
         {
           provide: BreakpointObserver,
@@ -58,48 +45,63 @@ describe('ThemeModeToggle', () => {
       return {} as ViewTransition;
     });
     theme = TestBed.inject(ThemeService);
+    http = TestBed.inject(HttpTestingController);
     component = TestBed.createComponent(ThemeModeToggle).componentInstance;
   }
 
+  /** 写入在偏好队列的微任务里发出，同步 expectOne 会扑空。 */
+  const settle = () => new Promise((resolve) => setTimeout(resolve));
+
   afterEach(() => {
+    http.verify();
     localStorage.removeItem(ThemeService.STORAGE_KEY);
     document.documentElement.classList.remove('dark');
   });
 
-  it('writes an authenticated choice to the account, then switches', () => {
+  // 先写入、按响应切换：先切的话保存失败时界面与账户就分叉了
+  it('writes an authenticated choice to the account, then switches', async () => {
     setUp(true);
 
     component.toggle();
+    await settle();
 
     // 默认跟随系统，下一档是暗色
-    expect(settingService.setForCurrentUser).toHaveBeenCalledWith({
-      name: 'Display.Theme',
-      value: 'dark',
-    });
-    expect(theme.mode()).toBe('dark');
-    expect(sessionContext.refreshSettings).toHaveBeenCalledOnce();
-  });
-
-  /** 先写回、成功后再切换：先切换会让偏好页的重取早于写入完成，显示旧值。 */
-  it('does not switch before the account write completes', () => {
-    setUp(true);
-    settingService.setForCurrentUser.mockReturnValue(new Subject<void>());
-
-    component.toggle();
-
+    const request = http.expectOne(URL);
+    expect(request.request.body).toEqual({ theme: 'dark' });
     expect(theme.mode()).toBe('system');
+
+    request.flush({
+      preferences: { ...NONE, theme: 'dark' },
+      preferenceOverrides: { ...NONE, theme: 'dark' },
+    });
+    await vi.waitFor(() => expect(theme.mode()).toBe('dark'));
   });
 
-  it('keeps the current appearance and says so when the account write fails', () => {
+  it('keeps the current appearance and says so when the account rejects it', async () => {
     setUp(true);
-    settingService.setForCurrentUser.mockReturnValue(throwError(() => new Error('network down')));
     const error = vi.spyOn(toast, 'error').mockImplementation(() => '');
 
     component.toggle();
+    await settle();
+    http
+      .expectOne(URL)
+      .flush({ code: 'Setting:ValueNotAllowed' }, { status: 400, statusText: 'Bad Request' });
 
+    await vi.waitFor(() => expect(error).toHaveBeenCalled());
     expect(theme.mode()).toBe('system');
-    expect(error).toHaveBeenCalled();
-    expect(sessionContext.refreshSettings).not.toHaveBeenCalled();
+  });
+
+  // 资源服务转交失败（依赖故障）：可能已经保存，提示未能确认，不说成未保存，也不改界面
+  it('reports an unconfirmed save when the account service cannot be reached', async () => {
+    setUp(true);
+    const warning = vi.spyOn(toast, 'warning').mockImplementation(() => '');
+
+    component.toggle();
+    await settle();
+    http.expectOne(URL).flush(null, { status: 503, statusText: 'Service Unavailable' });
+
+    await vi.waitFor(() => expect(warning).toHaveBeenCalled());
+    expect(theme.mode()).toBe('system');
   });
 
   it('records an anonymous choice on this device and writes no setting', () => {
@@ -108,6 +110,6 @@ describe('ThemeModeToggle', () => {
     component.toggle();
 
     expect(theme.mode()).toBe('dark');
-    expect(settingService.setForCurrentUser).not.toHaveBeenCalled();
+    http.expectNone(URL);
   });
 });

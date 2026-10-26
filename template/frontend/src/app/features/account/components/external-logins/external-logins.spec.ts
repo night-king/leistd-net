@@ -16,8 +16,8 @@ import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthService } from '../../../../core/services/auth-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { ExternalLoginsOutputDto } from '../../dtos/account.dto';
 import { AccountService } from '../../services/account-service';
 
@@ -64,7 +64,7 @@ describe('ExternalLogins', () => {
           useValue: { currentUser, loadUser: () => of(undefined), signInAgain: vi.fn() },
         },
         {
-          provide: SettingContextService,
+          provide: AccountPreferencesService,
           useValue: { timeZone: signal<string | undefined>('UTC'), displayLocale: signal('en') },
         },
         //#if (IncludeLocalization)

@@ -13,7 +13,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { StatusDot } from '../../../../shared/directives/status-dot';
 import { UserSessionOutputDto } from '../../../../shared/dtos/account-security.dto';
 import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
@@ -58,7 +58,7 @@ const OTHERS = 'others';
 export class LoginDevices {
   private readonly accountService = inject(AccountService);
   private readonly confirmService = inject(ConfirmService);
-  private readonly settingContext = inject(SettingContextService);
+  private readonly accountPreferences = inject(AccountPreferencesService);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -82,8 +82,8 @@ export class LoginDevices {
         formatAppDate(
           value,
           'short',
-          this.settingContext.timeZone(),
-          this.settingContext.displayLocale(),
+          this.accountPreferences.timeZone(),
+          this.accountPreferences.displayLocale(),
         );
 
       return {

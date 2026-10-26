@@ -653,6 +653,9 @@ function Invoke-RuntimeSmoke([string]$ProjectRoot, [string]$Configuration, [stri
     # Resource 的开发配置声明了回源 Identity 的机器身份，启动校验要求凭据齐全；冒烟只探存活，不换令牌
     $startInfo.Environment['Leistd__ServiceAuth__ClientId'] = 'matrix-resource-worker'
     $startInfo.Environment['Leistd__ServiceAuth__ClientSecret'] = 'matrix-resource-worker-secret'
+    # 代表本人写账户偏好的交换目标同样在启动期校验；冒烟不写偏好，给出 Identity API 的标识即可
+    $startInfo.Environment['Leistd__ServiceClients__Identity__TokenExchange__Audience'] = 'matrix-identity-api'
+    $startInfo.Environment['Leistd__ServiceClients__Identity__TokenExchange__Scope'] = 'matrix-identity-api'
 
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo

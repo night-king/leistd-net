@@ -4,7 +4,7 @@ import { TranslocoDirective } from '@jsverse/transloco';
 //#endif
 
 import { operationFailureReason } from './operation-record-texts';
-import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../../../core/services/account-preferences-service';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
@@ -30,8 +30,8 @@ import { OperationRecordOutputDto } from '../../../../dtos/operation-record.dto'
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OperationRecordDetail {
-  protected readonly displayTimeZone = inject(SettingContextService).timeZone;
-  protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  protected readonly displayTimeZone = inject(AccountPreferencesService).timeZone;
+  protected readonly displayLocale = inject(AccountPreferencesService).displayLocale;
   //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif

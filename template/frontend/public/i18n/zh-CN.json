@@ -173,6 +173,9 @@
       "unreadAria": "通知（{{count}} 条未读）"
     }
   },
+  "preferences": {
+    "saveUnconfirmed": "未能确认是否已保存"
+  },
   "theme": {
     "toggle": "切换主题",
     "current": "主题：{{mode}}",

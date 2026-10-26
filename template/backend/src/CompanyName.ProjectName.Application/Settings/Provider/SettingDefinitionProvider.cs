@@ -1,6 +1,10 @@
+#if (!RemoteTokenAuth)
 using CompanyName.ProjectName.Application.Settings.Options;
+#endif
 using Leistd.Settings.Definitions;
+#if (!RemoteTokenAuth)
 using Microsoft.Extensions.Options;
+#endif
 #if (LocalIdentity)
 using System.Globalization;
 using CompanyName.ProjectName.Application.Users.Options;
@@ -28,7 +32,9 @@ namespace CompanyName.ProjectName.Application.Settings.Provider;
 /// <para>值域（布尔、整数区间、候选值）声明在定义上：设置组件在写入端据此校验，设置页据此渲染控件。
 /// 覆盖部署配置的宿主级设置（日志级别、审计、发信参数、外部登录）不写默认值——设置组件按绑定取部署基线
 /// （见 Api 的 <c>HostSettingBindings</c>），清除覆盖值即回落到部署配置，而不是回落到一个写死的值。</para>
+#if (!RemoteTokenAuth)
 /// <param name="displayDefaults">界面语言与时区的部署基线：两项的代码默认值取自它，空为跟随设备。</param>
+#endif
 #if (LocalIdentity)
 /// <param name="registrationOptions">
 /// 注册策略的部署基线：注册类设置的代码默认值取自它，因此 <c>appsettings</c> 仍是
@@ -40,13 +46,18 @@ public class SettingDefinitionProvider(
     IOptions<UserRegistrationOptions> registrationOptions,
     IOptions<UserSessionOptions> sessionOptions) : ISettingDefinitionProvider
 {
-#else
+#elif (!RemoteTokenAuth)
 public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayDefaults) : ISettingDefinitionProvider
+{
+#else
+public class SettingDefinitionProvider : ISettingDefinitionProvider
 {
 #endif
     /// <inheritdoc />
     public void Define(ISettingDefinitionContext context)
     {
+#if (!RemoteTokenAuth)
+        // 语言、时区、外观是账户偏好，由本服务持有；资源服务不定义，向 Identity 读取（见 IAccountPreferenceStore）。
         var display = displayDefaults.Value;
 #if (IncludeLocalization)
         // 界面语言：组织给默认、个人可覆盖。解析顺序 个人 → 组织 → 部署基线 → 设备。
@@ -82,6 +93,7 @@ public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayD
             group: SettingConstant.Groups.Display)
             .WithAllowedValues(SettingConstant.Display.ThemeModes)
             .IsVisibleToClients = true;
+#endif
 
 #if (LocalIdentity)
 
@@ -310,8 +322,10 @@ public class SettingDefinitionProvider(IOptions<DisplayDefaultsOptions> displayD
 #endif
     }
 
+#if (!RemoteTokenAuth)
     // 部署基线空白即"未配置"：作为默认值时与没有默认值等价，交给设备决定
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+#endif
 #if (IncludeNotifications)
 
     private static void AddNotificationPreference(

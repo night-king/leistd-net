@@ -292,6 +292,17 @@ describe('httpErrorInterceptor', () => {
     //#endif
   }
 
+  // 资源服务转交写入时，调用身份服务的认证或交换失败按依赖故障返回（502/503/504），
+  // 连接中断也一样：这些不说明本服务的会话失效，不能清掉会话把人登出
+  for (const status of [0, 502, 503, 504]) {
+    it(`keeps the session when a write fails with dependency status ${status}`, () => {
+      const caught = runInterceptor(httpError(status), { method: 'POST' });
+
+      expect(sessionContext.clear).not.toHaveBeenCalled();
+      expect((caught as ApplicationHttpError).category).toBe('uncertain');
+    });
+  }
+
   // 断言统一清理入口而非 AuthService.clearAuthData()，否则退回"只清认证数据"也能通过。
   // OIDC 形态没有静默续期，isAuthenticated() 只看内存主体，两种形态都必须在这里清理并重新认证。
   it('clears the whole session and re-initiates authentication on a non-silent 401', () => {

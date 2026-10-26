@@ -20,12 +20,12 @@ import { ConfirmService } from '../../../../core/feedback/confirm-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 //#if (IncludeRealTime)
 import { SignalRService } from '../../../../core/services/signalr-service';
 //#endif
 import { StartupService } from '../../../../core/services/startup-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 import { GetRolesInputDto, RoleOutputDto } from '../../dtos/role.dto';
 import { RoleService } from '../../services/role-service';
@@ -98,7 +98,7 @@ describe('Roles page query round trip', () => {
 
     // 先建好设置上下文（连带语言服务），与应用启动一致；否则子表格首次渲染时才注入它，
     // 激活语言会让外层 *transloco 在视图未建完时重建。
-    TestBed.inject(SettingContextService);
+    TestBed.inject(AccountPreferencesService);
     fixture = TestBed.createComponent(Roles);
     component = fixture.componentInstance;
     fixture.detectChanges();

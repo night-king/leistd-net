@@ -35,8 +35,8 @@ import {
   applicationErrorMessage,
 } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthService } from '../../../../core/services/auth-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PASSKEY_NAME_MAX_LENGTH } from '../../../../core/webauthn/passkey-device-name';
 import { getPasskey, passkeySupport } from '../../../../core/webauthn/webauthn';
 import { StatusDot } from '../../../../shared/directives/status-dot';
@@ -100,7 +100,7 @@ export class TwoFactorPasskeySettings {
   private readonly accountService = inject(AccountService);
   private readonly authService = inject(AuthService);
   private readonly confirmService = inject(ConfirmService);
-  private readonly settingContext = inject(SettingContextService);
+  private readonly accountPreferences = inject(AccountPreferencesService);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
   //#if (IncludeLocalization)
@@ -126,8 +126,8 @@ export class TwoFactorPasskeySettings {
     awaitingGesture: () => this.focus('passkey-continue'),
   });
   protected readonly reauth = this.registration.reauth;
-  protected readonly displayTimeZone = this.settingContext.timeZone;
-  protected readonly displayLocale = this.settingContext.displayLocale;
+  protected readonly displayTimeZone = this.accountPreferences.timeZone;
+  protected readonly displayLocale = this.accountPreferences.displayLocale;
 
   protected readonly status = signal<TwoFactorStatusOutputDto | null>(null);
   protected readonly loadFailed = signal(false);

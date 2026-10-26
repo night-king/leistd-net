@@ -66,12 +66,13 @@ services:
       - Authentication__ClientId=${BROWSER_CLIENT_ID:?BROWSER_CLIENT_ID is required for Resource browser sessions}
       - Authentication__ClientSecret=${BROWSER_CLIENT_SECRET:?BROWSER_CLIENT_SECRET is required for Resource browser sessions}
 #endif
-#if (IncludeMultiTenancy)
+      # 回源 Identity：机器身份读租户路由与账户偏好；代表本人写偏好经 Token Exchange 换 Identity 自身 API 的令牌
       - Leistd__ServiceClients__Identity__BaseAddress=${IDENTITY_BASE_ADDRESS:?IDENTITY_BASE_ADDRESS is required for a Resource service}
       - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:?IDENTITY_AUTHORITY is required for a Resource service}
       - Leistd__ServiceAuth__ClientId=${RESOURCE_CLIENT_ID:?RESOURCE_CLIENT_ID is required for a Resource service}
       - Leistd__ServiceAuth__ClientSecret=${RESOURCE_CLIENT_SECRET:?RESOURCE_CLIENT_SECRET is required for a Resource service}
-#endif
+      - Leistd__ServiceClients__Identity__TokenExchange__Audience=${IDENTITY_API_RESOURCE:?IDENTITY_API_RESOURCE is required for a Resource service}
+      - Leistd__ServiceClients__Identity__TokenExchange__Scope=${IDENTITY_API_RESOURCE:?IDENTITY_API_RESOURCE is required for a Resource service}
 #endif
 
       # Redis Configuration — matches the bundled redis service below (no password, no TLS).

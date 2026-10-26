@@ -1,4 +1,6 @@
+#if (!RemoteTokenAuth)
 using Leistd.Settings.Validation;
+#endif
 using CompanyName.ProjectName.Api;
 using CompanyName.ProjectName.Api.Auth.Authorization;
 #if (LocalIdentity)
@@ -15,6 +17,7 @@ using CompanyName.ProjectName.Application.Notifications.Provider;
 using Leistd.Notifications.Email.Recipients;
 #endif
 using CompanyName.ProjectName.Application;
+using CompanyName.ProjectName.Application.Settings.Validators;
 #if (OpenIddictServer)
 using CompanyName.ProjectName.Application.Auth.Options;
 #endif
@@ -91,17 +94,20 @@ public class ServiceRegistrationTests
         Assert.Equal(afterFirst, services.Count);
     }
 
-    // 设置页在所有服务形态下都保留：值域之外的业务校验（时区等）必须在每种形态下都登记，
-    // 漏了不会报错，只会让非法值静默落库，之后每个消费方都得自己防御。
+    // 值域之外的业务校验漏登记不会报错，只会让非法值静默落库，之后每个消费方都得自己防御。
+    // 账户偏好的取值判定在每种形态都有（资源服务转交前先判）；时区设置只在持有偏好的服务里定义。
     [Fact]
-    public void Setting_value_validators_are_registered_in_every_service_role()
+    public void Value_validators_are_registered_in_every_service_role()
     {
         var services = new ServiceCollection();
         services.AddLogging();
 
         services.AddApplicationServices();
 
-        Assert.Contains(services, d => d.ServiceType == typeof(ISettingValueValidator));
+        Assert.Contains(services, d => d.ServiceType == typeof(AccountPreferenceValueValidator));
+#if (!RemoteTokenAuth)
+        Assert.Contains(services, d => d.ServiceType == typeof(ISettingValueValidator) && d.ImplementationType == typeof(TimeZoneSettingValidator));
+#endif
     }
 
     [Fact]

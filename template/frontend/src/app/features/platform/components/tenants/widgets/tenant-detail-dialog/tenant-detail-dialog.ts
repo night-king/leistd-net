@@ -26,7 +26,7 @@ import { firstValueFrom, catchError, EMPTY, finalize, Subscription, tap } from '
 
 import { applicationErrorMessage } from '../../../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../../../core/feedback/confirm-service';
-import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../../../core/services/account-preferences-service';
 import { AppDate } from '../../../../../../shared/pipes/app-date-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../../../shared/utils/english-text';
@@ -92,8 +92,8 @@ export class TenantDetailDialog {
   private readonly connectionService = inject(TenantConnectionService);
   private readonly confirmService = inject(ConfirmService);
   private readonly destroyRef = inject(DestroyRef);
-  protected readonly displayTimeZone = inject(SettingContextService).timeZone;
-  protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  protected readonly displayTimeZone = inject(AccountPreferencesService).timeZone;
+  protected readonly displayLocale = inject(AccountPreferencesService).displayLocale;
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else

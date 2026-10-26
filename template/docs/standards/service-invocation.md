@@ -57,6 +57,7 @@ Identity 自身 API 的标识是 OAuth:Resource，同名登记为 scope，本服
 <!--#if (IncludeMultiTenancy)-->
 - 租户回源授予 tenant-routing.read，迁移身份单独授予 tenant-migration.read。需要机器回源的交换客户端可同时启用 client credentials。
 <!--#endif-->
+- 资源服务的客户端还要按用户读账户偏好与代表本人写偏好：启用 client credentials 并授予 account-preferences.read，同时启用 Token Exchange、ept:token、aud 与 scp 取 Identity 自身 API 的标识（OAuth:Resource）。
 
 配置示例（Secret 由 Leistd__ServiceAuth__ClientSecret 注入）：
 
@@ -84,7 +85,14 @@ Identity 自身 API 的标识是 OAuth:Resource，同名登记为 scope，本服
 <!--#if (RemoteTokenAuth && IncludeMultiTenancy)-->
       "Identity": {
         "BaseAddress": "https://login.example.com/",
-        "Scope": "tenant-routing.read"
+        "Scope": "tenant-routing.read account-preferences.read",
+        "TokenExchange": { "Audience": "identity-api", "Scope": "identity-api" }
+      },
+<!--#elseif (RemoteTokenAuth)-->
+      "Identity": {
+        "BaseAddress": "https://login.example.com/",
+        "Scope": "account-preferences.read",
+        "TokenExchange": { "Audience": "identity-api", "Scope": "identity-api" }
       },
 <!--#endif-->
       "Billing": {
@@ -100,6 +108,7 @@ Identity 自身 API 的标识是 OAuth:Resource，同名登记为 scope，本服
 TokenExchange 的 Audience 与 Scope 都必须显式填写，Scope 填签发方为目标资源登记的那一个 scope，只能一个值；Token Exchange 只接受单个 scope、映射单个资源，填空格分隔的多值只会得到笼统的 invalid_grant。机器调用的 Scope 才可以是空格分隔的多值。
 <!--#if (RemoteTokenAuth)-->
 Resource 已注册用户访问令牌适配器。
+账户偏好的 Identity 客户端按认证方式拆成两个，共用 `Leistd:ServiceClients:Identity` 地址节：读取经 AddClientCredentials，写入经 AddTokenExchange（示例中的 identity-api 换成 Identity 实际的 OAuth:Resource）。
 <!--#if (IncludeMultiTenancy)-->
 租户回源的 Identity 客户端经 AddClientCredentials 注册。
 <!--#endif-->

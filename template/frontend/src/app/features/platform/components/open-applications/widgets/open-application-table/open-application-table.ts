@@ -34,7 +34,7 @@ import { HlmTableImports } from '@spartan-ng/helm/table';
 import { HlmTooltipImports } from '@spartan-ng/helm/tooltip';
 import { ColumnDef, PaginationState, SortingState } from '@tanstack/angular-table';
 
-import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../../../core/services/account-preferences-service';
 import {
   type ReadonlyListItem,
   ReadonlyListPopover,
@@ -123,8 +123,8 @@ type BadgeVariant = 'secondary' | 'outline';
 })
 export class OpenApplicationTable {
   // 统一按展示时区渲染，避免同一时刻在不同页面显示成不同时间。
-  protected readonly displayTimeZone = inject(SettingContextService).timeZone;
-  protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  protected readonly displayTimeZone = inject(AccountPreferencesService).timeZone;
+  protected readonly displayLocale = inject(AccountPreferencesService).displayLocale;
   //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif

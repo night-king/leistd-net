@@ -4,6 +4,7 @@ using CompanyName.ProjectName.Domain.Users.Errors;
 using CompanyName.ProjectName.Application.OperationRecords.Provider;
 using CompanyName.ProjectName.Domain.Users.DomainServices;
 #if (RemoteTokenAuth)
+using CompanyName.ProjectName.Application.Settings.Preferences;
 using CompanyName.ProjectName.Domain.Users.ValueObjects;
 using Leistd.MultiTenancy.Context;
 #endif
@@ -59,6 +60,7 @@ internal sealed class UserAppService(
     IUnitOfWorkManager unitOfWorkManager,
 #if (RemoteTokenAuth)
     ICurrentTenant currentTenant,
+    IAccountPreferenceStore preferenceStore,
 #endif
 #if (LocalIdentity)
     UserSortingValidator userSortingValidator,
@@ -158,6 +160,8 @@ internal sealed class UserAppService(
     {
         var user = currentUser.Id is { } id ? await userRepository.GetWithRolesAsync(id, cancellationToken) : null;
         var local = user is null ? null : await MapToOutputAsync(user, cancellationToken);
+        // 偏好取自 Identity：每次都做条件重验证，切回页签就能看到别处刚改的值；暂时读不到时两项都为 null
+        var preferences = await preferenceStore.GetForCurrentUserAsync(cancellationToken);
         return new CurrentResourceUserOutputDto
         {
             Id = currentUser.Id,
@@ -167,7 +171,9 @@ internal sealed class UserAppService(
             IsEmailVerified = currentUser.FindClaim(EmailVerifiedClaimType)?.Value == "true",
             IsSuperAdmin = local?.IsSuperAdmin ?? false,
             Roles = local?.Roles.Select(role => role.Name).ToArray() ?? [],
-            TenantId = currentTenant.Id
+            TenantId = currentTenant.Id,
+            Preferences = preferences?.Preferences,
+            PreferenceOverrides = preferences?.PreferenceOverrides,
         };
     }
 
