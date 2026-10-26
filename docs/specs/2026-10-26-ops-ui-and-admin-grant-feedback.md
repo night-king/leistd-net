@@ -1,6 +1,6 @@
 # 运维页前端组件与 Admin 权限补齐（下游反馈）
 
-状态：进行中 · 风险档：高（框架公共 API、权限语义变更、跨框架与模板） · 关联：待补
+状态：已完成 · 风险档：高（框架公共 API、权限语义变更、跨框架与模板） · 关联：[#187](https://github.com/zengqinglei/leistd-net/pull/187)、[#188](https://github.com/zengqinglei/leistd-net/pull/188)
 
 ## 1. 需求
 
@@ -67,3 +67,48 @@
 
 - 迁移补齐不写操作记录，只记日志。迁移作业每次都会执行补齐，留操作记录会产生大量无意义记录。
 - 不加管理作用域锁。授权版本已经是并发令牌，点操作冲突时会重试。
+
+## 4. 结果
+
+### 实际交付
+
+- [#187](https://github.com/zengqinglei/leistd-net/pull/187)：HA-1、HA-2。合并提交 `26f0a8c1`，框架 beta `1.3.0-beta.27`。
+- [#188](https://github.com/zengqinglei/leistd-net/pull/188)：UI-1、UI-3、UI-4、UI-5。只改模板，随下次 develop 合入 main 发布。
+
+### 与计划的偏差
+
+- **补缺写入方式**：没有用 `ReplaceGrantsAsync` 一次写入，改为逐项调用 `GrantAsync`。整体替换会因已失效的旧名授予拒绝写入。代价是一次补缺可能使版本递增多次；版本只用作并发令牌，不影响语义。
+- **#187 第一轮 CI 失败两处**，均已修复：
+  - `AdminGrantTopUpTests` 整文件只在 `LocalIdentity` 下生成，没登记排除，资源服务场景生成了空文件。已登记到 `template.json` 的排除清单。
+  - 单库迁移模式（`MigrationTarget`）在非多租户场景也存在，原先只在多租户分支里跳过补齐。现在所有场景都跳过。
+- **规范篇幅**：UI-3、UI-4 合并成一条写进 `frontend-lists.md`；UI-5 落在 `frontend-lists.md`，没有写进 `frontend-ui.md`。为守住阅读成本上限，同文件两条与组件注释、测试辅助函数重复的说明收短。
+- **截图暴露的问题**：对比页截图发现面板长选项仍被截断、图标被挤压（一次替换落错了位置），已在 #188 修正，并补了用例固定。
+
+### 验收记录
+
+- **HA-1**：
+  - 授权组件测试 127 条通过（新增 4 条）。
+  - `AdminGrantTopUpTests` 3 条在全功能场景通过（宿主补齐与重跑零写入、其他角色不动、共享库与独立库租户），无多租户场景通过 2 条。
+  - 反证：补齐只预演不写入时两条失败。
+  - `TenantAdminRestoreTests`、`ResourceAdminBootstrapTests` 不变。
+- **HA-2**：示例迁移在 PostgreSQL 18 上执行两遍：
+  - 第一遍：旧授予平移到两个新名；已存在的新名授予不冲突；只有受影响主体的版本 +1，另一租户同 Key 的主体不动；旧名授予删除。
+  - 第二遍：零变化。
+- **UI-1**：spec 固定以下行为：
+  - 窄屏只显示数量；
+  - 长标签在按钮内截断；
+  - 长选项折行；
+  - 触屏下三处 44px。
+
+  反证：去掉补足或收缩后对应用例失败。Mock 实拍：390 宽下现状页面横向撑到 518px，方案无溢出；触屏下 32px 变为 44px。界面方案经用户在对比页确认。
+- **UI-5**：回归用例去掉 `*:shrink-0` 后，外框从 1200px 被压到 266px；加上后为 1200px。
+
+### 遗留项
+
+- 资源服务场景的「迁移后补齐」没有专门的集成测试：与 Identity 场景共用同一实现，注册面由 `MigratorRegistrationTests` 构建期校验覆盖。
+
+### 已上收的常驻文档
+
+- `framework/docs/components/authorization.md`：补缺入口；删除、改名或拆分权限按语义分两种处理。
+- `template/backend/README.md`、`template/docs/operations/runbooks/grant-new-permissions.md`：迁移后补齐；Admin 只增不减。
+- `template/docs/standards/frontend-lists.md`：滚动列、详情数据来源、值带按钮的详情行。
