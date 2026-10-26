@@ -164,7 +164,10 @@ describe('LanguageSwitcher', () => {
     const fixture = TestBed.createComponent(LanguageSwitcher);
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).classList).toContain('hidden');
+    // 断言实际样式而非类名：两个设 display 的类同时存在时，类名在、按钮却照样显示
+    const host = fixture.nativeElement as HTMLElement;
+    expect(getComputedStyle(host).display).toBe('none');
+    expect(host.getBoundingClientRect().width).toBe(0);
   });
 
   it('shows itself when more than one language is supported', () => {
@@ -172,6 +175,8 @@ describe('LanguageSwitcher', () => {
     const fixture = TestBed.createComponent(LanguageSwitcher);
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).classList).not.toContain('hidden');
+    const host = fixture.nativeElement as HTMLElement;
+    expect(getComputedStyle(host).display).toBe('inline-flex');
+    expect(host.getBoundingClientRect().width).toBeGreaterThan(0);
   });
 });

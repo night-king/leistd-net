@@ -25,7 +25,12 @@ interface LangOption {
   standalone: true,
   imports: [HlmButton, NgIcon, TranslocoDirective, ...HlmDropdownMenuImports],
   providers: [provideIcons({ lucideGlobe, lucideCheck })],
-  host: { class: 'inline-flex items-center', '[class.hidden]': '!selectable' },
+  // 显示方式二选一：inline-flex 与 hidden 都设 display，同时存在时 Tailwind 生成顺序靠后的 inline-flex 生效
+  host: {
+    class: 'items-center',
+    '[class.inline-flex]': 'selectable',
+    '[class.hidden]': '!selectable',
+  },
   template: `
     <button
       *transloco="let t"
