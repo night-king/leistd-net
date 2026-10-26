@@ -21,7 +21,7 @@ const DEFAULT_THEME_PREFERENCES: ThemePreferences = {
 /**
  * 主题服务：管理亮/暗/跟随系统三态，切换 `<html>` 的 `.dark` class；配色走 styles.css 的 CSS 变量。
  *
- * 已登录时以账户设置 `Display.Theme` 为准（由会话上下文应用，切换器负责写回），未登录时是本设备的选择。
+ * 已登录时以账户偏好的外观为准（由 `AccountPreferencesService` 应用，切换器经它写回），未登录时是本设备的选择。
  * 生效值一律缓存在 localStorage，首帧前由 `index.html` 读取：主题不含个人信息，与语言不同，不必只放内存；
  * 只放内存的话，账户值与本机值不同的人每次打开都会先闪一下另一种主题。
  */

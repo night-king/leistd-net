@@ -19,8 +19,8 @@ import { ApplicationHttpError } from '../../../../core/errors/application-http-e
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthService } from '../../../../core/services/auth-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PASSWORD_MIN_LENGTH } from '../../../../core/validation/password-rule';
 import { TwoFactorStatusOutputDto } from '../../../../shared/dtos/account-security.dto';
 // prettier-ignore
@@ -127,7 +127,7 @@ describe('SecurityPanel', () => {
           useValue: { currentUser, loadUser, signInAgain: vi.fn() },
         },
         {
-          provide: SettingContextService,
+          provide: AccountPreferencesService,
           useValue: { timeZone: signal(undefined), displayLocale: signal(undefined) },
         },
       ],

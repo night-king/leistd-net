@@ -5,7 +5,8 @@ namespace Leistd.ExceptionHandling;
 /// <para><see cref="Code"/> 是稳定的机器契约与本地化键；<see cref="Exception.Message"/>
 /// 是词条缺失或未启用本地化时可安全展示的默认文案，也可能随异常对象进入日志（如 5xx 的异常链），
 /// 不拼入联系方式、密钥等不能进日志的值；这类值经 <see cref="WithData"/> 传给词条占位符。</para>
-/// <para>本类不携带 HTTP 状态码，传输边界根据错误码或宿主映射决定响应状态。</para>
+/// <para>本类不携带 HTTP 状态码，传输边界根据错误码或宿主映射决定响应状态；转交上游业务拒绝的派生类型
+/// 可实现 <see cref="IHasHttpStatusCode"/> 沿用上游状态。</para>
 /// </remarks>
 public class BusinessException : Exception
 {

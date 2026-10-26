@@ -2,6 +2,7 @@
  * 认证契约 DTO，放在 `shared/`：`core` 的 AuthService、account 特性与 Mock 都消费它们，
  * 留在特性目录会让 `core` 反向依赖 `features`。
  */
+import { AccountPreferencesDto } from './account-preferences.dto';
 //#if (LocalIdentity)
 
 export interface LoginInputDto {
@@ -66,4 +67,10 @@ export interface UserOutputDto {
   creationTime: string;
   //#endif
   roles: string[];
+  /**
+   * 账户偏好的生效值与个人覆盖原值，只在 `GET /auth/me` 上下发；其他返回当前用户的接口（改资料、头像等）
+   * 不带，消费方不能把缺失当成"未设置"。
+   */
+  preferences?: AccountPreferencesDto | null;
+  preferenceOverrides?: AccountPreferencesDto | null;
 }

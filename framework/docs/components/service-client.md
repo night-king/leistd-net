@@ -96,6 +96,9 @@ var order = await response.ReadContentAsync<OrderDto>();
 | 网络、超时或反序列化失败 | 抛 `ServiceClientException`；调用方主动取消原样上抛 |
 
 不要将远程状态直接当作本地业务结果；需要转换时捕获 `RemoteServiceException`，按 `RemoteStatusCode`、`ErrorCode` 和 `RemoteTraceId` 显式决策。
+要把上游的业务拒绝原样交还本服务调用方（如代表用户转交写入）时，调用 `ToBusinessException(fallbackMessage)`：
+只有带业务码的 4xx 才返回 `RemoteBusinessException`，它沿用上游的错误码、状态与公开说明 `Detail`（ProblemDetails 的 `detail`，只在带业务码时还原）；
+其余情况返回 `null`，按依赖故障处理。异常 `Message` 含请求地址与远端 traceId，只用于诊断，不作为公开文案。
 API 边界的默认响应：未处理的远端拒绝及无效或提前中断的响应返回 502（不透传上游状态或消息），本地配置及未分类故障返回 500，连接不可达返回 503，等待超时返回 504。
 宿主知道某个上游的稳定契约时，可用 `MapException<RemoteServiceException>` 显式分类。
 

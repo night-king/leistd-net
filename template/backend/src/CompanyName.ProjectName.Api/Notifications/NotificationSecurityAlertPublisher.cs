@@ -6,8 +6,7 @@ using CompanyName.ProjectName.Application.Notifications.Constants;
 using CompanyName.ProjectName.Application.Settings.Timing;
 #if (IncludeLocalization)
 using CompanyName.ProjectName.Api.Localization;
-using CompanyName.ProjectName.Application.Settings.Provider;
-using Leistd.Settings.Resolution;
+using CompanyName.ProjectName.Application.Settings.Preferences;
 using Microsoft.Extensions.Localization;
 #endif
 using Leistd.Notifications.Publishing;
@@ -25,7 +24,7 @@ public sealed class NotificationSecurityAlertPublisher(
     INotificationPublisher publisher,
     IUserTimeZoneProvider userTimeZoneProvider,
 #if (IncludeLocalization)
-    ISettingProvider settingProvider,
+    IAccountPreferenceStore preferenceStore,
     IStringLocalizerFactory localizerFactory,
 #endif
     ILogger<NotificationSecurityAlertPublisher> logger) : ISecurityAlertPublisher
@@ -63,7 +62,7 @@ public sealed class NotificationSecurityAlertPublisher(
 #if (IncludeLocalization)
     private async Task<(string Title, string? Content)> RenderAsync(Guid userId, SecurityAlert alert, string until, CancellationToken cancellationToken)
     {
-        var language = await settingProvider.GetOrNullForUserAsync(SettingConstant.Display.Language, userId.ToString(), cancellationToken);
+        var language = (await preferenceStore.GetForUserAsync(userId, cancellationToken))?.Preferences.Language;
 
         var previous = CultureInfo.CurrentUICulture;
         try

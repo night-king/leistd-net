@@ -1,7 +1,8 @@
 import { HttpClient, HttpContext } from '@angular/common/http';
-import { Injectable, inject, signal } from '@angular/core';
-import { Observable, lastValueFrom, tap } from 'rxjs';
+import { Injectable, Injector, inject, signal } from '@angular/core';
+import { Observable, defer, lastValueFrom, tap } from 'rxjs';
 
+import { AccountPreferencesService, PreferenceRead } from './account-preferences-service';
 //#if (IncludeNotifications || IncludeRealTime)
 import { SignalRService } from './signalr-service';
 //#endif
@@ -29,6 +30,8 @@ export class AuthService {
 
   //#endif
   private readonly http = inject(HttpClient);
+  // 按需取偏好服务：它依赖语言服务，构造期注入会经 HTTP 拦截器成环
+  private readonly injector = inject(Injector);
   //#if (RemoteTokenAuth)
   //#if (IncludeMultiTenancy)
   private readonly tenantContext = inject(TenantContextService);
@@ -44,6 +47,8 @@ export class AuthService {
   private readonly _currentUser = signal<User | null>(null);
   public readonly currentUser = this._currentUser.asReadonly();
   private _revision = 0;
+  /** 最近一次 `loadUser()` 读到的偏好与发起时取的号，供随后建立会话时应用（见 `SessionContextService.establish`）。 */
+  private _lastReadPreferences: PreferenceRead | null = null;
 
   /** 当前用户每写入或清空一次加一：后台读取据此判断发出之后是否已有更新的写入（见 `SessionContextService.revalidate`）。 */
   get revision(): number {
@@ -68,7 +73,30 @@ export class AuthService {
   }
 
   loadUser(): Observable<UserOutputDto> {
-    return this.fetchUser().pipe(tap((user) => this.setCurrentUser(user)));
+    // 号在请求发出时取：之后到应用之间有写入成功或主体离开，这份 /me 就是旧的，不能覆盖写入结果
+    return defer(() => {
+      const ticket = this.injector.get(AccountPreferencesService).beginRead();
+      return this.fetchUser().pipe(
+        tap((user) => {
+          this.setCurrentUser(user);
+          this._lastReadPreferences = {
+            ticket,
+            read: {
+              preferences: user.preferences ?? null,
+              preferenceOverrides: user.preferenceOverrides ?? null,
+            },
+          };
+        }),
+      );
+    });
+  }
+
+  /**
+   * 最近一次 `loadUser()` 读到的偏好及其读取号。这里只留存不应用：应用偏好要动语言服务，而本服务在 HTTP 拦截器构造时
+   * 就被注入，构造期依赖语言服务会成环。
+   */
+  lastReadPreferences(): PreferenceRead | null {
+    return this._lastReadPreferences;
   }
 
   /** 只取不应用：调用方确认主体没变之后再 {@link setCurrentUser}（见 `SessionContextService.revalidate`）。 */
@@ -97,6 +125,7 @@ export class AuthService {
   clearAuthData(): void {
     this._revision++;
     this._currentUser.set(null);
+    this._lastReadPreferences = null;
     //#if (RemoteTokenAuth)
     //#if (IncludeMultiTenancy)
     this.tenantContext.clear();

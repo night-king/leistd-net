@@ -44,6 +44,8 @@ public class GlobalExceptionPipelineTests
                         var path = context.Request.Path.Value ?? "";
                         if (path.StartsWith("/api/orders/", StringComparison.Ordinal))
                             throw new BusinessException("OrderNotFound", $"Order {path[12..]} not found.");
+                        if (path.StartsWith("/api/carried/", StringComparison.Ordinal))
+                            throw new CarriedStatusException("OrderNotFound", int.Parse(path[13..], System.Globalization.CultureInfo.InvariantCulture));
                         if (path == "/api/custom")
                             throw new CustomApiException("custom failure");
                         if (path == "/api/programmer-error")
@@ -243,5 +245,37 @@ public class GlobalExceptionPipelineTests
         Assert.Equal("Host:Conflict", problem.GetProperty("code").GetString());
     }
 
+    // 转交上游业务拒绝时沿用上游状态：自带状态优先于同码的映射
+    [Fact]
+    public async Task A_business_exception_carrying_a_status_uses_it_before_the_code_mapping()
+    {
+        using var host = await StartAsync(WithOptions());
+        using var client = host.GetTestClient();
+
+        using var response = await client.GetAsync("/api/carried/403");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("OrderNotFound", problem.GetProperty("code").GetString());
+    }
+
+    // 越界的自带状态不可信：忽略它，回到错误码映射
+    [Fact]
+    public async Task A_carried_status_outside_the_error_range_falls_back_to_the_code_mapping()
+    {
+        using var host = await StartAsync(WithOptions());
+        using var client = host.GetTestClient();
+
+        using var response = await client.GetAsync("/api/carried/200");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     private sealed class CustomApiException(string message) : Exception(message);
+
+    private sealed class CarriedStatusException(string code, int status)
+        : BusinessException(code, "Carried refusal."), IHasHttpStatusCode
+    {
+        public int HttpStatusCode { get; } = status;
+    }
 }

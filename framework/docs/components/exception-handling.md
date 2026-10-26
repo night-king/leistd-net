@@ -90,7 +90,7 @@ if (order.Status == OrderStatus.Shipped)
 
 | 异常 | 默认响应 |
 | --- | --- |
-| `BusinessException` | 错误码映射命中时使用配置状态，否则 400；返回本地化文案或安全 `Message` |
+| `BusinessException` | 实现 `IHasHttpStatusCode` 且值在 400–599 时用它，否则错误码映射命中时使用配置状态，再否则 400；返回本地化文案或安全 `Message` |
 | `System.ComponentModel.DataAnnotations.ValidationException` | 400，类型 `validation-error` + `errors`；不带业务码 |
 | `BadHttpRequestException`（Minimal API 绑定失败、请求体过大等框架判定的请求错误） | 处理器放行，由异常中间件按异常自带的状态码（400、413 等）写出标准问题详情；原始消息只进日志 |
 | 请求被客户端取消 | 官方 `ExceptionHandlerMiddleware` 在调用处理器之前直接返回 499，不经本组件 |
@@ -162,6 +162,7 @@ app.UseWhen(
 
 - `GlobalExceptionOptions.MapCode(code, status)`：精确映射业务错误码。
 - `GlobalExceptionOptions.MapException<TException>(...)`：宿主将自定义异常映射为 `ExceptionDescriptor`。
+- `IHasHttpStatusCode`（Core 包）：业务异常沿用已知状态。只用于转交上游已判定的业务拒绝（如服务客户端的 `RemoteBusinessException`）；本服务自己的业务失败仍按错误码映射，不在异常上写状态。
 - `LocalizationPlaceholders.Fill(text, data)`（Core 包）：按 `LocalizationData` 的约定填 `{Name}` 占位符（序数、区分大小写，没有对应参数的原样保留）。处理器用它生成 `detail`；在别处按错误码展示同一句话（如操作记录的失败原因）时调用它，两处才一致。
 - `GlobalExceptionOptions.MapDefaultCode` / `MapDefaultException<TException>`：组件在自己的 `AddXxx` 里登记默认映射；宿主显式映射优先，业务项目不调用这两个。
 - 需要完全自定义某类异常的处理时，按 ASP.NET Core 的方式再注册一个 `IExceptionHandler`（`AddExceptionHandler<T>()`，按注册顺序尝试，返回 `false` 交给下一个）。只需改状态码或描述时用 `MapException`：它的委托拿得到异常实例，可以按属性分支。

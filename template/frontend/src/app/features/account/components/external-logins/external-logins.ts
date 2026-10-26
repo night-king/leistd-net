@@ -17,7 +17,7 @@ import {
 import { injectReauthentication } from '../../../../core/components/reauthenticate-dialog/reauthentication';
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 import { ConfirmService } from '../../../../core/feedback/confirm-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
 //#if (!IncludeLocalization)
 import { englishText } from '../../../../shared/utils/english-text';
@@ -54,7 +54,7 @@ const PROVIDER_LABELS: Record<string, string> = { github: 'GitHub', google: 'Goo
 export class ExternalLogins {
   private readonly accountService = inject(AccountService);
   private readonly confirmService = inject(ConfirmService);
-  private readonly settingContext = inject(SettingContextService);
+  private readonly accountPreferences = inject(AccountPreferencesService);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   //#else
@@ -89,8 +89,8 @@ export class ExternalLogins {
         ? formatAppDate(
             p.link.creationTime,
             'date',
-            this.settingContext.timeZone(),
-            this.settingContext.displayLocale(),
+            this.accountPreferences.timeZone(),
+            this.accountPreferences.displayLocale(),
           )
         : '',
       // 没有密码时最后一个绑定就是唯一的登录方式

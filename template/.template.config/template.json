@@ -407,6 +407,7 @@
         {
           "condition": "!LocalIdentity",
           "exclude": [
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/AccountPreferencesTests.cs",
             "docs/operations/runbooks/two-factor-reset.md",
             "frontend/src/app/features/settings/components/setting-section/widgets/email-test/**",
             "backend/src/CompanyName.ProjectName.Infrastructure/Persistence/Migrations/Identity/**",
@@ -574,6 +575,17 @@
           ]
         },
         {
+          "condition": "RemoteTokenAuth",
+          "exclude": [
+            "backend/src/CompanyName.ProjectName.Application/Settings/Options/DisplayDefaultsOptions.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Options/DisplayDefaultsOptionsValidator.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Preferences/LocalAccountPreferenceStore.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Validators/TimeZoneSettingValidator.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/DisplayDefaultsTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Application/DisplayDefaultsOptionsValidatorTests.cs"
+          ]
+        },
+        {
           "condition": "!RemoteTokenAuth",
           "exclude": [
             "frontend/_mock/api/resource-auth.spec.ts",
@@ -582,6 +594,13 @@
             "backend/src/CompanyName.ProjectName.Api/Auth/Authentication/RemoteTokenAuthenticationExtensions.cs",
             "backend/src/CompanyName.ProjectName.Api/Auth/Authorization/LocalMemberAccess*.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/ResourceAuthController.cs",
+            "backend/src/CompanyName.ProjectName.Infrastructure/AccountPreferences/**",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Preferences/RemoteAccountPreferenceStore.cs",
+            "backend/src/CompanyName.ProjectName.Domain/Users/Abstractions/**",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/Fixtures/InMemoryAccountPreferences.cs",
+            "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceAccountPreferencesTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/IdentityAccountPreferenceCacheTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/IdentityAccountPreferencesTests.cs",
             "backend/src/CompanyName.ProjectName.Application/Users/Dtos/CurrentResourceUserOutputDto.cs",
             "backend/src/CompanyName.ProjectName.DbMigrator/Runners/ResourceAdminBootstrap*.cs",
             "backend/src/CompanyName.ProjectName.Api/HealthChecks/RemoteIdentityReadinessHealthCheck.cs",
@@ -661,6 +680,9 @@
         {
           "condition": "!OpenIddictServer",
           "exclude": [
+            "backend/src/CompanyName.ProjectName.Api/Controllers/InternalAccountPreferenceController.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Constants/AccountPreferencePolicies.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/Constants/AccountPreferenceScopes.cs",
             "docs/operations/runbooks/token-certificate-rotation.md",
             "backend/src/CompanyName.ProjectName.Api/Controllers/ConnectController.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/OpenApplicationController.cs",
@@ -784,7 +806,8 @@
             "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/TwoFactorEmailCodeInputDto.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/TwoFactorEmailCodeOutputDto.cs",
             "backend/src/CompanyName.ProjectName.Application/Auth/Dtos/EmailTwoFactorChangeInputDto.cs",
-            "backend/src/CompanyName.ProjectName.Application/Settings/AppServices/**",
+            "backend/src/CompanyName.ProjectName.Application/Settings/AppServices/EmailSettingsAppService.cs",
+            "backend/src/CompanyName.ProjectName.Application/Settings/AppServices/IEmailSettingsAppService.cs",
             "backend/src/CompanyName.ProjectName.Application/Settings/Validators/EmailSettingValidator.cs",
             "backend/src/CompanyName.ProjectName.Api/Controllers/SettingController.cs",
             "backend/src/CompanyName.ProjectName.Domain/Auth/VerificationCodes/**",

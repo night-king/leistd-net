@@ -1,15 +1,20 @@
 using Leistd.Settings.Definitions;
 using Leistd.Settings.Events;
+#if (!RemoteTokenAuth || IncludeNotifications)
 using Leistd.Settings.Validation;
+#endif
 using Leistd.OperationRecords.Definitions;
 using CompanyName.ProjectName.Application.OperationRecords.EventHandlers;
+#if (!RemoteTokenAuth)
 using CompanyName.ProjectName.Application.Settings.Options;
+#endif
 using CompanyName.ProjectName.Application.Settings.Provider;
 using CompanyName.ProjectName.Application.Settings.Validators;
+#if (!RemoteTokenAuth)
 using Microsoft.Extensions.Options;
-#if (Email)
-using CompanyName.ProjectName.Application.Settings.AppServices;
 #endif
+using CompanyName.ProjectName.Application.Settings.AppServices;
+using CompanyName.ProjectName.Application.Settings.Preferences;
 #if (LocalIdentity)
 using CompanyName.ProjectName.Application.Auth.Policies;
 using CompanyName.ProjectName.Application.Users.Validators;
@@ -153,7 +158,8 @@ public static class DependencyInjection
         services.TryAddTransient<IPlatformStatisticsAppService, PlatformStatisticsAppService>();
 
         services.AddApplicationDefinitions();
-        // 语言与时区的部署基线是这两项设置的代码默认值；所有形态都有，绑定在定义提供器旁边。
+#if (!RemoteTokenAuth)
+        // 语言与时区的部署基线是这两项设置的代码默认值，绑定在定义提供器旁边；资源服务不持有账户偏好，不绑定。
         // 以校验器是否已登记判断绑定过没有：重复绑定会追加一份变更令牌源，注册就不再幂等
         if (!services.Any(descriptor => descriptor.ServiceType == typeof(IValidateOptions<DisplayDefaultsOptions>) &&
                 descriptor.ImplementationType == typeof(DisplayDefaultsOptionsValidator)))
@@ -163,9 +169,12 @@ public static class DependencyInjection
                 .ValidateOnStart();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<DisplayDefaultsOptions>, DisplayDefaultsOptionsValidator>());
         }
+#endif
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISettingDefinitionProvider, SettingDefinitionProvider>());
         // 设置值的业务校验：值域（布尔、区间、候选）写在定义上，这里只放定义表达不了的规则
+#if (!RemoteTokenAuth)
         services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, TimeZoneSettingValidator>());
+#endif
 #if (IncludeNotifications)
         services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, NotificationRetentionSettingValidator>());
 #endif
@@ -173,6 +182,14 @@ public static class DependencyInjection
         services.TryAddEnumerable(ServiceDescriptor.Transient<ISettingValueValidator, EmailSettingValidator>());
         services.TryAddTransient<IEmailSettingsAppService, EmailSettingsAppService>();
 #endif
+        // 账户偏好：持有方读写本服务的设置；资源服务经端口读写 Identity（实现在 Infrastructure，带缓存与回源）
+#if (!RemoteTokenAuth)
+        services.TryAddTransient<IAccountPreferenceStore, LocalAccountPreferenceStore>();
+#else
+        services.TryAddTransient<IAccountPreferenceStore, RemoteAccountPreferenceStore>();
+#endif
+        services.TryAddTransient<AccountPreferenceValueValidator>();
+        services.TryAddTransient<IAccountPreferenceAppService, AccountPreferenceAppService>();
         // 组件写入后发布的事件转成本项目的操作记录（提交后分发，回滚的写入不留痕）
         services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<SettingChangedEvent>, SettingChangedAuditHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IEventHandler<PermissionGrantsReplacedEvent>, PermissionGrantsReplacedAuditHandler>());

@@ -1,3 +1,4 @@
+import { currentAccountPreferences } from './account-preferences';
 //#if (Impersonation)
 import { ImpersonationStatus } from '../../src/app/core/services/impersonation-service';
 //#endif
@@ -233,6 +234,8 @@ function getCurrentUser(_req: MockRequest): UserOutputDto {
   return {
     ...toUserOutput(user),
     twoFactorSetupRequired: requiredByPolicy && restrictable && !hasIndependentFactor(user),
+    // 账户偏好只随 GET /me 下发，改资料等其他返回当前用户的接口不带
+    ...currentAccountPreferences(),
   };
 }
 

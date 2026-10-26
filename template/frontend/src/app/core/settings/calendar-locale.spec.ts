@@ -3,10 +3,10 @@ import { TestBed } from '@angular/core/testing';
 import { BrnCalendarI18nService } from '@spartan-ng/brain/calendar';
 
 import { calendarLocale, provideAppCalendarLocale } from './calendar-locale';
-import { SettingContextService } from './setting-context-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../services/account-preferences-service';
 
 /** 日历文案跟随界面写法：中文界面不再出现英文星期与翻月读屏名。 */
 describe('calendarLocale', () => {
@@ -48,7 +48,7 @@ describe('calendarLocale', () => {
     onTestFinished(() => use.mockRestore());
     TestBed.configureTestingModule({
       providers: [
-        { provide: SettingContextService, useValue: { displayLocale } },
+        { provide: AccountPreferencesService, useValue: { displayLocale } },
         //#if (IncludeLocalization)
         ...provideTranslocoTesting(['en']),
         //#endif

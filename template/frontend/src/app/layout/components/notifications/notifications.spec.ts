@@ -75,7 +75,7 @@ describe('Notifications', () => {
                 { provide: AuthService, useValue: { currentUser } },
                 //#if (IncludeLocalization)
                 ...provideTranslocoTesting(['en', 'zh-CN']),
-                // 面板里的时间要一个书写 locale，它取自活动语言（见 SettingContextService）。
+                // 面板里的时间要一个书写 locale，它取自活动语言（见 AccountPreferencesService）。
                 // 本组用例要的是"能在测试里换翻译"，不是验语言那条链路，
                 // 所以给语言服务一个定值替身，免得它按设备语言去改活动语言。
                 { provide: LanguageService, useValue: { activeLang: signal('en') } },

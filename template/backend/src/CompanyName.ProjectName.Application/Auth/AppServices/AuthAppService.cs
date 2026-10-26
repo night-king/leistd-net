@@ -42,6 +42,7 @@ using CompanyName.ProjectName.Domain.Users.ValueObjects;
 using CompanyName.ProjectName.Domain.Users.Policies;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
 using CompanyName.ProjectName.Application.Auth.Sessions;
+using CompanyName.ProjectName.Application.Settings.Preferences;
 using CompanyName.ProjectName.Domain.Auth.DomainServices;
 using Leistd.MultiTenancy.Context;
 using Leistd.Timing;
@@ -88,6 +89,7 @@ internal sealed class AuthAppService(
     IClock clock,
     IDistributedLock distributedLock,
     IUnitOfWorkManager unitOfWorkManager,
+    IAccountPreferenceStore preferenceStore,
     ILogger<AuthAppService> logger) : BaseAppService(), IAuthAppService
 {
     public async Task<SessionLoginResult> AuthenticateSessionAsync(
@@ -706,8 +708,14 @@ internal sealed class AuthAppService(
     public async Task<UserOutputDto> GetCurrentUserAsync(CancellationToken cancellationToken = default)
     {
         var output = await ToOutputAsync(await GetCurrentUserEntityAsync(cancellationToken), cancellationToken);
-        // 与服务端拦截读同一份判定（本请求的会话校验结果），界面与接口对受限与否不会各说各的
-        return output with { TwoFactorSetupRequired = currentSession.TwoFactorSetupRequired };
+        var preferences = await preferenceStore.GetForCurrentUserAsync(cancellationToken);
+        return output with
+        {
+            // 与服务端拦截读同一份判定（本请求的会话校验结果），界面与接口对受限与否不会各说各的
+            TwoFactorSetupRequired = currentSession.TwoFactorSetupRequired,
+            Preferences = preferences?.Preferences,
+            PreferenceOverrides = preferences?.PreferenceOverrides,
+        };
     }
 
     /// <summary>更新个人信息。</summary>

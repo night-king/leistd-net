@@ -54,9 +54,9 @@ import { applicationErrorMessage } from '../../../../core/errors/application-htt
 //#if (IncludeLocalization)
 import { textAt } from '../../../../core/i18n/translation-text';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { LayoutService } from '../../../../core/services/layout-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import {
   FacetedFilter,
   type FacetedFilterOption,
@@ -156,8 +156,8 @@ export class OperationRecords {
   readonly searchQuery = signal(this.route.snapshot.queryParamMap.get('keyword') ?? '');
 
   // 筛选与列表显示同按展示时区解释时间。
-  private readonly displayTimeZone = inject(SettingContextService).timeZone;
-  private readonly displayLocale = inject(SettingContextService).displayLocale;
+  private readonly displayTimeZone = inject(AccountPreferencesService).timeZone;
+  private readonly displayLocale = inject(AccountPreferencesService).displayLocale;
 
   /** 选中的时间范围，从 URL 回填；起止缺一端即视为未筛选。 */
   readonly selectedRange = computed<[Date, Date] | undefined>(() => {

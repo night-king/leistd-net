@@ -3,6 +3,7 @@
 using CompanyName.ProjectName.Application.TenantConnections.Constants;
 #endif
 using CompanyName.ProjectName.Application.Auth.Options;
+using CompanyName.ProjectName.Application.Settings.Constants;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace CompanyName.ProjectName.Application.Auth.OAuth;
@@ -30,6 +31,7 @@ public static class OAuthScopes
         new(Scopes.Roles, "Roles", [], MachineOnly: false),
         new(Scopes.OfflineAccess, "Offline access", [], MachineOnly: false),
         new(options.Resource, "API", [options.Resource], MachineOnly: false),
+        new(AccountPreferenceScopes.Read, "Read account preferences", [options.Resource], MachineOnly: true),
 #if (IncludeMultiTenancy)
         new(TenantConnectionScopes.RuntimeRead, "Read tenant connection routing metadata", [options.Resource], MachineOnly: true),
         new(TenantConnectionScopes.MigrationRead, "Read tenant connection migration metadata", [options.Resource], MachineOnly: true),

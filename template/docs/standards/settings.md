@@ -40,7 +40,7 @@
 
 - 值域声明在设置定义上（`AsBoolean()`、`AsInteger(min, max)`、`WithAllowedValues(...)`）；定义表达不了的规则写成 `Application/Settings/Validators` 下的 `ISettingValueValidator`。跨设置的约束（如未读通知保留不短于已读）读另一项的设置链值而不是 `IOptionsMonitor`；清除也经校验器，候选值是回落后的值。
 - 分组按管理员要完成的事归组，不按组件归组：新设置先归入已有分组（保留期一类都进 `Retention`），讲不进任何现有分组才新建；同一作用域的设置不散落到多个分组。允许用户覆盖的设置（`SettingScopes.All`）可以同时出现在系统与个人设置页，不为此拆定义。
-- 界面语言与时区（`Display.*`）是组织默认、个人可覆盖（`SettingScopes.All`），代码默认值取部署基线 `DisplayDefaults`（启动期绑定与校验，空为跟随设备）；外观 `Display.Theme` 只有个人层，默认跟随系统。服务端给某个收件人产出文本时按收件人解析：语言用 `GetOrNullForUserAsync`，时区用 `IUserTimeZoneProvider.GetForUserAsync`，写出的时刻注明时区；不用当前用户的值，也不把当地时刻标成 UTC。
+- 界面语言与时区（`Display.*`）是组织默认、个人可覆盖（`SettingScopes.All`），代码默认值取部署基线 `DisplayDefaults`（启动期绑定与校验，空为跟随设备）；外观 `Display.Theme` 只有个人层，默认跟随系统。它们是账户偏好，服务端读写都经 `IAccountPreferenceStore`，不直接读这几项设置。服务端给某个收件人产出文本时按收件人解析：语言用 `IAccountPreferenceStore.GetForUserAsync`，时区用 `IUserTimeZoneProvider.GetForUserAsync`，写出的时刻注明时区；不用当前用户的值，也不把当地时刻标成 UTC。
 - 系统设置的每个分组一条 `App.Settings.*` 子权限，登记在 `Application/Settings/Provider/SettingGroupPermissions`（设置端点的分组策略与操作记录的授权依据都从这里取）；只含进程级设置的分组子权限侧别为 `Host`。新建系统设置分组时同时加子权限定义、中英译文、前端 `PERMISSIONS.settings` 与 Mock。
 <!--#if (SpaFrontend)-->
 
@@ -54,14 +54,11 @@
 - 语言与时区的占位只写正在生效的值（时区只写 IANA 名，偏移在候选列表里），值从哪层来写在标签后面、与写入状态共用一处（有状态时显示状态）：个人页继承到组织值或部署基线时写"跟随组织"，系统页有部署基线时写"部署默认"，用设备探测值时写"跟随系统"；都没有时占位就是"跟随系统"，不再重复来源。系统页不显示管理员自己这台设备的探测值，它不是组织的值。两者拼进一个占位时，固定宽度放不下，被省略的正是值。
 - 系统设置的面板说明按分组标识取（本地化形态是 `settings` 作用域的 `groupDescriptions` 词条，否则是 `system-settings.ts` 的 `GROUP_DESCRIPTIONS`），未登记的分组没有说明。
 
-## 4. 显示偏好同源
+## 4. 账户偏好
 
-语言、主题、时区等显示偏好的切换器与偏好页必须写同一处存储。
+语言、时区、外观是账户偏好：身份服务（单体形态即本服务）持有并计算，资源服务转交，三种形态同一契约。
 
-| 形态 | 写入口径 | 例 |
-| --- | --- | --- |
-| 已做成 setting definition | 切换器已登录时走同一个 `setForCurrentUser`，成功后才切换 | 语言、外观 |
-| 本服务不拥有该偏好（跨服务只读） | 切换器只作用于本会话；设置页只放去签发方的外链 | 资源服务里的账户偏好 |
-
-未登录时切换器只记在本设备。外观的生效值缓存在本设备供首帧使用，主体离开后保留；语言的账户值只在内存。
+- 读：`GET /auth/me` 的 `preferences`（生效值）与 `preferenceOverrides`（个人覆盖），由 `AccountPreferencesService` 应用，不取设置快照。两者同为 null 表示暂时读不到：新主体退回设备，同一主体保留已应用的值。
+- 写：偏好行与页头切换器都经 `AccountPreferencesService.write` 发 `PATCH /auth/me/preferences`（一次一个字段），共用一个串行队列，用响应里的完整偏好更新，不另行回读。明确拒绝提示未保存；没有可判定的响应提示"未能确认保存"，不重放。
+- 未登录时切换器只记在本设备。外观的生效值缓存在本设备供首帧使用，主体离开后保留；语言的账户值只在内存。
 <!--#endif-->

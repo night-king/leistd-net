@@ -23,9 +23,8 @@ using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
-#if (IncludeMultiTenancy)
+using CompanyName.ProjectName.Domain.Users.Abstractions;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-#endif
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 #endif
@@ -128,6 +127,9 @@ public sealed class ProjectWebApplicationFactory : WebApplicationFactory<Program
         builder.UseSetting("Leistd:ServiceAuth:Authority", "https://identity.test/");
         builder.UseSetting("Leistd:ServiceAuth:ClientId", "resource-test-worker");
         builder.UseSetting("Leistd:ServiceAuth:ClientSecret", "resource-test-worker-secret");
+        // 代表用户写偏好的交换目标：启动期校验要求填写；测试宿主里偏好换成下面的内存替身，不会真的交换
+        builder.UseSetting("Leistd:ServiceClients:Identity:TokenExchange:Audience", "identity-api");
+        builder.UseSetting("Leistd:ServiceClients:Identity:TokenExchange:Scope", "identity-api");
 #endif
 
         builder.ConfigureAppConfiguration((_, configuration) =>
@@ -178,6 +180,12 @@ public sealed class ProjectWebApplicationFactory : WebApplicationFactory<Program
             var openedGate = new RemoteIdentityReadinessHealthCheck();
             openedGate.MarkReady();
             services.AddSingleton(openedGate);
+
+            // 账户偏好归 Identity：测试宿主里没有 Identity，端口换成内存替身（读取器、写入用例与接口照常）。
+            // 回源、缓存与转交的协议行为由单元测试（IdentityAccountPreferenceCacheTests、IdentityAccountPreferencesTests）对假接口钉住
+            services.RemoveAll<IIdentityAccountPreferences>();
+            services.AddSingleton<InMemoryAccountPreferences>();
+            services.AddSingleton<IIdentityAccountPreferences>(sp => sp.GetRequiredService<InMemoryAccountPreferences>());
 
 #if (IncludeMultiTenancy)
             services.RemoveAll<ITenantConnectionConfigurationStore>();

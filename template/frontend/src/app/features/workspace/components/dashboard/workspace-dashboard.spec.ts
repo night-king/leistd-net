@@ -26,6 +26,7 @@ import enWorkspace from '../../../../../../public/i18n/workspace/en.json';
 import { pseudoCatalog } from '../../../../core/i18n/pseudo-locale.testing';
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 //#if (IncludeNotifications)
 import { AuthService } from '../../../../core/services/auth-service';
 //#endif
@@ -37,7 +38,6 @@ import { NotificationService } from '../../../../core/services/notification-serv
 import { SignalRService } from '../../../../core/services/signalr-service';
 //#endif
 import { StartupService } from '../../../../core/services/startup-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 //#if (LocalIdentity)
 import {
@@ -90,7 +90,7 @@ describe('WorkspaceDashboard', () => {
       versionToken: 'r1',
     });
     // 先建好设置上下文（连带语言服务），否则首帧渲染途中创建它会让结构指令重入。
-    TestBed.inject(SettingContextService);
+    TestBed.inject(AccountPreferencesService);
     fixture = TestBed.createComponent(WorkspaceDashboard);
     fixture.detectChanges();
     await fixture.whenStable();

@@ -11,15 +11,13 @@ import { HlmButton } from '@spartan-ng/helm/button';
 import { englishText } from '../../../shared/utils/english-text';
 //#endif
 import { applicationErrorMessage } from '../../errors/application-http-error';
+import { AccountPreferencesService } from '../../services/account-preferences-service';
 import { AuthService } from '../../services/auth-service';
-import { SessionContextService } from '../../services/session-context-service';
 import { ThemeService } from '../../services/theme-service';
-import { SettingService } from '../../settings/setting-service';
-import { SETTINGS } from '../../settings/setting.constants';
 
 /**
  * 主题模式切换按钮：单击在 亮 → 跟随系统 → 暗 三态间循环，图标反映当前模式。
- * 已登录的选择属于账户，写回设置成功后才切换；未登录的选择属于这台设备。
+ * 已登录的选择属于账户，写入账户偏好成功后才切换；未登录的选择属于这台设备。
  */
 @Component({
   selector: 'app-theme-mode-toggle',
@@ -38,8 +36,7 @@ import { SETTINGS } from '../../settings/setting.constants';
 export class ThemeModeToggle {
   readonly themeService = inject(ThemeService);
   private readonly authService = inject(AuthService);
-  private readonly settingService = inject(SettingService);
-  private readonly sessionContext = inject(SessionContextService);
+  private readonly preferences = inject(AccountPreferencesService);
   //#if (IncludeLocalization)
   private readonly transloco = inject(TranslocoService);
   private readonly text = (key: string): string => this.transloco.translate(key);
@@ -55,18 +52,19 @@ export class ThemeModeToggle {
       return;
     }
 
-    // 先写回、成功后再切换：与语言切换器同一做法，偏好页的重取不会早于写入完成
-    this.settingService.setForCurrentUser({ name: SETTINGS.display.theme, value: mode }).subscribe({
-      next: () => {
-        this.themeService.transitionTo(mode);
-        // 刷新失败不回退：账户里已经存好了，下次会话建立时快照自然对齐
-        this.sessionContext.refreshSettings().catch(() => undefined);
-      },
+    // 写入成功后由偏好状态按响应切换（带过渡）；写入排在偏好队列里，与语言切换、偏好面板的写入不会乱序
+    void this.preferences.write('theme', mode).then((outcome) => {
       // 保存失败就不切换，并且说出来，否则用户以为换设备也是这个主题
-      error: (error: unknown) =>
+      if (outcome.status === 'rejected') {
         toast.error(this.text('theme.saveFailed'), {
-          description: applicationErrorMessage(error),
-        }),
+          description: applicationErrorMessage(outcome.error),
+        });
+      } else if (outcome.status === 'unconfirmed') {
+        // 可能已经保存，不重放；下次重查账户偏好时对齐
+        toast.warning(this.text('preferences.saveUnconfirmed'), {
+          description: applicationErrorMessage(outcome.error),
+        });
+      }
     });
   }
 }
@@ -76,6 +74,7 @@ export class ThemeModeToggle {
 const ENGLISH: Record<string, string> = {
   'theme.current': 'Theme: {{mode}}',
   'theme.saveFailed': "Appearance wasn't saved; kept as before",
+  'preferences.saveUnconfirmed': "Couldn't confirm the change was saved",
   'theme.mode.light': 'Light',
   'theme.mode.system': 'System',
   'theme.mode.dark': 'Dark',

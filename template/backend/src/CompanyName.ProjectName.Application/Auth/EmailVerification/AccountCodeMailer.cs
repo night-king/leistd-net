@@ -2,12 +2,9 @@
 using System.Globalization;
 #endif
 #if (IncludeLocalization)
-using CompanyName.ProjectName.Application.Settings.Provider;
+using CompanyName.ProjectName.Application.Settings.Preferences;
 #endif
 using Leistd.Email.Abstractions;
-#if (IncludeLocalization)
-using Leistd.Settings.Resolution;
-#endif
 using Leistd.Timing;
 using Microsoft.Extensions.Logging;
 #if (IncludeLocalization)
@@ -60,7 +57,7 @@ internal sealed record AccountCodeDelivery(
 internal sealed class AccountCodeMailer(
     IEmailSender emailSender,
 #if (IncludeLocalization)
-    ISettingProvider settingProvider,
+    IAccountPreferenceStore preferenceStore,
     IStringLocalizer localizer,
 #endif
     IClock clock,
@@ -108,8 +105,7 @@ internal sealed class AccountCodeMailer(
 #if (IncludeLocalization)
     private async Task<VerificationCodeMailText> RenderAsync(AccountCodeDelivery delivery, CancellationToken cancellationToken)
     {
-        var language = await settingProvider.GetOrNullForUserAsync(
-            SettingConstant.Display.Language, delivery.UserId.ToString(), cancellationToken);
+        var language = (await preferenceStore.GetForUserAsync(delivery.UserId, cancellationToken))?.Preferences.Language;
 
         var previous = CultureInfo.CurrentUICulture;
         try

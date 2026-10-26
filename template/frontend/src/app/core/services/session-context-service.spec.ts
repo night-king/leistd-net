@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom, of, Subject } from 'rxjs';
 
+import { AccountPreferencesService } from './account-preferences-service';
 import { AuthService } from './auth-service';
 import { AuthorizationService } from './authorization-service';
 //#if (IncludeLocalization)
@@ -10,6 +11,10 @@ import { LanguageService } from './language-service';
 //#endif
 import { SessionContextService } from './session-context-service';
 import { ThemeService } from './theme-service';
+import {
+  AccountPreferencesDto,
+  AccountPreferencesOutputDto,
+} from '../../shared/dtos/account-preferences.dto';
 import { UserOutputDto } from '../../shared/dtos/auth.dto';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../i18n/transloco.testing';
@@ -19,15 +24,16 @@ import { SettingOutputDto } from '../settings/setting.dto';
 
 import type { MockedObject } from 'vitest';
 
-function timeZoneSetting(userValue: string | null): SettingOutputDto {
+/** 设置快照里的一项（账户偏好不在快照里，这里只验设置随主体建立与清空）。 */
+function probeSetting(userValue: string | null): SettingOutputDto {
   return {
-    name: 'Display.TimeZone',
-    displayName: '时区',
-    group: 'Display',
-    groupDisplayName: '显示',
+    name: 'Probe.Value',
+    displayName: '探针',
+    group: 'Other',
+    groupDisplayName: '其他',
     userValue,
     tenantValue: null,
-    defaultValue: 'Asia/Shanghai',
+    defaultValue: null,
     allowsTenantScope: true,
     allowsUserScope: true,
     allowsHostScope: false,
@@ -37,51 +43,29 @@ function timeZoneSetting(userValue: string | null): SettingOutputDto {
   };
 }
 
-function themeSetting(userValue: string | null): SettingOutputDto {
-  return {
-    name: 'Display.Theme',
-    displayName: '外观',
-    group: 'Display',
-    groupDisplayName: '显示',
-    userValue,
-    tenantValue: null,
-    defaultValue: 'system',
-    allowsTenantScope: false,
-    allowsUserScope: true,
-    allowsHostScope: false,
-    minimum: null,
-    maximum: null,
-    canManage: false,
-  };
-}
-//#if (IncludeLocalization)
+const NONE: AccountPreferencesDto = { language: null, timeZone: null, theme: null };
 
-function languageSetting(userValue: string | null): SettingOutputDto {
-  return {
-    name: 'Display.Language',
-    displayName: '界面语言',
-    group: 'Display',
-    groupDisplayName: '显示',
-    userValue,
-    tenantValue: null,
-    defaultValue: 'en',
-    allowsTenantScope: true,
-    allowsUserScope: true,
-    allowsHostScope: false,
-    minimum: null,
-    maximum: null,
-    canManage: false,
-  };
+/** `/me` 读到的偏好：给出生效值，个人覆盖与之相同。 */
+function readOf(preferences: Partial<AccountPreferencesDto>): AccountPreferencesOutputDto {
+  const value = { ...NONE, ...preferences };
+  return { preferences: value, preferenceOverrides: value };
 }
-//#endif
 
-/** 会话上下文：登录后由这里载入设置（SPA 跳转不重跑初始化器）；主体离开时权限与设置一起清掉。 */
+const UNAVAILABLE: AccountPreferencesOutputDto = { preferences: null, preferenceOverrides: null };
+
+/** 会话上下文：登录后由这里载入权限、设置与账户偏好；主体离开时一起清掉。 */
 describe('SessionContextService', () => {
   let service: SessionContextService;
   let settingContext: SettingContextService;
+  let preferences: AccountPreferencesService;
   let authService: Pick<
     MockedObject<AuthService>,
-    'clearAuthData' | 'isAuthenticated' | 'fetchUser' | 'setCurrentUser' | 'revision'
+    | 'clearAuthData'
+    | 'isAuthenticated'
+    | 'fetchUser'
+    | 'setCurrentUser'
+    | 'lastReadPreferences'
+    | 'revision'
   >;
   let http: HttpTestingController;
 
@@ -100,6 +84,14 @@ describe('SessionContextService', () => {
         .mockName('AuthService.fetchUser')
         .mockReturnValue(of({ username: 'admin' } as UserOutputDto)),
       setCurrentUser: vi.fn(() => void userRevision++).mockName('AuthService.setCurrentUser'),
+      // 号在 /me 发起时取：替身在被问到时才取，等同于"刚读完 /me 就建立会话"
+      lastReadPreferences: vi
+        .fn()
+        .mockName('AuthService.lastReadPreferences')
+        .mockImplementation(() => ({
+          ticket: TestBed.inject(AccountPreferencesService).beginRead(),
+          read: readOf({}),
+        })),
       get revision() {
         return userRevision;
       },
@@ -126,6 +118,7 @@ describe('SessionContextService', () => {
     });
     service = TestBed.inject(SessionContextService);
     settingContext = TestBed.inject(SettingContextService);
+    preferences = TestBed.inject(AccountPreferencesService);
     http = TestBed.inject(HttpTestingController);
   });
 
@@ -156,201 +149,142 @@ describe('SessionContextService', () => {
     }
   }
 
+  /** 模拟 `loadUser()`：此刻取号并留存读到的偏好，之后再建立会话。 */
+  function readMe(read: AccountPreferencesOutputDto): void {
+    authService.lastReadPreferences.mockReturnValue({ ticket: preferences.beginRead(), read });
+  }
+
+  async function establishWith(read: AccountPreferencesOutputDto): Promise<void> {
+    readMe(read);
+    const establish = service.establish();
+    await flushEstablish([]);
+    await establish;
+  }
+
   it('loads permissions and settings when a subject is established', async () => {
     const establish = service.establish();
-    await flushEstablish([timeZoneSetting('Asia/Tokyo')]);
+    await flushEstablish([probeSetting('a')]);
     await establish;
 
     expect(TestBed.inject(AuthorizationService).loaded()).toBe(true);
-    expect(settingContext.timeZone()).toBe('Asia/Tokyo');
+    expect(settingContext.valueOf('Probe.Value')).toBe('a');
   });
 
   // 主体已经换人，上一份快照属于上一个用户——加载失败必须清空，不能沿用。
   it('does not carry the previous subject snapshot when the new load fails', async () => {
     const first = service.establish();
-    await flushEstablish([timeZoneSetting('Asia/Tokyo')]);
+    await flushEstablish([probeSetting('a')]);
     await first;
-    expect(settingContext.timeZone()).toBe('Asia/Tokyo');
 
     const second = service.establish();
     await flushEstablish('fail');
     await second;
 
-    expect(settingContext.timeZone()).toBeUndefined();
+    expect(settingContext.valueOf('Probe.Value')).toBeUndefined();
   });
 
-  // 外观同样从设置派生：断言生效模式真的换了，而不只是快照里有值
-  it('applies the account appearance from settings', async () => {
-    const theme = TestBed.inject(ThemeService);
-    expect(theme.mode()).toBe('system');
+  // 偏好取自建立会话前那次 /me：断言界面状态真的换了，而不只是偏好状态里有值
+  it('applies the account preferences read with the current user', async () => {
+    //#if (IncludeLocalization)
+    await establishWith(readOf({ language: 'zh-CN', timeZone: 'Asia/Tokyo', theme: 'dark' }));
 
+    expect(TestBed.inject(LanguageService).activeLang()).toBe('zh-CN');
+    //#else
+    await establishWith(readOf({ timeZone: 'Asia/Tokyo', theme: 'dark' }));
+    //#endif
+    expect(TestBed.inject(ThemeService).mode()).toBe('dark');
+    expect(preferences.timeZone()).toBe('Asia/Tokyo');
+  });
+
+  // 设置读不到不影响偏好：两者来源不同
+  it('still applies the preferences when the settings fail to load', async () => {
+    readMe(readOf({ timeZone: 'Asia/Tokyo' }));
     const establish = service.establish();
-    await flushEstablish([themeSetting('dark')]);
+    await flushEstablish('fail');
     await establish;
 
-    expect(theme.mode()).toBe('dark');
+    expect(preferences.timeZone()).toBe('Asia/Tokyo');
   });
 
-  // 外观不含个人信息：主体离开后留着最近一次值，登录页与下次首帧不闪回另一种主题
-  it('keeps the last appearance when the subject leaves', async () => {
-    const theme = TestBed.inject(ThemeService);
-    const establish = service.establish();
-    await flushEstablish([themeSetting('dark')]);
-    await establish;
+  // 新主体读不到偏好：上一个人的语言与时区不能留下来
+  it('drops the previous subject preferences when the new subject cannot read them', async () => {
+    //#if (IncludeLocalization)
+    await establishWith(readOf({ language: 'zh-CN', timeZone: 'Asia/Tokyo' }));
+    //#else
+    await establishWith(readOf({ timeZone: 'Asia/Tokyo' }));
+    //#endif
 
-    service.clear();
-    await new Promise((resolve) => setTimeout(resolve));
+    await establishWith(UNAVAILABLE);
 
-    expect(theme.mode()).toBe('dark');
-  });
-
-  it('does not apply an appearance that answers after the subject leaves', async () => {
-    const theme = TestBed.inject(ThemeService);
-
-    const refresh = service.refreshSettings();
-    service.clear();
-    http.expectOne('/api/v1/settings').flush([themeSetting('dark')]);
-    await refresh;
-
-    expect(theme.mode()).toBe('system');
+    expect(preferences.known()).toBe(false);
+    expect(preferences.timeZone()).toBeUndefined();
+    //#if (IncludeLocalization)
+    expect(TestBed.inject(LanguageService).activeLang()).toBe('en');
+    //#endif
   });
 
   //#if (IncludeLocalization)
-  // 语言是从设置派生的：只断言快照里有值不够，得断言界面语言真的换了。
-  // 否则删掉整个语言应用逻辑，其它用例照样全绿——那正是「设了不生效」的形态。
-  it('applies the language from settings', async () => {
-    const languageService = TestBed.inject(LanguageService);
-    expect(languageService.activeLang()).toBe('en');
-
-    const establish = service.establish();
-    await flushEstablish([languageSetting('zh-CN')]);
-    await establish;
-
-    expect(languageService.activeLang()).toBe('zh-CN');
-  });
-
-  // 设置页保存后走的是 refreshSettings()，它同样要重新应用语言——
-  // 只刷新数据不应用，改完语言界面会停在旧语言。
-  it('re-applies the language when settings are refreshed', async () => {
-    const languageService = TestBed.inject(LanguageService);
-
-    const refresh = service.refreshSettings();
-    http.expectOne('/api/v1/settings').flush([languageSetting('zh-CN')]);
-    await refresh;
-
-    expect(languageService.activeLang()).toBe('zh-CN');
-  });
-
-  // 两次刷新乱序返回：只有最后发起的那次能应用语言，旧的晚到不能把语言改回去
-  it('applies only the latest refresh when an earlier one answers late', async () => {
-    const languageService = TestBed.inject(LanguageService);
-
-    const earlier = service.refreshSettings();
-    const later = service.refreshSettings();
-    const [first, second] = http.match('/api/v1/settings');
-    second.flush([languageSetting('zh-CN')]);
-    await later;
-    first.flush([languageSetting('en')]);
-    await earlier;
-
-    expect(languageService.activeLang()).toBe('zh-CN');
-    expect(settingContext.valueOf('Display.Language')).toBe('zh-CN');
-  });
-
-  // 主体离开后才返回的刷新：不能把上一个人的语言重新应用回来
-  it('does not apply a refresh that answers after the subject leaves', async () => {
-    const languageService = TestBed.inject(LanguageService);
-
-    const refresh = service.refreshSettings();
-    service.clear();
-    http.expectOne('/api/v1/settings').flush([languageSetting('zh-CN')]);
-    await refresh;
-    await new Promise((resolve) => setTimeout(resolve));
-
-    expect(languageService.activeLang()).toBe('en');
-    expect(settingContext.valueOf('Display.Language')).toBeUndefined();
-  });
-
-  // 语言已落在 LanguageService 上，清快照收不回来；同时钉住账户语言不写进设备存储。
+  // 共享机器：A 退出后 B 在登录页不能看到 A 的语言
   it('reverts the language to the device preference when the subject leaves', async () => {
-    localStorage.setItem(LanguageService.STORAGE_KEY, 'en');
-    const languageService = TestBed.inject(LanguageService);
+    await establishWith(readOf({ language: 'zh-CN' }));
 
-    try {
-      const establish = service.establish();
-      await flushEstablish([languageSetting('zh-CN')]);
-      await establish;
-      expect(languageService.activeLang()).toBe('zh-CN');
-      expect(localStorage.getItem(LanguageService.STORAGE_KEY)).toBe('en');
-
-      service.clear();
-
-      // 退回设备偏好也是先加载词条再激活，不同步生效
-      await vi.waitFor(() => expect(languageService.activeLang()).toBe('en'));
-    } finally {
-      localStorage.removeItem(LanguageService.STORAGE_KEY);
-    }
+    service.clear();
+    await vi.waitFor(() => expect(TestBed.inject(LanguageService).activeLang()).toBe('en'));
   });
-
-  // 新主体的设置没加载上来时同理：快照清了，语言也得退回，不能沿用上一个人的。
-  it('reverts the language when the new subject settings fail to load', async () => {
-    localStorage.setItem(LanguageService.STORAGE_KEY, 'en');
-    const languageService = TestBed.inject(LanguageService);
-
-    try {
-      const first = service.establish();
-      await flushEstablish([languageSetting('zh-CN')]);
-      await first;
-      expect(languageService.activeLang()).toBe('zh-CN');
-
-      const second = service.establish();
-      await flushEstablish('fail');
-      await second;
-
-      expect(languageService.activeLang()).toBe('en');
-    } finally {
-      localStorage.removeItem(LanguageService.STORAGE_KEY);
-    }
-  });
-
-  // 请求成功但缺项或值不受支持时也要退回设备偏好，否则沿用上一个主体的语言。
-  for (const [label, settings] of [
-    ['缺少语言项', [timeZoneSetting(null)]],
-    ['语言值本端不认', [languageSetting('ja')]],
-  ] as const) {
-    it(`reverts the language when the loaded settings carry no usable language (${label})`, async () => {
-      localStorage.setItem(LanguageService.STORAGE_KEY, 'en');
-      const languageService = TestBed.inject(LanguageService);
-
-      try {
-        const first = service.establish();
-        await flushEstablish([languageSetting('zh-CN')]);
-        await first;
-        expect(languageService.activeLang()).toBe('zh-CN');
-
-        const second = service.establish();
-        await flushEstablish([...settings]);
-        await second;
-
-        expect(languageService.activeLang()).toBe('en');
-      } finally {
-        localStorage.removeItem(LanguageService.STORAGE_KEY);
-      }
-    });
-  }
 
   //#endif
-  it('clears permissions and settings when the subject leaves', async () => {
+  // 外观不含个人信息：主体离开后留着最近一次值，登录页与下次首帧不闪回另一种主题
+  it('keeps the last appearance when the subject leaves', async () => {
+    await establishWith(readOf({ theme: 'dark' }));
+
+    service.clear();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(TestBed.inject(ThemeService).mode()).toBe('dark');
+  });
+
+  it('clears permissions, settings and preferences when the subject leaves', async () => {
+    readMe(readOf({ timeZone: 'Asia/Tokyo' }));
     const establish = service.establish();
-    await flushEstablish([timeZoneSetting('Asia/Tokyo')]);
+    await flushEstablish([probeSetting('a')]);
     await establish;
 
     service.clear();
 
-    // 三样都要清掉。只断言权限和设置的话，从统一清理里删掉认证那一步不会失败。
+    // 四样都要清掉。只断言其中几样的话，从统一清理里删掉其余一步不会失败。
     expect(authService.clearAuthData).toHaveBeenCalled();
     expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
-    expect(settingContext.timeZone()).toBeUndefined();
+    expect(settingContext.valueOf('Probe.Value')).toBeUndefined();
+    expect(preferences.known()).toBe(false);
+  });
+
+  // 登录后的 /me 已读回，权限与设置还在加载时用户在页头改了时区并保存成功：那份旧 /me 不能把写入结果盖回去
+  it('does not let the /me read before establishing undo a write that succeeded meanwhile', async () => {
+    readMe(readOf({ timeZone: 'UTC' }));
+    const establish = service.establish();
+
+    const write = preferences.write('timeZone', 'Asia/Tokyo');
+    // 写入经队列在下一拍发出
+    await new Promise((resolve) => setTimeout(resolve));
+    http.expectOne('/api/v1/auth/me/preferences').flush(readOf({ timeZone: 'Asia/Tokyo' }));
+    expect((await write).status).toBe('saved');
+    await flushEstablish([]);
+    await establish;
+
+    expect(preferences.timeZone()).toBe('Asia/Tokyo');
+  });
+
+  // 建立会话的等待期间主体已经离开：迟到的初始化不能把离开者的偏好重新应用上
+  it('does not apply the preferences of a subject that left before establishing finished', async () => {
+    readMe(readOf({ timeZone: 'Asia/Tokyo' }));
+    const establish = service.establish();
+
+    service.clear();
+    await flushEstablish([]);
+    await establish;
+
+    expect(preferences.known()).toBe(false);
+    expect(preferences.timeZone()).toBeUndefined();
   });
 
   describe('when the tab becomes visible', () => {
@@ -360,17 +294,36 @@ describe('SessionContextService', () => {
       isSuperAdmin: false,
       versionToken: permissions.join(','),
     });
+    const userWith = (read: AccountPreferencesOutputDto) =>
+      ({ username: 'admin', ...read }) as UserOutputDto;
 
-    // 别处改了权限、偏好或已经退出：页签回到前台时三份状态都要重查
-    it('re-reads the current user, permissions and settings', async () => {
+    // 别处改了权限、偏好或已经退出：页签回到前台时都要重查
+    it('re-reads the current user, preferences, permissions and settings', async () => {
+      authService.fetchUser.mockReturnValue(of(userWith(readOf({ timeZone: 'Asia/Tokyo' }))));
+
       becomeVisible();
       http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
-      http.expectOne('/api/v1/settings').flush([timeZoneSetting('Asia/Tokyo')]);
-      await vi.waitFor(() => expect(settingContext.timeZone()).toBe('Asia/Tokyo'));
+      http.expectOne('/api/v1/settings').flush([probeSetting('a')]);
+      await service.revalidate();
 
       expect(authService.fetchUser).toHaveBeenCalledOnce();
-      expect(authService.setCurrentUser).toHaveBeenCalledWith({ username: 'admin' });
+      expect(authService.setCurrentUser).toHaveBeenCalled();
       expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
+      expect(settingContext.valueOf('Probe.Value')).toBe('a');
+      expect(preferences.timeZone()).toBe('Asia/Tokyo');
+    });
+
+    // 同一主体后台读不到偏好：保留已应用的值，旧值比设备值更接近本人的选择
+    it('keeps the applied preferences when the re-read cannot load them', async () => {
+      await establishWith(readOf({ timeZone: 'Asia/Tokyo' }));
+      authService.fetchUser.mockReturnValue(of(userWith(UNAVAILABLE)));
+
+      becomeVisible();
+      http.expectOne('/api/v1/permissions/current').flush(permissionsOf());
+      http.expectOne('/api/v1/settings').flush([]);
+      await service.revalidate();
+
+      expect(preferences.timeZone()).toBe('Asia/Tokyo');
     });
 
     it('does nothing without a signed-in subject', () => {
@@ -410,23 +363,24 @@ describe('SessionContextService', () => {
       expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
     });
 
-    // 重查途中主体离开：晚到的结果属于上一个人，不能把权限和用户写回去
+    // 重查途中主体离开：晚到的结果属于上一个人，不能把权限、用户与偏好写回去
     it('does not apply results that answer after the subject leaves', async () => {
       const user = new Subject<UserOutputDto>();
       authService.fetchUser.mockReturnValue(user);
 
       becomeVisible();
       service.clear();
-      user.next({ username: 'admin' } as UserOutputDto);
+      user.next(userWith(readOf({ timeZone: 'Asia/Tokyo' })));
       user.complete();
       http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
-      http.expectOne('/api/v1/settings').flush([timeZoneSetting('Asia/Tokyo')]);
+      http.expectOne('/api/v1/settings').flush([probeSetting('a')]);
       await service.revalidate();
       await new Promise((resolve) => setTimeout(resolve));
 
       expect(authService.setCurrentUser).not.toHaveBeenCalled();
       expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
-      expect(settingContext.timeZone()).toBeUndefined();
+      expect(settingContext.valueOf('Probe.Value')).toBeUndefined();
+      expect(preferences.known()).toBe(false);
     });
 
     // 重查途中本人保存了资料：迟到的旧 /me 不能把新资料盖回去

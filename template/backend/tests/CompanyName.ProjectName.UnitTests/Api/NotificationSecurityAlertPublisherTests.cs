@@ -1,11 +1,14 @@
 #if (LocalIdentity && IncludeNotifications)
 using CompanyName.ProjectName.Api.Notifications;
 using CompanyName.ProjectName.Application.Auth.SecurityAlerts;
+#if (IncludeLocalization)
+using CompanyName.ProjectName.Application.Settings.Dtos;
+using CompanyName.ProjectName.Application.Settings.Preferences;
+#endif
 using CompanyName.ProjectName.Application.Settings.Timing;
 using Leistd.Notifications.Dtos;
 using Leistd.Notifications.Publishing;
 #if (IncludeLocalization)
-using Leistd.Settings.Resolution;
 using Microsoft.Extensions.Localization;
 #endif
 using Microsoft.Extensions.Logging.Abstractions;
@@ -56,7 +59,7 @@ public sealed class NotificationSecurityAlertPublisherTests
         publisher,
         new PerUserTimeZones(new Dictionary<Guid, string>()),
 #if (IncludeLocalization)
-        new NoLanguageSettings(),
+        new NoPreferences(),
         new TemplateLocalizerFactory(),
 #endif
         NullLogger<NotificationSecurityAlertPublisher>.Instance);
@@ -74,7 +77,7 @@ public sealed class NotificationSecurityAlertPublisherTests
             publisher,
             new PerUserTimeZones(timeZones),
 #if (IncludeLocalization)
-            new NoLanguageSettings(),
+            new NoPreferences(),
             new TemplateLocalizerFactory(),
 #endif
             NullLogger<NotificationSecurityAlertPublisher>.Instance);
@@ -113,19 +116,20 @@ public sealed class NotificationSecurityAlertPublisherTests
     }
 #if (IncludeLocalization)
 
-    private sealed class NoLanguageSettings : ISettingProvider
+    private sealed class NoPreferences : IAccountPreferenceStore
     {
-        public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task<AccountPreferencesOutputDto?> GetForCurrentUserAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<AccountPreferencesOutputDto?>(null);
 
-        public Task<string?> GetOrNullForUserAsync(string name, string userId, CancellationToken cancellationToken = default)
-            => Task.FromResult<string?>(null);
+        public Task<AccountPreferencesOutputDto?> GetForUserAsync(Guid userId, CancellationToken cancellationToken = default)
+            => Task.FromResult<AccountPreferencesOutputDto?>(null);
 
-        public Task<T?> GetAsync<T>(string name, CancellationToken cancellationToken = default) => Task.FromResult<T?>(default);
-
-        public Task<IReadOnlyDictionary<string, string?>> GetAllAsync(
-            bool visibleToClientsOnly = false,
+        public Task<AccountPreferencesOutputDto> SetForCurrentUserAsync(
+            Guid userId,
+            string field,
+            string? value,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyDictionary<string, string?>>(new Dictionary<string, string?>());
+            => throw new NotSupportedException();
     }
 
     // 只关心占位符怎么填：正文模板里只留 {Until}

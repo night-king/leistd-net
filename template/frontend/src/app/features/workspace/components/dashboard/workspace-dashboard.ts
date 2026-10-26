@@ -61,6 +61,7 @@ import { interval } from 'rxjs';
 //#if (IncludeNotifications)
 import { applicationErrorMessage } from '../../../../core/errors/application-http-error';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { CommandPaletteService } from '../../../../core/services/command-palette-service';
@@ -71,7 +72,6 @@ import {
   NotificationService,
 } from '../../../../core/services/notification-service';
 //#endif
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 //#if (IncludeNotifications)
 import { NotificationItem } from '../../../../shared/components/notification-item/notification-item';
 //#endif
@@ -166,12 +166,12 @@ export class WorkspaceDashboard {
   private readonly layoutService = inject(LayoutService);
   private readonly authService = inject(AuthService);
   private readonly authorization = inject(AuthorizationService);
-  private readonly settingContext = inject(SettingContextService);
+  private readonly accountPreferences = inject(AccountPreferencesService);
   protected readonly commandPalette = inject(CommandPaletteService);
-  protected readonly displayLocale = this.settingContext.displayLocale;
+  protected readonly displayLocale = this.accountPreferences.displayLocale;
   /** 实际生效的展示时区：设置里的时区当前运行时用不了时回落到浏览器时区。 */
   protected readonly timeZone = computed(() =>
-    resolveDisplayTimeZone(this.settingContext.timeZone()),
+    resolveDisplayTimeZone(this.accountPreferences.timeZone()),
   );
   /** 分钟级时钟：问候语与"多久以前"随它更新，组件销毁时停止。 */
   readonly now = signal(Date.now());

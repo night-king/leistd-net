@@ -38,7 +38,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.Http" />
-<!--#if (RemoteTokenAuth && IncludeMultiTenancy)-->
+<!--#if (RemoteTokenAuth)-->
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
     <PackageReference Include="Refit" />
 <!--#endif-->
@@ -82,12 +82,13 @@
 <!--#endif-->
     <PackageReference Include="Leistd.Lock.Redis" />
     <PackageReference Include="Leistd.Lock.Memory" />
-<!--#if (RemoteTokenAuth && IncludeMultiTenancy)-->
-    <!-- 向 Identity 回源租户连接：远端存储由框架提供，鉴权用 client credentials -->
+<!--#if (RemoteTokenAuth)-->
+    <!-- 向 Identity 回源：租户连接（框架提供的远端存储）与账户偏好（本项目的 Refit 客户端）；读用 client credentials，写用 Token Exchange -->
 <!--#if (IncludeMultiTenancy)-->
     <PackageReference Include="Leistd.MultiTenancy.ServiceClient" />
 <!--#endif-->
     <PackageReference Include="Leistd.ServiceClient.OAuth" />
+    <PackageReference Include="Leistd.ServiceClient.Refit" />
 <!--#endif-->
   </ItemGroup>
 

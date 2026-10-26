@@ -69,15 +69,20 @@ dotnet user-secrets set "Authentication:ClientId" "<已登记的机密客户端>
 dotnet user-secrets set "Authentication:ClientSecret" "<机密客户端密钥>" --project src/CompanyName.ProjectName.Api
 ```
 <!--#endif-->
-<!--#if (IncludeMultiTenancy)-->
 
-租户路由与迁移作业以机器身份回源同一个 Identity（开发配置的 `Leistd:ServiceAuth:Authority` 与 `Leistd:ServiceClients:Identity:BaseAddress` 同样指向 `http://localhost:4200/`，联调别处时一并覆盖）。在 Identity 登记一个 client credentials 机器客户端，授予 `tenant-routing.read`（运行时回源）与 `tenant-migration.read`（`DbMigrator` 枚举独立库租户），把凭据写进 user-secrets，Api 与 `DbMigrator` 共用。本机可用一个客户端同时持有两个 scope，部署环境按 `../deploy/docker-compose.yml` 分开。迁移前先启动本机 Identity：
+<!--#if (IncludeMultiTenancy)-->
+租户路由、迁移作业与账户偏好的读取以机器身份回源同一个 Identity（开发配置的 `Leistd:ServiceAuth:Authority` 与 `Leistd:ServiceClients:Identity:BaseAddress` 同样指向 `http://localhost:4200/`，联调别处时一并覆盖）。在 Identity 登记一个 client credentials 机器客户端，授予 `tenant-routing.read`（运行时回源）、`account-preferences.read`（按用户读偏好）与 `tenant-migration.read`（`DbMigrator` 枚举独立库租户），把凭据写进 user-secrets，Api 与 `DbMigrator` 共用。本机可用一个客户端同时持有这些 scope，部署环境按 `../deploy/docker-compose.yml` 分开。迁移前先启动本机 Identity。
+<!--#else-->
+账户偏好的读取以机器身份回源 Identity（开发配置的 `Leistd:ServiceAuth:Authority` 与 `Leistd:ServiceClients:Identity:BaseAddress` 指向 `http://localhost:4200/`，联调别处时一并覆盖）。在 Identity 登记一个 client credentials 机器客户端，授予 `account-preferences.read`，把凭据写进 user-secrets。
+<!--#endif-->
+本人改偏好时代表用户经 Token Exchange 转交 Identity：同一个客户端还要启用 Token Exchange，`aud`、`scp` 授予 Identity 自身 API 的标识（它的 `OAuth:Resource`），并把这个标识填进下面两项，缺失时启动按键名失败：
 
 ```bash
 dotnet user-secrets set "Leistd:ServiceAuth:ClientId" "<机器客户端>" --project src/CompanyName.ProjectName.Api
 dotnet user-secrets set "Leistd:ServiceAuth:ClientSecret" "<机器客户端密钥>" --project src/CompanyName.ProjectName.Api
+dotnet user-secrets set "Leistd:ServiceClients:Identity:TokenExchange:Audience" "<Identity 的 OAuth:Resource>" --project src/CompanyName.ProjectName.Api
+dotnet user-secrets set "Leistd:ServiceClients:Identity:TokenExchange:Scope" "<Identity 的 OAuth:Resource>" --project src/CompanyName.ProjectName.Api
 ```
-<!--#endif-->
 <!--#endif-->
 <!--#if (Email)-->
 

@@ -12,7 +12,7 @@ const emptyTranslations: TranslocoLoader = { getTranslation: () => of({}) };
  * 也免去异步加载。缺词条日志同时关掉，词条完整性由 i18n 静态闸门与浏览器闭环负责。
  * 不手写 `TranslocoService` 桩：结构指令与 `translateSignal()` 依赖的配置与事件流难以补齐。
  *
- * 页面级用例若在首次渲染途中才创建 `LanguageService`（经 `SettingContextService` 等间接依赖），
+ * 页面级用例若在首次渲染途中才创建 `LanguageService`（经 `AccountPreferencesService` 等间接依赖），
  * 结构指令会在渲染中重入并报 "max number of directives"；在 `createComponent` 之前先注入它
  * （或依赖它的服务）。这里不统一预建：它会读本机语言偏好，让失败随环境变化。
  *

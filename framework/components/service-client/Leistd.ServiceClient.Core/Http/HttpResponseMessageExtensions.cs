@@ -107,6 +107,7 @@ public static class HttpResponseMessageExtensions
         string? errorCode = null;
         string? message = null;
         string? traceId = null;
+        string? detail = null;
         List<ErrorItem>? errors = null;
 
         if (!string.IsNullOrWhiteSpace(body))
@@ -121,6 +122,8 @@ public static class HttpResponseMessageExtensions
                     message = TryGetString(root, "message") ?? TryGetString(root, "detail") ?? TryGetString(root, "title");
                     traceId = TryGetString(root, "traceId");
                     errors = TryGetErrors(root);
+                    // 只有业务错误的说明是公开文案；协议层失败的 detail 不作为转交说明
+                    detail = errorCode is null ? null : TryGetString(root, "detail") ?? TryGetString(root, "message");
                 }
             }
             catch (JsonException)
@@ -136,7 +139,8 @@ public static class HttpResponseMessageExtensions
             errorCode,
             traceId,
             errors,
-            snippet);
+            snippet,
+            detail: detail);
     }
 
     private static async Task<T> DeserializeAsync<T>(
@@ -186,7 +190,8 @@ public static class HttpResponseMessageExtensions
             $"{Describe(response)} remote business failure: code={envelope.Code} {envelope.Message}",
             (int)response.StatusCode,
             envelope.Code.ToString(CultureInfo.InvariantCulture),
-            errors: envelope.Errors);
+            errors: envelope.Errors,
+            detail: envelope.Message);
     }
 
     // 远端信封仅作为反序列化形状，不使客户端依赖本服务的响应组件。

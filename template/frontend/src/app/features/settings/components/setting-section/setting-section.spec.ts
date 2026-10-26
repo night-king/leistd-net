@@ -11,11 +11,13 @@ import { SettingSection } from './setting-section';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthService } from '../../../../core/services/auth-service';
 //#if (IncludeLocalization)
 import { LanguageService } from '../../../../core/services/language-service';
 //#endif
 import { SettingOutputDto } from '../../../../core/settings/setting.dto';
+import { AccountThemeMode } from '../../../../shared/dtos/account-preferences.dto';
 import {
   expectTouchTarget,
   setCoarsePointer,
@@ -60,6 +62,42 @@ function pageProviders(): unknown[] {
     ...provideTranslocoTesting(['en']),
     //#endif
   ];
+}
+
+/**
+ * 个人页的账户偏好不取设置快照，而取会话偏好（`/me`）：把用例写成快照行的语言、时区、外观折算成
+ * `/me` 读到的偏好喂进去。生效值按 个人 → 组织 → 代码默认 回落，与持有方一致。
+ */
+async function seedPreferences(settings: readonly SettingOutputDto[]): Promise<void> {
+  const service = TestBed.inject(AccountPreferencesService);
+  const field = (name: string) => {
+    const setting = settings.find((candidate) => candidate.name === name);
+    return {
+      own: setting?.userValue ?? null,
+      effective: setting
+        ? (setting.userValue ?? setting.tenantValue ?? setting.defaultValue)
+        : null,
+    };
+  };
+  const language = field('Display.Language');
+  const timeZone = field('Display.TimeZone');
+  const theme = field('Display.Theme');
+  await service.applyRead(
+    service.beginRead(),
+    {
+      preferences: {
+        language: language.effective,
+        timeZone: timeZone.effective,
+        theme: theme.effective as AccountThemeMode | null,
+      },
+      preferenceOverrides: {
+        language: language.own,
+        timeZone: timeZone.own,
+        theme: theme.own as AccountThemeMode | null,
+      },
+    },
+    'establish',
+  );
 }
 
 /** 该设置在当前面板上渲染出来了：按每行常驻的重置按钮判定，设置名在界面上刻意不显示。 */
@@ -587,6 +625,7 @@ describe('SettingSection groups', () => {
       imports: [SettingSection],
       providers: [...pageProviders()],
     });
+    await seedPreferences(grouped);
     const fixture = TestBed.createComponent(SettingSection);
     for (const [name, value] of Object.entries(inputs)) {
       fixture.componentRef.setInput(name, value);
@@ -609,8 +648,13 @@ describe('SettingSection groups', () => {
     const host = await render({});
 
     expect(sectionsOf(host)).toEqual(['Display', 'Operations', 'NotificationPreferences']);
+    // 偏好分组的名称是前端词条（资源服务的设置快照里没有这一组）；单测词条为空，回落成键名
     expect([...host.querySelectorAll('h4')].map((h) => h.textContent?.trim())).toEqual([
-      '显示',
+      //#if (IncludeLocalization)
+      'settings.preferences.group',
+      //#else
+      'Display',
+      //#endif
       '运维',
       '通知',
     ]);
@@ -759,6 +803,7 @@ describe('SettingSection display placeholders', () => {
       imports: [SettingSection],
       providers: [...pageProviders()],
     });
+    await seedPreferences([setting]);
     const fixture = TestBed.createComponent(SettingSection);
     fixture.componentRef.setInput('scope', scope);
     fixture.detectChanges();
@@ -775,7 +820,12 @@ describe('SettingSection display placeholders', () => {
     return {
       text: button.textContent?.replace(/\s+/g, ' ').trim() ?? '',
       title: host.querySelector('hlm-combobox-trigger')?.getAttribute('title') ?? null,
-      source: host.querySelector('[data-testid="setting-source"]')?.textContent?.trim() ?? '',
+      // 同组还有语言等行：来源只取时区这一行的
+      source:
+        button
+          .closest('hlm-field')
+          ?.querySelector('[data-testid="setting-source"]')
+          ?.textContent?.trim() ?? '',
       description: describedBy
         .map((id) => (id ? document.getElementById(id)?.textContent?.trim() : ''))
         .join(' '),
@@ -869,15 +919,21 @@ describe('SettingSection inherited source and save state', () => {
       imports: [SettingSection],
       providers: [...pageProviders()],
     });
+    await seedPreferences([timeZone('Europe/Paris')]);
     const fixture = TestBed.createComponent(SettingSection);
     const http = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
-    http.expectOne('/api/v1/settings').flush([timeZone('Europe/Paris')]);
+    http.expectOne('/api/v1/settings').flush([]);
     await fixture.whenStable();
     fixture.detectChanges();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const host = fixture.nativeElement as HTMLElement;
-    const source = () => host.querySelector('[data-testid="setting-source"]');
+    // 同组还有语言等行：来源只取时区这一行的
+    const source = () =>
+      host
+        .querySelector('button#Display\\.TimeZone')!
+        .closest('hlm-field')!
+        .querySelector('[data-testid="setting-source"]');
 
     // 本层有值：不写来源
     expect(source()).toBeNull();
@@ -888,9 +944,15 @@ describe('SettingSection inherited source and save state', () => {
     expect(host.querySelector('hlm-spinner')).toBeTruthy();
     expect(source()).toBeNull();
 
-    http.expectOne('/api/v1/settings/current-user').flush(null);
+    // 账户偏好写 /me/preferences，响应带回清除后的完整偏好（回落到组织值），不再重取设置快照
+    const patch = await vi.waitFor(() => http.expectOne('/api/v1/auth/me/preferences'));
+    expect(patch.request.body).toEqual({ timeZone: null });
+    const none = { language: null, timeZone: null, theme: null };
+    patch.flush({
+      preferences: { ...none, timeZone: 'Asia/Tokyo' },
+      preferenceOverrides: none,
+    });
     await fixture.whenStable();
-    http.expectOne('/api/v1/settings').flush([timeZone(null)]);
     await vi.advanceTimersByTimeAsync(400);
     fixture.detectChanges();
     expect(host.querySelector('ng-icon[name="lucideCircleCheck"]')).toBeTruthy();
@@ -918,6 +980,7 @@ describe('SettingSection long values', () => {
       imports: [SettingSection],
       providers: [...pageProviders()],
     });
+    await seedPreferences(settings);
     const fixture = TestBed.createComponent(SettingSection);
     fixture.componentRef.setInput('scope', 'account');
     fixture.detectChanges();
@@ -988,7 +1051,7 @@ describe('SettingSection long values', () => {
     const button = host.querySelector<HTMLElement>('button#Logging\\.MinimumLevel')!;
 
     expectTruncatedInside(button, 'select-value');
-    expect(host.querySelector('hlm-select-trigger')!.getAttribute('title')).toBe(LONG);
+    expect(button.closest('hlm-select-trigger')!.getAttribute('title')).toBe(LONG);
   });
 
   it('truncates a long inherited placeholder inside the select', async () => {
@@ -1043,6 +1106,9 @@ describe('SettingSection time zone list position', () => {
       imports: [SettingSection],
       providers: [...pageProviders()],
     });
+    await seedPreferences([
+      row({ name: 'Display.TimeZone', group: 'Display', defaultValue: null, ...setting }),
+    ]);
     const fixture = TestBed.createComponent(SettingSection);
     fixture.componentRef.setInput('scope', 'account');
     fixture.detectChanges();
@@ -1411,14 +1477,11 @@ describe('SettingSection language', () => {
       (fixture.nativeElement as HTMLElement).querySelector(
         '[data-testid="setting-reset-Display.FreeTextProbe"]',
       )!;
-    // 切换语言会让页面按新语言重取显示名：应答它，页面才算稳定。界面语言由设置派生（读取会重新应用），
-    // 真实切换器先把选择写进个人设置，这里的应答同样带上它
-    const language = (lang: string) =>
-      row({ name: 'Display.Language', group: 'Display', userValue: lang });
+    // 切换语言会让页面按新语言重取显示名：应答它，页面才算稳定
     const switchTo = async (lang: string) => {
       transloco.setActiveLang(lang);
       await new Promise((resolve) => setTimeout(resolve));
-      http.match('/api/v1/settings').forEach((request) => request.flush([row(), language(lang)]));
+      http.match('/api/v1/settings').forEach((request) => request.flush([row()]));
       await fixture.whenStable();
     };
     await switchTo('en');
@@ -1436,18 +1499,18 @@ describe('SettingSection appearance', () => {
   // 外观是普通的个人设置行：候选项文案取主题词条，未设置时占位写正在生效的"跟随系统"
   it('renders appearance as a personal setting row with translated modes', async () => {
     TestBed.configureTestingModule({ imports: [SettingSection], providers: [...pageProviders()] });
+    const theme = row({
+      name: 'Display.Theme',
+      group: 'Display',
+      groupDisplayName: '显示',
+      defaultValue: 'system',
+      allowsTenantScope: false,
+    });
+    await seedPreferences([theme]);
     const fixture = TestBed.createComponent(SettingSection);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
-    http.expectOne('/api/v1/settings').flush([
-      row({
-        name: 'Display.Theme',
-        group: 'Display',
-        groupDisplayName: '显示',
-        defaultValue: 'system',
-        allowsTenantScope: false,
-      }),
-    ]);
+    http.expectOne('/api/v1/settings').flush([theme]);
     await fixture.whenStable();
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
@@ -1474,15 +1537,15 @@ describe('SettingSection single language', () => {
     TestBed.configureTestingModule({ imports: [SettingSection], providers: [...pageProviders()] });
     const service = TestBed.inject(LanguageService);
     Object.defineProperty(service, 'options', { value: service.options.slice(0, languages) });
+    const display = [
+      row({ name: 'Display.Language', group: 'Display', groupDisplayName: '显示' }),
+      row({ name: 'Display.TimeZone', group: 'Display', groupDisplayName: '显示' }),
+    ];
+    await seedPreferences(display);
     const fixture = TestBed.createComponent(SettingSection);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
-    http
-      .expectOne('/api/v1/settings')
-      .flush([
-        row({ name: 'Display.Language', group: 'Display', groupDisplayName: '显示' }),
-        row({ name: 'Display.TimeZone', group: 'Display', groupDisplayName: '显示' }),
-      ]);
+    http.expectOne('/api/v1/settings').flush(display);
     await fixture.whenStable();
     fixture.detectChanges();
     http.verify();
@@ -1501,3 +1564,78 @@ describe('SettingSection single language', () => {
   });
 });
 //#endif
+
+/** 个人页的账户偏好行：来源是会话偏好（`/me`），三种部署形态一致；写入经偏好队列。 */
+describe('SettingSection account preferences', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    TestBed.inject(HttpTestingController).verify();
+  });
+
+  const timeZone = (overrides: Partial<SettingOutputDto>) =>
+    row({ name: 'Display.TimeZone', group: 'Display', defaultValue: null, ...overrides });
+
+  async function render(
+    preferences: SettingOutputDto[] | 'unavailable',
+    snapshot: SettingOutputDto[],
+  ): Promise<ComponentFixture<SettingSection>> {
+    TestBed.configureTestingModule({ imports: [SettingSection], providers: [...pageProviders()] });
+    if (preferences !== 'unavailable') {
+      await seedPreferences(preferences);
+    }
+    const fixture = TestBed.createComponent(SettingSection);
+    fixture.detectChanges();
+    TestBed.inject(HttpTestingController).expectOne('/api/v1/settings').flush(snapshot);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const zoneText = (host: HTMLElement) =>
+    host.querySelector('button#Display\\.TimeZone')?.textContent?.replace(/\s+/g, ' ').trim();
+
+  // 资源服务的设置快照里没有这几项：偏好行照样出现
+  it('renders the preference rows without any of them in the settings snapshot', async () => {
+    const host = (await render([timeZone({ userValue: 'UTC' })], [])).nativeElement as HTMLElement;
+
+    expect(hasRow(host, 'Display.TimeZone')).toBe(true);
+    expect(hasRow(host, 'Display.Theme')).toBe(true);
+  });
+
+  // 快照里的同名行不是偏好的来源：个人页只认会话偏好
+  it('ignores display rows in the settings snapshot on the account page', async () => {
+    const fixture = await render(
+      [timeZone({ userValue: 'Asia/Tokyo' })],
+      [timeZone({ userValue: 'UTC' })],
+    );
+
+    expect(zoneText(fixture.nativeElement)).toBe('Asia/Tokyo · UTC+9');
+  });
+
+  // 读不到偏好时说明原因，不显示成"没有覆盖"；其他分组照常
+  it('says the preferences cannot be read when they are unavailable', async () => {
+    const host = (await render('unavailable', [row()])).nativeElement as HTMLElement;
+
+    expect(host.querySelector('[data-testid="preferences-unavailable"]')).not.toBeNull();
+    expect(hasRow(host, 'Display.TimeZone')).toBe(false);
+    expect(hasRow(host, 'Display.FreeTextProbe')).toBe(true);
+  });
+
+  // 资源服务转交失败（依赖故障）：可能已经保存，行上说"未能确认保存"，控件不退回旧值
+  it('reports an unconfirmed preference save on its row', async () => {
+    const fixture = await render([timeZone({ userValue: 'UTC' })], []);
+    const host = fixture.nativeElement as HTMLElement;
+    const http = TestBed.inject(HttpTestingController);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+
+    (host.querySelector('[data-testid="setting-reset-Display.TimeZone"]') as HTMLElement).click();
+    const patch = await vi.waitFor(() => http.expectOne('/api/v1/auth/me/preferences'));
+    patch.flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await vi.advanceTimersByTimeAsync(400);
+    fixture.detectChanges();
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toMatch(
+      /preferences\.saveUnconfirmed|Couldn't confirm the change was saved/,
+    );
+  });
+});

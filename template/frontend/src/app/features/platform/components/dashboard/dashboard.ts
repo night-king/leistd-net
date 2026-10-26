@@ -77,10 +77,10 @@ import {
   rangeDays,
   toCalendarDate,
 } from './dashboard-calendar';
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthService } from '../../../../core/services/auth-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { LayoutService } from '../../../../core/services/layout-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 //#if (IncludeOperationRecords)
 import { RelativeTimeLabel } from '../../../../shared/components/relative-time-label/relative-time-label';
 //#endif
@@ -247,7 +247,7 @@ export class Dashboard {
   private readonly authService = inject(AuthService);
   private readonly authorization = inject(AuthorizationService);
   private readonly statisticsService = inject(PlatformStatisticsService);
-  private readonly settingContext = inject(SettingContextService);
+  private readonly accountPreferences = inject(AccountPreferencesService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -255,7 +255,7 @@ export class Dashboard {
   private readonly operationRecordService = inject(OperationRecordService);
   private readonly actionSentence = injectOperationActionSentence();
   //#endif
-  protected readonly displayLocale = this.settingContext.displayLocale;
+  protected readonly displayLocale = this.accountPreferences.displayLocale;
   //#if (!IncludeLocalization)
   protected readonly t = englishText(ENGLISH);
   //#endif
@@ -265,7 +265,7 @@ export class Dashboard {
   );
 
   /** 实际生效的展示时区，与 `appDate` 同一判定；统计请求带它，服务端按它切区间。 */
-  readonly timeZone = computed(() => resolveDisplayTimeZone(this.settingContext.timeZone()));
+  readonly timeZone = computed(() => resolveDisplayTimeZone(this.accountPreferences.timeZone()));
 
   /** 分钟级时钟：「今天」的判定与相对时间随它更新。 */
   readonly now = signal(Date.now());

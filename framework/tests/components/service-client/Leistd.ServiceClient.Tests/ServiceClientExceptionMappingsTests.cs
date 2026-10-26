@@ -154,6 +154,22 @@ public sealed class ServiceClientExceptionMappingsTests
         Assert.DoesNotContain("caller-ABC_123", body);
     }
 
+    // 明确转交的上游业务拒绝：沿用上游状态、错误码与公开说明，诊断信息不出现在响应里
+    [Fact]
+    public async Task A_translated_remote_rejection_keeps_the_remote_status_code_and_detail()
+    {
+        var remote = new RemoteServiceException("PATCH https://issuer.internal.example/x failed (remote traceId: abc)", 403,
+            errorCode: "Review:PolicyRefusal", remoteTraceId: "abc", responseBody: "private payload", detail: "Localized policy refusal");
+
+        var (status, body) = await HandleAsync(remote.ToBusinessException("Refused.")!, ServiceClientExceptionMappings.Configure);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, status);
+        Assert.Contains("\"code\":\"Review:PolicyRefusal\"", body);
+        Assert.Contains("Localized policy refusal", body);
+        Assert.DoesNotContain("issuer.internal.example", body);
+        Assert.DoesNotContain("private payload", body);
+    }
+
     private static async Task<(int Status, string Body)> HandleAsync(
         Exception exception, Action<GlobalExceptionOptions> configure)
     {

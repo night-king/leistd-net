@@ -16,7 +16,7 @@ import { OperationRecordTable } from './operation-record-table';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../../../core/i18n/transloco.testing';
 //#endif
-import { SettingContextService } from '../../../../../../core/settings/setting-context-service';
+import { AccountPreferencesService } from '../../../../../../core/services/account-preferences-service';
 import { OperationRecordOutputDto } from '../../../../dtos/operation-record.dto';
 
 /**
@@ -41,7 +41,7 @@ describe('OperationRecordTable rows', () => {
       ],
     }).compileComponents();
     // 先建好设置上下文：它依赖的语言服务在首次渲染途中才创建会让结构指令重入
-    TestBed.inject(SettingContextService);
+    TestBed.inject(AccountPreferencesService);
     const fixture: ComponentFixture<OperationRecordTable> =
       TestBed.createComponent(OperationRecordTable);
     fixture.componentRef.setInput('records', [
@@ -119,7 +119,7 @@ describe('OperationRecordTable action sentences', () => {
         },
       ],
     });
-    TestBed.inject(SettingContextService);
+    TestBed.inject(AccountPreferencesService);
     const fixture = TestBed.createComponent(OperationRecordTable);
     const record = (id: string, action: string): OperationRecordOutputDto => ({
       id,

@@ -1,3 +1,5 @@
+using CompanyName.ProjectName.Application.Settings.Dtos;
+
 namespace CompanyName.ProjectName.Application.Auth.Dtos;
 
 public record UserOutputDto
@@ -33,4 +35,11 @@ public record UserOutputDto
     public DateTime CreationTime { get; init; }
     /// <summary>已分配角色名，仅用于展示；权限判断一律走 /api/v1/permissions/current。</summary>
     public required string[] Roles { get; init; }
+
+    /// <summary>账户偏好的生效值；只在获取当前用户（<c>GET /me</c>）时下发，与 <see cref="PreferenceOverrides"/> 同时为 <see langword="null"/> 表示暂时读不到。</summary>
+    /// <remarks>其他返回用户信息的接口不带这两项，前端只按 <c>GET /me</c> 与偏好写入的响应更新偏好。</remarks>
+    public AccountPreferenceValuesDto? Preferences { get; init; }
+
+    /// <summary>本人的偏好覆盖原值；只在获取当前用户时下发。</summary>
+    public AccountPreferenceValuesDto? PreferenceOverrides { get; init; }
 }

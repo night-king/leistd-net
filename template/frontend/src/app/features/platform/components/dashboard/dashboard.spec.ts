@@ -12,9 +12,9 @@ import { Dashboard } from './dashboard';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
 import { StartupService } from '../../../../core/services/startup-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 //#if (IncludeOperationRecords && LocalIdentity)
 import { formatAppDate } from '../../../../shared/pipes/app-date-pipe';
@@ -104,7 +104,7 @@ describe('Dashboard', () => {
         //#endif
         { provide: StartupService, useValue: { status: signal('success' as const) } },
         {
-          provide: SettingContextService,
+          provide: AccountPreferencesService,
           useValue: { timeZone, displayLocale: signal('en') },
         },
       ],

@@ -20,6 +20,10 @@ public class RemoteServiceException : ServiceClientException
     /// <summary>远端原始响应体（截断到 4096 个字符），供无法结构化解析时排查。</summary>
     public string? ResponseBody { get; }
 
+    /// <summary>远端业务错误的公开说明（ProblemDetails 的 <c>detail</c> 或信封的 <c>message</c>）；只在带业务码时还原，否则为 <see langword="null"/>。</summary>
+    /// <remarks>远端已按调用时的语言本地化，可作为转交给调用方的说明；异常 <see cref="Exception.Message"/> 含地址与远端 traceId，只供诊断。</remarks>
+    public string? Detail { get; }
+
     /// <summary>创建远端服务异常。</summary>
     public RemoteServiceException(
         string message,
@@ -28,13 +32,30 @@ public class RemoteServiceException : ServiceClientException
         string? remoteTraceId = null,
         IReadOnlyList<ErrorItem>? errors = null,
         string? responseBody = null,
-        Exception? innerException = null)
+        Exception? innerException = null,
+        string? detail = null)
         : base(message, innerException, ServiceClientFailureKind.RemoteFailure)
     {
+        Detail = detail;
         RemoteStatusCode = statusCode;
         ErrorCode = errorCode;
         RemoteTraceId = remoteTraceId;
         Errors = errors ?? [];
         ResponseBody = responseBody;
+    }
+
+    /// <summary>远端是带业务码的 4xx 拒绝时，转成沿用远端状态、错误码与公开说明的本地业务异常；否则返回 <see langword="null"/>。</summary>
+    /// <remarks>
+    /// 只在调用方明确要把上游的业务拒绝交还自己的调用方时使用（如代表用户转交写入）；其余远端失败仍按依赖故障处理。
+    /// 说明取 <see cref="Detail"/>，没有时用 <paramref name="fallbackMessage"/>；本异常作为内层，诊断信息只进日志。
+    /// 本地有同码词条时，全局异常处理器照常按本地词条本地化。
+    /// </remarks>
+    /// <param name="fallbackMessage">远端没给说明时的安全默认文案。</param>
+    public BusinessException? ToBusinessException(string fallbackMessage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fallbackMessage);
+        return ErrorCode is { Length: > 0 } code && RemoteStatusCode is >= 400 and <= 499
+            ? new RemoteBusinessException(code, string.IsNullOrWhiteSpace(Detail) ? fallbackMessage : Detail, RemoteStatusCode, this)
+            : null;
     }
 }

@@ -1,4 +1,6 @@
 #if (RemoteTokenAuth)
+using CompanyName.ProjectName.Application.Settings.Dtos;
+
 namespace CompanyName.ProjectName.Application.Users.Dtos;
 
 /// <summary>资源服务的当前主体：身份资料取自签发方令牌，超管标记与角色取本服务的授权数据。</summary>
@@ -27,5 +29,12 @@ public sealed record CurrentResourceUserOutputDto
 
     /// <summary>当前租户；宿主为 null。</summary>
     public Guid? TenantId { get; init; }
+
+    /// <summary>账户偏好的生效值；只在获取当前用户（<c>GET /me</c>）时下发，取自 Identity，与 <see cref="PreferenceOverrides"/> 同时为 <see langword="null"/> 表示暂时读不到。</summary>
+    /// <remarks>其他返回用户信息的接口不带这两项，前端只按 <c>GET /me</c> 与偏好写入的响应更新偏好。</remarks>
+    public AccountPreferenceValuesDto? Preferences { get; init; }
+
+    /// <summary>本人的偏好覆盖原值；只在获取当前用户时下发。</summary>
+    public AccountPreferenceValuesDto? PreferenceOverrides { get; init; }
 }
 #endif

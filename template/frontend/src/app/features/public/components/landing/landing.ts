@@ -23,10 +23,10 @@ import { HlmCardImports } from '@spartan-ng/helm/card';
 import { LanguageSwitcher } from '../../../../core/components/language-switcher/language-switcher';
 //#endif
 import { ThemeModeToggle } from '../../../../core/components/theme-mode-toggle/theme-mode-toggle';
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 //#if (LocalIdentity)
 import { SecurityConfigService } from '../../../../core/services/security-config-service';
 //#endif
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { Logo } from '../../../../shared/components/logo/logo';
 import { AppNumber } from '../../../../shared/pipes/app-number-pipe';
 //#if (!IncludeLocalization)
@@ -76,7 +76,7 @@ export class Landing {
   protected readonly t = englishText(ENGLISH);
   //#endif
   protected readonly year = new Date().getFullYear();
-  protected readonly displayLocale = inject(SettingContextService).displayLocale;
+  protected readonly displayLocale = inject(AccountPreferencesService).displayLocale;
   //#if (LocalIdentity)
   /** 租户关闭自助注册时不给注册入口。 */
   private readonly securityConfig = inject(SecurityConfigService);

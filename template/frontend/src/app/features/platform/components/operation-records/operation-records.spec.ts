@@ -16,8 +16,8 @@ import { OperationRecordTable } from './widgets/operation-record-table/operation
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
+import { AccountPreferencesService } from '../../../../core/services/account-preferences-service';
 import { AuthorizationService } from '../../../../core/services/authorization-service';
-import { SettingContextService } from '../../../../core/settings/setting-context-service';
 import { FacetedFilter } from '../../../../shared/components/faceted-filter/faceted-filter';
 import { PERMISSIONS } from '../../../../shared/constants/permission.constants';
 import {
@@ -146,7 +146,7 @@ describe('OperationRecords', () => {
         //#endif
         { provide: OperationRecordService, useValue: service },
         {
-          provide: SettingContextService,
+          provide: AccountPreferencesService,
           useValue: { timeZone: signal(displayZone), displayLocale: signal(undefined) },
         },
       ],

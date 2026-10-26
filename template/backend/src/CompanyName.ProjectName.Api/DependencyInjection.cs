@@ -7,6 +7,9 @@ using CompanyName.ProjectName.Api.Middlewares;
 using CompanyName.ProjectName.Application.Shared;
 #endif
 using Leistd.Security.Claims;
+#if (OpenIddictServer)
+using CompanyName.ProjectName.Application.Settings.Constants;
+#endif
 #if (OpenIddictServer && IncludeMultiTenancy)
 using CompanyName.ProjectName.Application.TenantConnections.Constants;
 #endif
@@ -104,6 +107,11 @@ public static class DependencyInjection
             options.AddPolicy(ApiPolicies.CurrentUser, currentUser);
 #endif
         });
+#if (OpenIddictServer)
+
+        // 资源服务按用户读取账户偏好（给收件人产出文本时没有用户令牌）
+        services.AddMachineScopePolicy(AccountPreferencePolicies.Read, AccountPreferenceScopes.Read);
+#endif
 #if (OpenIddictServer && IncludeMultiTenancy)
 
         // 租户控制面的两个机器端点：Runtime 与 Migration scope 彼此独立

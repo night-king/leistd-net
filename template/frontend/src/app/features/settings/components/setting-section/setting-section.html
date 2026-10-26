@@ -31,6 +31,11 @@
           />
         }
         <!--#endif-->
+        @if (group.preferencesUnavailable) {
+          <p class="text-muted-foreground text-sm" data-testid="preferences-unavailable">
+            {{ t('settings.preferences.unavailable') }}
+          </p>
+        }
         @if (group.rows.length > 0) {
           <ng-container *ngTemplateOutlet="rowList; context: { $implicit: group.rows }" />
         }
@@ -131,7 +136,7 @@
                   <!-- 失败必须带原因，否则无从修正。 -->
                   <span class="text-destructive inline-flex items-center gap-1" role="alert">
                     <ng-icon name="lucideCircleX" size="12" class="shrink-0" />
-                    {{ state.message }}
+                    {{ state.messageKey ? t(state.messageKey) : state.message }}
                   </span>
                 }
               }

@@ -94,7 +94,7 @@ public sealed class ResourceUserProjectionTests(ProjectWebApplicationFactory fac
 
         var before = await session.Client.GetFromJsonAsync<JsonElement>("/api/v1/auth/me");
         Assert.Equal(
-            ["email", "id", "isEmailVerified", "isSuperAdmin", "roles", "username"],
+            ["email", "id", "isEmailVerified", "isSuperAdmin", "preferenceOverrides", "preferences", "roles", "username"],
             before.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
         Assert.Equal(subjectId, before.GetProperty("id").GetGuid());
         Assert.Equal("", before.GetProperty("username").GetString());
