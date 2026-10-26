@@ -5,15 +5,15 @@ import { AuthorizationService } from './authorization-service';
 //#if (IncludeLocalization)
 import { SUPPORTED_LANGS, Lang, LanguageService } from './language-service';
 //#endif
+import { ThemeService } from './theme-service';
 import { SettingContextService } from '../settings/setting-context-service';
-//#if (IncludeLocalization)
 import { SETTINGS } from '../settings/setting.constants';
-//#endif
 import { SettingOutputDto } from '../settings/setting.dto';
 
 /**
  * 认证会话上下文：主体确立与离开的唯一入口。当前用户、权限、设置三份状态跟着主体一起建立、
- * 一起清空；已应用出去的设置（如语言）不在快照里，须显式退回（见 {@link clearSettings}）。
+ * 一起清空；已应用出去的设置（如语言）不在快照里，须显式退回（见 {@link clearSettings}）。外观例外：
+ * 它不含个人信息，主体离开后保留最近一次值，作为登录页与下次首帧的主题（见 {@link ThemeService}）。
  * 主体的建立与离开一律走 {@link establish} 与 {@link clear}，设置刷新走 {@link refreshSettings}，
  * 不单独调下层的 load/clear。
  */
@@ -25,6 +25,7 @@ export class SessionContextService {
   //#if (IncludeLocalization)
   private readonly languageService = inject(LanguageService);
   //#endif
+  private readonly themeService = inject(ThemeService);
   /** 每次刷新与清理都换一代：只有最新一次刷新能应用派生状态，晚到的旧刷新与主体离开前发出的刷新一律作废。 */
   private generation = 0;
 
@@ -55,6 +56,8 @@ export class SessionContextService {
     if (generation !== this.generation) {
       return settings;
     }
+
+    this.themeService.applyAccountMode(this.settingContext.valueOf(SETTINGS.display.theme));
     //#if (IncludeLocalization)
     // 等账户语言的词条到达再返回：启动流结束外壳才渲染，这样首帧就是账户语言且带着词条——
     // 不等的话外壳先空白一下，渲染后立即发出的一次性提示（如退出模拟）还会取到裸键。

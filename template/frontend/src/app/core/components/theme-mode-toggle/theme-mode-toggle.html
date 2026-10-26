@@ -8,7 +8,7 @@
     variant="outline"
     size="icon"
     [attr.aria-label]="t('theme.current', { mode: t('theme.mode.' + themeService.mode()) })"
-    (click)="themeService.toggleTheme()"
+    (click)="toggle()"
   >
     <ng-icon [name]="themeService.modeIcon()" />
   </button>

@@ -380,6 +380,65 @@ public sealed class SettingsContractTests(ProjectWebApplicationFactory factory)
         Assert.Equal(expected, groups);
     }
 
+    /// <summary>个人偏好的"显示"分组：先放影响能否读懂的语言，再放影响数据解读的时区，最后是外观。</summary>
+    [Fact]
+    public async Task Personal_display_settings_are_listed_language_time_zone_then_appearance()
+    {
+        using var hostAdmin = await factory.LoginAsync(
+            "admin", ProjectWebApplicationFactory.TestAdminPassword);
+
+        var listed = await hostAdmin.Client.GetFromJsonAsync<JsonElement>("/api/v1/settings");
+        var display = listed.EnumerateArray()
+            .Where(s => s.GetProperty("group").GetString() == SettingConstant.Groups.Display
+                && s.GetProperty("allowsUserScope").GetBoolean())
+            .Select(s => s.GetProperty("name").GetString()!)
+            .ToList();
+
+        List<string> expected = [];
+#if (IncludeLocalization)
+        expected.Add(SettingConstant.Display.Language);
+#endif
+        expected.Add(SettingConstant.Display.TimeZone);
+        expected.Add(SettingConstant.Display.Theme);
+        Assert.Equal(expected, display);
+    }
+
+    /// <summary>外观只有个人层：本人可选三种取值之一，组织层写不进去。</summary>
+    [Fact]
+    public async Task Appearance_is_a_personal_setting_limited_to_the_three_modes()
+    {
+        using var hostAdmin = await factory.LoginAsync(
+            "admin", ProjectWebApplicationFactory.TestAdminPassword);
+
+        var accepted = await hostAdmin.Client.PutAsJsonAsync(
+            "/api/v1/settings/current-user",
+            new { Name = SettingConstant.Display.Theme, Value = "dark" });
+        Assert.Equal(HttpStatusCode.NoContent, accepted.StatusCode);
+
+        var listed = await hostAdmin.Client.GetFromJsonAsync<JsonElement>("/api/v1/settings");
+        var theme = listed.EnumerateArray()
+            .Single(s => s.GetProperty("name").GetString() == SettingConstant.Display.Theme);
+        Assert.Equal("dark", theme.GetProperty("userValue").GetString());
+        Assert.Equal("system", theme.GetProperty("defaultValue").GetString());
+        Assert.False(theme.GetProperty("allowsTenantScope").GetBoolean());
+
+        var unknown = await hostAdmin.Client.PutAsJsonAsync(
+            "/api/v1/settings/current-user",
+            new { Name = SettingConstant.Display.Theme, Value = "sepia" });
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+
+        var organization = await hostAdmin.Client.PutAsJsonAsync(
+            "/api/v1/settings/current-tenant",
+            new { Name = SettingConstant.Display.Theme, Value = "dark" });
+        Assert.Equal(HttpStatusCode.BadRequest, organization.StatusCode);
+
+        // 收尾清掉：这一行在本类共用的那套库里
+        var cleared = await hostAdmin.Client.PutAsJsonAsync(
+            "/api/v1/settings/current-user",
+            new { Name = SettingConstant.Display.Theme, Value = (string?)null });
+        Assert.Equal(HttpStatusCode.NoContent, cleared.StatusCode);
+    }
+
     [Fact]
     public async Task Host_can_change_process_settings_within_the_allowed_range()
     {

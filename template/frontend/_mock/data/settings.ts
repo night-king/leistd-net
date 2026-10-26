@@ -82,6 +82,15 @@ export const SETTING_DEFINITIONS: MockSettingDefinition[] = [
     allowsTenantScope: true,
     allowsUserScope: true,
   },
+  {
+    // 只有个人层：外观跟账户走，没有组织默认
+    name: 'Display.Theme',
+    displayName: 'Appearance',
+    group: 'Display',
+    defaultValue: 'system',
+    allowsTenantScope: false,
+    allowsUserScope: true,
+  },
   // 进程级：两个层级标记都是 false，只有 allowsHostScope。与真实后端一样，租户上下文下
   // 不下发这类设置，写入也被拒绝（见 api/setting.ts）。
   //#if (LocalIdentity)
@@ -413,6 +422,7 @@ export const SETTING_GROUP_NAMES: Readonly<Record<string, string>> = {
 export const SETTING_TEXTS_ZH_CN: Readonly<Record<string, string>> = {
   'Setting:Display.Language': '界面语言',
   'Setting:Display.TimeZone': '时区',
+  'Setting:Display.Theme': '外观',
   'Setting:Logging.MinimumLevel': '最小日志级别',
   'Setting:Logging.RequestLevel': '请求日志级别',
   //#if (IncludeOperationRecords)

@@ -222,6 +222,7 @@
     "Setting:Audit.RetentionDays": "Operation record retention (days)",
     "Setting:Audit.RetentionEnabled": "Archive expired operation records",
     "Setting:Display.Language": "Language",
+    "Setting:Display.Theme": "Appearance",
     "Setting:Display.TimeZone": "Time zone",
     "Setting:Email.DefaultFromAddress": "Sender address",
     "Setting:Email.DefaultFromName": "Sender name",

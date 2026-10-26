@@ -121,7 +121,7 @@ export class PersonalSettings {
       icon: 'lucideSlidersHorizontal',
       label: 'Preferences',
       description:
-        'Language, time zone and appearance. Language and time zone apply to you only; leave blank to follow your organization, or your system when neither the organization nor the deployment sets one',
+        'Language, time zone and appearance, the same on every device. Leave language and time zone blank to follow your organization, or your system when neither the organization nor the deployment sets one',
     },
   ]);
   //#endif

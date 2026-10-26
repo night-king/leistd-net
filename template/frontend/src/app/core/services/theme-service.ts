@@ -18,7 +18,13 @@ const DEFAULT_THEME_PREFERENCES: ThemePreferences = {
   mode: 'system',
 };
 
-/** 主题服务：管理亮/暗/跟随系统三态，切换 `<html>` 的 `.dark` class 并持久化；配色走 styles.css 的 CSS 变量。 */
+/**
+ * 主题服务：管理亮/暗/跟随系统三态，切换 `<html>` 的 `.dark` class；配色走 styles.css 的 CSS 变量。
+ *
+ * 已登录时以账户设置 `Display.Theme` 为准（由会话上下文应用，切换器负责写回），未登录时是本设备的选择。
+ * 生效值一律缓存在 localStorage，首帧前由 `index.html` 读取：主题不含个人信息，与语言不同，不必只放内存；
+ * 只放内存的话，账户值与本机值不同的人每次打开都会先闪一下另一种主题。
+ */
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   static readonly STORAGE_KEY = 'theme_config';
@@ -75,24 +81,35 @@ export class ThemeService {
     });
   }
 
-  toggleTheme(): void {
+  /** 页头切换的下一态：亮 → 跟随系统 → 暗 循环。 */
+  readonly nextMode = computed<ThemeMode>(() => {
     const modes: ThemeMode[] = ['light', 'system', 'dark'];
-    const nextMode = modes[(modes.indexOf(this.mode()) + 1) % modes.length];
+    return modes[(modes.indexOf(this.mode()) + 1) % modes.length];
+  });
 
+  /** 带过渡地切到指定模式（页头切换用）；系统开了"减少动效"时直接换色。 */
+  transitionTo(mode: ThemeMode): void {
     if (
       isPlatformBrowser(this.platformId) &&
       document.startViewTransition &&
       !this.reducedMotion()
     ) {
-      document.startViewTransition(() => this.setMode(nextMode));
+      document.startViewTransition(() => this.setMode(mode));
       return;
     }
 
-    this.setMode(nextMode);
+    this.setMode(mode);
   }
 
   setMode(mode: ThemeMode): void {
     this.preferencesState.update((preferences) => ({ ...preferences, mode }));
+  }
+
+  /** 应用账户设置里的外观；取不到或不认识的值不改动，沿用当前生效值。 */
+  applyAccountMode(value: string | undefined): void {
+    if (THEME_MODES.includes(value as ThemeMode)) {
+      this.setMode(value as ThemeMode);
+    }
   }
 
   private loadPreferences(): ThemePreferences {

@@ -8,6 +8,7 @@ import { AuthorizationService } from './authorization-service';
 import { LanguageService } from './language-service';
 //#endif
 import { SessionContextService } from './session-context-service';
+import { ThemeService } from './theme-service';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../i18n/transloco.testing';
 //#endif
@@ -26,6 +27,24 @@ function timeZoneSetting(userValue: string | null): SettingOutputDto {
     tenantValue: null,
     defaultValue: 'Asia/Shanghai',
     allowsTenantScope: true,
+    allowsUserScope: true,
+    allowsHostScope: false,
+    minimum: null,
+    maximum: null,
+    canManage: false,
+  };
+}
+
+function themeSetting(userValue: string | null): SettingOutputDto {
+  return {
+    name: 'Display.Theme',
+    displayName: '外观',
+    group: 'Display',
+    groupDisplayName: '显示',
+    userValue,
+    tenantValue: null,
+    defaultValue: 'system',
+    allowsTenantScope: false,
     allowsUserScope: true,
     allowsHostScope: false,
     minimum: null,
@@ -96,6 +115,8 @@ describe('SessionContextService', () => {
 
   afterEach(() => {
     http.verify();
+    localStorage.removeItem(ThemeService.STORAGE_KEY);
+    document.documentElement.classList.remove('dark');
     //#if (IncludeLocalization)
     localStorage.removeItem(LanguageService.STORAGE_KEY);
     //#endif
@@ -140,6 +161,42 @@ describe('SessionContextService', () => {
     await second;
 
     expect(settingContext.timeZone()).toBeUndefined();
+  });
+
+  // 外观同样从设置派生：断言生效模式真的换了，而不只是快照里有值
+  it('applies the account appearance from settings', async () => {
+    const theme = TestBed.inject(ThemeService);
+    expect(theme.mode()).toBe('system');
+
+    const establish = service.establish();
+    await flushEstablish([themeSetting('dark')]);
+    await establish;
+
+    expect(theme.mode()).toBe('dark');
+  });
+
+  // 外观不含个人信息：主体离开后留着最近一次值，登录页与下次首帧不闪回另一种主题
+  it('keeps the last appearance when the subject leaves', async () => {
+    const theme = TestBed.inject(ThemeService);
+    const establish = service.establish();
+    await flushEstablish([themeSetting('dark')]);
+    await establish;
+
+    service.clear();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(theme.mode()).toBe('dark');
+  });
+
+  it('does not apply an appearance that answers after the subject leaves', async () => {
+    const theme = TestBed.inject(ThemeService);
+
+    const refresh = service.refreshSettings();
+    service.clear();
+    http.expectOne('/api/v1/settings').flush([themeSetting('dark')]);
+    await refresh;
+
+    expect(theme.mode()).toBe('system');
   });
 
   //#if (IncludeLocalization)

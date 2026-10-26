@@ -40,13 +40,13 @@
 
 - 值域声明在设置定义上（`AsBoolean()`、`AsInteger(min, max)`、`WithAllowedValues(...)`）；定义表达不了的规则写成 `Application/Settings/Validators` 下的 `ISettingValueValidator`。跨设置的约束（如未读通知保留不短于已读）读另一项的设置链值而不是 `IOptionsMonitor`；清除也经校验器，候选值是回落后的值。
 - 分组按管理员要完成的事归组，不按组件归组：新设置先归入已有分组（保留期一类都进 `Retention`），讲不进任何现有分组才新建；同一作用域的设置不散落到多个分组。允许用户覆盖的设置（`SettingScopes.All`）可以同时出现在系统与个人设置页，不为此拆定义。
-- 界面语言与时区（`Display.*`）是组织默认、个人可覆盖（`SettingScopes.All`），代码默认值取部署基线 `DisplayDefaults`（启动期绑定与校验，空为跟随设备）。服务端给某个收件人产出文本时按收件人解析：语言用 `GetOrNullForUserAsync`，时区用 `IUserTimeZoneProvider.GetForUserAsync`，写出的时刻注明时区；不用当前用户的值，也不把当地时刻标成 UTC。
+- 界面语言与时区（`Display.*`）是组织默认、个人可覆盖（`SettingScopes.All`），代码默认值取部署基线 `DisplayDefaults`（启动期绑定与校验，空为跟随设备）；外观 `Display.Theme` 只有个人层，默认跟随系统。服务端给某个收件人产出文本时按收件人解析：语言用 `GetOrNullForUserAsync`，时区用 `IUserTimeZoneProvider.GetForUserAsync`，写出的时刻注明时区；不用当前用户的值，也不把当地时刻标成 UTC。
 - 系统设置的每个分组一条 `App.Settings.*` 子权限，登记在 `Application/Settings/Provider/SettingGroupPermissions`（设置端点的分组策略与操作记录的授权依据都从这里取）；只含进程级设置的分组子权限侧别为 `Host`。新建系统设置分组时同时加子权限定义、中英译文、前端 `PERMISSIONS.settings` 与 Mock。
 <!--#if (SpaFrontend)-->
 
 ## 3. 设置页
 
-- 系统设置只列 `canManage` 为真的分组（服务端按分组子权限算），一个也没有时显示"没有可管理的设置"的说明而不是空白；面板顺序即后端设置定义的顺序。设置类快捷入口（页头的主题、语言切换）必须在设置页有对应项（主题在个人偏好的"显示"分组），两处共用同一份状态，不另存一份。
+- 系统设置只列 `canManage` 为真的分组（服务端按分组子权限算），一个也没有时显示"没有可管理的设置"的说明而不是空白；面板与行的顺序即后端设置定义的顺序：先放影响能否读懂的（语言），再放影响数据解读的（时区），最后是外观类，相关项相邻。设置类快捷入口（页头的主题、语言切换）必须在设置页有对应项，两处共用同一份状态。
 - 面板（个人设置、系统设置各一套）走子路由，面板名进 URL：刷新、分享、头像菜单直达都落在同一面板。面板列的宽度上限 `max-w-3xl` 与命名容器 `@container/panel` 只在外壳 `settings-shell` 写一处，面板不另写 `max-w-*`。
 - 分区不套卡片：面板标题与各分区标题（`h4`，14px 分区标题一档）下一条实线（`border-b`），分区间留大间距；已绑定账号、登录设备、回调地址这类列表项保留各自的 `rounded-md` 边框。
 - 设置行是单列 Spartan Field 列表，行间只留白、不画线（也不用虚线，本项目的虚线表示添加）：标签在左，控件与恢复按钮在右；开关 `orientation="horizontal"`，输入类 `responsive`（列表宽时固定 `w-64` 右对齐，窄时落到标签下方）；标签行至少与控件同高并垂直居中，标签折行时控件按内容块居中；进程级生效范围用 `app-info-hint`：整组都是进程级时只在面板标题旁放一次，混合分组放在该行标签旁；写入状态接在标签后面（进程级的行保存成功时说明多久全部生效），长错误在列内折行；即改即存的控件写入期间不禁用（禁用会把焦点弹到页面上），再次操作排队写入、以最后一次为准，行状态由最后一次写入给出。开关经 `aria-describedby` 指向本行描述（`hlm-switch` 不会自动关联所在字段的描述）。
@@ -60,9 +60,8 @@
 
 | 形态 | 写入口径 | 例 |
 | --- | --- | --- |
-| 已做成 setting definition | 切换器走同一个 `setForCurrentUser`，不旁路写 `localStorage` | 语言（`Display.Language`） |
-| 未做成 setting definition | 只存本设备（`ThemeService` 写 `localStorage`），不经设置接口；偏好页的外观行与页头切换器共用这份状态 | 主题 |
+| 已做成 setting definition | 切换器已登录时走同一个 `setForCurrentUser`，成功后才切换 | 语言、外观 |
 | 本服务不拥有该偏好（跨服务只读） | 切换器只作用于本会话；设置页只放去签发方的外链 | 资源服务里的账户偏好 |
 
-给偏好补 setting definition 时同一提交改掉切换器。
+未登录时切换器只记在本设备。外观的生效值缓存在本设备供首帧使用，主体离开后保留；语言的账户值只在内存。
 <!--#endif-->

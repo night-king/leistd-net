@@ -72,6 +72,12 @@ public static class SettingConstant
 #endif
         /// <summary>展示时区（IANA 名，如 <c>Asia/Shanghai</c>）。时间一律以 UTC 存储，仅展示时换算。</summary>
         public const string TimeZone = "Display.TimeZone";
+
+        /// <summary>外观（亮、暗、跟随系统）。只有个人层：组织统一主题没有实际需要，也就不必区分"显式跟随系统"与"未设置"。</summary>
+        public const string Theme = "Display.Theme";
+
+        /// <summary><see cref="Theme"/> 的候选值，与前端 <c>THEME_MODES</c> 一致。</summary>
+        public static readonly IReadOnlyList<string> ThemeModes = ["system", "light", "dark"];
     }
 
     /// <summary>日志开关。</summary>
