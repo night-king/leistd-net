@@ -16,7 +16,7 @@ namespace CompanyName.ProjectName.UnitTests.Registration;
 
 /// <summary>迁移作业的注册面：调用 DbMigrator 的同一组合，按开发环境的方式构建容器。</summary>
 /// <remarks>
-/// 开发环境的宿主在构建期校验每条注册的依赖（<c>ValidateOnBuild</c>）。迁移作业只注册持久化；
+/// 开发环境的宿主在构建期校验每条注册的依赖（<c>ValidateOnBuild</c>）。迁移作业只注册持久化与迁移后 Admin 补齐要用的授权存储；
 /// 运行期组件依赖只在 API 里注册的当前用户与权限主体，混进来时生产环境照常迁移，本机按 README 跑迁移却在构建期失败。
 /// </remarks>
 public class MigratorRegistrationTests
@@ -54,6 +54,7 @@ public class MigratorRegistrationTests
         using var scope = provider.CreateScope();
 
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<DatabaseMigrationRunner>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<AdminGrantTopUpRunner>());
     }
 
 #if (RemoteTokenAuth || LocalIdentity)

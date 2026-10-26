@@ -28,7 +28,7 @@ public sealed class DatabaseMigrationRunner(
     /// 业务项目把上下文改名为服务名（如 <c>Crm</c>）时，这里要跟着改成同一个名字——
     /// 迁移作业与运行时必须问同一个名字，否则会迁错库。
     /// </remarks>
-    private const string BusinessConnectionStringName = ConnectionStringNames.Default;
+    internal const string BusinessConnectionStringName = ConnectionStringNames.Default;
 
     /// <summary>表示一个物理目标的迁移计划。</summary>
     /// <param name="Target">连接串指纹或 <c>default</c>。</param>
@@ -246,13 +246,19 @@ public sealed class DatabaseMigrationRunner(
         bool apply,
         CancellationToken cancellationToken)
     {
+        await using var dbContext = CreateBusinessContext(connectionString);
+        return await ProcessAsync(dbContext, targetFingerprint, "business", apply, cancellationToken);
+    }
+
+    /// <summary>不经依赖注入、直连一个物理库的业务上下文；查询要 <c>IgnoreQueryFilters</c>，过滤器依赖的服务不存在。</summary>
+    internal static MyProjectDbContext CreateBusinessContext(string connectionString)
+    {
         var options = new DbContextOptionsBuilder<MyProjectDbContext>()
             .UseNpgsql(connectionString, npgsql =>
                 npgsql.MigrationsHistoryTable(
                     DatabaseSchema.BusinessMigrationsHistoryTable, DatabaseSchema.Name));
 
-        await using var dbContext = new MyProjectDbContext(options.Options, serviceProvider: null);
-        return await ProcessAsync(dbContext, targetFingerprint, "business", apply, cancellationToken);
+        return new MyProjectDbContext(options.Options, serviceProvider: null);
     }
 
     // 仅只读预演中未迁移的控制库缺少租户表时，才判定为首次安装。

@@ -10,7 +10,7 @@
 | 控制器通过 `[Authorize(Policy = "...")]` 检查权限 | 追加 `Leistd.Authorization.AspNetCore` |
 | 授予需运行时持久化 | 追加 `Leistd.Authorization.EntityFrameworkCore` |
 | 权限管理界面：当前有效权限、定义树、按主体读写授予 | `MapPermissionManagement()`，宿主实现 `IPermissionSubjectDirectory` |
-| 初始化时给管理员角色授予全部权限（只在从未写过时） | `IPermissionGrantSeeder` |
+| 初始化时给管理员角色授予全部权限，升级后补上新增的权限 | `IPermissionGrantSeeder` |
 
 本家族只回答“能否执行这类操作”。单个资源的判定见[资源实例授权](./authorization-resource.md)，集合可见范围见[数据范围](./authorization-data-scope.md)。
 
@@ -190,6 +190,7 @@ await grantSeeder.SeedAllAsync(PermissionGrantProviderNames.Role, adminRoleId, M
 | `IPermissionManagementService` | 管理用例：`GetCurrentAsync`、`GetDefinitionsAsync`、`GetGrantsAsync`、`ReplaceGrantsAsync` |
 | `IPermissionSubjectDirectory` | 宿主实现：按授予对象确认主体存在并给出显示名 |
 | `IPermissionGrantSeeder.SeedAllAsync(providerName, providerKey, side, ct)` | 从未写过授予时授予某侧别上的全部可用权限 |
+| `IPermissionGrantSeeder.GetMissingAsync` / `TopUpAsync`（参数同上） | 列出 / 补授某侧别上可用、主体却没有的权限；只补不删 |
 | `PermissionGrantsReplacedEvent` | 管理用例整体替换授予后发布 |
 | `PermissionErrorCodes` | 组件错误码，默认中英译文随包分发 |
 | 默认 HTTP 状态 | 组件默认状态：主体不存在 → 404，授予冲突 → 409，快照不可用 → 503。由 `AddPermissionAuthorizationCore()` 自动登记；宿主 `MapCode` / `MapException` 可覆盖 |
@@ -216,6 +217,7 @@ await grantSeeder.SeedAllAsync(PermissionGrantProviderNames.Role, adminRoleId, M
 - 显示名按约定键查 `LocalizationResource`：权限为 `Permission:{权限名}`，分组为 `PermissionGroup:{组名}`；查不到用定义里的 `DisplayName`，再没有才用名称。
   定义里写可读的英文默认文案，不写词条键。
 - 首次授予带期望版本 0 写入，并发的第二次视为已播种。
+- 补缺逐项经 `GrantAsync` 写入，与在线编辑按版本冲突重试；已有授予不动，包括定义已删除的旧名（整体替换会因它们拒绝写入）。撤掉的权限下次补缺会补回：给管理员角色补缺即约定该角色只增不减，细分权限用其他角色。
 
 ## 注意事项
 
@@ -226,7 +228,7 @@ await grantSeeder.SeedAllAsync(PermissionGrantProviderNames.Role, adminRoleId, M
 - 权限管理 UI 从定义树端点构造，不在前端复制权限列表。
 - `IPermissionSubjectDirectory` 没有默认实现：映射管理端点的宿主必须注册，否则解析管理用例失败。它的 Key 格式判断也归宿主（格式不对返回 `null` 即 404）。
 
-### 删除或改名一个权限定义
+### 删除、改名或拆分一个权限定义
 
 授予按名字存，不随定义一起消失。定义删掉之后，旧授予行仍留在表里：
 
@@ -237,19 +239,55 @@ await grantSeeder.SeedAllAsync(PermissionGrantProviderNames.Role, adminRoleId, M
 | 对话框全量替换 | 该主体的旧授予被这次替换顺带清掉 |
 | 再次定义同名权限 | 旧授予立即生效 |
 
-因此删除或改名权限时，带一条迁移删掉该名字的授予，与删除定义同一次提交：
+因此删掉旧名时，同一次提交带一条迁移处理它的授予。怎么处理取决于新旧权限是不是同一件事，这个判断只有业务能做，框架不自动映射：
+
+| 情形 | 处理 |
+| --- | --- |
+| 删除；或改名、拆分时语义也变了 | 删掉旧名的授予，新权限由使用者重新授予 |
+| 只改名，或拆成更细的几项且原持有者理应都持有 | 把旧授予平移到新名，再删旧授予，并给受影响主体递增授权版本 |
+
+删除（表名由宿主的 `DbSet<PermissionGrantRecord>` 决定，模板里是 "PermissionGrantRecords"；带 schema 时加限定，下同）：
 
 ```csharp
-// 表名由宿主的 DbSet<PermissionGrantRecord> 决定（模板里是 PermissionGrantRecords）
 migrationBuilder.Sql(
     """
     DELETE FROM "PermissionGrantRecords" WHERE "PermissionName" = 'App.Orders.Approve';
     """);
 ```
 
-改名按同一条处理：旧名删掉，新名由使用者重新授予，不要就地 `UPDATE` 成新名。
+平移（PostgreSQL；版本表由 `DbSet<AuthorizationVersionRecord>` 决定，模板里是 "AuthorizationVersionRecord"）：
 
-框架不自动清理：定义缺失也可能只是本次启动没注册（条件编译、模块未加载）。
+```csharp
+migrationBuilder.Sql(
+    """
+    -- 1. 旧授予复制到每个新名；宿主行与租户行各有唯一索引，ON CONFLICT 让重跑幂等
+    INSERT INTO "PermissionGrantRecords" ("Id", "TenantId", "PermissionName", "ProviderName", "ProviderKey", "CreationTime")
+    SELECT gen_random_uuid(), g."TenantId", n.name, g."ProviderName", g."ProviderKey", now()
+    FROM "PermissionGrantRecords" g
+    CROSS JOIN (VALUES ('App.Ops.Events.Read'), ('App.Ops.Jobs.Read')) AS n(name)
+    WHERE g."PermissionName" = 'App.Ops.Monitor.Read'
+    ON CONFLICT DO NOTHING;
+
+    -- 2. 受影响主体的授权版本 +1
+    UPDATE "AuthorizationVersionRecord" v
+    SET "Version" = v."Version" + 1, "LastModificationTime" = now()
+    WHERE EXISTS (
+        SELECT 1 FROM "PermissionGrantRecords" g
+        WHERE g."PermissionName" = 'App.Ops.Monitor.Read'
+          AND g."ProviderName" = v."ProviderName" AND g."ProviderKey" = v."ProviderKey"
+          AND g."TenantId" IS NOT DISTINCT FROM v."TenantId");
+
+    -- 3. 删旧授予：放在最后，第 2 步靠它找到受影响主体
+    DELETE FROM "PermissionGrantRecords" WHERE "PermissionName" = 'App.Ops.Monitor.Read';
+    """);
+```
+
+- 不要就地 `UPDATE` 授予行的名字：拆分时一行变多行，改名时新名可能已有授予，会撞唯一索引。
+- 版本必须递增：版本是保存授予时的并发令牌，迁移前打开的权限对话框按旧版本保存时，会把平移来的授予整体替换掉；递增后那次保存报冲突。客户端缓存的权限也随版本失效。
+- 迁移逐库执行，共享库与独立库各跑一遍；重跑时旧授予已删除，三步都不再匹配。
+- 旧授予已经删掉而没有平移的，事后推断不出原持有者：内置管理员角色可由补缺（`TopUpAsync`）补回，其余主体重新授予。
+
+框架不自动清理旧授予：定义缺失也可能只是本次启动没注册（条件编译、模块未加载）。
 
 ## 相关
 

@@ -34,7 +34,7 @@ namespace CompanyName.ProjectName.DbMigrator.Runners;
 /// <para>普通引导只做一次：这个人曾被移出 Administrator（成员关系的软删除历史）就不再加回，
 /// 重跑命令不会推翻之后的撤销；被停用、被删除的也原样保留。</para>
 /// <para>显式恢复模式（<c>--restore</c>）用于没有其他可授权管理员时把人请回来：撤回删除、重新启用、
-/// 补回 Admin 成员关系（只有这一条，别的角色不复活），再经 <see cref="IPermissionGrantManager"/> 把当前侧别可用的权限
+/// 补回 Admin 成员关系（只有这一条，别的角色不复活），再经 <see cref="IPermissionGrantSeeder"/> 把当前侧别可用的权限
 /// 补齐给 Admin 角色。Admin 是共享角色，补齐对它的全部成员生效；不恢复已作废的会话与令牌。</para>
 /// </remarks>
 internal sealed class ResourceAdminBootstrapRunner(
@@ -52,7 +52,7 @@ internal sealed class ResourceAdminBootstrapRunner(
     UserDomainService userDomainService,
     IPermissionDefinitionManager definitions,
     IPermissionGrantStore grants,
-    IPermissionGrantManager grantManager,
+    IPermissionGrantSeeder seeder,
     ISystemInitializer initializer,
     IOperationRecorder recorder)
 {
@@ -143,7 +143,7 @@ internal sealed class ResourceAdminBootstrapRunner(
         IUnitOfWork uow, Guid subject, MultiTenancySides side, Role? adminRole, User? user, bool apply, CancellationToken cancellationToken)
     {
         var key = subject.ToString();
-        var missing = adminRole is null
+        IReadOnlyList<string> missing = adminRole is null
             ? AvailablePermissionNames(side)
             : await MissingPermissionNamesAsync(adminRole, side, cancellationToken);
         var repairs = new List<string>();
@@ -166,11 +166,8 @@ internal sealed class ResourceAdminBootstrapRunner(
         target.Enable();
         target.AssignRoles([adminRole.Id]);
         await userRepository.UpdateAsync(target, cancellationToken);
-        // 角色若刚在上一步首次播种，这里已无缺口；否则按缺口逐项补授，已有的授予与其他角色不动
-        foreach (var permission in await MissingPermissionNamesAsync(adminRole, side, cancellationToken))
-        {
-            await grantManager.GrantAsync(permission, PermissionGrantProviderNames.Role, adminRole.Id.ToString(), cancellationToken);
-        }
+        // 角色若刚在上一步首次播种，这里已无缺口；否则只补缺口，已有的授予与其他角色不动
+        await seeder.TopUpAsync(PermissionGrantProviderNames.Role, adminRole.Id.ToString(), side, cancellationToken);
 
         await recorder.RecordSucceededAsync(OperationRecordActions.ResourceAdminRestored,
             OperationTarget.For($"User/{key}", key), OperationRecordAuthorizations.DeploymentBootstrap, cancellationToken);
@@ -186,11 +183,8 @@ internal sealed class ResourceAdminBootstrapRunner(
     private List<string> AvailablePermissionNames(MultiTenancySides side)
         => [.. definitions.GetAll().Select(d => d.Name).Where(name => definitions.IsAvailableOn(name, side))];
 
-    private async Task<List<string>> MissingPermissionNamesAsync(Role adminRole, MultiTenancySides side, CancellationToken cancellationToken)
-    {
-        var current = await grants.GetGrantsAsync(PermissionGrantProviderNames.Role, adminRole.Id.ToString(), cancellationToken);
-        return [.. AvailablePermissionNames(side).Where(name => !current.PermissionNames.Contains(name))];
-    }
+    private Task<IReadOnlyList<string>> MissingPermissionNamesAsync(Role adminRole, MultiTenancySides side, CancellationToken cancellationToken)
+        => seeder.GetMissingAsync(PermissionGrantProviderNames.Role, adminRole.Id.ToString(), side, cancellationToken);
 
     // 角色已经播种过就按现状如实说，不能在权限被人为缩减后仍报"将授予全部"
     private async Task<string> DescribeExistingRoleAsync(Role adminRole, MultiTenancySides side, CancellationToken cancellationToken)

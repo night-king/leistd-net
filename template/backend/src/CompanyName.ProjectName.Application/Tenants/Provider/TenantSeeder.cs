@@ -142,7 +142,7 @@ public class TenantSeeder(
     private async Task<Role> EnsureRolesAsync(CancellationToken cancellationToken) =>
         (await roleDomainService.EnsureBuiltInRolesAsync("Tenant administrator with all tenant permissions", cancellationToken)).Admin;
 
-    // 只授予租户侧可用的权限；从未写过授予才写，之后按普通角色管理
+    // 只授予租户侧可用的权限；从未写过授予才写，之后新增的权限由 DbMigrator 补齐
     private async Task SeedAdminRolePermissionsAsync(Role adminRole, CancellationToken cancellationToken)
     {
         var granted = await permissionGrantSeeder.SeedAllAsync(

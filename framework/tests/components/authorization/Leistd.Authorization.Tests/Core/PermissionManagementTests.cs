@@ -165,6 +165,48 @@ public sealed class PermissionManagementTests
         Assert.Null(second);
     }
 
+    // 补缺只补该侧可用的缺口：停用与另一侧的不补，已有授予（含定义已删除的旧名）不动，撤掉的会补回
+    [Fact]
+    public async Task Topping_up_grants_only_the_missing_permissions_of_the_side()
+    {
+        var seeder = Services().GetRequiredService<IPermissionGrantSeeder>();
+        _grants.Set(PermissionGrantProviderNames.Role, RoleKey, [BothSides, "App.Removed"]);
+
+        var missing = await seeder.GetMissingAsync(PermissionGrantProviderNames.Role, RoleKey, MultiTenancySides.Tenant);
+        var versionBefore = (await _grants.GetGrantsAsync(PermissionGrantProviderNames.Role, RoleKey)).Version;
+        var granted = await seeder.TopUpAsync(PermissionGrantProviderNames.Role, RoleKey, MultiTenancySides.Tenant);
+        var after = await _grants.GetGrantsAsync(PermissionGrantProviderNames.Role, RoleKey);
+
+        Assert.Equal([BothSidesChild], missing);
+        Assert.Equal([BothSidesChild], granted);
+        Assert.Equal([BothSides, BothSidesChild, "App.Removed"], after.PermissionNames.Order(StringComparer.Ordinal));
+        Assert.True(after.Version > versionBefore);
+    }
+
+    [Fact]
+    public async Task Topping_up_without_a_gap_writes_nothing()
+    {
+        var seeder = Services().GetRequiredService<IPermissionGrantSeeder>();
+        _grants.Set(PermissionGrantProviderNames.Role, RoleKey, [HostOnly, BothSides, BothSidesChild]);
+        var versionBefore = (await _grants.GetGrantsAsync(PermissionGrantProviderNames.Role, RoleKey)).Version;
+
+        var granted = await seeder.TopUpAsync(PermissionGrantProviderNames.Role, RoleKey, MultiTenancySides.Host);
+
+        Assert.Empty(granted);
+        Assert.Equal(versionBefore, (await _grants.GetGrantsAsync(PermissionGrantProviderNames.Role, RoleKey)).Version);
+    }
+
+    // 从未写过授予的主体：补缺等同首次播种
+    [Fact]
+    public async Task Topping_up_a_subject_without_grants_grants_everything_on_the_side()
+    {
+        var seeder = Services().GetRequiredService<IPermissionGrantSeeder>();
+
+        var granted = await seeder.TopUpAsync(PermissionGrantProviderNames.Role, RoleKey, MultiTenancySides.Host);
+
+        Assert.Equal([HostOnly, BothSides, BothSidesChild], granted);
+    }
+
     [Fact]
     public void Undefined_permissions_carry_a_code_and_the_names()
     {
@@ -298,7 +340,14 @@ public sealed class PermissionManagementTests
 
         public Task<int> RemoveProviderAsync(string providerName, string providerKey, CancellationToken cancellationToken = default) => Task.FromResult(0);
 
-        public Task GrantAsync(string permissionName, string providerName, string providerKey, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public async Task GrantAsync(string permissionName, string providerName, string providerKey, CancellationToken cancellationToken = default)
+        {
+            var current = await GetGrantsAsync(providerName, providerKey, cancellationToken);
+            if (!current.PermissionNames.Contains(permissionName))
+            {
+                Set(providerName, providerKey, [.. current.PermissionNames, permissionName]);
+            }
+        }
 
         public Task RevokeAsync(string permissionName, string providerName, string providerKey, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

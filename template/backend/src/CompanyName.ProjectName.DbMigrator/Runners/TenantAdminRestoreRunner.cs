@@ -7,7 +7,6 @@ using CompanyName.ProjectName.Domain.Users.Repositories;
 using Leistd.AmbientContext;
 using Leistd.Auditing.Abstractions;
 using Leistd.Authorization.Constants;
-using Leistd.Authorization.Definitions;
 using Leistd.Authorization.Grants;
 using Leistd.Data.Connections;
 using Leistd.Data.Filters;
@@ -27,7 +26,7 @@ namespace CompanyName.ProjectName.DbMigrator.Runners;
 /// <remarks>
 /// <para>恢复的是开通时建的那个管理员（用户名 <see cref="AdminConstant.TenantAdminUsername"/>）的<b>原记录</b>：
 /// 撤回软删除、按原 Id 回来，重新启用，补回 Admin 成员关系（只补这一条，被撤的其他角色不复活）；
-/// 再经 <see cref="IPermissionGrantManager"/> 把租户侧当前可用、Admin 角色却没有的权限补授给它。
+/// 再经 <see cref="IPermissionGrantSeeder"/> 把租户侧当前可用、Admin 角色却没有的权限补授给它。
 /// Admin 是共享角色，补授对它的全部成员生效。不重置口令与两步验证，不恢复已作废的会话；
 /// 找不到原记录（改过名或被永久清除）就失败，不替人新建账号。</para>
 /// <para>写入在该租户实际落点（共享库按租户过滤，独立库按登记的连接）的一个工作单元里完成，
@@ -45,9 +44,7 @@ internal sealed class TenantAdminRestoreRunner(
     IRepository<Role, Guid> roleRepository,
     IUserRepository userRepository,
     IQueryableAsyncExecuter asyncExecuter,
-    IPermissionDefinitionManager definitions,
-    IPermissionGrantStore grants,
-    IPermissionGrantManager grantManager,
+    IPermissionGrantSeeder seeder,
     IOperationRecorder recorder)
 {
     public async Task<string> RunAsync(Guid tenantId, bool apply, CancellationToken cancellationToken = default)
@@ -88,7 +85,8 @@ internal sealed class TenantAdminRestoreRunner(
                 + "This command only restores the original administrator and never creates accounts; "
                 + "create a tenant administrator through the tenant's user management instead. Nothing changed.");
 
-        var missing = await MissingPermissionNamesAsync(adminRole, cancellationToken);
+        var missing = await seeder.GetMissingAsync(
+            PermissionGrantProviderNames.Role, adminRole.Id.ToString(), MultiTenancySides.Tenant, cancellationToken);
         var repairs = new List<string>();
         if (admin.IsDeleted) repairs.Add("restore the deleted account");
         if (!admin.IsActive) repairs.Add("enable the account");
@@ -107,10 +105,7 @@ internal sealed class TenantAdminRestoreRunner(
         admin.AssignRoles([adminRole.Id]);
         await userRepository.UpdateAsync(admin, cancellationToken);
         // 只补缺口：已有的授予、其他角色与用户直授都不动
-        foreach (var permission in missing)
-        {
-            await grantManager.GrantAsync(permission, PermissionGrantProviderNames.Role, adminRole.Id.ToString(), cancellationToken);
-        }
+        await seeder.TopUpAsync(PermissionGrantProviderNames.Role, adminRole.Id.ToString(), MultiTenancySides.Tenant, cancellationToken);
 
         await recorder.RecordSucceededAsync(OperationRecordActions.TenantAdminRestored,
             OperationTarget.For(admin.Id, admin.Username), OperationRecordAuthorizations.DeploymentBootstrap, cancellationToken);
@@ -119,13 +114,5 @@ internal sealed class TenantAdminRestoreRunner(
         return $"Restored the administrator {target}: {string.Join(", ", repairs)}. "
             + $"The {AdminConstant.RoleName} role is shared, so every member holds the granted permissions; "
             + "the password, two-factor settings and revoked sessions are unchanged.";
-    }
-
-    private async Task<List<string>> MissingPermissionNamesAsync(Role adminRole, CancellationToken cancellationToken)
-    {
-        var current = await grants.GetGrantsAsync(PermissionGrantProviderNames.Role, adminRole.Id.ToString(), cancellationToken);
-        return [.. definitions.GetAll()
-            .Select(definition => definition.Name)
-            .Where(name => definitions.IsAvailableOn(name, MultiTenancySides.Tenant) && !current.PermissionNames.Contains(name))];
     }
 }

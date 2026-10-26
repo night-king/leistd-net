@@ -170,8 +170,8 @@ public class SystemInitializer(
     /// <summary>在 Admin 角色尚未有过任何授予写入时，把宿主侧可用的全部权限授予它。</summary>
     /// <remarks>
     /// 授权版本为 0 表示从未写入授予，可覆盖角色已创建但播种中断的状态。
-    /// 首次播种后 Admin 按普通角色管理：权限可撤销，启动过程不会自动补回缺失权限。
-    /// 新增权限由管理员显式授予；宿主超级管理员负责避免权限管理被锁死。
+    /// 之后的版本新增的权限由 DbMigrator 每次施加迁移后补齐（Admin 只增不减，细分权限用自定义角色）；
+    /// 启动过程只做首次播种。
     /// </remarks>
     private async Task SeedAdminRolePermissionsAsync(Role adminRole, CancellationToken cancellationToken)
     {
@@ -184,7 +184,7 @@ public class SystemInitializer(
         if (granted is { } count)
         {
             logger.LogInformation(
-                "Seeded permission grants for role {RoleName}: {Count} item(s) (the role can be edited and revoked afterwards; grants are not auto-replenished)",
+                "Seeded permission grants for role {RoleName}: {Count} item(s); DbMigrator tops up permissions added later",
                 adminRole.Name,
                 count);
         }
