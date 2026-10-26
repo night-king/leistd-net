@@ -44,4 +44,4 @@
 ## 5. 伪语言与加语言
 
 - **伪语言**：`frontend/src/app/core/i18n/pseudo-locale.testing.ts` 由英文词条生成，只用于单测：字母换成带附加符号的同形字，连同方括号补到标签容量 max(⌈英文近似列宽 × 1.3⌉, 14 列)（CJK 记 2 列）。容量是测试预算，不是像素容量；来自词条的静态标签没有方括号即为写死文案。
-- **加语言**：同一改动里加前后端词条，改语言清单（`frontend/src/app/core/services/language-service.ts` 的 `SUPPORTED_LANGS`、`LANG_OPTIONS`，`frontend/_mock/api/setting.ts`，后端 `SettingConstant.SupportedLanguages`），把 `scripts/check-i18n.py` 写死 en/zh-CN 的键与占位符比较扩到全部语言，用缺键、错占位符夹具证伪。比英文宽的语言可加长度门禁，上限取标签容量，句子类词条按键排除。
+- **加语言**：同一改动里改两份清单（前端 `language-service.ts` 的 `LANG_OPTIONS`，含母语名与短码；后端 `SettingConstant.Display.SupportedLanguages`，同集同序），补齐前后端每个资源目录的词条。`scripts/check-i18n.py` 按清单检查全部语言：两份清单不一致、缺文件或键、与英文原文相同都会失败；确实不用翻译的词条逐条登记在 `UNTRANSLATED_ALLOWED` 并写理由。比英文宽的语言可加长度门禁，上限取标签容量，句子类词条按键排除。

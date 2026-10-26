@@ -8,13 +8,13 @@
 
 ## 2. 响应格式
 
-**成功直接返回业务对象（裸对象，不包裹），失败统一返回 RFC 9457 `ProblemDetails`**（§2.4）。该风格由 Leistd 框架的全局异常处理（`Leistd.ExceptionHandling.AspNetCore`）落地，不在 Controller 里包 `Ok(...)` 或自定义 `{success,data}` 信封。
+**成功直接返回业务对象（裸对象，不包裹），失败统一返回 RFC 9457 `ProblemDetails`**（§2.4）。该风格由框架全局异常处理（`Leistd.ExceptionHandling.AspNetCore`）落地，不在 Controller 里包 `Ok(...)` 或自定义 `{success,data}` 信封。
 
 > JSON 序列化：属性 camelCase、忽略 null 值、枚举序列化为 camelCase 字符串且不收数字；查询串里的分类取值同样写 camelCase（见[通用约定 §3.8](./coding-common.md#38-枚举只在边界转换)）。
 
 ### 2.1 成功响应
 
-直接返回业务对象，HTTP 200：Controller 返回 `Task<TOutputDto>`，无 I/O 时可同步返回 DTO。
+HTTP 200：Controller 返回 `Task<TOutputDto>`，无 I/O 时可同步返回 DTO。
 
 ### 2.2 空响应
 
@@ -31,7 +31,7 @@
 
 ### 2.4 错误响应
 
-失败统一返回 RFC 9457 `ProblemDetails`（`application/problem+json`），由框架全局异常处理（`BusinessExceptionHandler`）产出。业务错误带稳定错误码 `code` 与公开文案 `detail`；输入校验、未预期异常、上游故障等协议层失败的契约就是 HTTP 状态码（RFC 9457 §4），只带本地化 `title` 与 `traceId`（校验另带 `errors`），不带 `code` 与 `detail`。
+媒体类型 `application/problem+json`（框架 `BusinessExceptionHandler` 产出）。业务错误带稳定错误码 `code` 与公开文案 `detail`；输入校验、未预期异常、上游故障等协议层失败的契约就是 HTTP 状态码（RFC 9457 §4），只带本地化 `title` 与 `traceId`（校验另带 `errors`），不带 `code` 与 `detail`。
 
 | 字段 | 类型 | 说明（`status`、`instance` 照 RFC 9457） |
 | --- | --- | --- |
@@ -153,8 +153,6 @@
 
 ## 6. HTTP 方法与路由规范
 
-对外接口统一以 `/api/v1/` 开头。
-
 | 操作 | 方法 | 路由 | 后端方法名建议 |
 | --- | --- | --- | --- |
 | 分页查询 | GET | `/api/v1/{resource}` | `GetPagedListAsync` |
@@ -164,6 +162,8 @@
 | 局部更新 | PATCH | `/api/v1/{resource}/{id}` | `PatchAsync` |
 | 删除 | DELETE | `/api/v1/{resource}/{id}` | `DeleteAsync` |
 | 非 CRUD 动作 | POST | `/api/v1/{resource}/{id}/{action}` | 与动作同名 |
+
+`PATCH` 请求体按 JSON 合并补丁（RFC 7396）：缺省字段不变，`null` 即清除；全部校验通过后一次写入，未知字段拒绝。
 
 ### 6.1 批量操作与统计
 

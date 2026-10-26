@@ -4,23 +4,28 @@
 漏译、裸键、占位符错位都不会让测试变红：页面照常渲染，只是某种语言下显示成键名、
 半截英文或写死的中文。这道闸门把它们变成失败。
 
+语言清单：
+  0. 前端 `LANG_OPTIONS` 与后端 `SettingConstant.Display.SupportedLanguages` 同集同序（首项为默认语言），
+     且含源语言英文；下面各条对清单里的每种语言执行，脚本不另写语言。
 前端（有 `frontend/` 时）：
-  1. 全局与各 scope 的 en、zh-CN 都是合法 JSON，键集合一致，值为非空字符串；
-     插值只用 Transloco 的 `{{name}}`，两种语言的插值名集合一致；全局与 scope 键不重名。
+  1. 全局与各 scope 的每种语言都是合法 JSON，键集合与英文一致，值为非空字符串；
+     插值只用 Transloco 的 `{{name}}`，插值名集合与英文一致；全局与 scope 键不重名。
   2. 模板与 TS 里的静态引用（`t('…')`、结构指令 prefix、`translateSignal`、`transloco.translate`、
      `| transloco`）都有词条，`translateObjectSignal` 的对象前缀下至少有一条词条；
      Signal Forms 用到的校验类型在 `validation` 段有句子。
   3. 从路由 loadComponent/component 进入，沿模板 selector 追溯嵌入组件，
      每个入口（含继承父路由与 loadChildren 的登记）都用 provideTranslocoScope 登记了整棵组件树需要的 scope。
 后端：
-  4. `backend/src/*.Api/Resources` 的 en、zh-CN 是合法 JSON，`culture` 与文件名一致，
-     `texts` 键集合一致，同一键的 `{Name}` 占位符集合一致。
+  4. `backend/src/*.Api/Resources` 的每种语言是合法 JSON，`culture` 与文件名一致，
+     `texts` 键集合与英文一致，同一键的 `{Name}` 占位符集合一致。
   5. Domain、Application 的 `*ErrorCodes.cs` 常量在资源里有句子；码的形态、归属与引用
      由不随本地化裁剪的 `scripts/check-error-codes.py` 检查。
   6. `[Display(Name = "…")]` 与 `ErrorMessage = "…"` 的原文都是资源键；`Dtos/` 下的校验特性必须显式写 ErrorMessage
      （不写时落成 .NET 内置英文，本地化查不到）。
 两端：
   7. 源码（不含注释与单测）不写死中文展示文案；刻意保留的登记在 HARDCODED_CJK_ALLOWED。
+  8. 非英文词条与英文原文相同即视为没翻译；去掉插值后没有字母的不算。确实不用翻译的逐条登记在
+     UNTRANSLATED_ALLOWED（语言、资源、键与理由），不按语言或目录整体豁免；译好后登记即失效，须删掉。
 
 动态键、非字面量路由与登记表达式不在静态判据之内，新用法要补检查。
 
@@ -34,7 +39,19 @@ import tempfile
 
 # 脚本所在目录的上一级就是被检查的根：生成项目里是项目根，本仓里是 template/。
 ROOT = Path(__file__).resolve().parents[1]
-LOCALES = ('en', 'zh-CN')
+# 源语言：其他语言的键、占位符都与它比较，与它相同的值视为没翻译。
+SOURCE = 'en'
+LANGUAGE_SERVICE = 'frontend/src/app/core/services/language-service.ts'
+
+# 与英文相同、但确实不用翻译的词条：(语言, 资源, 键) → 理由。资源是前端 scope 路径（全局词条写 global）
+# 或 backend。生成项目缺少某个功能时，对应的键不存在，登记照常保留。
+UNTRANSLATED_ALLOWED = {
+    ('zh-CN', 'account', 'sessions.ip'): 'IP 是通用缩写',
+    ('zh-CN', 'openApp', 'appType.web'): '应用类型的通用叫法',
+    ('zh-CN', 'openApp', 'field.clientId'): 'OAuth 协议字段名',
+    ('zh-CN', 'settings', 'externalLoginProviders.clientId'): 'OAuth 协议字段名',
+    ('zh-CN', 'backend', 'Client ID'): 'OAuth 协议字段名',
+}
 
 # 语言切换菜单里每种语言用自己的文字显示，不随界面语言变化。
 HARDCODED_CJK_ALLOWED = {
@@ -76,6 +93,53 @@ def relative(path, root):
     return path.relative_to(root).as_posix()
 
 
+# ---------------------------------------------------------------- 语言清单
+
+
+def declared_locales(root):
+    """两端各自声明的语言清单。返回 (清单, 问题)；两端不一致时以后端为准继续检查。"""
+    errors = []
+    backend = None
+    constants = sorted((root / 'backend/src').glob('*.Application/Settings/Provider/SettingConstant.cs'))
+    if len(constants) == 1:
+        found = re.search(r'SupportedLanguages\s*=\s*\[([^\]]*)\]', constants[0].read_text(encoding='utf-8'))
+        backend = re.findall(r'"([^"]+)"', found[1]) if found else None
+    if not backend:
+        errors.append('backend: SettingConstant.Display.SupportedLanguages not found')
+    frontend = None
+    if (root / 'frontend').is_dir():
+        path = root / LANGUAGE_SERVICE
+        text = path.read_text(encoding='utf-8') if path.is_file() else ''
+        found = re.search(r'export const LANG_OPTIONS\s*=\s*\[(.*?)\]\s*as const', text, re.S)
+        frontend = re.findall(r"\bid:\s*'([^']+)'", found[1]) if found else None
+        if not frontend:
+            errors.append(f'{LANGUAGE_SERVICE}: LANG_OPTIONS not found')
+    if backend and frontend and backend != frontend:
+        errors.append(f'language lists differ (same languages in the same order, the first is the default): '
+                      f'frontend LANG_OPTIONS {frontend}, backend SupportedLanguages {backend}')
+    locales = backend or frontend or []
+    if locales and SOURCE not in locales:
+        errors.append(f'language list must include the source language {SOURCE}: {locales}')
+    for key, reason in UNTRANSLATED_ALLOWED.items():
+        if not (isinstance(reason, str) and reason.strip()):
+            errors.append(f'UNTRANSLATED_ALLOWED{key}: give the reason it needs no translation')
+    return locales, errors
+
+
+def untranslated(lang, resource, entries, source, placeholder):
+    """`lang` 里与英文原文相同的词条，以及已经译好、不再需要的例外登记。"""
+    errors = []
+    for key, value in entries.items():
+        allowed = (lang, resource, key) in UNTRANSLATED_ALLOWED
+        same = isinstance(value, str) and value == source.get(key)
+        if same and not allowed and re.search(r'[^\W\d_]', placeholder.sub('', value)):
+            errors.append(f'{resource}/{lang}:{key}: same as English; translate it, or register the exact key '
+                          f'with a reason in UNTRANSLATED_ALLOWED')
+        elif allowed and not same:
+            errors.append(f'{resource}/{lang}:{key}: stale UNTRANSLATED_ALLOWED entry (now translated); remove it')
+    return errors
+
+
 # ---------------------------------------------------------------- 前端
 
 # 不启用多语言时组件内联的英文表（模板源码里与词条并存）：表里的键不是 Transloco 引用。
@@ -84,6 +148,7 @@ CALL = re.compile(r"\bt\(\s*'([\w.]+)'(?!\s*\+)")
 TS_CALL = re.compile(r"(?:transloco\.translate|\btranslateSignal)\(\s*'([\w.]+)'(?!\s*\+)")
 OBJECT = re.compile(r"\btranslateObjectSignal\(\s*'([\w.]+)'")
 PIPE = re.compile(r"'([\w.]+)'\s*\|\s*transloco")
+FRONTEND_PLACEHOLDER = re.compile(r'\{\{[^}]+\}\}')
 PREFIX = re.compile(r'''(?:prefix|read):\s*'([\w.]+)' ''', re.X)
 INLINE_TEMPLATE = re.compile(r'\btemplate\s*:\s*`([^`]*)`', re.S)
 
@@ -262,7 +327,7 @@ def check_route_scopes(frontend, scopes):
     return errors
 
 
-def load_frontend_catalog(frontend):
+def load_frontend_catalog(frontend, locales):
     """读取全局与 scope 词条，返回 (英文完整键→值（含 alias 展开）, scope 名集合, 问题)。"""
     errors = []
     resources = frontend / 'public/i18n'
@@ -273,16 +338,21 @@ def load_frontend_catalog(frontend):
     for directory in dirs:
         label = directory.relative_to(resources).as_posix()
         trees = {}
-        for lang in LOCALES:
+        for lang in locales:
             path = directory / f'{lang}.json'
             try:
                 trees[lang] = flatten(source_json(path.read_text(encoding='utf-8')))
             except (OSError, ValueError) as error:
                 errors.append(f'{label}/{lang}: invalid or missing JSON: {error}')
-        if len(trees) != len(LOCALES):
+        if len(trees) != len(locales):
             continue
-        if trees['en'].keys() != trees['zh-CN'].keys():
-            errors.append(f'{label}: scope key sets differ: {sorted(trees["en"].keys() ^ trees["zh-CN"].keys())}')
+        resource = 'global' if directory == resources else label
+        for lang in locales:
+            if lang == SOURCE:
+                continue
+            if trees[SOURCE].keys() != trees[lang].keys():
+                errors.append(f'{label}: scope key sets differ ({lang}): {sorted(trees[SOURCE].keys() ^ trees[lang].keys())}')
+            errors += untranslated(lang, resource, trees[lang], trees[SOURCE], FRONTEND_PLACEHOLDER)
         prefix = '' if directory == resources else label.replace('/', '.') + '.'
         for lang, entries in trees.items():
             for key, value in entries.items():
@@ -292,15 +362,16 @@ def load_frontend_catalog(frontend):
                 stripped = re.sub(r'\{\{[^}]+\}\}', '', value)
                 if re.search(r'\{[A-Za-z]\w*\}', stripped):
                     errors.append(f'{label}/{lang}:{key}: invalid Transloco interpolation')
-        for key, value in trees['en'].items():
+        for key, value in trees[SOURCE].items():
             full = prefix + key
             if full in en:
                 errors.append(f'{full}: duplicate global/scope key')
             en[full] = value
-            other = trees['zh-CN'].get(key)
-            if isinstance(value, str) and isinstance(other, str):
-                if set(re.findall(r'\{\{(\w+)\}\}', value)) != set(re.findall(r'\{\{(\w+)\}\}', other)):
-                    errors.append(f'{full}: placeholders differ')
+            for lang in locales:
+                other = trees[lang].get(key)
+                if lang != SOURCE and isinstance(value, str) and isinstance(other, str):
+                    if set(re.findall(r'\{\{(\w+)\}\}', value)) != set(re.findall(r'\{\{(\w+)\}\}', other)):
+                        errors.append(f'{full}: placeholders differ ({lang})')
     for path in source_files(frontend / 'src', {'.ts'}):
         text = path.read_text(encoding='utf-8')
         for alias, scope in scope_bindings(text, text).items():
@@ -309,8 +380,8 @@ def load_frontend_catalog(frontend):
     return en, {p.name for p in dirs if p != resources}, errors
 
 
-def check_frontend(frontend):
-    en, scopes, errors = load_frontend_catalog(frontend)
+def check_frontend(frontend, locales):
+    en, scopes, errors = load_frontend_catalog(frontend, locales)
     if not en and errors:
         return errors
     for path in source_files(frontend / 'src', {'.ts', '.html'}):
@@ -344,6 +415,7 @@ def check_frontend(frontend):
 # ---------------------------------------------------------------- 后端
 
 CONSTANT = re.compile(r'public\s+const\s+string\s+([A-Za-z]\w*)\s*=\s*"([^"]+)"')
+BACKEND_PLACEHOLDER = re.compile(r'\{[A-Za-z0-9_]+\}')
 ANNOTATION_KEYS = (re.compile(r'Display\(Name\s*=\s*"([^"]+)"'), re.compile(r'ErrorMessage\s*=\s*"([^"]+)"'))
 VALIDATION_ATTRIBUTE = re.compile(
     r'\[(Required|StringLength|MaxLength|MinLength|Range|RegularExpression|EmailAddress|Phone|Url|Compare|Length)\b(\([^\]]*\))?\]')
@@ -369,24 +441,28 @@ def read_resource(path, lang):
     return flatten(texts), errors
 
 
-def compare_resource_pair(label, directory):
-    """同一资源目录 en/zh-CN 的 culture、键集合与 `{Name}` 占位符。返回 (英文 texts, 问题)。"""
+def compare_resources(label, directory, locales):
+    """同一资源目录各语言的 culture、键集合与 `{Name}` 占位符，均与英文比较。返回 (英文 texts, 问题)。"""
     errors, trees = [], {}
-    for lang in LOCALES:
+    for lang in locales:
         texts, problems = read_resource(directory / f'{lang}.json', lang)
         errors += [f'{label}: {p}' for p in problems]
         if texts is not None:
             trees[lang] = texts
-    if len(trees) != len(LOCALES):
+    if len(trees) != len(locales):
         return None, errors
-    en, zh = trees['en'], trees['zh-CN']
-    if en.keys() != zh.keys():
-        errors.append(f'{label}: key sets differ: {sorted(en.keys() ^ zh.keys())}')
-    for key in sorted(en.keys() & zh.keys()):
-        if isinstance(en[key], str) and isinstance(zh[key], str):
-            names = [set(re.findall(r'\{([A-Za-z0-9_]+)\}', text)) for text in (en[key], zh[key])]
-            if names[0] != names[1]:
-                errors.append(f'{label}: placeholders differ for {key}: en{sorted(names[0])} zh-CN{sorted(names[1])}')
+    en = trees[SOURCE]
+    for lang, other in trees.items():
+        if lang == SOURCE:
+            continue
+        if en.keys() != other.keys():
+            errors.append(f'{label}: key sets differ ({lang}): {sorted(en.keys() ^ other.keys())}')
+        for key in sorted(en.keys() & other.keys()):
+            if isinstance(en[key], str) and isinstance(other[key], str):
+                names = [set(re.findall(r'\{([A-Za-z0-9_]+)\}', text)) for text in (en[key], other[key])]
+                if names[0] != names[1]:
+                    errors.append(f'{label}: placeholders differ for {key}: en{sorted(names[0])} {lang}{sorted(names[1])}')
+        errors += untranslated(lang, 'backend', other, en, BACKEND_PLACEHOLDER)
     return en, errors
 
 
@@ -404,12 +480,12 @@ def single(pattern_root, pattern, what):
     return matches[0], []
 
 
-def check_backend(root):
+def check_backend(root, locales):
     src = root / 'backend/src'
     resources, errors = single(src, '*.Api/Resources', 'backend resources')
     if resources is None:
         return errors
-    texts, errors = compare_resource_pair('backend resources', resources)
+    texts, errors = compare_resources('backend resources', resources, locales)
     if texts is None:
         return errors
 
@@ -459,12 +535,14 @@ def hardcoded_cjk(root, directory, suffixes):
 
 
 def check_project(root):
-    errors = []
+    locales, errors = declared_locales(root)
+    if SOURCE not in locales:
+        return errors
     frontend = root / 'frontend'
     if frontend.is_dir():
-        errors += check_frontend(frontend)
+        errors += check_frontend(frontend, locales)
         errors += hardcoded_cjk(root, frontend / 'src', {'.ts', '.html'})
-    errors += check_backend(root)
+    errors += check_backend(root, locales)
     errors += hardcoded_cjk(root, root / 'backend/src', {'.cs'})
     return errors
 
@@ -502,7 +580,8 @@ import { required } from '@angular/forms/signals';
 """,
         'frontend/src/grant.ts': """@Component({ selector: 'example-grant', template: `<div *transloco="let t">{{ t('permissions.title') }}</div>` }) class Grant {}""",
         'frontend/src/app.routes.ts': """export const routes: Routes = [{ path: 'page', providers: [provideTranslocoScope('users', 'permissions')], loadComponent: () => import('./page').then(m => m.Page) }];""",
-        'frontend/src/app/core/services/language-service.ts': "const LABELS = { 'zh-CN': '中文' };",
+        'frontend/src/app/core/services/language-service.ts': "export const LANG_OPTIONS = [\n  { id: 'en', label: 'English', short: 'EN' },\n  { id: 'zh-CN', label: '中文', short: '中' },\n] as const satisfies readonly LangMeta[];\n",
+        'backend/src/Demo.Application/Settings/Provider/SettingConstant.cs': 'public static readonly IReadOnlyList<string> SupportedLanguages = ["en", "zh-CN"];\n',
         'backend/src/Demo.Api/Resources/en.json': '{\n  "culture": "en",\n  "texts": {\n'
                                                   '    "User:NotFound": "User {Id} was not found.",\n'
                                                   f'{IF} (LocalIdentity)\n    "Name": "Name",\n{ELSE}\n    "Name": "Display name",\n{ENDIF}\n'
@@ -564,6 +643,26 @@ def self_test():
     codes = 'backend/src/Demo.Domain/Users/Errors/UserErrorCodes.cs'
     aliased = edit(routes, "'users', 'permissions'", "'users', { scope: 'permissions', alias: 'grants' }")
     use_alias = edit(grant, 'permissions.title', 'grants.title')
+    language_service = 'frontend/src/app/core/services/language-service.ts'
+    setting_constant = 'backend/src/Demo.Application/Settings/Provider/SettingConstant.cs'
+
+    def allow(entries, *steps):
+        """登记例外的用例：在这个用例里临时替换 UNTRANSLATED_ALLOWED。"""
+        def apply(root):
+            for step in steps:
+                step(root)
+            return entries
+        return apply
+
+    def add_japanese(root):
+        edit(language_service, "  { id: 'zh-CN'", "  { id: 'ja', label: '日本語', short: 'JA' },\n  { id: 'zh-CN'")(root)
+        edit(setting_constant, '"en", "zh-CN"', '"en", "ja", "zh-CN"')(root)
+        for directory in [root / 'frontend/public/i18n', *(p for p in (root / 'frontend/public/i18n').rglob('*') if p.is_dir())]:
+            (directory / 'ja.json').write_text((directory / 'zh-CN.json').read_text(encoding='utf-8'), encoding='utf-8')
+        text = (root / backend_zh).read_text(encoding='utf-8').replace('"culture": "zh-CN"', '"culture": "ja"')
+        (root / 'backend/src/Demo.Api/Resources/ja.json').write_text(text, encoding='utf-8')
+
+    copied_title = write(users_zh, json.dumps({'title': 'Users', 'nested': {'label': '标签 {{name}}'}}))
     selectorless = chain(edit(page_ts, "selector: 'example-page', templateUrl: './page.html'",
                               "template: `<div *transloco=\"let t\">{{ t('permissions.title') }}</div>`"))
 
@@ -575,6 +674,11 @@ def self_test():
         ('selector-less routed component', selectorless),
         ('backend-only project', lambda root: __import__('shutil').rmtree(root / 'frontend')),
         ('generated JSON without directives', write(users_en, json.dumps({'title': 'Users', 'nested': {'label': 'Label {{name}}'}}))),
+        ('third language with every resource', add_japanese),
+        ('interpolation only is not text', chain(
+            write(users_en, json.dumps({'title': 'Users', 'nested': {'label': '{{name}}'}})),
+            write(users_zh, json.dumps({'title': '用户', 'nested': {'label': '{{name}}'}})))),
+        ('registered exact exception', allow({('zh-CN', 'users', 'title'): 'brand name'}, copied_title)),
     ]
     cases = [
         # 前端词条
@@ -589,6 +693,23 @@ def self_test():
         ('single-brace interpolation', write(users_zh, json.dumps({'title': '用户', 'nested': {'label': '标签 {name}'}})), 'zh-CN:nested.label: invalid Transloco interpolation'),
         ('placeholders differ', write(users_zh, json.dumps({'title': '用户', 'nested': {'label': '标签'}})), 'placeholders differ'),
         ('global and scope key collide', write('frontend/public/i18n/en.json', json.dumps({'validation': {'required': 'Required'}, 'common': {'save': 'Save'}, 'users': {'title': 'Users'}})), 'duplicate global/scope key'),
+        # 语言清单与未翻译
+        ('language lists differ', edit(setting_constant, '"en", "zh-CN"', '"zh-CN", "en"'), 'language lists differ'),
+        ('frontend list missing', write(language_service, 'export const OTHER = 1;'), 'LANG_OPTIONS not found'),
+        ('source language missing', chain(edit(setting_constant, '"en", "zh-CN"', '"zh-CN"'),
+                                          edit(language_service, "  { id: 'en', label: 'English', short: 'EN' },\n", '')),
+         'must include the source language en'),
+        ('new language without resources', chain(
+            edit(language_service, "  { id: 'zh-CN'", "  { id: 'ja', label: '日本語', short: 'JA' },\n  { id: 'zh-CN'"),
+            edit(setting_constant, '"en", "zh-CN"', '"en", "ja", "zh-CN"')), 'users/ja: invalid or missing JSON'),
+        ('new language copied from English', chain(add_japanese, lambda root: (root / 'frontend/public/i18n/users/ja.json').write_text(
+            (root / users_en).read_text(encoding='utf-8'), encoding='utf-8')), 'users/ja:nested.label: same as English'),
+        ('frontend copy of English', copied_title, 'users/zh-CN:title: same as English'),
+        ('backend copy of English', edit(backend_zh, '"User:NotFound": "\\u672a\\u627e\\u5230\\u7528\\u6237 {Id}\\u3002"', '"User:NotFound": "User {Id} was not found."'),
+         'backend/zh-CN:User:NotFound: same as English'),
+        ('exception is per language', allow({('ja', 'users', 'title'): 'brand name'}, copied_title), 'users/zh-CN:title: same as English'),
+        ('exception needs a reason', allow({('zh-CN', 'users', 'title'): ' '}, copied_title), 'give the reason'),
+        ('stale exception', allow({('zh-CN', 'users', 'title'): 'brand name'}), 'stale UNTRANSLATED_ALLOWED entry'),
         # 前端引用
         ('prefixed reference', edit('frontend/src/page.html', "t('title')", "t('absent')"), 'missing reference users.absent'),
         ('attribute reference', edit('frontend/src/page.html', "{{ t('title') }}", "<span [title]=\"t('absent')\"></span>"), 'missing reference users.absent'),
@@ -621,13 +742,18 @@ def self_test():
         ('allow-list is per file', write('frontend/src/app/core/services/other-service.ts', "const LABELS = { 'zh-CN': '中文' };"), 'other-service.ts:1: hard-coded Chinese'),
     ]
 
+    global UNTRANSLATED_ALLOWED
+    registered = UNTRANSLATED_ALLOWED
     failures = []
     for name, mutate, *expected in [(n, m) for n, m in valid] + cases:
         with tempfile.TemporaryDirectory(prefix='check-i18n-') as tmp:
             root = Path(tmp)
             write_fixture(root)
-            mutate(root)
-            errors = check_project(root)
+            UNTRANSLATED_ALLOWED = mutate(root) or {}
+            try:
+                errors = check_project(root)
+            finally:
+                UNTRANSLATED_ALLOWED = registered
         if expected and not any(expected[0] in e for e in errors):
             failures.append(f'{name}: expected "{expected[0]}", got {errors}')
         if not expected and errors:

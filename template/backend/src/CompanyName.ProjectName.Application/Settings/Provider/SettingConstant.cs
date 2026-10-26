@@ -66,7 +66,7 @@ public static class SettingConstant
         public const string Language = "Display.Language";
 
         /// <summary>支持的界面语言，即 <see cref="Language"/> 的候选值。</summary>
-        /// <remarks>与前端 <c>SUPPORTED_LANGS</c> 和 Program 里的 <c>AddJsonLocalization</c> 读同一份：任一漂移都会让某个语言只在一半链路上可用。</remarks>
+        /// <remarks>后端唯一的一份（Program 的 <c>AddJsonLocalization</c> 与设置候选值都读它），首项为默认语言；与前端 <c>LANG_OPTIONS</c> 须同集同序，由 <c>scripts/check-i18n.py</c> 核对。</remarks>
         public static readonly IReadOnlyList<string> SupportedLanguages = ["en", "zh-CN"];
 
 #endif
