@@ -4,7 +4,8 @@
 <ng-container>
 <!--#endif-->
   <div class="flex flex-col h-full overflow-hidden">
-    <div class="flex flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-6">
+    <!-- 滚动列负责滚动、不分配高度：直接子项不收缩，带 overflow-hidden 的子项否则会被压扁、内容被裁 -->
+    <div class="flex flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-6 *:shrink-0">
       <!-- 左组 flex-auto（基准取内容宽度）：放不下时右组整体换行；flex-1 会让左组在组内折行。
          不写死基准宽度（中英文按钮宽度不同）；搜索框 min-w-56 让筛选先换行。 -->
       <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">

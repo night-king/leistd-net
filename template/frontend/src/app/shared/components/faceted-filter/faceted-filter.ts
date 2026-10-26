@@ -50,24 +50,38 @@ let nextFacetedFilterId = 0;
     PopoverAria,
   ],
   providers: [provideIcons({ lucideListFilter, lucideCheck, lucideSearch })],
+  // 宿主与按钮都可收缩：长标签与选中项在按钮里截断，不把工具条撑出横向滚动
+  host: { class: 'block min-w-0 max-w-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <hlm-popover
+      class="flex min-w-0 max-w-full"
       sideOffset="5"
       align="start"
       [state]="state()"
       (stateChanged)="onStateChange($event)"
     >
-      <button type="button" hlmBtn hlmPopoverTrigger variant="outline" class="border-dashed">
+      <button
+        type="button"
+        hlmBtn
+        hlmPopoverTrigger
+        variant="outline"
+        class="min-w-0 max-w-full border-dashed"
+      >
         <ng-icon name="lucideListFilter" />
-        {{ label() }}
+        <span class="min-w-0 truncate">{{ label() }}</span>
         @if (multiple()) {
           @if (selectedOptions().length) {
             <hlm-separator class="mx-2" orientation="vertical" />
-            <!-- 最多展示 2 枚 Badge，其余折叠为 +N，防止选中项多时撑宽工具栏。 -->
-            <div class="flex gap-1">
+            <!-- 与 shadcn data-table 的分面筛选一致：窄屏只显示数量，宽屏最多 2 枚 Badge、其余折叠为 +N -->
+            <span hlmBadge variant="secondary" class="lg:hidden">{{
+              selectedOptions().length
+            }}</span>
+            <div class="hidden min-w-0 gap-1 lg:flex">
               @for (opt of selectedOptions().slice(0, 2); track opt.value) {
-                <span hlmBadge variant="secondary">{{ opt.label }}</span>
+                <span hlmBadge variant="secondary" class="min-w-0 shrink">
+                  <span class="truncate">{{ opt.label }}</span>
+                </span>
               }
               @if (selectedOptions().length > 2) {
                 <span hlmBadge variant="secondary">+{{ selectedOptions().length - 2 }}</span>
@@ -76,7 +90,9 @@ let nextFacetedFilterId = 0;
           }
         } @else if (selectedOption(); as sel) {
           <hlm-separator class="mx-2" orientation="vertical" />
-          <span hlmBadge variant="secondary">{{ sel.label }}</span>
+          <span hlmBadge variant="secondary" class="min-w-0 shrink">
+            <span class="truncate">{{ sel.label }}</span>
+          </span>
         }
       </button>
 
@@ -89,7 +105,7 @@ let nextFacetedFilterId = 0;
       >
         <div class="p-1 pb-0">
           <hlm-input-group
-            class="bg-input/30 border-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:ps-2!"
+            class="bg-input/30 border-input/30 h-8! pointer-coarse:h-11! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:ps-2!"
           >
             <!-- 普通 input（非 hlmInputGroupInput）：与 helm command-input 一致，聚焦时不额外加边框环。 -->
             <input
@@ -97,7 +113,7 @@ let nextFacetedFilterId = 0;
               type="text"
               role="combobox"
               data-slot="command-input"
-              class="w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
+              class="h-full w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
               autocomplete="off"
               aria-expanded="true"
               aria-autocomplete="list"
@@ -133,7 +149,7 @@ let nextFacetedFilterId = 0;
               role="option"
               [id]="optionId(i)"
               [attr.aria-selected]="isSelected(opt)"
-              class="relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none"
+              class="relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none pointer-coarse:min-h-11"
               [class.bg-muted]="i === activeIndex()"
               [class.text-foreground]="i === activeIndex()"
               (click)="onSelect(opt)"
@@ -163,9 +179,14 @@ let nextFacetedFilterId = 0;
                 />
               }
               @if (opt.icon) {
-                <ng-icon [name]="opt.icon" aria-hidden="true" class="text-muted-foreground" />
+                <ng-icon
+                  [name]="opt.icon"
+                  aria-hidden="true"
+                  class="text-muted-foreground shrink-0"
+                />
               }
-              <span class="truncate">{{ opt.label }}</span>
+              <!-- 选项没有其他全文入口，长选项折行而不是截断 -->
+              <span class="min-w-0 wrap-anywhere">{{ opt.label }}</span>
             </div>
           }
         </div>
@@ -181,7 +202,7 @@ let nextFacetedFilterId = 0;
           <div class="p-1">
             <button
               type="button"
-              class="hover:bg-muted hover:text-foreground relative flex w-full cursor-default items-center justify-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none"
+              class="hover:bg-muted hover:text-foreground relative flex w-full cursor-default items-center justify-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none pointer-coarse:min-h-11"
               (click)="clear()"
             >
               {{ clearLabel() }}

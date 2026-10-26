@@ -311,4 +311,22 @@ describe('Roles page query round trip', () => {
     expect(component.deletingId()).toBeNull();
     expect(notify).toHaveBeenCalledOnce();
   });
+
+  // 页面骨架（各列表页同一写法，这里以角色页为代表）：滚动列的直接子项不收缩。
+  // 带 overflow-hidden 的子项（如直接放进来的表格外框）否则会被压到剩余高度，内容被裁且滚不到
+  it('never squeezes a clipping child of the scroll column', () => {
+    const host = fixture.nativeElement as HTMLElement;
+    host.style.display = 'block';
+    host.style.height = '400px';
+    const column = host.querySelector<HTMLElement>('.overflow-y-auto')!;
+    const frame = document.createElement('div');
+    frame.style.overflow = 'hidden';
+    const content = document.createElement('div');
+    content.style.height = '1200px';
+    frame.append(content);
+    column.append(frame);
+
+    expect(frame.getBoundingClientRect().height).toBe(1200);
+    expect(column.scrollHeight).toBeGreaterThan(column.clientHeight);
+  });
 });
