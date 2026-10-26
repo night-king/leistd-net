@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { of, Subject } from 'rxjs';
 
 import { AuthService } from './auth-service';
 import { AuthorizationService } from './authorization-service';
@@ -9,6 +10,7 @@ import { LanguageService } from './language-service';
 //#endif
 import { SessionContextService } from './session-context-service';
 import { ThemeService } from './theme-service';
+import { UserOutputDto } from '../../shared/dtos/auth.dto';
 //#if (IncludeLocalization)
 import { provideTranslocoTesting } from '../i18n/transloco.testing';
 //#endif
@@ -77,7 +79,10 @@ function languageSetting(userValue: string | null): SettingOutputDto {
 describe('SessionContextService', () => {
   let service: SessionContextService;
   let settingContext: SettingContextService;
-  let authService: Pick<MockedObject<AuthService>, 'clearAuthData'>;
+  let authService: Pick<
+    MockedObject<AuthService>,
+    'clearAuthData' | 'isAuthenticated' | 'fetchUser' | 'setCurrentUser'
+  >;
   let http: HttpTestingController;
 
   beforeEach(() => {
@@ -87,6 +92,12 @@ describe('SessionContextService', () => {
     //#endif
     authService = {
       clearAuthData: vi.fn().mockName('AuthService.clearAuthData'),
+      isAuthenticated: vi.fn().mockName('AuthService.isAuthenticated').mockReturnValue(true),
+      fetchUser: vi
+        .fn()
+        .mockName('AuthService.fetchUser')
+        .mockReturnValue(of({ username: 'admin' } as UserOutputDto)),
+      setCurrentUser: vi.fn().mockName('AuthService.setCurrentUser'),
     };
     TestBed.configureTestingModule({
       //#if (IncludeLocalization)
@@ -335,5 +346,82 @@ describe('SessionContextService', () => {
     expect(authService.clearAuthData).toHaveBeenCalled();
     expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
     expect(settingContext.timeZone()).toBeUndefined();
+  });
+
+  describe('when the tab becomes visible', () => {
+    const becomeVisible = () => document.dispatchEvent(new Event('visibilitychange'));
+    const permissionsOf = (...permissions: string[]) => ({
+      permissions,
+      isSuperAdmin: false,
+      versionToken: permissions.join(','),
+    });
+
+    // 别处改了权限、偏好或已经退出：页签回到前台时三份状态都要重查
+    it('re-reads the current user, permissions and settings', async () => {
+      becomeVisible();
+      http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
+      http.expectOne('/api/v1/settings').flush([timeZoneSetting('Asia/Tokyo')]);
+      await vi.waitFor(() => expect(settingContext.timeZone()).toBe('Asia/Tokyo'));
+
+      expect(authService.fetchUser).toHaveBeenCalledOnce();
+      expect(authService.setCurrentUser).toHaveBeenCalledWith({ username: 'admin' });
+      expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
+    });
+
+    it('does nothing without a signed-in subject', () => {
+      authService.isAuthenticated.mockReturnValue(false);
+
+      becomeVisible();
+
+      http.expectNone('/api/v1/settings');
+      expect(authService.fetchUser).not.toHaveBeenCalled();
+    });
+
+    // 页签来回切换：在途时不重复发
+    it('does not start a second round while one is in flight', () => {
+      becomeVisible();
+      becomeVisible();
+
+      const permissions = http.match('/api/v1/permissions/current');
+      const settings = http.match('/api/v1/settings');
+      expect(permissions).toHaveLength(1);
+      expect(settings).toHaveLength(1);
+      expect(authService.fetchUser).toHaveBeenCalledOnce();
+      permissions.forEach((request) => request.flush(permissionsOf()));
+      settings.forEach((request) => request.flush([]));
+    });
+
+    // 后台动作，用户没有发起任何操作：失败不提示，也不把现有权限清掉
+    it('keeps the current permissions when the re-read fails', async () => {
+      TestBed.inject(AuthorizationService).setPermissions(permissionsOf('Users.Read'));
+
+      becomeVisible();
+      http
+        .expectOne('/api/v1/permissions/current')
+        .flush('boom', { status: 500, statusText: 'Server Error' });
+      http.expectOne('/api/v1/settings').flush('boom', { status: 500, statusText: 'Server Error' });
+      await service.revalidate();
+
+      expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
+    });
+
+    // 重查途中主体离开：晚到的结果属于上一个人，不能把权限和用户写回去
+    it('does not apply results that answer after the subject leaves', async () => {
+      const user = new Subject<UserOutputDto>();
+      authService.fetchUser.mockReturnValue(user);
+
+      becomeVisible();
+      service.clear();
+      user.next({ username: 'admin' } as UserOutputDto);
+      user.complete();
+      http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
+      http.expectOne('/api/v1/settings').flush([timeZoneSetting('Asia/Tokyo')]);
+      await service.revalidate();
+      await new Promise((resolve) => setTimeout(resolve));
+
+      expect(authService.setCurrentUser).not.toHaveBeenCalled();
+      expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
+      expect(settingContext.timeZone()).toBeUndefined();
+    });
   });
 });

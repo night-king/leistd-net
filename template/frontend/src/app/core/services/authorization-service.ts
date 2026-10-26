@@ -36,13 +36,16 @@ export class AuthorizationService {
   }
 
   load(): Observable<CurrentPermissionsOutputDto> {
+    return this.fetch().pipe(tap((result) => this.setPermissions(result)));
+  }
+
+  /** 只取不应用：调用方确认主体没变之后再 {@link setPermissions}（见 `SessionContextService.revalidate`）。 */
+  fetch(): Observable<CurrentPermissionsOutputDto> {
     // 与 /me 一样标记静默认证：未登录时的 401 由 Guard 与启动流各自处理，
     // 不触发拦截器的全局跳转，避免覆盖 returnUrl。
-    return this.http
-      .get<CurrentPermissionsOutputDto>('/api/v1/permissions/current', {
-        context: new HttpContext().set(SILENT_AUTH, true),
-      })
-      .pipe(tap((result) => this.setPermissions(result)));
+    return this.http.get<CurrentPermissionsOutputDto>('/api/v1/permissions/current', {
+      context: new HttpContext().set(SILENT_AUTH, true),
+    });
   }
 
   /** 授权变更后刷新。失败时保持原有权限，由调用方提示重试。 */

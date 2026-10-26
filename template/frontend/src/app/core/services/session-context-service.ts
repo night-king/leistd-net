@@ -1,4 +1,6 @@
-import { Injectable, inject } from '@angular/core';
+import { DOCUMENT, isPlatformBrowser } from '@angular/common';
+import { DestroyRef, Injectable, PLATFORM_ID, inject } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 
 import { AuthService } from './auth-service';
 import { AuthorizationService } from './authorization-service';
@@ -16,6 +18,9 @@ import { SettingOutputDto } from '../settings/setting.dto';
  * 它不含个人信息，主体离开后保留最近一次值，作为登录页与下次首帧的主题（见 {@link ThemeService}）。
  * 主体的建立与离开一律走 {@link establish} 与 {@link clear}，设置刷新走 {@link refreshSettings}，
  * 不单独调下层的 load/clear。
+ *
+ * 页签回到前台时重查一遍（见 {@link revalidate}）：别处改了权限或偏好、或者已经退出，打开着的页签
+ * 否则要等下一次操作撞上才知道。
  */
 @Injectable({ providedIn: 'root' })
 export class SessionContextService {
@@ -28,6 +33,27 @@ export class SessionContextService {
   private readonly themeService = inject(ThemeService);
   /** 每次刷新与清理都换一代：只有最新一次刷新能应用派生状态，晚到的旧刷新与主体离开前发出的刷新一律作废。 */
   private generation = 0;
+  /** 主体每确立或离开一次加一：重查返回时主体已经换过，结果属于上一个人，不应用。 */
+  private subject = 0;
+  /** 在途的重查：页签反复切换时不重复发请求。 */
+  private revalidating: Promise<void> | undefined;
+
+  constructor() {
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+      return;
+    }
+
+    const document = inject(DOCUMENT);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void this.revalidate();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    inject(DestroyRef).onDestroy(() =>
+      document.removeEventListener('visibilitychange', onVisibilityChange),
+    );
+  }
 
   /**
    * 主体确立后建立会话上下文：权限与设置就位，并应用由设置派生的界面状态。
@@ -36,6 +62,7 @@ export class SessionContextService {
    * 设置失败只清空不抛：它不是进入应用的硬依赖，各消费端有自己的默认行为。
    */
   async establish(): Promise<void> {
+    this.subject++;
     await this.authorizationService.initialize();
 
     try {
@@ -66,8 +93,39 @@ export class SessionContextService {
     return settings;
   }
 
+  /**
+   * 重查当前用户、权限与设置，只在已登录时进行。设置请求不是静默的：会话已失效（401）时由 HTTP 拦截器
+   * 清理并转去登录；其余失败保持现有状态、不提示，这是后台动作，用户没有发起任何操作。
+   */
+  revalidate(): Promise<void> {
+    if (this.revalidating || !this.authService.isAuthenticated()) {
+      return this.revalidating ?? Promise.resolve();
+    }
+
+    const subject = this.subject;
+    const unchanged = () => subject === this.subject;
+    this.revalidating = Promise.allSettled([
+      firstValueFrom(this.authService.fetchUser()).then((user) => {
+        if (unchanged()) {
+          this.authService.setCurrentUser(user);
+        }
+      }),
+      firstValueFrom(this.authorizationService.fetch()).then((permissions) => {
+        if (unchanged()) {
+          this.authorizationService.setPermissions(permissions);
+        }
+      }),
+      // 自带代次：主体离开后才返回的快照不会应用
+      this.refreshSettings(),
+    ]).then(() => {
+      this.revalidating = undefined;
+    });
+    return this.revalidating;
+  }
+
   /** 主体离开：认证数据、权限、设置一起清掉。`logout()` 例外：之后整页跳转，内存状态随页面重建。 */
   clear(): void {
+    this.subject++;
     this.authService.clearAuthData();
     this.authorizationService.clear();
     void this.clearSettings();
