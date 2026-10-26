@@ -90,9 +90,12 @@ public sealed class BusinessExceptionHandler(
 
         if (exception is BusinessException businessException)
         {
-            var statusCode = options.TryGetStatusCode(businessException.Code, out var mapped)
-                ? mapped
-                : StatusCodes.Status400BadRequest;
+            // 自带状态（转交的上游业务拒绝）优先，其次错误码映射，否则 400
+            var statusCode = businessException is IHasHttpStatusCode { HttpStatusCode: >= 400 and <= 599 } carried
+                ? carried.HttpStatusCode
+                : options.TryGetStatusCode(businessException.Code, out var mapped)
+                    ? mapped
+                    : StatusCodes.Status400BadRequest;
             return new ExceptionDescriptor(
                 statusCode,
                 businessException.Code,
