@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { page } from 'vitest/browser';
 
 import { FacetedFilter, FacetedFilterOption } from './faceted-filter';
+import { expectTouchTarget, setCoarsePointer } from '../../utils/coarse-pointer.testing';
 
 describe('FacetedFilter', () => {
   const OPTIONS: FacetedFilterOption[] = [
@@ -206,9 +208,7 @@ describe('FacetedFilter', () => {
   // 已选项是分类标签：用中性变体，主色留给主操作
   it('shows the selection on the trigger as neutral badges in both modes', () => {
     const badges = (fixture: ComponentFixture<FacetedFilter>) =>
-      Array.from(
-        (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[data-slot="badge"]'),
-      ).map((b) => [b.textContent?.trim(), b.getAttribute('data-variant')]);
+      visibleBadges(fixture).map((b) => [b.textContent?.trim(), b.getAttribute('data-variant')]);
 
     const multi = createFilter({ multiple: true, values: ['admin', 'member', 'guest'] });
     expect(badges(multi)).toEqual([
@@ -233,5 +233,90 @@ describe('FacetedFilter', () => {
     } finally {
       document.documentElement.classList.remove('dark');
     }
+  });
+
+  const visibleBadges = (fixture: ComponentFixture<FacetedFilter>) =>
+    Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[data-slot="badge"]'),
+    ).filter((b) => b.checkVisibility());
+
+  // 与 shadcn data-table 一致：窄屏放不下 2 枚 Badge，只显示已选数量
+  it('shows only the selection count below the lg breakpoint', async () => {
+    onTestFinished(() => page.viewport(1280, 800));
+    const fixture = createFilter({ multiple: true, values: ['admin', 'member', 'guest'] });
+
+    await page.viewport(390, 844);
+    expect(visibleBadges(fixture).map((b) => b.textContent?.trim())).toEqual(['3']);
+
+    await page.viewport(1280, 800);
+    expect(visibleBadges(fixture).map((b) => b.textContent?.trim())).toEqual([
+      'Administrator',
+      'Member',
+      '+1',
+    ]);
+  });
+
+  // 长标签与长选项在按钮里截断，按钮不超出容器
+  it('truncates a long label and selection inside the button instead of overflowing', () => {
+    const long = 'Authorized integration administrators of the platform';
+    const fixture = TestBed.createComponent(FacetedFilter);
+    fixture.componentRef.setInput('label', long);
+    fixture.componentRef.setInput('options', [{ value: 'x', label: long }]);
+    fixture.componentRef.setInput('value', 'x');
+    const host = fixture.nativeElement as HTMLElement;
+    const container = document.createElement('div');
+    container.style.width = '240px';
+    container.style.display = 'flex';
+    document.body.append(container);
+    onTestFinished(() => container.remove());
+    container.append(host);
+    fixture.detectChanges();
+
+    const button = host.querySelector<HTMLElement>('button')!;
+    expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(
+      container.getBoundingClientRect().right + 0.5,
+    );
+    for (const text of host.querySelectorAll<HTMLElement>('.truncate')) {
+      expect(text.scrollWidth, text.textContent ?? '').toBeGreaterThan(text.clientWidth);
+    }
+  });
+
+  // 面板里的选项没有别的全文入口：长选项折行，图标不被挤压
+  it('wraps a long option in the panel instead of truncating it', async () => {
+    const long = 'Operations, logging and data retention administrator';
+    createFilter({ options: [{ value: 'ops', label: long, icon: 'lucideCheck' }] });
+    await Promise.all(document.getAnimations().map((animation) => animation.finished));
+
+    const option = optionBy(long)!;
+    const label = Array.from(option.querySelectorAll('span')).find((s) => s.textContent === long)!;
+    expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
+    expect(label.getBoundingClientRect().height).toBeGreaterThan(
+      parseFloat(getComputedStyle(label).lineHeight),
+    );
+    const icon = option.querySelectorAll('ng-icon')[1] as HTMLElement;
+    expect(icon.getBoundingClientRect().width).toBeCloseTo(icon.getBoundingClientRect().height, 1);
+  });
+
+  describe('under a coarse pointer', () => {
+    afterEach(async () => {
+      await setCoarsePointer(false);
+    });
+
+    it('gives the search box, options and the clear command 44px targets', async () => {
+      await setCoarsePointer(true);
+      createFilter({ multiple: true, values: ['admin'] });
+      // 展开动画带缩放，量的是动画结束后的尺寸
+      await Promise.all(document.getAnimations().map((animation) => animation.finished));
+
+      const group = search()!.closest<HTMLElement>('hlm-input-group')!;
+      expect(group.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      // 输入框撑满框内高度（减去上下边框），点在框里任一高度都落在输入框上
+      expect(search()!.getBoundingClientRect().height).toBeGreaterThanOrEqual(42);
+      expectTouchTarget(optionBy('Member')!);
+      const clear = Array.from(document.querySelectorAll<HTMLElement>('button')).find(
+        (b) => b.textContent?.trim() === 'Clear filter',
+      );
+      expectTouchTarget(clear!);
+    });
   });
 });
