@@ -543,10 +543,18 @@ function Invoke-PureApiContainerSmoke([string]$Scenario, [string]$ApiImage, [str
             '-e', "ConnectionStrings__MigrationTarget=$connection", $MigratorImage, '--apply')
         Invoke-External 'docker' @('run', '--rm', '--entrypoint', '/bin/sh', $ApiImage, '-c',
             'test ! -d /app/wwwroot && ! command -v node')
-        Invoke-External 'docker' @('run', '-d', '--name', $apiContainer, '--network', $network,
+        $apiArguments = @('run', '-d', '--name', $apiContainer, '--network', $network,
             '-p', "127.0.0.1:${port}:8080", '-e', 'ASPNETCORE_ENVIRONMENT=Development',
             '-e', "ConnectionStrings__Default=$connection", '-e', 'ConnectionStrings__Redis=',
-            '-e', 'Authentication__Issuer=https://identity.matrix.test/', $ApiImage)
+            '-e', 'Authentication__Issuer=https://identity.matrix.test/')
+        if ($scenarioMap[$Scenario].Arguments -contains 'Resource') {
+            # Resource 回源 Identity 的机器身份与代表本人写偏好的交换目标在启动期校验；冒烟只探存活，不换令牌
+            $apiArguments += @('-e', 'Leistd__ServiceAuth__ClientId=matrix-resource-worker',
+                '-e', 'Leistd__ServiceAuth__ClientSecret=matrix-resource-worker-secret',
+                '-e', 'Leistd__ServiceClients__Identity__TokenExchange__Audience=matrix-identity-api',
+                '-e', 'Leistd__ServiceClients__Identity__TokenExchange__Scope=matrix-identity-api')
+        }
+        Invoke-External 'docker' ($apiArguments + @($ApiImage))
         $deadline = [DateTimeOffset]::UtcNow.AddSeconds(90)
         $healthy = $false
         while ([DateTimeOffset]::UtcNow -lt $deadline) {

@@ -5,6 +5,7 @@ using CompanyName.ProjectName.Application.Settings.Timing;
 using Leistd.Security.Users;
 #if (!RemoteTokenAuth)
 using Leistd.Settings.Resolution;
+using SettingConstant = CompanyName.ProjectName.Application.Settings.Provider.SettingConstant;
 #endif
 
 namespace CompanyName.ProjectName.UnitTests.Application;
@@ -187,7 +188,7 @@ public class UserTimeZoneProviderTests
     private sealed class FixedSettingProvider(string? timeZoneId) : ISettingProvider
     {
         public Task<string?> GetOrNullAsync(string name, CancellationToken cancellationToken = default)
-            => Task.FromResult(name == CompanyName.ProjectName.Application.Settings.Provider.SettingConstant.Display.TimeZone ? timeZoneId : null);
+            => Task.FromResult(name == SettingConstant.Display.TimeZone ? timeZoneId : null);
 
         public Task<string?> GetOrNullForUserAsync(string name, string userId, CancellationToken cancellationToken = default)
             => GetOrNullAsync(name, cancellationToken);

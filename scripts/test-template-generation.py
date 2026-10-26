@@ -674,7 +674,14 @@ def validate(output, values, config, verify=True, sdk=None):
     frontend = output / 'frontend'
     assert frontend.exists() == values['SpaFrontend'], 'Frontend applicability'
     settings = json.loads(re.sub(r'^\s*//.*$', '', (api / 'appsettings.json').read_text(encoding='utf-8'), flags=re.M))
-    assert ('Identity' in settings.get('Leistd', {}).get('ServiceClients', {})) == (values['RemoteTokenAuth'] and values['IncludeMultiTenancy']), 'Tenant routing client configuration applicability'
+    # 资源服务都回源 Identity（账户偏好）；租户路由的 scope 只在多租户时出现
+    identity_client = settings.get('Leistd', {}).get('ServiceClients', {}).get('Identity')
+    assert (identity_client is not None) == values['RemoteTokenAuth'], 'Identity client configuration applicability'
+    if identity_client is not None:
+        scopes = identity_client.get('Scope', '').split()
+        assert 'account-preferences.read' in scopes, 'Account preference machine scope'
+        assert ('tenant-routing.read' in scopes) == values['IncludeMultiTenancy'], 'Tenant routing scope applicability'
+        assert 'TokenExchange' in identity_client, 'Account preference token exchange section'
     readme = (output / 'README.md').read_text(encoding='utf-8')
     testing = (output / 'docs/standards/testing.md').read_text(encoding='utf-8')
     deployment = (output / 'docs/deploy/README.md').read_text(encoding='utf-8')
@@ -743,7 +750,11 @@ def validate(output, values, config, verify=True, sdk=None):
         assert (authentication is not None) == values['RemoteTokenAuth'], 'Resource authentication example applicability'
         if authentication is not None:
             assert ('ClientId' in authentication) == values['ResourceBrowserSession'], 'Browser client credentials example applicability'
-        assert ('Identity' in documented['Leistd']['ServiceClients']) == (values['RemoteTokenAuth'] and values['IncludeMultiTenancy']), 'Tenant routing client example applicability'
+        documented_identity = documented['Leistd']['ServiceClients'].get('Identity')
+        assert (documented_identity is not None) == values['RemoteTokenAuth'], 'Identity client example applicability'
+        if documented_identity is not None:
+            assert ('tenant-routing.read' in documented_identity['Scope'].split()) == values['IncludeMultiTenancy'], 'Tenant routing example scope applicability'
+            assert 'TokenExchange' in documented_identity, 'Account preference token exchange example'
     backend_readme = (output / 'backend/README.md').read_text(encoding='utf-8')
     infrastructure_project = (infra / 'Generation.Probe.Infrastructure.csproj').read_text(encoding='utf-8')
     migrator_protection = values['LocalIdentity'] and values['IncludeMultiTenancy']

@@ -1018,7 +1018,8 @@ function Test-S11 {
     foreach ($case in @(@{ Tenant = $sharedTenant; TimeZone = "Asia/Tokyo"; Theme = "dark" },
             @{ Tenant = $dedicatedTenant; TimeZone = "Europe/Paris"; Theme = "light" })) {
         $name = $case.Tenant.name
-        $user = if ($case.Tenant -eq $sharedTenant -and $sharedToken) { @{ Session = $sharedSession; Token = $sharedToken } } else { Get-TenantToken $case.Tenant }
+        # 重新登录：S4 的浏览器会话用例经 /connect/logout 退出了共享租户的 Identity 会话
+        $user = Get-TenantToken $case.Tenant
         Assert-Http "idp-preference-write-$name" 200 ($urls.idp + "/api/v1/auth/me/preferences") -Method PATCH `
             -Body @{ timeZone = $case.TimeZone } -Session $user.Session | Out-Null
         $me = (Assert-Http "resource-me-preferences-$name" 200 ($urls.orders + "/api/v1/auth/me") -Token $user.Token).Data
@@ -1031,7 +1032,7 @@ function Test-S11 {
     }
     # 本地能判定的非法值在转交前就拒绝，错误码与 Identity 一致
     $rejected = Assert-Http "resource-preference-invalid-value" 400 ($urls.orders + "/api/v1/auth/me/preferences") -Method PATCH `
-        -Body @{ timeZone = "Mars/Olympus" } -Token $sharedToken
+        -Body @{ timeZone = "Mars/Olympus" } -Token $user.Token
     Assert-Value "resource-preference-invalid-code" "AppSetting:TimeZoneInvalid" $rejected.Data.code
 }
 
