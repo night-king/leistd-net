@@ -441,8 +441,11 @@ def read_resource(path, lang):
     return flatten(texts), errors
 
 
-def compare_resources(label, directory, locales):
-    """同一资源目录各语言的 culture、键集合与 `{Name}` 占位符，均与英文比较。返回 (英文 texts, 问题)。"""
+def compare_resources(label, directory, locales, resource='backend'):
+    """同一资源目录各语言的 culture、键集合与 `{Name}` 占位符，均与英文比较。返回 (英文 texts, 问题)。
+
+    `resource` 是未翻译检查里的资源名，与 UNTRANSLATED_ALLOWED 的第二项对应。
+    """
     errors, trees = [], {}
     for lang in locales:
         texts, problems = read_resource(directory / f'{lang}.json', lang)
@@ -462,7 +465,7 @@ def compare_resources(label, directory, locales):
                 names = [set(re.findall(r'\{([A-Za-z0-9_]+)\}', text)) for text in (en[key], other[key])]
                 if names[0] != names[1]:
                     errors.append(f'{label}: placeholders differ for {key}: en{sorted(names[0])} {lang}{sorted(names[1])}')
-        errors += untranslated(lang, 'backend', other, en, BACKEND_PLACEHOLDER)
+        errors += untranslated(lang, resource, other, en, BACKEND_PLACEHOLDER)
     return en, errors
 
 

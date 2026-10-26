@@ -23,9 +23,11 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'user.deleted': (t) => `Deleted user ${t}`,
   'user.enabled': (t) => `Enabled user ${t}`,
   'user.disabled': (t) => `Disabled user ${t}`,
+  //#if (LocalIdentity)
   'user.password-reset': (t) => `Reset the password of user ${t}`,
   'user.unlocked': (t) => `Unlocked user ${t}`,
   'user.two-factor-reset': (t) => `Reset two-factor authentication for user ${t}`,
+  //#endif
   'user.roles-replaced': (t) => `Changed roles for user ${t}`,
   'role.created': (t) => `Created role ${t}`,
   'role.updated': (t) => `Updated role ${t}`,
@@ -52,8 +54,11 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'tenant.admin-restored': (t) => `Restored tenant administrator ${t}`,
   //#endif
   'setting.changed': (t) => `Changed setting ${t}`,
+  //#if (LocalIdentity && Email)
   'setting.test-email-sent': () => 'Sent a test email',
+  //#endif
   'operation-records.exported': () => 'Exported operation records',
+  //#if (LocalIdentity)
   'auth.login.succeeded': () => 'Signed in',
   'auth.login.failed': (t) => `Failed to sign in (${t})`,
   'auth.locked-out': (t) => `Account ${t} was locked after repeated failed sign-ins`,
@@ -63,7 +68,9 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   //#endif
   'auth.avatar.changed': () => 'Changed their avatar',
   'auth.email.changed': () => 'Changed their email address',
+  //#if (Email)
   'auth.email.verified': () => 'Verified their email address',
+  //#endif
   'auth.session.revoked': (t) => `Signed out a device (${t})`,
   'auth.sessions.others-revoked': () => 'Signed out all other devices',
   'auth.two-factor.enabled': () => 'Turned on two-factor authentication',
@@ -89,7 +96,10 @@ const ACTION_SENTENCES: Record<string, (target: string) => string> = {
   'impersonation.ended': () => 'Ended impersonation',
   'tenant.impersonation-started': (t) => `Signed in as the administrator of tenant ${t}`,
   'tenant.impersonation-ended': (t) => `Ended impersonation of tenant ${t}`,
+  //#endif
+  //#if (OpenIddictServer)
   'auth.token.issued': () => 'Issued an access token',
+  //#endif
 };
 
 /** 无目标时的变体（目标记为 `-`）：创建类端点在授权阶段被拒，以及本来就不带目标的动作。 */
@@ -99,7 +109,9 @@ const ACTION_SENTENCES_NO_TARGET: Record<string, string> = {
   //#if (OpenIddictServer)
   'open-application.created': 'Created an open application',
   //#endif
+  //#if (LocalIdentity && Email)
   'setting.test-email-sent': 'Sent a test email',
+  //#endif
 };
 //#endif
 
