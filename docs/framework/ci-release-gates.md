@@ -191,7 +191,11 @@ Framework 依赖闭包只裁剪各自含单一 PackageReference 的空 restore/b
 依赖缓存：setup-node 的 npm 缓存；第三方 NuGet 包的 HTTP 下载缓存（`~/.local/share/NuGet/http-cache`，键为全部 `Directory.Packages.props` 与锁文件的哈希），用于矩阵、框架测试、包消费与 PostgreSQL/OIDC 作业。
 
 - 缓存恢复后与保存前都删除其中的 `leistd.*` 条目；Leistd 包只经 packageSourceMapping 从候选包源还原，矩阵的解包目录仍按 run 隔离，候选包的版本与来源断言不受缓存影响。
-- Playwright 浏览器与 Docker 镜像不缓存：最近四次 full 运行中"安装单测用的 Chromium"一步为 26–42 秒（中位约 32 秒），其中包括生成工具项目与 `--with-deps` 的系统依赖安装，后者不在缓存范围内，可省的只有浏览器下载，净收益不足以抵消读到旧浏览器版本的风险；镜像拉取未单独测量，没有证据前不加。
+- 单测用 Chromium 由 `scripts/install-test-chromium.ps1` 安装。版本直接读模板的两份锁文件，不再为读版本先生成工具项目。`--with-deps` 下载的系统依赖 .deb 用 `actions/cache` 缓存，键为 runner 镜像（`ImageOS`、`ImageVersion`）加 Playwright 版本。
+  - 依据：2026-10 最近约 40 轮 CI 共 118 次执行，这一步中位 36 秒、P90 121 秒、最长 870 秒，超过 90 秒的 13 次。长尾来自 Ubuntu apt 镜像下载（单次 26 MB 用时 7 分 49 秒，曾让作业撞上 40 分钟上限）；浏览器本体从 Playwright CDN 下载约 6 秒。
+  - 浏览器本体仍不缓存：Playwright 官方不推荐，恢复与下载耗时相当。不去掉 `--with-deps`：runner 镜像没有中日文字体，量宽与断行断言依赖它们。
+  - 效果按上文的测量要求在合入后核对，前后各至少三轮。
+- Docker 镜像不缓存：镜像拉取未单独测量，没有证据前不加。
 
 CI 墙钟从本次尝试的起点到最后一个必要质量作业的 `completed_at` 计算，不用含收尾时间的 `updated_at`：初次执行用 `created_at`，重跑按各自 `run_started_at` 分别计时，不包含两次尝试之间的间隔。
 

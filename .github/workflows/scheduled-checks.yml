@@ -97,16 +97,24 @@ jobs:
           "previous=$($lastTag[-1] -replace '^template-v', '')" | Out-File $env:GITHUB_OUTPUT -Append
           "package=$out/Leistd.Templates.$version.nupkg" | Out-File $env:GITHUB_OUTPUT -Append
 
+      # 版本取模板锁文件，系统依赖安装包按 runner 镜像与版本缓存（见脚本说明）
+      - name: 读取 Playwright 版本（升级闸门）
+        id: playwright
+        if: ${{ !cancelled() && steps.tpl.outputs.previous != '' }}
+        shell: pwsh
+        run: pwsh scripts/install-test-chromium.ps1 -VersionOnly
+
+      - name: 恢复 Chromium 系统依赖安装包缓存（升级闸门）
+        if: ${{ !cancelled() && steps.tpl.outputs.previous != '' }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/playwright-apt
+          key: ${{ steps.playwright.outputs.cache-key }}
+
       - name: 安装 Chromium（升级闸门）
         if: ${{ !cancelled() && steps.tpl.outputs.previous != '' }}
         shell: pwsh
-        run: |
-          # 版本取模板锁文件（去掉条件指令行才是合法 JSON），与生成项目实际安装的一致
-          $lock = (Get-Content template/frontend/package-lock.json | Where-Object { $_ -notmatch '^\s*//#(?:if|endif)\b' }) -join "`n"
-          $version = ($lock | ConvertFrom-Json -AsHashTable).packages['node_modules/playwright'].version
-          if (-not $version) { throw '模板锁文件里没有 playwright' }
-          npx --yes "playwright@$version" install --with-deps chromium
-          if ($LASTEXITCODE -ne 0) { throw 'Chromium 安装失败' }
+        run: pwsh scripts/install-test-chromium.ps1 -AptCachePath ~/.cache/playwright-apt
 
       - name: 模板升级闸门（verify Fast）
         if: ${{ !cancelled() && steps.tpl.outputs.previous != '' }}
