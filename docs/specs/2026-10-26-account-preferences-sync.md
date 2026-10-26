@@ -73,7 +73,7 @@
 **收件人与服务端读取**
 
 - P8：Given Resource 给收件人 B（不是当前用户）产出通知、邮件或按时区的统计。Then 按 B 在 Identity 的生效语言与时区，经机器身份读取，不需要 B 的令牌。
-- P9：服务端按用户读偏好统一经模板接口 `IAccountPreferenceReader`。Identity / Standalone 的实现读本地设置；Resource 的实现读 Identity。现有 `UserTimeZoneProvider` 与按收件人取语言的调用点都改用它。
+- P9：服务端按用户读偏好统一经模板接口 `IAccountPreferenceStore`。Identity / Standalone 的实现读本地设置；Resource 的实现读 Identity。现有 `UserTimeZoneProvider` 与按收件人取语言的调用点都改用它。
 
 **Identity 的机器读取接口**
 
@@ -139,9 +139,10 @@
 
 **偏好服务**
 
-- Application 层新增 `AccountPreferenceAppService`。
-- 读取：`GetForCurrentUserAsync`、`GetForUserAsync(userId)`，按现有设置回落（个人 → 组织 → 部署基线），返回生效值与个人覆盖。
-- 写入：`PatchForCurrentUserAsync(input)`，单字段，经 `ISettingManager.SetAsync(..., SettingScopes.User, 当前用户)`，沿用现有定义校验、`TimeZoneSettingValidator`、锁、事件与操作记录。写入提交后重新读取，返回完整表示与 ETag。
+- 协作类型 `Settings/Preferences/IAccountPreferenceStore`：持有方实现 `LocalAccountPreferenceStore`，资源服务实现 `RemoteAccountPreferenceStore`。
+- 读取：`GetForCurrentUserAsync`、`GetForUserAsync(userId)`，按现有设置回落（个人 → 组织 → 部署基线），返回生效值与个人覆盖。`/me` 由 `AuthAppService`、`UserAppService` 经它组装。
+- 写入：`AccountPreferenceAppService.UpdateForCurrentUserAsync(UpdateAccountPreferenceInputDto)`，单字段。先经 `Validators/AccountPreferenceValueValidator` 判定取值，再由 store 经 `ISettingManager.SetAsync(..., SettingScopes.User, 当前用户)` 写入，沿用现有定义校验、`TimeZoneSettingValidator`、锁、事件与操作记录。写入提交后重新读取，返回完整表示；ETag 由 Api 的 `[StrongETag]` 结果过滤器按响应体计算。
+- 合并补丁的形状（恰好一个已知字段，值为字符串或 null）由 Api 控制器按协议核对，不合格是字段校验错误（400 validation-error，API 规范 §2.5），不另设业务码。
 
 **接口**
 
@@ -169,9 +170,9 @@
 
 **读取**
 
-- Infrastructure 新增 Refit 客户端 `IIdentityAccountPreferencesClient`，读取挂 `AddClientCredentials()`，授予 `account-preferences.read`。
-- `RemoteAccountPreferenceReader` 实现 `IAccountPreferenceReader`，缓存状态机见 P11–P13：
-  - 用 `IMemoryCache` 加每个 key 的代次与在途合并；
+- Domain 端口 `Users/Abstractions/IIdentityAccountPreferences`，Infrastructure `AccountPreferences/` 实现：Refit 读取客户端 `IIdentityAccountPreferencesReadApi` 挂 `AddClientCredentials()`，授予 `account-preferences.read`。
+- `IdentityAccountPreferenceCache` 实现缓存状态机，见 P11–P13；Application 的 `RemoteAccountPreferenceStore` 经端口读写：
+  - 进程内字典保存每个 key 的代次、发布序号与在途合并；
   - 不放分布式缓存：值含个人偏好，失效依赖本进程的写入代次。
 - 回源协调优先复用官方能力，只维护本场景需要的旧表示与代次。要验证：
   - 单个等待者取消不影响其他等待者；
@@ -194,7 +195,7 @@
 
 **接口与配置**
 
-- `ResourceAuthController` 的 `/me` 追加 `Preferences`、`PreferenceOverrides`，取自读取器；无旧表示的上游故障时为 null。
+- `/me` 追加 `Preferences`、`PreferenceOverrides`，由 `UserAppService.GetCurrentResourceUserAsync` 经 store 取；无旧表示的上游故障时为 null。
 - `PATCH /api/v1/auth/me/preferences` 转交 Identity，把 Identity 返回的完整表示原样返回，并写入本实例缓存（P13）。
 - 配置节 `Leistd:ServiceClients:Identity` 在资源服务里无论是否开多租户都存在。读取与写入是两个命名客户端，共用地址节（`service-invocation.md` 已有写法）。
 
@@ -231,7 +232,7 @@
 | --- | --- | --- |
 | 0 | 本规格送 Codex 审查，明确通过后实施 | — |
 | 1 | Identity / Standalone：偏好服务、`/me` 字段、`PATCH`、机器读取接口与 scope、OIDC 声明 | 集成测试（真实 PostgreSQL）：P1、P4、P5、P7、P10（宿主、两租户、独立库、非法租户）、P14 |
-| 2 | Resource：裁掉 `Display.*`、读取客户端与缓存、写入转交与错误转译、`/me` 与 `PATCH`、`IAccountPreferenceReader` 接线 | 单测 P6（本服务真实未认证、交换或资源归属配置错误含 `invalid_grant`、取令牌连接与超时、Identity 非业务 401/403、已知业务拒绝）、P11–P13（新鲜期内切回、跨实例写后读、304 续期、5xx 用旧表示、401/403 清旧表示后 5xx 不恢复、取消语义）；集成测试 P2、P3、P8、P9（覆盖现有全部收件人语言调用点及不可用时的回落）；模板 OIDC 跨服务端到端加 P2、P4 |
+| 2 | Resource：裁掉 `Display.*`、读取客户端与缓存、写入转交与错误转译、`/me` 与 `PATCH`、`IAccountPreferenceStore` 接线 | 单测 P6（本服务真实未认证、交换或资源归属配置错误含 `invalid_grant`、取令牌连接与超时、Identity 非业务 401/403、已知业务拒绝）、P11–P13（新鲜期内切回、跨实例写后读、304 续期、5xx 用旧表示、401/403 清旧表示后 5xx 不恢复、取消语义）；集成测试 P2、P3、P8、P9（覆盖现有全部收件人语言调用点及不可用时的回落）；模板 OIDC 跨服务端到端加 P2、P4 |
 | 3 | 前端：偏好状态与来源切到 `/me`、偏好面板、切换器写入、Mock、规范 | 对比页确认；前端单测覆盖 P13a 各场景与 P6 不登出；Mock 有头验证 |
 | 交付 | 一个 PR（只改模板） | 生成 identity-all-features、resource-localization、resource、resource-capabilities-03、standalone 与无本地化形态；PR CI；Codex 审查；下游实施回执 |
 
@@ -264,3 +265,43 @@
 | 文字 | 「刷新 `/me`」等旧描述；没有响应时说成「未保存」 | 统一为 `/me` 初始化与重查、`PATCH` 响应更新；没有响应时提示「未能确认保存」 |
 
 第四稿复审通过（2026-10-26），进入实施。
+
+### 实施记录
+
+按模板规范收口的结构（用户指出初版未遵循分层目录与命名规范后整改）：
+
+| 初版 | 整改 | 依据 |
+| --- | --- | --- |
+| `IAccountPreferenceReader` 及两个实现 | 协作类型 `Settings/Preferences/IAccountPreferenceStore`（读写合一），`Local`/`Remote` 两个实现 | 后端规范 §2 子功能目录只放 `*Store` 等协作类型；§6 不新增 `*Reader` |
+| 写入、机器读取分属三个应用服务，未继承基类 | 一个 `AccountPreferenceAppService : BaseAppService`，接口继承 `IAppService`；机器读取方法只在 `OpenIddictServer` 下出现 | §3.5 |
+| `/me` 在控制器里拼偏好 | `AuthAppService`、`UserAppService` 经 store 组装 | §2 Api 不做编排 |
+| `AccountPreferencePatch` 在应用层解析 JSON | Api 控制器按合并补丁协议转成 `UpdateAccountPreferenceInputDto`；取值判定移到 `Validators/AccountPreferenceValueValidator` | §2 HTTP 信息不传入 Application；§5 验证器归 `Validators/` |
+| 形状错误用业务码 `AppSetting:PreferencePatchInvalid` | 400 validation-error，不带 code | API 规范 §2.5 |
+| 静态扩展 `ToOutput` 做映射 | 端口模型与 DTO 同名属性，`IObjectMapper` 按约定映射 | §6 映射走 `IObjectMapper`，能按约定映射的不写配置 |
+| `AccountPreferenceETag` 静态类、内部端点返回 `IActionResult` | Api `Filters/StrongETagAttribute`（响应体摘要，GET 命中回 304）；两个端点都返回 DTO，未知租户或用户抛 `User:NotFound`（404） | API 规范 §2.2；项目目录 §2.1 `Filters/` |
+| scope、策略常量放 `Preferences/` | `Settings/Constants/` | 与 `TenantConnections/Constants` 同型 |
+| 一个文件多个类型 | 每个类型一个文件（DTO、端口模型与枚举、Refit 接口、客户端配置、缓存键、单测类） | §5 一个文件一个对外类型 |
+| 控制器 `AccountPreferencesController` | `AccountPreferenceController`、`InternalAccountPreferenceController` | 与现有单数控制器名一致 |
+
+缓存实现用进程内字典保存代次、发布序号与在途合并，未用 `IMemoryCache`：需要原子地比较代次后发布，`IMemoryCache` 没有这种操作。
+
+### 实施审查第一轮（Codex 不通过，4 项）的处理
+
+| # | 问题 | 处理 |
+| --- | --- | --- |
+| R1 | 转交写入失败时，公开说明用了带上游地址与 traceId 的诊断消息 | 框架 service-client 新增 `RemoteServiceException.Detail`：只在远端是带业务码的错误时，还原 ProblemDetails 的 `detail`。模板改为只用它作说明，取不到时用固定安全文案。依据微软的生产环境不外露异常细节、RFC 9457 的 `detail` 语义，以及 ABP 转发远端 `RemoteServiceErrorInfo` 而非异常消息 |
+| R2 | 带业务码的 403 被当作依赖故障（502） | 框架 exception-handling 新增 `IHasHttpStatusCode`：处理器对 `BusinessException` 先看它，再查码映射，最后回落到 400。这与 ABP `DefaultHttpExceptionStatusCodeFinder` 的优先级一致。service-client 新增 `ToBusinessException`：只有带业务码的 4xx 才转为 `RemoteBusinessException`，沿用上游的码、状态与说明。模板只对 400/403/404/409 调用它；401 即使带码也按依赖故障处理（P6） |
+| R3 | 单例缓存条目只增不删 | 条目记录在途回源数与最近访问时刻。读写入口每个 `FreshFor` 至多清扫一次，移除闲置超过 `RetainFor` 且没有在途读取的条目；移除前在锁内标记退役，持有退役条目的调用改取新条目 |
+| R4 | 会话初始化晚取读取号，旧 `/me` 能覆盖成功写入 | `AuthService.loadUser()` 在请求发出时取号（经 `Injector` 按需取偏好服务，避开构造期成环），号随读取结果一起留存，`establish()` 用这个号 |
+| 建议 | `If-None-Match` 只做整值匹配 | 改用类型化头解析：支持标签列表、`W/` 弱比较与 `*` |
+
+同轮发现并修复的问题：
+
+- 偏好客户端原先注册在 `AddPersistenceServices` 里，迁移作业也会注册它，并被 Token Exchange 的启动校验拦住。现已移到只在 API 里调用的 `AddInfrastructureServices`。
+- 资源服务的部署资产补齐：非多租户形态的 compose 原先没有 Identity 地址与机器身份，所有形态都缺 Token Exchange 目标。`IDENTITY_API_RESOURCE` 已登记进 `.env.example`；矩阵冒烟与 OIDC 跨服务 E2E 同步补配置。
+- OIDC E2E 新增 S11：在共享库与独立库两个租户下各验证一遍：
+  - 资源服务 `/me` 以机器身份回源 Identity；
+  - 资源服务 `PATCH` 经 Token Exchange 转交，Identity 的 `/me` 随之变化；
+  - 本地预判非法值。
+
+  容器类 E2E 按执行环境约定不在本机运行，以 PR CI 的 `oidc-e2e` 作业为证据。
