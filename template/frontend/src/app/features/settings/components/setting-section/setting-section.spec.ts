@@ -12,6 +12,9 @@ import { SettingSection } from './setting-section';
 import { provideTranslocoTesting } from '../../../../core/i18n/transloco.testing';
 //#endif
 import { AuthService } from '../../../../core/services/auth-service';
+//#if (IncludeLocalization)
+import { LanguageService } from '../../../../core/services/language-service';
+//#endif
 import { SettingOutputDto } from '../../../../core/settings/setting.dto';
 import {
   expectTouchTarget,
@@ -1463,3 +1466,38 @@ describe('SettingSection appearance', () => {
     http.verify();
   });
 });
+//#if (IncludeLocalization)
+
+/** 只支持一种语言时界面语言无从选择：语言行不出现，同组其余设置照常。 */
+describe('SettingSection single language', () => {
+  async function render(languages: number): Promise<HTMLElement> {
+    TestBed.configureTestingModule({ imports: [SettingSection], providers: [...pageProviders()] });
+    const service = TestBed.inject(LanguageService);
+    Object.defineProperty(service, 'options', { value: service.options.slice(0, languages) });
+    const fixture = TestBed.createComponent(SettingSection);
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    http
+      .expectOne('/api/v1/settings')
+      .flush([
+        row({ name: 'Display.Language', group: 'Display', groupDisplayName: '显示' }),
+        row({ name: 'Display.TimeZone', group: 'Display', groupDisplayName: '显示' }),
+      ]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    http.verify();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('leaves out the language row with a single language', async () => {
+    const host = await render(1);
+
+    expect(hasRow(host, 'Display.Language')).toBe(false);
+    expect(hasRow(host, 'Display.TimeZone')).toBe(true);
+  });
+
+  it('keeps the language row with more than one language', async () => {
+    expect(hasRow(await render(2), 'Display.Language')).toBe(true);
+  });
+});
+//#endif
