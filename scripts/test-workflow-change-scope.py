@@ -404,16 +404,23 @@ def check_quality_aggregation():
     assert workflow['env'] == {'PLAN_SCOPE': "${{ github.event_name == 'pull_request' && !inputs.candidate_sha && 'core' || 'full' }}"}
     assert 'tier' not in workflow[True]['workflow_call']['inputs'] and not workflow[True]['workflow_dispatch'], workflow[True]
     # Third-party NuGet download cache: keyed on Directory.Packages.props, Leistd entries removed after restore and before save.
+    # The only other cache holds Chromium's system-dependency packages: read version -> restore -> install, one condition.
+    nuget_caches = 0
     for name, job in jobs.items():
         steps = job['steps']
         for index, step in enumerate(steps):
             if not step.get('uses', '').startswith('actions/cache@'):
                 continue
+            if step['with']['path'] == '~/.cache/playwright-apt':
+                check_chromium_apt_cache(steps, index, (name, step))
+                continue
+            nuget_caches += 1
             assert step['with']['path'] == '~/.local/share/NuGet/http-cache' and 'Directory.Packages.props' in step['with']['key'], (name, step)
             assert "-iname '*leistd.*' -delete" in steps[index + 1]['run'], (name, steps[index + 1])
             restores = [i for i, s in enumerate(steps) if re.search(r'dotnet (?:restore|test|build)|test-template-|test-package-consumption', s.get('run', ''))]
             cleanup = [i for i, s in enumerate(steps) if s.get('name') == '保存前清除 Leistd 缓存条目']
             assert restores and index < min(restores) and len(cleanup) == 1 and cleanup[0] > max(restores) and 'if' not in steps[cleanup[0]], (name, restores, cleanup)
+    assert nuget_caches > 0, 'NuGet download cache steps disappeared'
     script = scope_step('ci.yml', 'template-matrix', 'quality')
     with candidate_fixture() as (repo, planner, base):
         for mode, path in [('internal', 'README.md'), ('generated', 'template/docs/standards/testing.md'),
@@ -1146,7 +1153,12 @@ def check_template_release_wiring():
                      'Leistd.Templates.${{ steps.tver.outputs.version }}.nupkg'):
         assert fragment in gate_step['run'], (fragment, gate_step['run'])
     prepare = [s for s in steps[validate:gate] if s.get('if') == gate_condition]
-    assert any('pack-local-feed.ps1' in s.get('run', '') and 'playwright' in s.get('run', '') for s in prepare), prepare
+    assert any('pack-local-feed.ps1' in s.get('run', '') for s in prepare), prepare
+    # Chromium：读版本 -> 恢复系统依赖安装包缓存 -> 安装，三步都在包验证之后、升级闸门之前，条件与闸门一致
+    apt_cache = next(i for i, s in enumerate(steps) if s.get('with', {}).get('path') == '~/.cache/playwright-apt')
+    assert validate < apt_cache - 1 and apt_cache + 1 < gate, (validate, apt_cache, gate)
+    check_chromium_apt_cache(steps, apt_cache, 'release upgrade gate')
+    assert steps[apt_cache]['if'] == gate_condition, steps[apt_cache]
     assert any(s.get('uses', '').startswith('actions/setup-node@') for s in prepare), prepare
     assert all(s.get('if') != "steps.tver.outputs.lastTag != ''" for s in steps), 'upgrade gate steps must not run on develop or manual runs'
     writes = [s for s in steps if s.get('uses', '').startswith(('NuGet/login@', 'softprops/action-gh-release@'))
@@ -1158,6 +1170,15 @@ def check_template_release_wiring():
     release = next(s for s in steps if s.get('uses', '').startswith('softprops/action-gh-release@'))
     assert release['with']['make_latest'] is False and release['with']['prerelease'] is False, release
     print('PASS template release wiring: publish steps gated on main, after package validation, nuget.org restore and the upgrade gate, single tag creation')
+
+
+def check_chromium_apt_cache(steps, index, context):
+    """单测 Chromium 的系统依赖安装包缓存：键取读版本那一步的输出，前一步读版本、后一步用同一路径安装，三步同一条件。"""
+    cache, version, install = steps[index], steps[index - 1], steps[index + 1]
+    assert cache['with']['key'] == '${{ steps.playwright.outputs.cache-key }}' and 'restore-keys' not in cache['with'], context
+    assert version.get('id') == 'playwright' and version.get('run', '').strip() == 'pwsh scripts/install-test-chromium.ps1 -VersionOnly', (context, version)
+    assert install.get('run', '').strip() == 'pwsh scripts/install-test-chromium.ps1 -AptCachePath ~/.cache/playwright-apt', (context, install)
+    assert version.get('if') == cache.get('if') == install.get('if'), (context, version.get('if'), cache.get('if'), install.get('if'))
 
 
 def release_step_named(name):
