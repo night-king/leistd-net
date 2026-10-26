@@ -14,6 +14,7 @@ using Leistd.Authorization.Grants;
 using Leistd.Authorization.EntityFrameworkCore.Entities;
 using Leistd.Authorization.Exceptions;
 using Leistd.Authorization.Tests.TestDoubles;
+using Leistd.MultiTenancy.Tenancy;
 
 namespace Leistd.Authorization.Tests.EntityFrameworkCore;
 
@@ -97,6 +98,28 @@ public class EfCorePermissionGrantStoreManagerTests : IAsyncLifetime
     }
 
 
+
+    // 定义已删除的旧名留在表里时，整体替换会拒绝；补缺走点操作，旧名原样保留，缺口照常补上
+    [Fact]
+    public async Task Topping_up_keeps_grants_whose_definition_was_removed()
+    {
+        _db.Set<PermissionGrantRecord>().Add(new PermissionGrantRecord
+        {
+            PermissionName = TestPermissionDefinitionProvider.Undefined,
+            ProviderName = PermissionGrantProviderNames.Role,
+            ProviderKey = "r1"
+        });
+        await _db.SaveChangesAsync();
+        var seeder = new PermissionGrantSeeder(_definitions, _store, _manager);
+
+        var granted = await seeder.TopUpAsync(PermissionGrantProviderNames.Role, "r1", MultiTenancySides.Tenant);
+        var grants = await _store.GetGrantsAsync(PermissionGrantProviderNames.Role, "r1");
+
+        Assert.NotEmpty(granted);
+        Assert.Contains(TestPermissionDefinitionProvider.Undefined, grants.PermissionNames);
+        Assert.Superset(granted.ToHashSet(), grants.PermissionNames.ToHashSet());
+        Assert.Empty(await seeder.GetMissingAsync(PermissionGrantProviderNames.Role, "r1", MultiTenancySides.Tenant));
+    }
 
     [Fact]
     public async Task Replace_rejects_undefined_or_disabled_permissions()
