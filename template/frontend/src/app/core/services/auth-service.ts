@@ -43,6 +43,12 @@ export class AuthService {
 
   private readonly _currentUser = signal<User | null>(null);
   public readonly currentUser = this._currentUser.asReadonly();
+  private _revision = 0;
+
+  /** 当前用户每写入或清空一次加一：后台读取据此判断发出之后是否已有更新的写入（见 `SessionContextService.revalidate`）。 */
+  get revision(): number {
+    return this._revision;
+  }
 
   isAuthenticated(): boolean {
     return this._currentUser() !== null;
@@ -75,6 +81,7 @@ export class AuthService {
   }
 
   setCurrentUser(user: UserOutputDto): void {
+    this._revision++;
     this._currentUser.set(new User(user));
     //#if (RemoteTokenAuth)
     //#if (IncludeMultiTenancy)
@@ -88,6 +95,7 @@ export class AuthService {
    * `logout()` 之后整页跳转，不必再走一遍。
    */
   clearAuthData(): void {
+    this._revision++;
     this._currentUser.set(null);
     //#if (RemoteTokenAuth)
     //#if (IncludeMultiTenancy)

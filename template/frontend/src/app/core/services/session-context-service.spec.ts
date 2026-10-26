@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { of, Subject } from 'rxjs';
+import { firstValueFrom, of, Subject } from 'rxjs';
 
 import { AuthService } from './auth-service';
 import { AuthorizationService } from './authorization-service';
@@ -81,7 +81,7 @@ describe('SessionContextService', () => {
   let settingContext: SettingContextService;
   let authService: Pick<
     MockedObject<AuthService>,
-    'clearAuthData' | 'isAuthenticated' | 'fetchUser' | 'setCurrentUser'
+    'clearAuthData' | 'isAuthenticated' | 'fetchUser' | 'setCurrentUser' | 'revision'
   >;
   let http: HttpTestingController;
 
@@ -90,14 +90,19 @@ describe('SessionContextService', () => {
     // 显式定住本设备语言，否则初始语言跟随运行测试那台机器的系统语言。
     localStorage.setItem(LanguageService.STORAGE_KEY, 'en');
     //#endif
+    // 写入序号与真实服务一致：写入或清空当前用户都加一
+    let userRevision = 0;
     authService = {
-      clearAuthData: vi.fn().mockName('AuthService.clearAuthData'),
+      clearAuthData: vi.fn(() => void userRevision++).mockName('AuthService.clearAuthData'),
       isAuthenticated: vi.fn().mockName('AuthService.isAuthenticated').mockReturnValue(true),
       fetchUser: vi
         .fn()
         .mockName('AuthService.fetchUser')
         .mockReturnValue(of({ username: 'admin' } as UserOutputDto)),
-      setCurrentUser: vi.fn().mockName('AuthService.setCurrentUser'),
+      setCurrentUser: vi.fn(() => void userRevision++).mockName('AuthService.setCurrentUser'),
+      get revision() {
+        return userRevision;
+      },
     };
     TestBed.configureTestingModule({
       //#if (IncludeLocalization)
@@ -422,6 +427,40 @@ describe('SessionContextService', () => {
       expect(authService.setCurrentUser).not.toHaveBeenCalled();
       expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
       expect(settingContext.timeZone()).toBeUndefined();
+    });
+
+    // 重查途中本人保存了资料：迟到的旧 /me 不能把新资料盖回去
+    it('keeps a profile saved while the re-read was in flight', async () => {
+      const user = new Subject<UserOutputDto>();
+      authService.fetchUser.mockReturnValue(user);
+
+      becomeVisible();
+      authService.setCurrentUser({ username: 'saved' } as UserOutputDto);
+      user.next({ username: 'before-save' } as UserOutputDto);
+      user.complete();
+      http.expectOne('/api/v1/permissions/current').flush(permissionsOf());
+      http.expectOne('/api/v1/settings').flush([]);
+      await service.revalidate();
+
+      expect(authService.setCurrentUser).toHaveBeenCalledOnce();
+      expect(authService.setCurrentUser).toHaveBeenLastCalledWith({ username: 'saved' });
+    });
+
+    // 重查途中显式刷新了权限：迟到的旧权限不能让已撤销的入口重新出现
+    it('keeps permissions reloaded while the re-read was in flight', async () => {
+      const authorization = TestBed.inject(AuthorizationService);
+
+      becomeVisible();
+      const reload = firstValueFrom(authorization.reload());
+      const [background, explicit] = http.match('/api/v1/permissions/current');
+      explicit.flush(permissionsOf('Roles.Read'));
+      await reload;
+      background.flush(permissionsOf('Users.Read'));
+      http.expectOne('/api/v1/settings').flush([]);
+      await service.revalidate();
+
+      expect(authorization.has('Roles.Read')).toBe(true);
+      expect(authorization.has('Users.Read')).toBe(false);
     });
   });
 });

@@ -33,8 +33,6 @@ export class SessionContextService {
   private readonly themeService = inject(ThemeService);
   /** 每次刷新与清理都换一代：只有最新一次刷新能应用派生状态，晚到的旧刷新与主体离开前发出的刷新一律作废。 */
   private generation = 0;
-  /** 主体每确立或离开一次加一：重查返回时主体已经换过，结果属于上一个人，不应用。 */
-  private subject = 0;
   /** 在途的重查：页签反复切换时不重复发请求。 */
   private revalidating: Promise<void> | undefined;
 
@@ -62,7 +60,6 @@ export class SessionContextService {
    * 设置失败只清空不抛：它不是进入应用的硬依赖，各消费端有自己的默认行为。
    */
   async establish(): Promise<void> {
-    this.subject++;
     await this.authorizationService.initialize();
 
     try {
@@ -102,16 +99,17 @@ export class SessionContextService {
       return this.revalidating ?? Promise.resolve();
     }
 
-    const subject = this.subject;
-    const unchanged = () => subject === this.subject;
+    // 只在发出之后没有更新的写入时才应用：期间保存了资料、刷新了权限或主体离开，后台读到的都是旧值
+    const userRevision = this.authService.revision;
+    const permissionRevision = this.authorizationService.revision;
     this.revalidating = Promise.allSettled([
       firstValueFrom(this.authService.fetchUser()).then((user) => {
-        if (unchanged()) {
+        if (this.authService.revision === userRevision) {
           this.authService.setCurrentUser(user);
         }
       }),
       firstValueFrom(this.authorizationService.fetch()).then((permissions) => {
-        if (unchanged()) {
+        if (this.authorizationService.revision === permissionRevision) {
           this.authorizationService.setPermissions(permissions);
         }
       }),
@@ -125,7 +123,6 @@ export class SessionContextService {
 
   /** 主体离开：认证数据、权限、设置一起清掉。`logout()` 例外：之后整页跳转，内存状态随页面重建。 */
   clear(): void {
-    this.subject++;
     this.authService.clearAuthData();
     this.authorizationService.clear();
     void this.clearSettings();

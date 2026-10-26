@@ -19,6 +19,7 @@ export class AuthorizationService {
   private readonly _permissions = signal<ReadonlySet<string>>(new Set<string>());
   private readonly _isSuperAdmin = signal(false);
   private readonly _versionToken = signal('');
+  private _revision = 0;
 
   /** 授权版本。变化即表示权限已被改动，页面应重新拉取受影响数据。 */
   readonly versionToken = this._versionToken.asReadonly();
@@ -53,13 +54,20 @@ export class AuthorizationService {
     return this.load();
   }
 
+  /** 权限每写入或清空一次加一：后台读取据此判断发出之后是否已有更新的写入（见 `SessionContextService.revalidate`）。 */
+  get revision(): number {
+    return this._revision;
+  }
+
   setPermissions(result: CurrentPermissionsOutputDto): void {
+    this._revision++;
     this._permissions.set(new Set(result.permissions));
     this._isSuperAdmin.set(result.isSuperAdmin);
     this._versionToken.set(result.versionToken);
   }
 
   clear(): void {
+    this._revision++;
     this._permissions.set(new Set<string>());
     this._isSuperAdmin.set(false);
     this._versionToken.set('');
