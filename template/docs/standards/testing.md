@@ -91,7 +91,7 @@ backend/tests/
     └── <各 *Tests.cs>
 ```
 
-集成测试跑在真实 PostgreSQL 上，需要本机 Docker：`PostgreSqlTestDatabase` 每次运行起一个容器并用项目迁移建好模板库，每个 `ProjectWebApplicationFactory` 克隆独立库，唯一约束、查询翻译、事务回滚与独立事务因此与生产一致。单元测试不连库。
+集成测试需 Docker。`PostgreSqlTestDatabase` 创建 PostgreSQL 容器并迁移，每个 `ProjectWebApplicationFactory` 克隆独立库，验证约束、查询和事务隔离。单元测试不连库。[远端容器与归属协议](./testing-containers.md)按需读取。
 
 每个宿主都要初始化、迁移、克隆库与播种，因此：
 

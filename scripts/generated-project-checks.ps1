@@ -91,7 +91,7 @@ function Assert-GeneratedDocumentation([string]$ProjectRoot) {
     # frontend-i18n.md 另随 IncludeLocalization 裁剪（!IncludeLocalization 排除项），前端词条目录与它同进退。
     $hasFrontendI18n = Test-Path -LiteralPath (Join-Path $ProjectRoot "frontend/public/i18n")
     $expectedStandards = @("api.md", "api-batch-statistics.md", "auth.md", "background-jobs.md", "coding-backend.md",
-        "coding-common.md", "project-structure.md", "service-invocation.md", "settings.md", "tech-stack.md", "testing.md")
+        "coding-common.md", "project-structure.md", "service-invocation.md", "settings.md", "tech-stack.md", "testing.md", "testing-containers.md")
     if ($hasFrontend) {
         $expectedStandards += @("coding-frontend.md", "frontend-ui.md", "frontend-lists.md", "frontend-forms.md",
             "frontend-navigation.md", "frontend-routing.md", "frontend-data.md", "frontend-spartan.md")
