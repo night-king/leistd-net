@@ -1,6 +1,6 @@
 # 账户偏好跨服务同步的适配反馈第二轮（下游反馈）
 
-状态：进行中 · 风险档：低（模板前端单一服务的在途合并） · 关联：[2026-10-27-preferences-sync-feedback.md](2026-10-27-preferences-sync-feedback.md)
+状态：已完成 · 风险档：低（模板前端单一服务的在途合并） · 关联：[#198](https://github.com/zengqinglei/leistd-net/pull/198)、[2026-10-27-preferences-sync-feedback.md](2026-10-27-preferences-sync-feedback.md)
 
 ## 1. 需求
 
@@ -29,3 +29,25 @@
 | 回归测试与修复 | 修复前新用例失败；`src/app/core` 全部 spec、eslint、prettier、tsc；两处修复分别变异，新用例均失败 |
 
 ## 4. 结果
+
+### 实际交付
+
+- [#198](https://github.com/zengqinglei/leistd-net/pull/198)，合并提交 `6e4987a5`。只改模板，未发框架 beta；模板随下一次 develop 合入 main 的正式版发布。
+
+### 与计划的偏差
+
+- 无。Codex 实施审查一轮通过。
+
+### 验收记录
+
+- 新用例修复前失败；去掉 `=== current` 守卫的变异使新用例失败。
+- identity-all-features：`src/app/core` 35 个 spec 文件 370 项通过；eslint、prettier、tsc 通过。
+- PR CI 13 项通过，其余按影响范围跳过。
+
+### 遗留项
+
+- 无。
+
+### 已上收的常驻文档
+
+- 无（行为写在服务注释中，`auth.md` 的前台重查规则不变）。
