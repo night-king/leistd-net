@@ -113,10 +113,13 @@ def read_blobs(sha: str, paths: list[str]) -> dict[str, str]:
 POSTGRESQL_INPUT = re.compile(
     r'template/backend/(?:src|tests)/.*(?:Persistence|Migrat|Tenant|DbMigrator|DataProtection|DbContext).*|'
     r'framework/(?:components/(?:data|multi-tenancy|unit-of-work)|ddd-struct/Leistd\.Ddd\.Infrastructure)/.+|'
-    r'framework/components/[^/]+/Leistd\.[^/]+\.EntityFrameworkCore/.+')
+    r'framework/components/[^/]+/Leistd\.[^/]+\.EntityFrameworkCore/.+|'
+    r'scripts/test-template-postgresql-e2e\.ps1')
+# The end-to-end script itself and the generated assets it reads (S12 runs the Resource DbMigrator with the compose migrator scope).
 OIDC_INPUT = re.compile(
     r'template/backend/(?:src|tests)/.*(?:Auth|Token|Connect|OpenIddict|OpenApplication|Security|Session|SignIn|'
-    r'ServiceInfo|WhoAmI|ServiceClient|Tenant).*|'
+    r'ServiceInfo|WhoAmI|ServiceClient|Tenant|DbMigrator).*|'
+    r'template/deploy/docker-compose\.yml|scripts/test-template-oidc-e2e\.ps1|'
     r'framework/components/(?:authorization(?:-[a-z-]+)?|security|service-client|multi-tenancy)/.+')
 BINARY_SOURCE = ('.png', '.jpg', '.jpeg', '.webp', '.ico')
 CONFIG_PATH = 'template/.template.config/template.json'

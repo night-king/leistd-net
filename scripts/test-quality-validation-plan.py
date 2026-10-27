@@ -665,8 +665,17 @@ def prove_selector_counterexamples(repo, base, planner, scenarios, out, git):
         source = next(path for path in sources if path.startswith(project + '/') and path.endswith('.cs'))
         plan = commit('postgresql-' + project.rsplit('/', 1)[-1], lambda source=source: append(source, '\n// postgresql trigger\n'))
         assert plan['Tier'] == 'core' and plan['Jobs']['postgresql-e2e'] == expected, (project, plan['Jobs'])
+    # 9. Each end-to-end script triggers its own job; OIDC also covers the generated assets S12 reads. Another script does not.
+    for path, job, expected in [('scripts/test-template-oidc-e2e.ps1', 'oidc-e2e', True),
+                                ('scripts/test-template-postgresql-e2e.ps1', 'postgresql-e2e', True),
+                                ('scripts/test-template-postgresql-e2e.ps1', 'oidc-e2e', False),
+                                ('template/deploy/docker-compose.yml', 'oidc-e2e', True),
+                                ('template/backend/src/CompanyName.ProjectName.DbMigrator/Program.cs', 'oidc-e2e', True),
+                                ('scripts/test-template-matrix.ps1', 'oidc-e2e', False)]:
+        plan = commit('e2e-input-' + job + '-' + path.rsplit('/', 1)[-1], lambda path=path: append(path, '\n// e2e trigger\n' if path.endswith('.cs') else '\n# e2e trigger\n'))
+        assert plan['Jobs'][job] == expected, (path, job, plan['Jobs'], plan['Reason'])
     git('reset', '--hard', base); git('clean', '-fdq')
-    print('PASS selector counterexamples: nested leaf, elif arms, computed, trimmed side, delete/rename, template.json and unknown inputs (representative), EF Core PG trigger; shared declaration is full-only', flush=True)
+    print('PASS selector counterexamples: nested leaf, elif arms, computed, trimmed side, delete/rename, template.json and unknown inputs (representative), EF Core PG trigger, e2e self and S12 inputs; shared declaration is full-only', flush=True)
 
 
 def prove_local_products(repo, base, planner, scenarios, out, run, git):
