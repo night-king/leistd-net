@@ -14,8 +14,9 @@ import { SettingOutputDto } from '../settings/setting.dto';
  * 主体的建立与离开一律走 {@link establish} 与 {@link clear}，设置刷新走 {@link refreshSettings}，
  * 不单独调下层的 load/clear。
  *
- * 页签回到前台时重查一遍（见 {@link revalidate}）：别处改了权限或偏好、或者已经退出，打开着的页签
- * 否则要等下一次操作撞上才知道。
+ * 页签回到前台时只重查 `/me`（见 {@link revalidate}）：别处改了偏好或资料、或者会话已经失效，打开着的页签
+ * 否则要等下一次操作撞上才知道。权限与设置不随可见事件重查，刷新页面或重新登录时更新：权限只决定界面显示什么，
+ * 拦截在服务端；设置很少变，界面用到的生效值已由 `/me` 的偏好给出。
  */
 @Injectable({ providedIn: 'root' })
 export class SessionContextService {
@@ -79,8 +80,8 @@ export class SessionContextService {
   }
 
   /**
-   * 重查当前用户（含账户偏好）、权限与设置，只在已登录时进行。设置请求不是静默的：会话已失效（401）时由
-   * HTTP 拦截器清理并转去登录；其余失败保持现有状态、不提示，这是后台动作，用户没有发起任何操作。
+   * 重查当前用户（含账户偏好），只在已登录时进行。请求不是静默的：会话已失效（401）时由 HTTP 拦截器清理并转去登录；
+   * 其余失败保持现有状态、不提示，这是后台动作，用户没有发起任何操作。
    * 偏好读不到时保留已应用的值：同一主体，旧值比设备值更接近本人的选择。
    */
   revalidate(): Promise<void> {
@@ -88,28 +89,21 @@ export class SessionContextService {
       return this.revalidating ?? Promise.resolve();
     }
 
-    // 只在发出之后没有更新的写入时才应用：期间保存了资料、刷新了权限或主体离开，后台读到的都是旧值
+    // 只在发出之后没有更新的写入时才应用：期间保存了资料或主体离开，后台读到的都是旧值
     const userRevision = this.authService.revision;
-    const permissionRevision = this.authorizationService.revision;
     // 偏好另有自己的号：期间写入成功或主体离开，迟到的 /me 不盖掉写入结果
     const preferenceTicket = this.preferences.beginRead();
-    this.revalidating = Promise.allSettled([
-      firstValueFrom(this.authService.fetchUser()).then((user) => {
+    this.revalidating = firstValueFrom(this.authService.fetchUser(false))
+      .then((user) => {
         if (this.authService.revision === userRevision) {
           this.authService.setCurrentUser(user);
         }
         return this.preferences.applyRead(preferenceTicket, user, 'refresh');
-      }),
-      firstValueFrom(this.authorizationService.fetch()).then((permissions) => {
-        if (this.authorizationService.revision === permissionRevision) {
-          this.authorizationService.setPermissions(permissions);
-        }
-      }),
-      // 设置上下文自带代次：主体离开后才返回的快照不会写入
-      this.refreshSettings(),
-    ]).then(() => {
-      this.revalidating = undefined;
-    });
+      })
+      .catch(() => undefined)
+      .then(() => {
+        this.revalidating = undefined;
+      });
     return this.revalidating;
   }
 

@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { firstValueFrom, of, Subject } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 
 import { AccountPreferencesService } from './account-preferences-service';
 import { AuthService } from './auth-service';
@@ -289,28 +289,29 @@ describe('SessionContextService', () => {
 
   describe('when the tab becomes visible', () => {
     const becomeVisible = () => document.dispatchEvent(new Event('visibilitychange'));
-    const permissionsOf = (...permissions: string[]) => ({
-      permissions,
-      isSuperAdmin: false,
-      versionToken: permissions.join(','),
-    });
     const userWith = (read: AccountPreferencesOutputDto) =>
       ({ username: 'admin', ...read }) as UserOutputDto;
 
-    // 别处改了权限、偏好或已经退出：页签回到前台时都要重查
-    it('re-reads the current user, preferences, permissions and settings', async () => {
+    // 别处改了偏好、资料或已经退出：页签回到前台只重查 /me；权限与设置刷新页面时更新
+    it('re-reads only the current user and preferences', async () => {
       authService.fetchUser.mockReturnValue(of(userWith(readOf({ timeZone: 'Asia/Tokyo' }))));
 
       becomeVisible();
-      http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
-      http.expectOne('/api/v1/settings').flush([probeSetting('a')]);
       await service.revalidate();
 
       expect(authService.fetchUser).toHaveBeenCalledOnce();
       expect(authService.setCurrentUser).toHaveBeenCalled();
-      expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
-      expect(settingContext.valueOf('Probe.Value')).toBe('a');
       expect(preferences.timeZone()).toBe('Asia/Tokyo');
+      http.expectNone('/api/v1/permissions/current');
+      http.expectNone('/api/v1/settings');
+    });
+
+    // 会话已失效：这次 /me 不是静默的，401 由 HTTP 拦截器清会话并转去登录
+    it('reads the current user non-silently so an expired session leads to sign-in', async () => {
+      becomeVisible();
+      await service.revalidate();
+
+      expect(authService.fetchUser).toHaveBeenCalledWith(false);
     });
 
     // 同一主体后台读不到偏好：保留已应用的值，旧值比设备值更接近本人的选择
@@ -319,8 +320,6 @@ describe('SessionContextService', () => {
       authService.fetchUser.mockReturnValue(of(userWith(UNAVAILABLE)));
 
       becomeVisible();
-      http.expectOne('/api/v1/permissions/current').flush(permissionsOf());
-      http.expectOne('/api/v1/settings').flush([]);
       await service.revalidate();
 
       expect(preferences.timeZone()).toBe('Asia/Tokyo');
@@ -331,39 +330,33 @@ describe('SessionContextService', () => {
 
       becomeVisible();
 
-      http.expectNone('/api/v1/settings');
       expect(authService.fetchUser).not.toHaveBeenCalled();
     });
 
     // 页签来回切换：在途时不重复发
     it('does not start a second round while one is in flight', () => {
+      authService.fetchUser.mockReturnValue(new Subject<UserOutputDto>());
+
       becomeVisible();
       becomeVisible();
 
-      const permissions = http.match('/api/v1/permissions/current');
-      const settings = http.match('/api/v1/settings');
-      expect(permissions).toHaveLength(1);
-      expect(settings).toHaveLength(1);
       expect(authService.fetchUser).toHaveBeenCalledOnce();
-      permissions.forEach((request) => request.flush(permissionsOf()));
-      settings.forEach((request) => request.flush([]));
     });
 
-    // 后台动作，用户没有发起任何操作：失败不提示，也不把现有权限清掉
-    it('keeps the current permissions when the re-read fails', async () => {
-      TestBed.inject(AuthorizationService).setPermissions(permissionsOf('Users.Read'));
+    // 后台动作，用户没有发起任何操作：失败不提示，也不动现有的当前用户与偏好
+    it('keeps the current state when the re-read fails', async () => {
+      await establishWith(readOf({ timeZone: 'Asia/Tokyo' }));
+      authService.setCurrentUser.mockClear();
+      authService.fetchUser.mockReturnValue(throwError(() => new Error('boom')));
 
       becomeVisible();
-      http
-        .expectOne('/api/v1/permissions/current')
-        .flush('boom', { status: 500, statusText: 'Server Error' });
-      http.expectOne('/api/v1/settings').flush('boom', { status: 500, statusText: 'Server Error' });
       await service.revalidate();
 
-      expect(TestBed.inject(AuthorizationService).has('Users.Read')).toBe(true);
+      expect(authService.setCurrentUser).not.toHaveBeenCalled();
+      expect(preferences.timeZone()).toBe('Asia/Tokyo');
     });
 
-    // 重查途中主体离开：晚到的结果属于上一个人，不能把权限、用户与偏好写回去
+    // 重查途中主体离开：晚到的结果属于上一个人，不能把用户与偏好写回去
     it('does not apply results that answer after the subject leaves', async () => {
       const user = new Subject<UserOutputDto>();
       authService.fetchUser.mockReturnValue(user);
@@ -372,14 +365,10 @@ describe('SessionContextService', () => {
       service.clear();
       user.next(userWith(readOf({ timeZone: 'Asia/Tokyo' })));
       user.complete();
-      http.expectOne('/api/v1/permissions/current').flush(permissionsOf('Users.Read'));
-      http.expectOne('/api/v1/settings').flush([probeSetting('a')]);
       await service.revalidate();
       await new Promise((resolve) => setTimeout(resolve));
 
       expect(authService.setCurrentUser).not.toHaveBeenCalled();
-      expect(TestBed.inject(AuthorizationService).loaded()).toBe(false);
-      expect(settingContext.valueOf('Probe.Value')).toBeUndefined();
       expect(preferences.known()).toBe(false);
     });
 
@@ -392,29 +381,10 @@ describe('SessionContextService', () => {
       authService.setCurrentUser({ username: 'saved' } as UserOutputDto);
       user.next({ username: 'before-save' } as UserOutputDto);
       user.complete();
-      http.expectOne('/api/v1/permissions/current').flush(permissionsOf());
-      http.expectOne('/api/v1/settings').flush([]);
       await service.revalidate();
 
       expect(authService.setCurrentUser).toHaveBeenCalledOnce();
       expect(authService.setCurrentUser).toHaveBeenLastCalledWith({ username: 'saved' });
-    });
-
-    // 重查途中显式刷新了权限：迟到的旧权限不能让已撤销的入口重新出现
-    it('keeps permissions reloaded while the re-read was in flight', async () => {
-      const authorization = TestBed.inject(AuthorizationService);
-
-      becomeVisible();
-      const reload = firstValueFrom(authorization.reload());
-      const [background, explicit] = http.match('/api/v1/permissions/current');
-      explicit.flush(permissionsOf('Roles.Read'));
-      await reload;
-      background.flush(permissionsOf('Users.Read'));
-      http.expectOne('/api/v1/settings').flush([]);
-      await service.revalidate();
-
-      expect(authorization.has('Roles.Read')).toBe(true);
-      expect(authorization.has('Users.Read')).toBe(false);
     });
   });
 });

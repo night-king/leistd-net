@@ -653,16 +653,28 @@ export class SettingSection {
     // 串行：两条链并发时 GET 响应可能乱序，旧快照会覆盖新快照。
     const startedAt = Date.now();
     const preferenceField = scope === 'account' ? PREFERENCE_FIELDS[setting.name] : undefined;
+    // 账户偏好在操作当下就交给偏好服务：它在这一刻记下主体，并自带串行队列。等本组件的队列轮到再交，
+    // 期间主体离开（换人）时，上一个人的意图会以下一个人的会话发出。这里的队列只按序发布结果
+    const preferenceWrite = preferenceField
+      ? this.preferences.write(preferenceField, value as AccountPreferences[typeof preferenceField])
+      : undefined;
+    // 结果在轮到时才读：先挂一个处理，免得排队期间的失败被当成未处理
+    preferenceWrite?.catch(() => undefined);
     this.enqueue(async () => {
       try {
-        if (preferenceField) {
+        if (preferenceWrite) {
           // 账户偏好写 /me/preferences，成功时偏好状态已按响应更新，不必重取设置快照
-          const outcome = await this.preferences.write(
-            preferenceField,
-            value as AccountPreferences[typeof preferenceField],
-          );
+          const outcome = await preferenceWrite;
           if (outcome.status === 'rejected') {
             throw outcome.error;
+          }
+
+          // 主体已经离开：这一项没有发出或没有应用。草稿保留，"保存中"退回常态，不显示已保存
+          if (outcome.status === 'discarded') {
+            if (isLatest()) {
+              this.clearRowState(key);
+            }
+            return;
           }
 
           if (outcome.status === 'unconfirmed') {
@@ -738,6 +750,14 @@ export class SettingSection {
 
   private setRowState(key: string, state: RowState): void {
     this.rowState.update((current) => ({ ...current, [key]: state }));
+  }
+
+  private clearRowState(key: string): void {
+    this.rowState.update((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   /** 把"保存中"补到最短可见时长；已经够久了就立刻返回。 */

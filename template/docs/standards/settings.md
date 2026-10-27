@@ -61,4 +61,5 @@
 - 读：`GET /auth/me` 的 `preferences`（生效值）与 `preferenceOverrides`（个人覆盖），由 `AccountPreferencesService` 应用，不取设置快照。两者同为 null 表示暂时读不到：新主体退回设备，同一主体保留已应用的值。
 - 写：偏好行与页头切换器都经 `AccountPreferencesService.write` 发 `PATCH /auth/me/preferences`（一次一个字段），共用一个串行队列，用响应里的完整偏好更新，不另行回读。明确拒绝提示未保存；没有可判定的响应提示"未能确认保存"，不重放。
 - 未登录时切换器只记在本设备。外观的生效值缓存在本设备供首帧使用，主体离开后保留；语言的账户值只在内存。
+- 项目在偏好里加字段时改三处：Domain 的 `AccountPreferenceValues`、资源服务响应的 `ToSnapshot`（判定表示是否完整），以及输出 DTO 的映射。
 <!--#endif-->

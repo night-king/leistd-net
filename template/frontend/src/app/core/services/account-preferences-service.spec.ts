@@ -265,6 +265,19 @@ describe('AccountPreferencesService', () => {
       http.expectNone(URL);
       expect(service.known()).toBe(false);
     });
+
+    // 失败回来时主体已经离开：不报拒绝或未确认，否则提示会落到下一个人的界面上
+    for (const status of [400, 503]) {
+      it(`discards a write that fails after the subject left on status ${status}`, async () => {
+        const write = service.write('theme', 'dark');
+        await settle();
+
+        void service.clear();
+        http.expectOne(URL).flush(null, { status, statusText: 'Failed' });
+
+        await expect(write).resolves.toEqual({ status: 'discarded' });
+      });
+    }
   });
   //#if (IncludeLocalization)
 
