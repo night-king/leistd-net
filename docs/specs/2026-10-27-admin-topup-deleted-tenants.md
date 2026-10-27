@@ -1,6 +1,6 @@
 # Admin 权限补齐跳过已删除租户（下游反馈）
 
-状态：进行中 · 风险档：中（模板 DbMigrator 发布阻断缺陷、部署身份 scope 变更） · 关联：待开 PR
+状态：已完成 · 风险档：中（模板 DbMigrator 发布阻断缺陷、部署身份 scope 变更） · 关联：[#193](https://github.com/zengqinglei/leistd-net/pull/193)
 
 ## 1. 需求
 
@@ -53,4 +53,25 @@
 
 ## 4. 结果
 
-（实施后补写）
+### 实际交付
+
+- [#193](https://github.com/zengqinglei/leistd-net/pull/193)，合并提交 `96f74ca9`，develop 发布 `v1.3.0-beta.52`（框架源码与 beta.50 相同）。
+
+### 与计划的偏差
+
+- Codex 首轮实施审查指出 S12 写死了 scope：把部署配置退回旧值，S12 也发现不了。现改为从生成项目的 compose 读取迁移身份 scope，并断言与 DbMigrator 开发配置一致。复审时，Codex 用替身逐一试了单独回退 compose、单独回退开发配置、两处同时回退三种情况，都会被测试拒绝。
+- PR 的 CI 没有选中 OIDC E2E：它按认证、租户等路径触发，本次改动的文件都不在其中，E2E 脚本本身也不在。因此在 PR 分支上手动触发了一次完整 CI，S12 在其中实际运行并通过。
+
+### 验收记录
+
+- Identity 集成测试：在 Windows 执行端的真实 PostgreSQL 上，`AdminGrantTopUpTests` 全部通过；撤掉跳过分支后，`Deleted_tenants_are_skipped_and_inactive_tenants_are_still_topped_up` 失败（执行端按退出码判定）。
+- OIDC E2E：手动触发的 CI run 40444692322 中，S2–S12 全部通过（`OIDC E2E passed: … S11, S12, …`）。
+- PR CI 与 `check-all.ps1` 的 50 道静态闸门通过。
+
+### 遗留项
+
+- 只改 `scripts/test-template-oidc-e2e.ps1` 时，CI 不会选中 OIDC E2E（`scripts/plan-quality-checks.py` 的 `OIDC_INPUT` 不含它）。是否补上，待用户决定。
+
+### 已上收的常驻文档
+
+- 生成项目：`template/backend/README.md`（数据库迁移、机器身份 scope）、`template/docs/operations/runbooks/grant-new-permissions.md`、`template/docs/standards/service-invocation.md`。
