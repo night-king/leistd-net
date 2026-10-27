@@ -21,8 +21,8 @@ services:
       - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:?IDENTITY_AUTHORITY is required for a Resource service}
       - Leistd__ServiceAuth__ClientId=${MIGRATOR_CLIENT_ID:?MIGRATOR_CLIENT_ID is required for a Resource service}
       - Leistd__ServiceAuth__ClientSecret=${MIGRATOR_CLIENT_SECRET:?MIGRATOR_CLIENT_SECRET is required for a Resource service}
-      # 迁移身份只授予迁移元数据 scope，不给运行时路由
-      - Leistd__ServiceClients__Identity__Scope=tenant-migration.read
+      # 迁移元数据枚举独立库；迁移后补齐租户 Admin 按正式路由进入租户，同 API 写授予一条路径，因此也要路由 scope
+      - Leistd__ServiceClients__Identity__Scope=tenant-migration.read tenant-routing.read
 #endif
 #if (LocalIdentity && IncludeMultiTenancy)
       # 独立库连接串在控制库里加密存储：迁移作业必须与 backend 共用同一个 Data Protection 密钥环（Redis），

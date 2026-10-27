@@ -71,7 +71,7 @@ dotnet user-secrets set "Authentication:ClientSecret" "<机密客户端密钥>" 
 <!--#endif-->
 
 <!--#if (IncludeMultiTenancy)-->
-租户路由、迁移作业与账户偏好的读取以机器身份回源同一个 Identity（开发配置的 `Leistd:ServiceAuth:Authority` 与 `Leistd:ServiceClients:Identity:BaseAddress` 同样指向 `http://localhost:4200/`，联调别处时一并覆盖）。在 Identity 登记一个 client credentials 机器客户端，授予 `tenant-routing.read`（运行时回源）、`account-preferences.read`（按用户读偏好）与 `tenant-migration.read`（`DbMigrator` 枚举独立库租户），把凭据写进 user-secrets，Api 与 `DbMigrator` 共用。本机可用一个客户端同时持有这些 scope，部署环境按 `../deploy/docker-compose.yml` 分开。迁移前先启动本机 Identity。
+租户路由、迁移作业与账户偏好的读取以机器身份回源同一个 Identity（开发配置的 `Leistd:ServiceAuth:Authority` 与 `Leistd:ServiceClients:Identity:BaseAddress` 同样指向 `http://localhost:4200/`，联调别处时一并覆盖）。在 Identity 登记一个 client credentials 机器客户端，授予 `tenant-routing.read`（运行时回源）、`account-preferences.read`（按用户读偏好）与 `tenant-migration.read`（`DbMigrator` 枚举独立库租户；它补齐租户 Admin 时按正式路由进入租户，因此同时要 `tenant-routing.read`），把凭据写进 user-secrets，Api 与 `DbMigrator` 共用。本机可用一个客户端同时持有这些 scope，部署环境按 `../deploy/docker-compose.yml` 分开。迁移前先启动本机 Identity。
 <!--#else-->
 账户偏好的读取以机器身份回源 Identity（开发配置的 `Leistd:ServiceAuth:Authority` 与 `Leistd:ServiceClients:Identity:BaseAddress` 指向 `http://localhost:4200/`，联调别处时一并覆盖）。在 Identity 登记一个 client credentials 机器客户端，授予 `account-preferences.read`，把凭据写进 user-secrets。
 <!--#endif-->
@@ -126,7 +126,7 @@ dotnet run --project src/CompanyName.ProjectName.Api
 
 迁移全部成功后，`DbMigrator` 给每个 Admin 角色补上所在侧别当前可用、却还没有的权限，没有待执行迁移时也照样检查，所以升级带来的新权限随发布自动到位。
 <!--#if (IncludeMultiTenancy)-->
-宿主 Admin 补宿主侧，各租户的 Admin 补租户侧，共享库与独立库都覆盖。
+宿主 Admin 补宿主侧，各租户的 Admin 补租户侧，共享库与独立库都覆盖。租户软删除不清理业务库，已删除租户残留的 Admin 角色计入跳过、不算失败；停用的租户照常补齐，重新启用时权限已经完整。
 <!--#endif-->
 预演列出各 Admin 将补授的权限；有待执行的迁移时，补齐在施加之后才算得准，预演不列。**Admin 只增不减**：从 Admin 撤掉的权限下次迁移会补回，要细分权限用自定义角色。已有授予不动；任一迁移目标失败时不补齐，进程以非零码退出。
 <!--#if (IncludeMultiTenancy)-->
