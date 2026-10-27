@@ -306,6 +306,12 @@ static void WriteTopUpReport(AdminGrantTopUpRunner.TopUpReport report, bool appl
         Console.WriteLine($"  FAILED {Scope(failure.TenantId)}: {failure.Reason}");
     }
 
+    if (report.SkippedTenants.Count > 0)
+    {
+        // 租户软删除不清理业务库：这些 Admin 行属于已删除的租户，不是失败
+        Console.WriteLine($"Skipped {report.SkippedTenants.Count} deleted or missing tenant(s): {string.Join(", ", report.SkippedTenants)}");
+    }
+
     var gaps = report.Admins.Where(admin => admin.Permissions.Count > 0).ToList();
     if (gaps.Count == 0)
     {

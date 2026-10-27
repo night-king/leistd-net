@@ -3,7 +3,7 @@
 `DbMigrator --apply` 每次施加迁移之后，给每个 Admin 角色补上所在侧别当前可用、却还没有的权限（如新版本的仪表盘 `App.Dashboard`）。按[部署说明](../../deploy/README.md)先迁移后发布，新权限随发布到位，不需要手工授予。命令与语义见[后端说明](../../../backend/README.md#数据库迁移)。
 <!--#if (IncludeMultiTenancy)-->
 
-宿主 Admin 补宿主侧，各租户的 Admin 补租户侧，共享库与独立库都覆盖。
+宿主 Admin 补宿主侧，各租户的 Admin 补租户侧，共享库与独立库都覆盖。已删除的租户不补：软删除不清理业务库，它们残留的 Admin 角色在输出里计入 `Skipped`，不算失败；停用的租户照常补齐。
 <!--#endif-->
 
 - **Admin 只增不减**：从 Admin 撤掉的权限下次迁移会补回。要给某些人收窄权限，建自定义角色并把他们移出 Admin。

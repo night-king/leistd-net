@@ -55,7 +55,7 @@ Identity 自身 API 的标识是 OAuth:Resource，同名登记为 scope，本服
 - 调用方为 service/confidential，client ID 是来源资源的 OwnerClientId（默认资源名，例如 orders-api），启用 Token Exchange grant、ept:token、aud:billing-api、scp:billing-api。subject 令牌必须面向 orders-api，但无需带 billing-api scope；目标权限取调用方应用的登记值。只接受单跳访问令牌，不支持 actor_token 和请求覆盖身份。
 - 机器调用启用 client credentials 与目标 scope，工作负载不混用用户授权流。
 <!--#if (IncludeMultiTenancy)-->
-- 租户回源授予 tenant-routing.read，迁移身份单独授予 tenant-migration.read。需要机器回源的交换客户端可同时启用 client credentials。
+- 租户回源授予 tenant-routing.read；迁移身份单独授予 tenant-migration.read，并因补齐租户 Admin 时按正式路由进入租户而同时授予 tenant-routing.read。需要机器回源的交换客户端可同时启用 client credentials。
 <!--#endif-->
 - 资源服务的客户端还要按用户读账户偏好与代表本人写偏好：启用 client credentials 并授予 account-preferences.read，同时启用 Token Exchange、ept:token、aud 与 scp 取 Identity 自身 API 的标识（OAuth:Resource）。
 

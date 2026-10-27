@@ -1036,6 +1036,37 @@ function Test-S11 {
     Assert-Value "resource-preference-invalid-code" "AppSetting:TimeZoneInvalid" $rejected.Data.code
 }
 
+# S12 资源服务迁移后补齐租户 Admin：用与 compose 相同 scope 的独立迁移身份跑全目标模式，
+# 按正式路由进入共享库与独立库租户；已删除租户残留的 Admin 角色计入跳过，作业照常成功
+function Test-S12 {
+    $doomed = New-Tenant "doomed-e2e"
+    foreach ($tenant in @($sharedTenant, $dedicatedTenant, $doomed)) {
+        $subject = (Read-TokenClaims (Get-TenantToken $tenant).Token).sub
+        Invoke-Tool "dotnet" @($services.orders.Migrator, "--grant-admin", $subject, "--tenant", $tenant.id, "--apply") `
+            "orders-tenant-admin-$($tenant.name)" -Variables $services.orders.Environment | Out-Null
+    }
+    Assert-Http "delete-tenant-$($doomed.name)" 204 ($urls.idp + "/api/v1/tenants/$($doomed.id)") -Method DELETE -Session $admin | Out-Null
+    # scope 取自生成项目的部署配置，部署配置退回旧值时本场景随之失败；开发配置须与之一致
+    $compose = Get-Content -LiteralPath (Join-Path $services.orders.Root "deploy/docker-compose.yml") -Raw
+    $section = [regex]::Match($compose, '(?ms)^  db-migrator:.*?(?=^  \S)').Value
+    $scope = [regex]::Match($section, 'Leistd__ServiceClients__Identity__Scope=(.+)').Groups[1].Value.Trim()
+    $development = Get-Content -LiteralPath (Join-Path $services.orders.Root "backend/src/E2E.Orders.DbMigrator/appsettings.Development.json") -Raw
+    $developmentScope = [regex]::Match($development, '"Scope":\s*"([^"]+)"').Groups[1].Value
+    Assert-Value "migrator-scope-dev-matches-deploy" (@($scope.Split(" ") | Sort-Object) -join " ") (@($developmentScope.Split(" ") | Sort-Object) -join " ")
+    $migrator = New-Application "orders-migrator" $scope.Split(" ")
+    $environment = $services.orders.Environment.Clone()
+    $environment.Leistd__ServiceAuth__ClientId = $migrator.clientId
+    $environment.Leistd__ServiceAuth__ClientSecret = $migrator.clientSecret
+    $environment.Leistd__ServiceClients__Identity__Scope = $scope
+    # 输出只有租户标识、权限名与连接指纹，不含连接串；失败时原文在日志文件里
+    $result = Invoke-Tool "dotnet" @($services.orders.Migrator, "--apply") "orders-migrate-topup" -Variables $environment -AllowFailure
+    Assert-Value "resource-topup-exit" 0 $result.ExitCode
+    Assert-Value "resource-topup-no-failure" $false ($result.Output -match "FAILED")
+    Assert-Value "resource-topup-skips-deleted" $true $result.Output.Contains("Skipped 1 deleted or missing tenant(s): $($doomed.id)")
+    $rerun = Invoke-Tool "dotnet" @($services.orders.Migrator, "--apply") "orders-migrate-topup-rerun" -Variables $environment
+    Assert-Value "resource-topup-rerun-complete" $true $rerun.Output.Contains("already hold every available permission")
+}
+
 function Invoke-Scenario([string]$Name, [scriptblock]$Action) {
     Write-Host "Running $Name"
     try {
@@ -1068,6 +1099,7 @@ try {
     Invoke-Scenario "S8" { Test-S8 }
     Invoke-Scenario "S10" { Test-S10 }
     Invoke-Scenario "S11" { Test-S11 }
+    Invoke-Scenario "S12" { Test-S12 }
     if ($IncludeExpiryWait) {
         Invoke-Scenario "exchange-expiry" {
             $expires = (Read-TokenClaims $delegatedExpiryToken).exp + 1

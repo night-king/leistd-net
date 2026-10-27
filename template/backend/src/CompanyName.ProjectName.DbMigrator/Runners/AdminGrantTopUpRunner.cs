@@ -23,12 +23,15 @@ namespace CompanyName.ProjectName.DbMigrator.Runners;
 /// <para>Admin 只增不减：从 Admin 撤掉的权限下次迁移会补回，要细分权限用自定义角色。已有授予不动。</para>
 /// <para>先逐个物理业务库（默认库与各独立库）读出未删除的 Admin 角色属于哪些租户，再逐个切到该租户、按正式路由写入，
 /// 与 API 写授予走同一条路径。与在线编辑的并发由授权版本保证（点操作冲突重试），不另加锁。</para>
+/// <para>租户软删除不清理业务库，残留的 Admin 行不代表还在用的租户：进入前先按连接登记判定租户是否存在，
+/// 已删除或不存在的计入跳过，不算失败。停用租户照常补齐，重新启用时权限已经完整。</para>
 /// <para>每个 Admin 一个工作单元；一个租户出错只记在它名下，其余照常补齐，作业以失败结束。</para>
 /// </remarks>
 public sealed class AdminGrantTopUpRunner(
     IConfiguration configuration,
 #if (IncludeMultiTenancy)
     ITenantMigrationTargetProvider targetProvider,
+    ITenantConnectionConfigurationStore connectionStore,
 #endif
     ICurrentTenant currentTenant,
     IAmbientContext ambientContext,
@@ -50,7 +53,11 @@ public sealed class AdminGrantTopUpRunner(
     /// <summary>全部 Admin 的补齐报告。</summary>
     /// <param name="Admins">检查过的 Admin，含不需要补的。</param>
     /// <param name="Failures">补齐失败的 Admin。</param>
-    public sealed record TopUpReport(IReadOnlyList<AdminTopUp> Admins, IReadOnlyList<FailedTopUp> Failures)
+    /// <param name="SkippedTenants">业务库里还有 Admin 行、但租户已删除或不存在的租户。</param>
+    public sealed record TopUpReport(
+        IReadOnlyList<AdminTopUp> Admins,
+        IReadOnlyList<FailedTopUp> Failures,
+        IReadOnlyList<Guid> SkippedTenants)
     {
         /// <summary>全部 Admin 都已检查或补齐。</summary>
         public bool Succeeded => Failures.Count == 0;
@@ -67,10 +74,19 @@ public sealed class AdminGrantTopUpRunner(
 
         var admins = new List<AdminTopUp>();
         var failures = new List<FailedTopUp>();
+        var skipped = new List<Guid>();
         foreach (var tenantId in await AdminTenantsAsync(cancellationToken))
         {
             try
             {
+#if (IncludeMultiTenancy)
+                if (tenantId is { } id && !await TenantExistsAsync(id, cancellationToken))
+                {
+                    skipped.Add(id);
+                    continue;
+                }
+
+#endif
                 admins.Add(await TopUpAsync(tenantId, apply, cancellationToken));
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -81,8 +97,21 @@ public sealed class AdminGrantTopUpRunner(
             }
         }
 
-        return new TopUpReport(admins, failures);
+        return new TopUpReport(admins, failures, skipped);
     }
+#if (IncludeMultiTenancy)
+
+    // 与运行时路由同一个判据：存储对已删除、不存在的租户返回 null，停用租户照常返回。
+    // 在宿主作用域、独立工作单元里读，不与随后进入租户的工作单元混用
+    private async Task<bool> TenantExistsAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        using var hostScope = currentTenant.Change(null);
+        using var uow = unitOfWorkManager.Begin(requiresNew: true);
+        var lookup = await connectionStore.FindAsync(tenantId, DatabaseMigrationRunner.BusinessConnectionStringName, cancellationToken);
+        await uow.CompleteAsync(cancellationToken);
+        return lookup is not null;
+    }
+#endif
 
     private async Task<AdminTopUp> TopUpAsync(Guid? tenantId, bool apply, CancellationToken cancellationToken)
     {

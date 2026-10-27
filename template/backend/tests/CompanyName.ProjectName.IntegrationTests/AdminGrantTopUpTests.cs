@@ -113,6 +113,38 @@ public sealed class AdminGrantTopUpTests
         }
     }
 
+    // 租户软删除不清理业务库：残留的 Admin 行计入跳过、不算失败，作业照常成功；停用租户照常补齐
+    [Fact]
+    public async Task Deleted_tenants_are_skipped_and_inactive_tenants_are_still_topped_up()
+    {
+        using var env = new CommandHost();
+        var deleted = await CreateTenantAsync(env.Host, "deleted" + Guid.NewGuid().ToString("N")[..8]);
+        var inactive = await CreateTenantAsync(env.Host, "inactive" + Guid.NewGuid().ToString("N")[..8]);
+        await RevokeFirstAsync(env.Host, deleted);
+        var revokedInactive = await RevokeFirstAsync(env.Host, inactive);
+        using (var hostAdmin = await ProjectWebApplicationFactory.LoginAsync(env.Host, "admin", ProjectWebApplicationFactory.TestAdminPassword))
+        {
+            using var deactivated = await hostAdmin.Client.PutAsJsonAsync($"/api/v1/tenants/{inactive}/activation", new { IsActive = false });
+            Assert.True(deactivated.IsSuccessStatusCode, await deactivated.Content.ReadAsStringAsync());
+            using var removed = await hostAdmin.Client.DeleteAsync($"/api/v1/tenants/{deleted}");
+            Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
+        }
+        Assert.Equal(1, await ScalarAsync(env.Connection,
+            $"SELECT count(*) FROM {Schema}.\"Roles\" WHERE \"TenantId\" = '{deleted}' AND \"Name\" = '{AdminConstant.RoleName}' AND NOT \"IsDeleted\""));
+
+        var preview = await RunAsync(env);
+        Assert.True(preview.Exit == 0, preview.Output);
+        Assert.Contains($"Skipped 1 deleted or missing tenant(s): {deleted}", preview.Output);
+
+        var applied = await RunAsync(env, "--apply");
+        Assert.True(applied.Exit == 0, applied.Output);
+        Assert.DoesNotContain("FAILED", applied.Output);
+        Assert.Contains($"Skipped 1 deleted or missing tenant(s): {deleted}", applied.Output);
+        Assert.Contains($"tenant {inactive}: granted", applied.Output);
+        Assert.Contains(revokedInactive, applied.Output);
+        Assert.Empty(await MissingAsync(env.Host, inactive));
+    }
+
     private static async Task<Guid> CreateTenantAsync(WebApplicationFactory<Program> host, string name, string? dedicatedConnection = null)
     {
         using var hostAdmin = await ProjectWebApplicationFactory.LoginAsync(host, "admin", ProjectWebApplicationFactory.TestAdminPassword);
