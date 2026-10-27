@@ -206,7 +206,8 @@ internal sealed class IdentityAccountPreferenceCache(
                     Invalidate(entry, generation, rejection);
                     throw rejection;
                 }
-                case >= HttpStatusCode.InternalServerError:
+                // 与 5xx 同属暂时性上游故障：网关超时、限流（读取管道已重试过）
+                case HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError:
                     return UseStale(entry, generation, previous, await response.CreateRemoteErrorAsync(cancellationToken));
                 default:
                     throw await response.CreateRemoteErrorAsync(cancellationToken);

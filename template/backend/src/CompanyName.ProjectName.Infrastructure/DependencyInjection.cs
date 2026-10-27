@@ -35,6 +35,7 @@ using CompanyName.ProjectName.Infrastructure.AccountPreferences;
 using Leistd.ServiceClient.OAuth;
 using Leistd.ServiceClient.OAuth.Options;
 using Leistd.ServiceClient.Refit;
+using Microsoft.Extensions.Http.Resilience;
 #endif
 #if (RemoteTokenAuth && !LocalIdentity)
 using Microsoft.Extensions.Options;
@@ -330,7 +331,7 @@ public static class DependencyInjection
     /// <remarks>
     /// 两个命名客户端共用 <c>Leistd:ServiceClients:Identity</c> 的地址：读取的 scope 与租户回源同节，
     /// 写入的 Audience 与 Scope 在其下的 <c>TokenExchange</c>。每个命名客户端只挂一种认证。
-    /// 写入不加重试：交给调用方决定，失败时前端提示未能确认保存，由下次读取对齐。
+    /// 两个都挂标准弹性管道，取得超时与熔断；写入关掉重试，不重放 PATCH，失败时前端提示未能确认保存，由下次读取对齐。
     /// </remarks>
     private static void AddIdentityAccountPreferences(IServiceCollection services, IConfiguration configuration)
     {
@@ -348,6 +349,8 @@ public static class DependencyInjection
             "IdentityAccountPreferences", configSectionPath: identitySection);
         var write = services.AddRefitServiceClient<IIdentityAccountPreferencesWriteApi, IdentityAccountPreferencesWriteClientOptions>(
             "IdentityAccountPreferencesUser", configSectionPath: identitySection);
+        // 先挂、在外层：时限要包住 Token Exchange 取令牌，Identity 卡在签发阶段也按超时结束
+        write.AddStandardResilienceHandler(options => options.Retry.DisableForUnsafeHttpMethods());
         // 工作负载身份与租户回源共用一份（重复注册幂等）；测试宿主不配置时不挂认证处理器
         if (HasServiceAuthentication(configuration))
         {

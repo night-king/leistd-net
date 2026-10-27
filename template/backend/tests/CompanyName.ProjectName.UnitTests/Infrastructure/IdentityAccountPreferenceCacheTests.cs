@@ -70,6 +70,20 @@ public sealed class IdentityAccountPreferenceCacheTests
         Assert.Equal("dark", Theme(await cache.ReadForegroundAsync(Key, default)));
     }
 
+    // 网关超时、限流与 5xx 同属暂时性故障，同样回落旧值
+    [Theory]
+    [InlineData(HttpStatusCode.RequestTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task A_timeout_or_throttling_answer_falls_back_to_the_earlier_representation(HttpStatusCode status)
+    {
+        var cache = CreateCache();
+        _api.Respond(_ => Ok("dark", "\"v1\""));
+        _api.Respond(_ => Status(status));
+        await cache.ReadServerAsync(Key, default);
+
+        Assert.Equal("dark", Theme(await cache.ReadForegroundAsync(Key, default)));
+    }
+
     // 没有旧表示时不拿本地默认值冒充：暂时读不到
     [Fact]
     public async Task An_upstream_failure_without_an_earlier_representation_is_unknown()

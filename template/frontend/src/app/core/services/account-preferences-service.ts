@@ -159,6 +159,11 @@ export class AccountPreferencesService {
         }
         return { status: 'saved' };
       } catch (error: unknown) {
+        // 失败回来时主体已经离开：提示不能落到下一个人的界面上
+        if (session !== this.session) {
+          return { status: 'discarded' };
+        }
+
         return isUnconfirmed(error)
           ? { status: 'unconfirmed', error }
           : { status: 'rejected', error };

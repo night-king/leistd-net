@@ -1,6 +1,7 @@
 #if (RemoteTokenAuth)
 using System.Net;
 using System.Text.Json.Nodes;
+using CompanyName.ProjectName.Domain.Users.Abstractions;
 using CompanyName.ProjectName.Infrastructure.AccountPreferences;
 using Leistd.ServiceClient.Exceptions;
 using Microsoft.Extensions.DependencyInjection;
@@ -73,18 +74,31 @@ public sealed class IdentityAccountPreferencesTests
         Assert.Equal((int)status, error.RemoteStatusCode);
     }
 
-    private static (IdentityAccountPreferences Port, IdentityAccountPreferenceCache Cache) Create(Func<JsonObject, Task<HttpResponseMessage>> respond)
+    // 机器身份被拒（漏授 scope、密钥轮换）：/me 照常返回、偏好按暂时读不到；给收件人产出文本的服务端读取仍然失败
+    [Fact]
+    public async Task A_machine_rejection_leaves_only_the_current_users_preferences_unknown()
+    {
+        var (port, _) = Create(_ => throw new InvalidOperationException("No write expected."),
+            new FixedReadApi(() => Response(HttpStatusCode.Forbidden, """{"status":403}""")));
+
+        Assert.Null(await port.ReadAsync(null, UserId, AccountPreferenceReadMode.CurrentUser));
+        await Assert.ThrowsAsync<RemoteServiceException>(() => port.ReadAsync(null, UserId, AccountPreferenceReadMode.Server));
+    }
+
+    private static (IdentityAccountPreferences Port, IdentityAccountPreferenceCache Cache) Create(
+        Func<JsonObject, Task<HttpResponseMessage>> respond,
+        IIdentityAccountPreferencesReadApi? readApi = null)
     {
         var services = new ServiceCollection();
         services.AddOptions<AccountPreferencesClientOptions>();
-        services.AddSingleton<IIdentityAccountPreferencesReadApi>(new UnusedReadApi());
+        services.AddSingleton(readApi ?? new UnusedReadApi());
         var provider = services.BuildServiceProvider();
         var cache = new IdentityAccountPreferenceCache(
             provider.GetRequiredService<IServiceScopeFactory>(),
             provider.GetRequiredService<IOptionsMonitor<AccountPreferencesClientOptions>>(),
             TimeProvider.System,
             NullLogger<IdentityAccountPreferenceCache>.Instance);
-        return (new IdentityAccountPreferences(new RecordingWriteApi(respond), cache), cache);
+        return (new IdentityAccountPreferences(new RecordingWriteApi(respond), cache, NullLogger<IdentityAccountPreferences>.Instance), cache);
     }
 
     private static Task<HttpResponseMessage> Response(HttpStatusCode status, string json, string? etag = null)
@@ -102,6 +116,12 @@ public sealed class IdentityAccountPreferencesTests
     {
         public Task<HttpResponseMessage> PatchAsync(JsonObject body, string? acceptLanguage, CancellationToken cancellationToken = default)
             => respond(body);
+    }
+
+    private sealed class FixedReadApi(Func<Task<HttpResponseMessage>> respond) : IIdentityAccountPreferencesReadApi
+    {
+        public Task<HttpResponseMessage> GetAsync(string tenant, Guid userId, string? ifNoneMatch, CancellationToken cancellationToken = default)
+            => respond();
     }
 
     private sealed class UnusedReadApi : IIdentityAccountPreferencesReadApi

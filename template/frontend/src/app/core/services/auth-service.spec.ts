@@ -56,6 +56,16 @@ describe('AuthService', () => {
     await expect(initialization).rejects.toThrow();
   });
 
+  // 会话中途的重查：401 交给拦截器清会话并转去登录
+  it('lets a mid-session re-read reach the interceptor on 401', () => {
+    const subscription = service.fetchUser(false).subscribe({ error: () => undefined });
+    const request = httpTesting.expectOne('/api/v1/auth/me');
+
+    expect(request.request.context.get(SILENT_AUTH)).toBe(false);
+    request.flush(null, { status: 401, statusText: 'Unauthorized' });
+    subscription.unsubscribe();
+  });
+
   it('propagates startup probe failures so callers can distinguish outages from 401', async () => {
     const initialization = service.initializeAuth();
     httpTesting

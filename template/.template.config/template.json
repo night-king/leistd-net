@@ -601,6 +601,7 @@
             "backend/tests/CompanyName.ProjectName.IntegrationTests/ResourceAccountPreferencesTests.cs",
             "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/IdentityAccountPreferenceCacheTests.cs",
             "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/IdentityAccountPreferencesTests.cs",
+            "backend/tests/CompanyName.ProjectName.UnitTests/Infrastructure/IdentityAccountPreferencesWritePipelineTests.cs",
             "backend/src/CompanyName.ProjectName.Application/Users/Dtos/CurrentResourceUserOutputDto.cs",
             "backend/src/CompanyName.ProjectName.DbMigrator/Runners/ResourceAdminBootstrap*.cs",
             "backend/src/CompanyName.ProjectName.Api/HealthChecks/RemoteIdentityReadinessHealthCheck.cs",

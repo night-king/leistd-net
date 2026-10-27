@@ -19,7 +19,6 @@ export class AuthorizationService {
   private readonly _permissions = signal<ReadonlySet<string>>(new Set<string>());
   private readonly _isSuperAdmin = signal(false);
   private readonly _versionToken = signal('');
-  private _revision = 0;
 
   /** 授权版本。变化即表示权限已被改动，页面应重新拉取受影响数据。 */
   readonly versionToken = this._versionToken.asReadonly();
@@ -37,16 +36,13 @@ export class AuthorizationService {
   }
 
   load(): Observable<CurrentPermissionsOutputDto> {
-    return this.fetch().pipe(tap((result) => this.setPermissions(result)));
-  }
-
-  /** 只取不应用：调用方确认主体没变之后再 {@link setPermissions}（见 `SessionContextService.revalidate`）。 */
-  fetch(): Observable<CurrentPermissionsOutputDto> {
     // 与 /me 一样标记静默认证：未登录时的 401 由 Guard 与启动流各自处理，
     // 不触发拦截器的全局跳转，避免覆盖 returnUrl。
-    return this.http.get<CurrentPermissionsOutputDto>('/api/v1/permissions/current', {
-      context: new HttpContext().set(SILENT_AUTH, true),
-    });
+    return this.http
+      .get<CurrentPermissionsOutputDto>('/api/v1/permissions/current', {
+        context: new HttpContext().set(SILENT_AUTH, true),
+      })
+      .pipe(tap((result) => this.setPermissions(result)));
   }
 
   /** 授权变更后刷新。失败时保持原有权限，由调用方提示重试。 */
@@ -54,20 +50,13 @@ export class AuthorizationService {
     return this.load();
   }
 
-  /** 权限每写入或清空一次加一：后台读取据此判断发出之后是否已有更新的写入（见 `SessionContextService.revalidate`）。 */
-  get revision(): number {
-    return this._revision;
-  }
-
   setPermissions(result: CurrentPermissionsOutputDto): void {
-    this._revision++;
     this._permissions.set(new Set(result.permissions));
     this._isSuperAdmin.set(result.isSuperAdmin);
     this._versionToken.set(result.versionToken);
   }
 
   clear(): void {
-    this._revision++;
     this._permissions.set(new Set<string>());
     this._isSuperAdmin.set(false);
     this._versionToken.set('');

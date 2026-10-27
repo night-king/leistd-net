@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using CompanyName.ProjectName.Domain.Users.Abstractions;
 using Leistd.ServiceClient.Exceptions;
 using Leistd.ServiceClient.Http;
+using Microsoft.Extensions.Logging;
 
 namespace CompanyName.ProjectName.Infrastructure.AccountPreferences;
 
@@ -14,23 +15,38 @@ namespace CompanyName.ProjectName.Infrastructure.AccountPreferences;
 /// <para>写入的失败归类：Identity 明确的业务拒绝（带错误码的 400/403/404/409）原样交还调用方：同码、同状态，说明取 Identity 按用户语言给出的
 /// <c>detail</c>（本服务有同码词条时按本地词条）。其余失败——包括不带错误码的 401/403、取令牌被拒、连接失败与超时——一律按依赖故障处理，
 /// 不转本地 401：现有信号分不清用户凭证失效与交换配置错误，转成 401 会让会话有效的用户被前端登出。本服务自身的认证失败照常由认证中间件返回 401。</para>
+/// <para>当前用户读取（<c>/me</c>）遇依赖故障时按暂时读不到返回 <see langword="null"/>：偏好是展示数据，漏授 scope、密钥轮换这类配置错误
+/// 不能让所有人进不了站，故障记 Error 供运维发现。服务端读取（给收件人产出文本）照常抛出，不悄悄换成默认语言。</para>
 /// </remarks>
 /// <param name="writeApi">写入客户端（Token Exchange）。</param>
 /// <param name="cache">读取缓存；写入成功后换成 Identity 返回的新表示。</param>
+/// <param name="logger">日志。</param>
 internal sealed class IdentityAccountPreferences(
     IIdentityAccountPreferencesWriteApi writeApi,
-    IdentityAccountPreferenceCache cache) : IIdentityAccountPreferences
+    IdentityAccountPreferenceCache cache,
+    ILogger<IdentityAccountPreferences> logger) : IIdentityAccountPreferences
 {
-    public Task<AccountPreferenceSnapshot?> ReadAsync(
+    public async Task<AccountPreferenceSnapshot?> ReadAsync(
         Guid? tenantId,
         Guid userId,
         AccountPreferenceReadMode mode,
         CancellationToken cancellationToken = default)
     {
         var key = new AccountPreferenceCacheKey(tenantId, userId);
-        return mode == AccountPreferenceReadMode.CurrentUser
-            ? cache.ReadForegroundAsync(key, cancellationToken)
-            : cache.ReadServerAsync(key, cancellationToken);
+        if (mode != AccountPreferenceReadMode.CurrentUser)
+        {
+            return await cache.ReadServerAsync(key, cancellationToken);
+        }
+
+        try
+        {
+            return await cache.ReadForegroundAsync(key, cancellationToken);
+        }
+        catch (Exception exception) when (exception is RemoteServiceException or ServiceClientException)
+        {
+            logger.LogError(exception, "Reading the current user's account preferences from Identity failed; they are unknown for this request");
+            return null;
+        }
     }
 
     public async Task<AccountPreferenceSnapshot> WriteForCurrentUserAsync(

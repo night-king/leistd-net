@@ -99,12 +99,14 @@ export class AuthService {
     return this._lastReadPreferences;
   }
 
-  /** 只取不应用：调用方确认主体没变之后再 {@link setCurrentUser}（见 `SessionContextService.revalidate`）。 */
-  fetchUser(): Observable<UserOutputDto> {
-    // 标记为静默认证：/me 探测的 401 由 Guard（负责 returnUrl）与登录流各自本地处理，
-    // 不触发 HTTP 拦截器的全局跳转，避免启动阶段覆盖 Guard 的 returnUrl。
+  /**
+   * 只取不应用：调用方确认主体没变之后再 {@link setCurrentUser}（见 `SessionContextService.revalidate`）。
+   * @param silent 默认静默：启动与登录流里 /me 探测的 401 由 Guard（负责 returnUrl）与登录流各自本地处理，
+   * 不触发 HTTP 拦截器的全局跳转。会话中途的重查传 `false`，401 由拦截器清会话并转去登录。
+   */
+  fetchUser(silent = true): Observable<UserOutputDto> {
     return this.http.get<UserOutputDto>('/api/v1/auth/me', {
-      context: new HttpContext().set(SILENT_AUTH, true),
+      context: new HttpContext().set(SILENT_AUTH, silent),
     });
   }
 

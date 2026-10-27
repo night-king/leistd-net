@@ -1638,4 +1638,49 @@ describe('SettingSection account preferences', () => {
       /preferences\.saveUnconfirmed|Couldn't confirm the change was saved/,
     );
   });
+
+  // 排着队的偏好写入在操作当下就记下主体：组件销毁、主体离开后，排在后面的一项不能以下一个人的会话发出
+  it('does not send a queued preference write after the subject left', async () => {
+    const fixture = await render(
+      [
+        timeZone({ userValue: 'UTC' }),
+        row({ name: 'Display.Theme', group: 'Display', defaultValue: null, userValue: 'dark' }),
+      ],
+      [],
+    );
+    const host = fixture.nativeElement as HTMLElement;
+    const http = TestBed.inject(HttpTestingController);
+
+    (host.querySelector('[data-testid="setting-reset-Display.TimeZone"]') as HTMLElement).click();
+    (host.querySelector('[data-testid="setting-reset-Display.Theme"]') as HTMLElement).click();
+    const first = await vi.waitFor(() => http.expectOne('/api/v1/auth/me/preferences'));
+    fixture.destroy();
+    void TestBed.inject(AccountPreferencesService).clear();
+    first.flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await new Promise((resolve) => setTimeout(resolve));
+
+    http.expectNone('/api/v1/auth/me/preferences');
+  });
+
+  // 写入回来时主体已经离开（discarded）：不是"已保存"，也不报错，保存中退回常态
+  it('neither confirms nor fails a preference write discarded after the subject left', async () => {
+    const fixture = await render([timeZone({ userValue: 'UTC' })], []);
+    const host = fixture.nativeElement as HTMLElement;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+
+    vi.spyOn(TestBed.inject(AccountPreferencesService), 'write').mockResolvedValue({
+      status: 'discarded',
+    });
+    const reset = host.querySelector<HTMLElement>(
+      '[data-testid="setting-reset-Display.TimeZone"]',
+    )!;
+    const field = reset.closest('hlm-field')!;
+
+    reset.click();
+    await vi.advanceTimersByTimeAsync(400);
+    fixture.detectChanges();
+
+    expect(field.querySelector('[role="status"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
 });
