@@ -657,21 +657,31 @@ jobs:
         with:
           node-version: '24'
 
-      - name: 准备升级闸门的候选 Framework 包与 Chromium
+      - name: 准备升级闸门的候选 Framework 包
         if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''
         shell: pwsh
         run: |
           pwsh framework/build/pack-local-feed.ps1 -VersionSuffix 'ci.${{ github.run_id }}.${{ github.run_attempt }}'
           if ($LASTEXITCODE -ne 0) { throw '候选 Framework 包打包失败' }
-          # 前端单测跑在 Playwright 的 Chromium 里；版本取生成项目的锁文件（模板锁文件含条件行，不是合法 JSON），与实际安装的一致
-          dotnet new install ./template --debug:custom-hive .tmp/browser-tools-hive --force
-          if ($LASTEXITCODE -ne 0) { throw '浏览器工具模板安装失败' }
-          dotnet new fullstack-app -n Ci.Tools -o .tmp/browser-tools --debug:custom-hive .tmp/browser-tools-hive
-          if ($LASTEXITCODE -ne 0) { throw '浏览器工具依赖生成失败' }
-          $version = (Get-Content .tmp/browser-tools/frontend/package-lock.json -Raw | ConvertFrom-Json -AsHashTable).packages['node_modules/playwright'].version
-          if (-not $version) { throw '模板锁文件里没有 playwright' }
-          npx --yes "playwright@$version" install --with-deps chromium
-          if ($LASTEXITCODE -ne 0) { throw 'Chromium 安装失败' }
+
+      # 前端单测跑在 Playwright 的 Chromium 里；版本取模板锁文件，系统依赖安装包按 runner 镜像与版本缓存（见脚本说明）
+      - name: 读取 Playwright 版本（升级闸门）
+        id: playwright
+        if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''
+        shell: pwsh
+        run: pwsh scripts/install-test-chromium.ps1 -VersionOnly
+
+      - name: 恢复 Chromium 系统依赖安装包缓存（升级闸门）
+        if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/playwright-apt
+          key: ${{ steps.playwright.outputs.cache-key }}
+
+      - name: 安装 Chromium（升级闸门）
+        if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''
+        shell: pwsh
+        run: pwsh scripts/install-test-chromium.ps1 -AptCachePath ~/.cache/playwright-apt
 
       - name: 模板升级闸门
         if: steps.tver.outputs.publish == 'true' && steps.tver.outputs.lastTag != ''

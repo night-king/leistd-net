@@ -175,18 +175,23 @@ jobs:
           cache-dependency-path: |
             template/frontend/package-lock.json
             template/.template.config/localization/frontend/package-lock.json
-      # 前端单测跑在 Playwright 的 Chromium 里；版本取模板锁文件，与生成项目实际安装的一致
+      # 前端单测跑在 Playwright 的 Chromium 里；版本取模板锁文件，与生成项目实际安装的一致。
+      # 系统依赖的 .deb 按 runner 镜像与 Playwright 版本缓存：慢的是 apt 镜像下载，浏览器本体不缓存（见脚本说明）
+      - name: 读取 Playwright 版本
+        id: playwright
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Mode != 'backend'
+        shell: pwsh
+        run: pwsh scripts/install-test-chromium.ps1 -VersionOnly
+      - name: 恢复 Chromium 系统依赖安装包缓存
+        if: fromJSON(needs.quality-plan.outputs.validation_plan).Mode != 'backend'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/playwright-apt
+          key: ${{ steps.playwright.outputs.cache-key }}
       - name: 安装单测用的 Chromium
         if: fromJSON(needs.quality-plan.outputs.validation_plan).Mode != 'backend'
         shell: pwsh
-        run: |
-          dotnet new install ./template --debug:custom-hive .tmp/browser-tools-hive --force
-          if ($LASTEXITCODE -ne 0) { throw '浏览器工具模板安装失败' }
-          dotnet new fullstack-app -n Ci.Tools -o .tmp/browser-tools --debug:custom-hive .tmp/browser-tools-hive
-          if ($LASTEXITCODE -ne 0) { throw '浏览器工具依赖生成失败' }
-          $version = (Get-Content .tmp/browser-tools/frontend/package-lock.json -Raw | ConvertFrom-Json -AsHashTable).packages['node_modules/playwright'].version
-          if (-not $version) { throw '模板锁文件里没有 playwright' }
-          npx --yes "playwright@$version" install --with-deps chromium
+        run: pwsh scripts/install-test-chromium.ps1 -AptCachePath ~/.cache/playwright-apt
       - name: 下载同一候选 Framework 包
         uses: actions/download-artifact@v8
         with:
