@@ -93,7 +93,7 @@ export class SessionContextService {
     const userRevision = this.authService.revision;
     // 偏好另有自己的号：期间写入成功或主体离开，迟到的 /me 不盖掉写入结果
     const preferenceTicket = this.preferences.beginRead();
-    this.revalidating = firstValueFrom(this.authService.fetchUser(false))
+    const current: Promise<void> = firstValueFrom(this.authService.fetchUser(false))
       .then((user) => {
         if (this.authService.revision === userRevision) {
           this.authService.setCurrentUser(user);
@@ -102,13 +102,19 @@ export class SessionContextService {
       })
       .catch(() => undefined)
       .then(() => {
-        this.revalidating = undefined;
+        // 主体离开后下一个人可能已另起一次，上一个人那次结束时不能把它放掉
+        if (this.revalidating === current) {
+          this.revalidating = undefined;
+        }
       });
-    return this.revalidating;
+    this.revalidating = current;
+    return current;
   }
 
   /** 主体离开：认证数据、权限、设置一起清掉。`logout()` 例外：之后整页跳转，内存状态随页面重建。 */
   clear(): void {
+    // 在途合并只在同一主体内：上一个人的重查迟到不应用，下一个人的可见事件要另起一次
+    this.revalidating = undefined;
     this.authService.clearAuthData();
     this.authorizationService.clear();
     this.settingContext.clear();

@@ -372,6 +372,37 @@ describe('SessionContextService', () => {
       expect(preferences.known()).toBe(false);
     });
 
+    // 在途合并只在同一主体内：换人后下一个人的重查另起，上一个人那次迟到结束也不放掉它
+    it('starts a fresh round for the next subject while the previous one is still in flight', async () => {
+      const previous = new Subject<UserOutputDto>();
+      const next = new Subject<UserOutputDto>();
+      authService.fetchUser.mockReturnValueOnce(previous).mockReturnValueOnce(next);
+
+      becomeVisible();
+      service.clear();
+      becomeVisible();
+
+      expect(authService.fetchUser).toHaveBeenCalledTimes(2);
+
+      previous.next(userWith(readOf({ timeZone: 'Asia/Tokyo' })));
+      previous.complete();
+      await new Promise((resolve) => setTimeout(resolve));
+      becomeVisible();
+
+      expect(authService.fetchUser).toHaveBeenCalledTimes(2);
+      expect(authService.setCurrentUser).not.toHaveBeenCalled();
+
+      next.next({ username: 'next', ...readOf({ timeZone: 'Europe/Paris' }) } as UserOutputDto);
+      next.complete();
+      await service.revalidate();
+
+      expect(authService.setCurrentUser).toHaveBeenCalledOnce();
+      expect(authService.setCurrentUser).toHaveBeenLastCalledWith(
+        expect.objectContaining({ username: 'next' }),
+      );
+      expect(preferences.timeZone()).toBe('Europe/Paris');
+    });
+
     // 重查途中本人保存了资料：迟到的旧 /me 不能把新资料盖回去
     it('keeps a profile saved while the re-read was in flight', async () => {
       const user = new Subject<UserOutputDto>();
