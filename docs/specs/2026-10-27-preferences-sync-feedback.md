@@ -1,6 +1,6 @@
 # 账户偏好跨服务同步的适配反馈（下游反馈）
 
-状态：进行中 · 风险档：中（框架 UnitOfWork 日志语义、模板前后端行为） · 关联：待开 PR
+状态：已完成 · 风险档：中（框架 UnitOfWork 日志语义、模板前后端行为） · 关联：[#196](https://github.com/zengqinglei/leistd-net/pull/196)
 
 ## 1. 需求
 
@@ -61,4 +61,30 @@
 
 ## 4. 结果
 
-（实施后补写）
+### 实际交付
+
+- [#196](https://github.com/zengqinglei/leistd-net/pull/196)，合并提交 `a7d1d285`，develop 发布 `v1.3.0-beta.60`（本次改动 `Leistd.UnitOfWork.Core`）。
+
+### 与计划的偏差
+
+- Codex 首轮实施审查：
+  - R1：写入管道注册在 Token Exchange 之后，处在内层，取令牌不受时限约束。改为先注册（在外层），并补了取令牌挂起的测试。
+  - F1：设置区队列轮到时才调用 `preferences.write()`，期间换人会以下一个人的会话发出上一个人的意图。与 K9 同类，一并修复（见 §1 表"审查-F1"）。
+  - 复审通过。复审还用真实 OpenIddict 令牌端点挂起的探针确认了超时生效。
+- PR 首轮 CI 失败：新增的写入管道测试整个文件包在 `#if` 里，没有在 `template.json` 登记排除，非资源服务形态生成了空文件。补登记后重跑通过。
+
+### 验收记录
+
+- UnitOfWork 121、OperationRecords 253 全部通过；新增日志测试在修复前失败。
+- 资源服务场景偏好单测 27 项全部通过；5 处修复逐一变异，每次都有对应测试失败。
+- 前端受影响的 6 个 spec 文件全部通过；撤掉修复时新用例失败；prettier、eslint、tsc 通过。
+- PR CI 全部通过（第二轮）；`check-all.ps1` 50 道静态闸门通过。
+
+### 遗留项
+
+- 无。
+
+### 已上收的常驻文档
+
+- 框架：`framework/docs/components/unit-of-work.md`。
+- 生成项目：`template/docs/standards/service-invocation.md`、`settings.md`、`auth.md`、`template/docs/deploy/README.md`、`template/deploy/.env.example`。
