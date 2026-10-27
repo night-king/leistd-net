@@ -9,7 +9,7 @@ using Xunit;
 
 namespace Leistd.UnitOfWork.Tests.Core;
 
-/// <summary>日志级别区分"真正的提交失败"与"调用方取消、正常回滚"。</summary>
+/// <summary>日志级别区分"真正的提交失败"与"调用方取消、交给调用方的保存失败、正常回滚"。</summary>
 /// <remarks>
 /// 浏览器主动中断请求、每一次业务拒绝引起的回滚若分别记成 Error 与 Warning，
 /// 真正需要被看见的提交失败就淹没在里面。
@@ -103,6 +103,41 @@ public sealed class UnitOfWorkLoggingTests
             record.Level == LogLevel.Error && record.Message.Contains("commit failed", StringComparison.Ordinal));
     }
 
+    /// <summary>提交开始之前保存失败（如并发冲突、唯一约束）：事务型什么都没提交，异常交给调用方，只记 Debug。</summary>
+    /// <remarks>调用方可能预期并处理这类冲突（如并发首访重试一次）；未处理的由最终的全局异常处理记 Error，这里再记一次只会多一条假故障。</remarks>
+    [Fact]
+    public async Task A_save_failure_before_commit_is_left_to_the_caller()
+    {
+        var (provider, logs) = Build();
+        await using var _ = provider;
+        var uow = provider.GetRequiredService<IUnitOfWorkManager>().Begin();
+        uow.AddDatabaseApi("db", new FailingSaveDatabaseApi(new InvalidOperationException("duplicate key")));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => uow.CompleteAsync());
+        uow.Dispose();
+
+        Assert.DoesNotContain(logs.GetSnapshot(), record => record.Level >= LogLevel.Warning);
+        Assert.Contains(logs.GetSnapshot(), record =>
+            record.Level == LogLevel.Debug && record.Message.Contains("nothing was committed", StringComparison.Ordinal));
+    }
+
+    /// <summary>非事务工作单元保存失败：此前已保存的部分不会回滚，记 Warning。</summary>
+    [Fact]
+    public async Task A_save_failure_of_a_non_transactional_unit_of_work_is_a_warning()
+    {
+        var (provider, logs) = Build();
+        await using var _ = provider;
+        var uow = provider.GetRequiredService<IUnitOfWorkManager>().Begin(new UnitOfWorkOptions { IsTransactional = false });
+        uow.AddDatabaseApi("db", new FailingSaveDatabaseApi(new InvalidOperationException("duplicate key")));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => uow.CompleteAsync());
+        uow.Dispose();
+
+        Assert.DoesNotContain(logs.GetSnapshot(), record => record.Level >= LogLevel.Error);
+        Assert.Contains(logs.GetSnapshot(), record =>
+            record.Level == LogLevel.Warning && record.Message.Contains("not rolled back", StringComparison.Ordinal));
+    }
+
     /// <summary>回滚是结果不是原因：每一次业务拒绝都会回滚，只记 Debug。</summary>
     [Fact]
     public async Task A_rollback_is_logged_at_debug()
@@ -147,6 +182,11 @@ public sealed class UnitOfWorkLoggingTests
     {
         public Task SaveChangesAsync(CancellationToken cancellationToken = default)
             => Task.FromCanceled(cancellationToken);
+    }
+
+    private sealed class FailingSaveDatabaseApi(Exception exception) : IDatabaseApi, ISupportsSavingChanges
+    {
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromException(exception);
     }
 
     private sealed class FailingCommitTransactionApi(Exception exception) : ITransactionApi

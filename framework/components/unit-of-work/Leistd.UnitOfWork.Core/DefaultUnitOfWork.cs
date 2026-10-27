@@ -207,9 +207,21 @@ public class DefaultUnitOfWork : IUnitOfWork
             {
                 _logger?.LogError(ex, "Unit of work {UowId} committed, but after-commit processing failed", Id);
             }
-            else
+            else if (commitStarted)
             {
                 _logger?.LogError(ex, "Unit of work {UowId} commit failed", Id);
+            }
+            else if (Options.IsTransactional)
+            {
+                // 提交前的保存失败（并发冲突、唯一约束等）可能是调用方预期并会处理的竞争；
+                // 没人处理时由最终的全局异常处理记 Error，这里再记就是重复或假故障
+                _logger?.LogDebug(ex, "Unit of work {UowId} failed before commit; nothing was committed", Id);
+            }
+            else
+            {
+                _logger?.LogWarning(ex,
+                    "Unit of work {UowId} failed; any changes already saved by this non-transactional unit of work are not rolled back",
+                    Id);
             }
             throw;
         }
