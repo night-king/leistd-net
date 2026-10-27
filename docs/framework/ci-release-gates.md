@@ -104,8 +104,8 @@ PR 墙钟中位 ≤ 510 秒、各路径总交付成本中位低于基线的目�
 
 PostgreSQL/OIDC 的登记路径在计划器里，PR 只在命中时运行，否则计划记为不适用，由放行前的 full 承担：
 
-- `POSTGRESQL_INPUT`：持久化、迁移、租户、DbMigrator、DataProtection 与 data、multi-tenancy、unit-of-work、DDD Infrastructure 家族，以及各家族的 `*.EntityFrameworkCore` 项目；
-- `OIDC_INPUT`：认证、令牌、Connect、OpenIddict、开放应用、Security、会话、服务调用与租户，以及 authorization、security、service-client、multi-tenancy 家族。
+- `POSTGRESQL_INPUT`：持久化、迁移、租户、DbMigrator、DataProtection 与 data、multi-tenancy、unit-of-work、DDD Infrastructure 家族，以及各家族的 `*.EntityFrameworkCore` 项目，加端到端脚本本身；
+- `OIDC_INPUT`：认证、令牌、Connect、OpenIddict、开放应用、Security、会话、服务调用、租户与 DbMigrator，以及 authorization、security、service-client、multi-tenancy 家族，加端到端脚本本身与它读取迁移身份 scope 的部署 compose。
 
 包内容的输入闭包不含模板源码，已证明仅改模板前端或后端时不重复核对基线已验证的包内容；候选 Framework 仍重新打包，供场景与端到端从同一候选 feed 消费。随包文档同改时取责任并集，保留包内容验证。
 
