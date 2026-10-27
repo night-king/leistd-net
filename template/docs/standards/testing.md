@@ -93,6 +93,10 @@ backend/tests/
 
 集成测试跑在真实 PostgreSQL 上，需要本机 Docker：`PostgreSqlTestDatabase` 每次运行起一个容器并用项目迁移建好模板库，每个 `ProjectWebApplicationFactory` 克隆独立库，唯一约束、查询翻译、事务回滚与独立事务因此与生产一致。单元测试不连库。
 
+远端运行时把源码与测试进程放到同一执行节点，使用该节点的 Docker；不要仅切换 Docker context 后继续使用本机路径。集成测试支持可选的执行器归属环境变量 `RPR_DOCKER_LABELS`（JSON 字符串标签）和 `RPR_DOCKER_NAME_PREFIX`。两者必须同时提供，标签包含 managed=true、task、attempt 的 `remote-project-runner.*` 字段；PostgreSQL 容器使用唯一名称并保留这些标签。未提供时沿用 Testcontainers 默认行为。错误或不完整的协议在创建容器前失败。
+
+Testcontainers 的 Ryuk 辅助容器继续由框架管理，不套用 PostgreSQL 的名称和标签；保留 Resource Reaper，执行器验收需同时确认 PostgreSQL 与本次 Ryuk 均已回收。测试进程被取消或断链时也不能关闭 Resource Reaper 来绕过归属检查。
+
 每个宿主都要初始化、迁移、克隆库与播种，因此：
 
 - 能在单元测试里验证的规则不放进集成测试（分界见 §1）。

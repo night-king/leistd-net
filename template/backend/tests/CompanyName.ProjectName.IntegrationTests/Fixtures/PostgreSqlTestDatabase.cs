@@ -39,9 +39,12 @@ internal static class PostgreSqlTestDatabase
 
     private static async Task<string> StartAsync()
     {
-        var container = new PostgreSqlBuilder("postgres:18-alpine")
-            .WithCommand("-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "max_connections=500")
-            .Build();
+        var ownership = RunnerContainerOwnership.Parse(
+            Environment.GetEnvironmentVariable("RPR_DOCKER_LABELS"),
+            Environment.GetEnvironmentVariable("RPR_DOCKER_NAME_PREFIX"));
+        var builder = new PostgreSqlBuilder("postgres:18-alpine")
+            .WithCommand("-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "max_connections=500");
+        var container = (ownership?.Apply(builder) ?? builder).Build();
         await container.StartAsync();
 
         var admin = container.GetConnectionString();
