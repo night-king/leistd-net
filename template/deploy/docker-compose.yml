@@ -15,10 +15,9 @@ services:
       - ConnectionStrings__Default=Host=db;Port=5432;Database=MyProject;Username=postgres;Password=${MIGRATOR_DB_PASSWORD:?MIGRATOR_DB_PASSWORD is required};GSS Encryption Mode=Disable
 #if (RemoteTokenAuth && IncludeMultiTenancy)
       # Resource 的迁移目标清单存在 Identity 的控制库里，必须回源查询。
-      # 这些值没有可用默认值：`:?` 让缺配在 compose 阶段就带着变量名失败，
-      # 而不是等 DbMigrator 回源时才失败
-      - Leistd__ServiceClients__Identity__BaseAddress=${IDENTITY_BASE_ADDRESS:?IDENTITY_BASE_ADDRESS is required for a Resource service}
-      - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:?IDENTITY_AUTHORITY is required for a Resource service}
+      # 回源地址未填时沿用 IDENTITY_ISSUER；机器凭据必填，缺配在 compose 阶段即失败
+      - Leistd__ServiceClients__Identity__BaseAddress=${IDENTITY_BASE_ADDRESS:-${IDENTITY_ISSUER:?IDENTITY_ISSUER is required for a Resource service}}
+      - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:-${IDENTITY_ISSUER:?IDENTITY_ISSUER is required for a Resource service}}
       - Leistd__ServiceAuth__ClientId=${MIGRATOR_CLIENT_ID:?MIGRATOR_CLIENT_ID is required for a Resource service}
       - Leistd__ServiceAuth__ClientSecret=${MIGRATOR_CLIENT_SECRET:?MIGRATOR_CLIENT_SECRET is required for a Resource service}
       # 迁移元数据枚举独立库；迁移后补齐租户 Admin 按正式路由进入租户，同 API 写授予一条路径，因此也要路由 scope
@@ -52,23 +51,21 @@ services:
       - "80:8080"
     environment:
       # Environment
-      # 进程本地时区，只影响未显式指定时区的本地时间换算与日志时间戳；业务时间按 UTC 存储
-      - TZ=${TZ:-UTC}
       - ASPNETCORE_ENVIRONMENT=Production
 
       # Database Configuration (PostgreSQL)
       - ConnectionStrings__Default=Host=db;Port=5432;Database=MyProject;Username=${APP_DB_USER:?APP_DB_USER is required};Password=${APP_DB_PASSWORD:?APP_DB_PASSWORD is required};GSS Encryption Mode=Disable
 #if (RemoteTokenAuth)
       # Resource 校验远端签发的令牌。
-      # 全部无默认值：漏配时 compose 立刻带变量名失败，不必等到容器启动才由 API 报缺键
+      # Issuer 必填；Authority 与 BaseAddress 未填时沿用它，仅内网地址不同时覆盖
       - Authentication__Issuer=${IDENTITY_ISSUER:?IDENTITY_ISSUER is required for a Resource service}
 #if (ResourceBrowserSession)
       - Authentication__ClientId=${BROWSER_CLIENT_ID:?BROWSER_CLIENT_ID is required for Resource browser sessions}
       - Authentication__ClientSecret=${BROWSER_CLIENT_SECRET:?BROWSER_CLIENT_SECRET is required for Resource browser sessions}
 #endif
       # 回源 Identity：机器身份读租户路由与账户偏好；代表本人写偏好经 Token Exchange 换 Identity 自身 API 的令牌
-      - Leistd__ServiceClients__Identity__BaseAddress=${IDENTITY_BASE_ADDRESS:?IDENTITY_BASE_ADDRESS is required for a Resource service}
-      - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:?IDENTITY_AUTHORITY is required for a Resource service}
+      - Leistd__ServiceClients__Identity__BaseAddress=${IDENTITY_BASE_ADDRESS:-${IDENTITY_ISSUER:?IDENTITY_ISSUER is required for a Resource service}}
+      - Leistd__ServiceAuth__Authority=${IDENTITY_AUTHORITY:-${IDENTITY_ISSUER:?IDENTITY_ISSUER is required for a Resource service}}
       - Leistd__ServiceAuth__ClientId=${RESOURCE_CLIENT_ID:?RESOURCE_CLIENT_ID is required for a Resource service}
       - Leistd__ServiceAuth__ClientSecret=${RESOURCE_CLIENT_SECRET:?RESOURCE_CLIENT_SECRET is required for a Resource service}
       - Leistd__ServiceClients__Identity__TokenExchange__Audience=${IDENTITY_API_RESOURCE:?IDENTITY_API_RESOURCE is required for a Resource service}
@@ -98,14 +95,11 @@ services:
       # 账号与口令成对填写或都留空（服务器不要求认证时），只填一项启动失败
       - Leistd__Email__Smtp__Host=${SMTP_HOST:?SMTP_HOST is required}
       - Leistd__Email__Smtp__Port=${SMTP_PORT:?SMTP_PORT is required}
-      # 有意的生产默认：基础档为本机 Mailpit 写的是 false，部署环境缺省走 TLS
-      - Leistd__Email__Smtp__EnableSsl=${SMTP_ENABLE_SSL:-true}
       - Leistd__Email__Smtp__DefaultFromAddress=${SMTP_FROM_ADDRESS:?SMTP_FROM_ADDRESS is required}
       - Leistd__Email__Smtp__Username=${SMTP_USERNAME:-}
       - Leistd__Email__Smtp__Password=${SMTP_PASSWORD:-}
-      # 注册邮箱验证（默认关闭）。开启时必须提供验证码摘要密钥（Base64，至少 32 字节，跨实例跨重启不变），
-      # 缺失或无效即启动失败；关闭时可以不提供。生成方式见 docs/deploy/configuration.md
-      - UserRegistration__EnableEmailVerification=${ENABLE_EMAIL_VERIFICATION:-false}
+      # 注册邮箱验证在「系统设置 → 注册设置」开启；开启前提供验证码摘要密钥
+      # （Base64，至少 32 字节，跨实例跨重启不变）。生成方式见 docs/deploy/configuration.md
       - Leistd__Security__VerificationCodes__Key=${VERIFICATION_CODES_KEY:-}
 #endif
 #if (IncludeNotifications && Email)
@@ -182,7 +176,6 @@ services:
     image: postgres:18-alpine
     container_name: companyname-projectname-db
     environment:
-      TZ: ${TZ:-UTC}
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${MIGRATOR_DB_PASSWORD:?MIGRATOR_DB_PASSWORD is required}
       POSTGRES_DB: MyProject
@@ -211,8 +204,6 @@ services:
   redis:
     image: redis:8-alpine
     container_name: companyname-projectname-redis
-    environment:
-      TZ: ${TZ:-UTC}
     command: redis-server --appendonly yes
 
     volumes:
