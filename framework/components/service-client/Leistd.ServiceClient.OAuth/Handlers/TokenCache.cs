@@ -11,33 +11,60 @@ namespace Leistd.ServiceClient.OAuth.Handlers;
 internal sealed class TokenCache(HybridCache cache, ILogger<TokenCache> logger, TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
-    internal sealed record Token(string Value, DateTimeOffset? ExpiresAt);
+    internal sealed record Token(string Value, DateTimeOffset? ExpiresAt)
+    {
+        public DateTimeOffset ObtainedAt { get; init; }
+        public DateTimeOffset? RetryAt { get; init; }
+    }
     internal static string Key(params string?[] parts) => "leistd:oauth:" +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\0", parts))));
 
     internal async ValueTask<Token> GetAsync(string key, TimeSpan buffer,
-        Func<CancellationToken, ValueTask<Token>> fetch, CancellationToken cancellationToken)
+        Func<CancellationToken, ValueTask<Token>> fetch, CancellationToken cancellationToken, bool renewEarly = false)
     {
-        return await cache.GetOrCreateAsync(key, async ct =>
-        {
-            // 旧的未命中可能晚于上一轮抓取完成才取得工厂所有权；再次只读检查，避免重复请求。
-            var existing = await cache.GetOrCreateAsync<Token?>(key, static _ => ValueTask.FromResult<Token?>(null),
-                new HybridCacheEntryOptions
-                {
-                    Flags = HybridCacheEntryFlags.DisableDistributedCache | HybridCacheEntryFlags.DisableLocalCacheWrite |
-                        HybridCacheEntryFlags.DisableUnderlyingData
-                }, cancellationToken: ct);
-            if (existing is not null) return existing;
+        var existing = await ReadAsync(key, cancellationToken);
+        if (existing is not null && (!renewEarly || IsFresh(existing))) return existing;
 
+        return await cache.GetOrCreateAsync(key + ":fetch", async ct =>
+        {
+            // 迟到的 miss 在取得共享工厂后再次读当前状态。
+            var current = await ReadAsync(key, ct);
+            if (current is not null && (!renewEarly || IsFresh(current))) return current;
             Token token;
-            try { token = await fetch(ct); }
-            catch (OpenIddictExceptions.ProtocolException exception)
+            try
             {
-                throw new ServiceClientException($"OpenID Connect token request failed ({exception.Error}).",
-                    exception, ServiceClientFailureKind.RemoteFailure);
+                token = (await fetch(ct)) with { ObtainedAt = clock.GetUtcNow() };
             }
-            // 官方客户端的 expires_in 已取自最终签发主体，无需自行解码 JWT。
-            if (token.ExpiresAt is { } expiry && expiry - clock.GetUtcNow() - buffer is { } ttl && ttl > TimeSpan.Zero)
+            catch (Exception exception) when (exception is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                var error = exception as ServiceClientException;
+                // 发现配置服务可能包装内层异常，保留已经归一化的来源。
+                for (var inner = exception.InnerException; error is null && inner is not null; inner = inner.InnerException)
+                    error = inner as ServiceClientException;
+                error ??= new ServiceClientException("OpenID Connect token request failed.", exception,
+                    exception is OpenIddictExceptions.ProtocolException
+                        ? ServiceClientFailureKind.InvalidResponse : ServiceClientFailureClassifier.Classify(exception));
+                if (renewEarly && ServiceClientFailureClassifier.IsUnavailable(error))
+                {
+                    // 401 会删除当前状态；不能用发起回源时捕获的旧令牌复活它。
+                    var previous = await ReadAsync(key, ct);
+                    if (previous?.ExpiresAt is { } expiry && clock.GetUtcNow() < expiry - buffer)
+                    {
+                        var retryAt = clock.GetUtcNow().AddSeconds(30);
+                        token = previous with { RetryAt = retryAt < expiry - buffer ? retryAt : expiry - buffer };
+                        logger.LogWarning("Token endpoint is unavailable; using a token stale for {Staleness}.",
+                            clock.GetUtcNow() - (previous.ObtainedAt + (expiry - previous.ObtainedAt) / 2));
+                    }
+                    else throw error;
+                }
+                else
+                {
+                    if (error.FailureKind == ServiceClientFailureKind.RemoteFailure)
+                        await RemoveAsync(key, ct);
+                    throw error;
+                }
+            }
+            if (token.ExpiresAt is { } expires && expires - clock.GetUtcNow() - buffer is { } ttl && ttl > TimeSpan.Zero)
                 await cache.SetAsync(key, token, new HybridCacheEntryOptions
                 {
                     Flags = HybridCacheEntryFlags.DisableDistributedCache,
@@ -49,6 +76,16 @@ internal sealed class TokenCache(HybridCache cache, ILogger<TokenCache> logger, 
             Flags = HybridCacheEntryFlags.DisableDistributedCache | HybridCacheEntryFlags.DisableLocalCacheWrite
         }, cancellationToken: cancellationToken);
     }
+
+    private bool IsFresh(Token token) => token.RetryAt > clock.GetUtcNow() || token.ExpiresAt is { } expiry &&
+        clock.GetUtcNow() < token.ObtainedAt + (expiry - token.ObtainedAt) / 2;
+
+    private ValueTask<Token?> ReadAsync(string key, CancellationToken cancellationToken) =>
+        cache.GetOrCreateAsync<Token?>(key, static _ => ValueTask.FromResult<Token?>(null), new HybridCacheEntryOptions
+        {
+            Flags = HybridCacheEntryFlags.DisableDistributedCache | HybridCacheEntryFlags.DisableLocalCacheWrite |
+                HybridCacheEntryFlags.DisableUnderlyingData
+        }, cancellationToken: cancellationToken);
 
     internal async ValueTask RemoveAsync(string key, CancellationToken cancellationToken)
     {

@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using OpenIddict.Client;
 using OpenIddict.Client.SystemNetHttp;
-using static OpenIddict.Abstractions.OpenIddictConstants;
 using static OpenIddict.Client.OpenIddictClientEvents;
 using static OpenIddict.Client.SystemNetHttp.OpenIddictClientSystemNetHttpHandlers;
 
@@ -9,9 +8,9 @@ namespace Leistd.ServiceClient.OAuth.Handlers;
 
 // OpenIddict 7.x 发送请求时宽泛捕获异常：调用方主动取消也记事件 6182 Error 并拒绝为 server_error，
 // 入站请求被放弃（导航、关闭页面）就留下网络故障式的错误日志，取消也被当成远端故障向上报告。
-// 这里替换官方发送处理器，只多一条与上游修复一致的规则：调用方令牌已取消时照常抛出取消；
-// 超时、连接失败等真实故障与官方相同：记事件 6182 Error，以同样的错误码、描述与 URI 拒绝。
-// 上游 openiddict/openiddict-core#2559（77d82cd7）随 7.x 或 8.0 正式版发布后移除。
+// 这里替换官方发送处理器：调用方令牌已取消时照常抛出取消；
+// 超时、连接失败仍记事件 6182 Error，原始异常向外传播，由令牌缓存按传输来源分类。
+// 升级 OpenIddict 时同时复核取消传播、事件 6182 与真实失败来源的契约。
 internal static class SendCancellationGuard
 {
     // 框架注册的 Client 实际经过的请求：发现文档、JWKS、令牌请求（机器令牌与 Token Exchange）。
@@ -60,13 +59,10 @@ internal static class SendCancellationGuard
             }
             catch (Exception exception) when (ResponsePayloadLoggingGuard.IsRecoverable(exception))
             {
-                // 事件号、日志文本与拒绝详情保持官方原值（ID6182、ID2136），按 6182 排查网络故障的诊断不受影响；
+                // 事件号与日志文本保持官方原值（ID6182），按 6182 排查网络故障的诊断不受影响；
                 // 传输异常只含地址与底层原因，不含响应正文
                 context.Logger.LogError(6182, exception, "A network error occured while communicating with the remote HTTP server.");
-                context.Reject(error: Errors.ServerError,
-                    description: "An error occurred while communicating with the remote HTTP server.",
-                    uri: "https://documentation.openiddict.com/errors/ID2136");
-                return;
+                throw;
             }
 
             context.Transaction.SetProperty(typeof(HttpResponseMessage).FullName!, response);

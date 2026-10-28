@@ -1,19 +1,18 @@
-using System.Net;
 using System.Net.Http.Json;
+using Leistd.ServiceClient.Exceptions;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using OpenIddict.Abstractions;
 using OpenIddict.Client;
 using OpenIddict.Client.SystemNetHttp;
-using static OpenIddict.Abstractions.OpenIddictConstants;
 using static OpenIddict.Client.OpenIddictClientEvents;
 using static OpenIddict.Client.SystemNetHttp.OpenIddictClientSystemNetHttpHandlers;
 
 namespace Leistd.ServiceClient.OAuth.Handlers;
 
 // OpenIddict 7.x 在事件 6183/6184/6185 处把远端响应原文（令牌响应含 access_token）写进 Error 日志。
-// 这里在官方处理器之前接手同一职责：语义与错误码保持官方，取消照常抛出，日志只记状态、类型与长度。
-// 上游 openiddict/openiddict-core#2558（8.0）提供官方选项后可移除。
+// 这里在官方处理器之前接手同一职责：保留真实远端状态与错误来源，取消照常抛出，日志只记状态、类型与长度。
+// 升级 OpenIddict 时一并复核日志保护与真实失败来源的契约。
 internal static class ResponsePayloadLoggingGuard
 {
     // 框架注册的 Client 实际经过的响应：发现文档、JWKS、令牌请求（机器令牌与 Token Exchange）。
@@ -74,8 +73,18 @@ internal static class ResponsePayloadLoggingGuard
                     "(status {StatusCode}, content type {ContentType}, {Length} bytes, {ExceptionType}).",
                     (int) response.StatusCode, response.Content.Headers.ContentType?.MediaType,
                     response.Content.Headers.ContentLength, exception.GetType().Name);
-                context.Reject(error: Errors.ServerError,
-                    description: "The remote server returned an invalid JSON response.");
+                if (!response.IsSuccessStatusCode)
+                    throw new RemoteServiceException("The token dependency returned an error response.", (int)response.StatusCode);
+                throw new ServiceClientException("The remote server returned an invalid JSON response.",
+                    failureKind: ServiceClientFailureKind.InvalidResponse);
+            }
+            if (!response.IsSuccessStatusCode || !string.IsNullOrEmpty(context.Transaction.Response?.Error))
+            {
+                var error = context.Transaction.Response?.Error;
+                context.Logger.LogError("The remote server returned HTTP {StatusCode} ({Error}).", (int)response.StatusCode, error);
+                throw new RemoteServiceException($"The remote server returned HTTP {(int)response.StatusCode} ({error}).",
+                    (int)response.StatusCode, error)
+                { IsOAuthError = context is ExtractTokenResponseContext && !string.IsNullOrEmpty(error) };
             }
         }
 
@@ -101,32 +110,13 @@ internal static class ResponsePayloadLoggingGuard
         {
             ArgumentNullException.ThrowIfNull(context);
             if (context.Transaction.GetHttpResponseMessage() is not { } response) return ValueTask.CompletedTask;
-            // 与官方 ValidateHttpResponse 同一条件与同一错误码，只是不重读响应原文。
-            // 成功状态码却没有任何处理器取出响应（不支持的 Content-Type 等）：官方事件 6185 会写原文
-            if (response.IsSuccessStatusCode && context.Transaction.Response is null)
-            {
-                context.Logger.LogError("The remote server returned HTTP {StatusCode} with a response that could not be extracted " +
-                    "(content type {ContentType}, {Length} bytes).",
-                    (int) response.StatusCode, response.Content.Headers.ContentType?.MediaType, response.Content.Headers.ContentLength);
-                context.Reject(error: Errors.ServerError, description: "The remote server returned an unsupported response.");
-                return ValueTask.CompletedTask;
-            }
-            if (response.IsSuccessStatusCode || !string.IsNullOrEmpty(context.Transaction.Response?.Error)) return ValueTask.CompletedTask;
-            context.Logger.LogError("The remote server returned HTTP {StatusCode} without an OAuth error " +
-                "(content type {ContentType}, {Length} bytes).",
-                (int) response.StatusCode, response.Content.Headers.ContentType?.MediaType, response.Content.Headers.ContentLength);
-            context.Reject(
-                error: response.StatusCode switch
-                {
-                    HttpStatusCode.BadRequest => Errors.InvalidRequest,
-                    HttpStatusCode.Unauthorized => Errors.InvalidToken,
-                    HttpStatusCode.Forbidden => Errors.InsufficientAccess,
-                    HttpStatusCode.TooManyRequests => Errors.SlowDown,
-                    HttpStatusCode.ServiceUnavailable => Errors.TemporarilyUnavailable,
-                    _ => Errors.ServerError
-                },
-                description: $"The remote server returned HTTP {(int) response.StatusCode}.");
-            return ValueTask.CompletedTask;
+            if (response.IsSuccessStatusCode && context.Transaction.Response is not null) return ValueTask.CompletedTask;
+            context.Logger.LogError("The remote server returned HTTP {StatusCode} with an unsupported response (content type {ContentType}, {Length} bytes).",
+                (int)response.StatusCode, response.Content.Headers.ContentType?.MediaType, response.Content.Headers.ContentLength);
+            if (!response.IsSuccessStatusCode)
+                throw new RemoteServiceException("The remote server returned an error response.", (int)response.StatusCode);
+            throw new ServiceClientException("The remote server returned an unsupported response.",
+                failureKind: ServiceClientFailureKind.InvalidResponse);
         }
     }
 }
