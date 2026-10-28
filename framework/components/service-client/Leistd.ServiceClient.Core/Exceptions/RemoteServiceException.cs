@@ -8,8 +8,11 @@ public class RemoteServiceException : ServiceClientException
     /// <summary>远端响应的 HTTP 状态码；通用异常映射不据此决定本地状态码。</summary>
     public int RemoteStatusCode { get; }
 
-    /// <summary>远端业务错误码（ProblemDetails 的 <c>code</c> 或数字信封的 <c>errorCode</c>）；无法解析时为 <see langword="null"/>。</summary>
+    /// <summary>远端业务错误码或令牌端点的 OAuth 错误码（ProblemDetails 的 <c>code</c> 或数字信封的 <c>errorCode</c>）；无法解析时为 <see langword="null"/>。</summary>
     public string? ErrorCode { get; }
+
+    /// <summary>错误码来自令牌端点实际返回的 OAuth 错误，而不是业务接口或本地解析。</summary>
+    public bool IsOAuthError { get; init; }
 
     /// <summary>远端 traceId（ProblemDetails 的 <c>traceId</c>）；无法解析时为 <see langword="null"/>。</summary>
     public string? RemoteTraceId { get; }

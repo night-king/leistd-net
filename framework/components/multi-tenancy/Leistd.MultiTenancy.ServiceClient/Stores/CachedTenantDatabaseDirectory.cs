@@ -1,4 +1,7 @@
 using System.ComponentModel;
+using Leistd.ServiceClient.Exceptions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.MultiTenancy.ServiceClient.Options;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -8,14 +11,17 @@ using Microsoft.Extensions.Options;
 namespace Leistd.MultiTenancy.ServiceClient.Stores;
 
 // 远端库目录的短时缓存：常驻服务的逐库作业按秒轮询，不能每轮都回源控制面。
-// 写法同 RemoteConnectionStringResolver：只用进程内一级缓存，同键并发回源合并，失败不缓存，过期即回源、不返回陈旧清单；
+// 写法同 RemoteConnectionStringResolver：只用进程内一级缓存，同键并发回源合并，不可达时在硬截止前用旧值并节流回源，明确拒绝不回落；
 // 取消沿用 HybridCache：全部等待者都取消时回源才取消。全集与活跃清单分键，FailedTenants 随同一次回源的结果整体缓存。
 // 远端存储在工厂里自开作用域取：工厂为所有等待者服务；按存储接口取再转目录，按目录接口取会拿到本类自己。
 // 连接名来自 [ConnectionStringName]，不合法是编程错误，Normalize 直接抛 ArgumentException。
 internal sealed class CachedTenantDatabaseDirectory(
     HybridCache cache,
     IServiceScopeFactory scopeFactory,
-    IOptions<RemoteTenantConnectionClientOptions> options) : ITenantDatabaseDirectory
+    IOptions<RemoteTenantConnectionClientOptions> options,
+    IOptions<TenantRouteCacheOptions> routeOptions,
+    TimeProvider? clock = null,
+    ILogger<CachedTenantDatabaseDirectory>? logger = null) : ITenantDatabaseDirectory
 {
     public async Task<TenantDatabaseListResult> GetDatabasesAsync(
         string name,
@@ -25,17 +31,10 @@ internal sealed class CachedTenantDatabaseDirectory(
         var normalized = TenantConnectionNames.Normalize(name);
         var lifetime = options.Value.DatabaseDirectoryCacheLifetime;
 
-        var entry = await cache.GetOrCreateAsync(
-            $"leistd:tenant-databases:{normalized}:{(activeOnly ? "active" : "all")}",
-            (Directory: this, Name: normalized, ActiveOnly: activeOnly),
-            static (state, ct) => state.Directory.ListRemoteAsync(state.Name, state.ActiveOnly, ct),
-            new HybridCacheEntryOptions
-            {
-                Expiration = lifetime,
-                LocalCacheExpiration = lifetime,
-                Flags = HybridCacheEntryFlags.DisableDistributedCache
-            },
-            cancellationToken: cancellationToken);
+        var entry = await new TenantRouteCache(cache, clock ?? TimeProvider.System, logger ?? NullLogger<CachedTenantDatabaseDirectory>.Instance)
+            .GetAsync($"leistd:tenant-databases:{normalized}:{(activeOnly ? "active" : "all")}", lifetime, routeOptions.Value.MaxStaleness,
+                ct => ListRemoteAsync(normalized, activeOnly, ct),
+                static ex => ex is ServiceClientException service && ServiceClientFailureClassifier.IsUnavailable(service), cancellationToken);
         return entry.Result;
     }
 

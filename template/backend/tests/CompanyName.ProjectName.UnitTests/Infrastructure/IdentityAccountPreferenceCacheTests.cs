@@ -70,6 +70,24 @@ public sealed class IdentityAccountPreferenceCacheTests
         Assert.Equal("dark", Theme(await cache.ReadForegroundAsync(Key, default)));
     }
 
+    [Theory]
+    [InlineData("temporarily_unavailable", true)]
+    [InlineData("invalid_client", false)]
+    public async Task Token_endpoint_errors_preserve_preferences_only_for_unavailability(string error, bool unavailable)
+    {
+        var cache = CreateCache();
+        _api.Respond(_ => Ok("dark", "\"v1\""));
+        _api.Respond(_ => Task.FromException<HttpResponseMessage>(new RemoteServiceException("Token request failed", 400, error) { IsOAuthError = true }));
+        await cache.ReadServerAsync(Key, default);
+        if (unavailable) Assert.Equal("dark", Theme(await cache.ReadForegroundAsync(Key, default)));
+        else
+        {
+            await Assert.ThrowsAsync<RemoteServiceException>(() => cache.ReadForegroundAsync(Key, default));
+            _api.Respond(_ => Status(HttpStatusCode.ServiceUnavailable));
+            Assert.Null(await cache.ReadForegroundAsync(Key, default));
+        }
+    }
+
     // 网关超时、限流与 5xx 同属暂时性故障，同样回落旧值
     [Theory]
     [InlineData(HttpStatusCode.RequestTimeout)]

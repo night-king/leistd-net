@@ -1,4 +1,7 @@
+using System.Runtime.ExceptionServices;
 using Leistd.Data.Connections;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Leistd.MultiTenancy.Context;
 using Leistd.MultiTenancy.Exceptions;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -11,13 +14,15 @@ namespace Leistd.MultiTenancy.ConnectionStrings;
 // 远端解析：按连接名回源控制面，结果按 TTL 缓存在本进程，同租户同名字的并发回源由 HybridCache 合并。
 // 只用进程内一级缓存（DisableDistributedCache）：含口令的连接串不进分布式缓存。
 // 远端存储不从构造注入而在工厂里自开作用域：工厂为所有等待者服务，不能持有发起者请求作用域里的实例。
-// 取消沿用 HybridCache：全部等待者都取消时回源才取消；失败不缓存。
+// 取消沿用 HybridCache：全部等待者都取消时回源才取消；明确拒绝作废旧值。
 internal sealed class RemoteConnectionStringResolver(
     ICurrentTenant currentTenant,
     IConfiguration configuration,
     HybridCache cache,
     IServiceScopeFactory scopeFactory,
-    IOptions<TenantRouteCacheOptions> routeCacheOptions) : IConnectionStringResolver
+    IOptions<TenantRouteCacheOptions> routeCacheOptions,
+    TimeProvider? clock = null,
+    ILogger<RemoteConnectionStringResolver>? logger = null) : IConnectionStringResolver
 {
     public async Task<string> ResolveAsync(string connectionStringName, CancellationToken cancellationToken = default)
     {
@@ -34,17 +39,18 @@ internal sealed class RemoteConnectionStringResolver(
         // 期限同时定义租户改路由前的排空等待时间；启动期已校验
         var lifetime = routeCacheOptions.Value.CacheLifetime;
 
-        return await cache.GetOrCreateAsync(
-            $"leistd:tenant-connection:{tenantId:N}:{name}",
-            (Resolver: this, TenantId: tenantId, Requested: connectionStringName, Name: name),
-            static (state, ct) => state.Resolver.ResolveRemoteAsync(state.TenantId, state.Requested, state.Name, ct),
-            new HybridCacheEntryOptions
-            {
-                Expiration = lifetime,
-                LocalCacheExpiration = lifetime,
-                Flags = HybridCacheEntryFlags.DisableDistributedCache
-            },
-            cancellationToken: cancellationToken);
+        try
+        {
+            return await new TenantRouteCache(cache, clock ?? TimeProvider.System, logger ?? NullLogger<RemoteConnectionStringResolver>.Instance)
+                .GetAsync($"leistd:tenant-connection:{tenantId:N}:{name}", lifetime, routeCacheOptions.Value.MaxStaleness,
+                    ct => ResolveRemoteAsync(tenantId, connectionStringName, name, ct),
+                    static ex => ex is TenantConnectionUnavailableException, cancellationToken);
+        }
+        catch (TenantConnectionUnavailableException exception)
+        {
+            ExceptionDispatchInfo.Capture(exception.InnerException!).Throw();
+            throw;
+        }
     }
 
     private async ValueTask<string> ResolveRemoteAsync(

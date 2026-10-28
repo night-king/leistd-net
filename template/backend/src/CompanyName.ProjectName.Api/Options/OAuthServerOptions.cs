@@ -4,7 +4,7 @@ using CompanyName.ProjectName.Api.Auth.Sessions;
 namespace CompanyName.ProjectName.Api.Options;
 
 /// <summary>授权服务器的证书、签发方和令牌寿命，配置节 OAuth。</summary>
-internal sealed class OAuthServerOptions
+public sealed class OAuthServerOptions
 {
     public const string SectionName = "OAuth";
 
@@ -21,6 +21,9 @@ internal sealed class OAuthServerOptions
     /// <summary>访问令牌寿命，默认10分钟；整秒且长于 <see cref="AccessTokenRenewal.Lead"/>。</summary>
     /// <remarks>撤销与会话退出传到依赖方的最长时延；提前刷新窗口为 1 分钟。</remarks>
     public TimeSpan AccessTokenLifetime { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>机器客户端访问令牌寿命，默认 2 小时；整秒且长于提前刷新窗口。</summary>
+    public TimeSpan ClientCredentialsAccessTokenLifetime { get; set; } = TimeSpan.FromHours(2);
 
     /// <summary>关闭 HTTPS 要求，仅供本机或测试调试。</summary>
     public bool DisableHttpsRequirement { get; set; }

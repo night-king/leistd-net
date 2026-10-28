@@ -228,9 +228,9 @@ public sealed class OfficialClientTests : IAsyncLifetime
     {
         await using var provider = Caller(exchange: true, new Accessor(null));
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient("Billing");
-        await Assert.ThrowsAsync<ServiceClientException>(() => client.GetAsync("https://billing.test/"));
+        await Assert.ThrowsAnyAsync<ServiceClientException>(() => client.GetAsync("https://billing.test/"));
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "arbitrary");
-        await Assert.ThrowsAsync<ServiceClientException>(() => client.GetAsync("https://billing.test/"));
+        await Assert.ThrowsAnyAsync<ServiceClientException>(() => client.GetAsync("https://billing.test/"));
         Assert.Equal(0, machineRequests + exchangeRequests);
     }
 
@@ -241,7 +241,7 @@ public sealed class OfficialClientTests : IAsyncLifetime
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient("Billing");
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var error = await Assert.ThrowsAsync<ServiceClientException>(() => client.GetAsync("https://billing.test/"));
+            var error = await Assert.ThrowsAnyAsync<ServiceClientException>(() => client.GetAsync("https://billing.test/"));
             Assert.Equal(ServiceClientFailureKind.RemoteFailure, error.FailureKind);
             Assert.Contains("invalid_client", error.Message);
         }

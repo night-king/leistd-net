@@ -1,4 +1,6 @@
 using Leistd.ServiceClient.OAuth.Handlers;
+using Leistd.ServiceClient.Exceptions;
+using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,6 +59,54 @@ public sealed class TokenCacheTests
             await first.WaitAsync(TimeSpan.FromSeconds(10));
             if (second is not null) await second.WaitAsync(TimeSpan.FromSeconds(10));
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Machine_renewal_reuses_only_a_current_usable_token(bool invalidate)
+    {
+        var clock = new FakeTimeProvider();
+        var services = new ServiceCollection().AddLogging();
+        services.Configure<MemoryCacheOptions>(options => options.Clock = new CacheClock(clock));
+        services.AddHybridCache();
+        await using var provider = services.BuildServiceProvider();
+        var cache = new TokenCache(provider.GetRequiredService<HybridCache>(), provider.GetRequiredService<ILogger<TokenCache>>(), clock);
+        var calls = 0;
+        var began = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async ValueTask<TokenCache.Token> Fetch(CancellationToken ct)
+        {
+            if (++calls == 1) return new("old-token", clock.GetUtcNow().AddHours(2));
+            began.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            throw new ServiceClientException("Unavailable", failureKind: ServiceClientFailureKind.Unavailable);
+        }
+        var key = TokenCache.Key("renewal");
+        Assert.Equal("old-token", (await cache.GetAsync(key, TimeSpan.FromSeconds(60), Fetch, default, true)).Value);
+        clock.Advance(TimeSpan.FromMinutes(61));
+        var renewal = cache.GetAsync(key, TimeSpan.FromSeconds(60), Fetch, default, true).AsTask();
+        await began.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var waiters = invalidate ? [] : Enumerable.Range(0, 8)
+            .Select(_ => cache.GetAsync(key, TimeSpan.FromSeconds(60), Fetch, default, true).AsTask()).ToArray();
+        if (invalidate) await cache.RemoveAsync(key, default);
+        release.SetResult();
+        if (invalidate)
+            await Assert.ThrowsAsync<ServiceClientException>(() => renewal);
+        else
+        {
+            Assert.Equal("old-token", (await renewal).Value);
+            Assert.All(await Task.WhenAll(waiters), token => Assert.Equal("old-token", token.Value));
+            Assert.Equal("old-token", (await cache.GetAsync(key, TimeSpan.FromSeconds(60), Fetch, default, true)).Value);
+            Assert.Equal(2, calls);
+            clock.Advance(TimeSpan.FromHours(1));
+            await Assert.ThrowsAsync<ServiceClientException>(() => cache.GetAsync(key, TimeSpan.FromSeconds(60), Fetch, default, true).AsTask());
+        }
+    }
+
+    private sealed class CacheClock(TimeProvider clock) : ISystemClock
+    {
+        public DateTimeOffset UtcNow => clock.GetUtcNow();
     }
 
     private sealed class PausingMemory(IMemoryCache inner) : IMemoryCache

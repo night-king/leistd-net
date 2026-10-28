@@ -73,6 +73,7 @@
 - 浏览器整页进入授权端点，发现文档、JWKS、令牌与 UserInfo 由 Resource 后端访问，不要求为这些服务端协议通信开放浏览器 CORS。本机 Angular 开发代理将 `/api/**` 转到 API。
   生产 API 的 `Cors:AllowedOrigins` 默认为空；仅供显式需要的其他 API 集成使用，不负责浏览器认证导航。
 - 下游资源服务与各类客户端的登记（含 `OAuth:ApiResources`）见 [服务间调用](../standards/service-invocation.md#identity-与资源服务对接)。
+- `OAuth:ClientCredentialsAccessTokenLifetime` 单独控制机器客户端访问令牌寿命，默认 2 小时。
 - 各类撤销在下游资源服务上生效的时间不同。资源服务只验签，不回本服务查状态；Access Token 有效期由 `OAuth:AccessTokenLifetime` 决定（默认 10 分钟）。
   调短它让下面的窗口收敛更快，代价是依赖方续期更频繁；它必须是整秒且长于 1 分钟——资源服务的浏览器会话在令牌剩余 1 分钟时续期，
   不长于这个窗口时每个请求都要续期，启动时拒绝并指出该键。测试与 CI 要观察真实到期时，用环境变量把它缩短（如 `OAuth__AccessTokenLifetime=00:01:30`），
@@ -84,6 +85,10 @@
   停用或删除账号、租户之后无法再刷新，所以这两类的窗口可以靠调短 Access Token 有效期来缩短。资源服务改用令牌内省（`UseIntrospection()`）能让**已撤销的令牌**即时失效，所以对停用或删除账号有效；租户停用还要先在停用时撤销该租户的令牌才行。
 <!--#endif-->
 <!--#if (RemoteTokenAuth)-->
+- Resource 的 `SessionCookie:RefreshGracePeriod` 控制签发方不可达时沿用本地会话主体的宽限期，默认 1 小时。
+<!--#if (IncludeMultiTenancy)-->
+- `Leistd:MultiTenancy:Routing:MaxStaleness` 控制路由与库清单新鲜期后的陈旧上限，默认 1 小时。
+<!--#endif-->
 - 跨服务客户端、Issuer、Audience 与机器身份配置见 [服务间调用](../standards/service-invocation.md#identity-与资源服务对接)。
 - readiness 是启动门禁：首次成功解析发现文档、精确比对 issuer 并取得非空 JWKS 后锁存成功。
   冷实例在 Identity 不可达时 `/api/health/ready` 返回 503，`/api/health/live` 仍为 200；

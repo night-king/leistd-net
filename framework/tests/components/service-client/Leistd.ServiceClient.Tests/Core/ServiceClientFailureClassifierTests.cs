@@ -7,6 +7,16 @@ namespace Leistd.ServiceClient.Tests.Core;
 /// <summary>服务调用失败按 .NET 官方判别方式分类，不依赖具体弹性库。</summary>
 public sealed class ServiceClientFailureClassifierTests
 {
+    [Theory]
+    [InlineData(400, "temporarily_unavailable", true, true)]
+    [InlineData(503, "invalid_client", true, false)]
+    [InlineData(400, "server_error", false, false)]
+    [InlineData(429, null, false, true)]
+    [InlineData(404, null, false, false)]
+    public void Dependency_unavailability_preserves_the_error_source(int status, string? code, bool oauth, bool expected)
+        => Assert.Equal(expected, ServiceClientFailureClassifier.IsUnavailable(
+            new RemoteServiceException("Rejected", status, code) { IsOAuthError = oauth }));
+
     public static TheoryData<Exception, ServiceClientFailureKind> Cases => new()
     {
         // HttpClient.Timeout：取消异常的内层是 TimeoutException

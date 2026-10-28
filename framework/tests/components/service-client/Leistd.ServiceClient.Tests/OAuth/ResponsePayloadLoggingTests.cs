@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using Microsoft.IdentityModel.Tokens;
 using Leistd.ServiceClient.OAuth;
+using Leistd.ServiceClient.Exceptions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -129,11 +130,9 @@ public sealed class ResponsePayloadLoggingTests : IAsyncLifetime
         var (provider, logs) = Caller(() => new FailTokenRequest(failure));
         await using var _ = provider;
 
-        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ProtocolException>(() => RequestAsync(provider));
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => RequestAsync(provider));
 
-        Assert.True(OpenIddictConstants.Errors.ServerError == exception.Error, $"{scenario}: got {exception.Error}");
-        Assert.Equal("An error occurred while communicating with the remote HTTP server.", exception.ErrorDescription);
-        Assert.Equal("https://documentation.openiddict.com/errors/ID2136", exception.ErrorUri);
+        Assert.True(exception is HttpRequestException or OperationCanceledException, $"{scenario}: got {exception.GetType().Name}");
         Assert.Contains(logs.GetSnapshot(), record => record.Level == LogLevel.Error && record.Id.Id == 6182 && record.Exception is not null);
     }
 
@@ -165,32 +164,33 @@ public sealed class ResponsePayloadLoggingTests : IAsyncLifetime
         Assert.DoesNotContain(logs.GetSnapshot(), record => record.Level >= LogLevel.Error);
     }
 
-    public static TheoryData<string, int, string?, string, string> FailingResponses => new()
+    public static TheoryData<string, int, string?, string> FailingResponses => new()
     {
         // 成功状态码却取不出响应：官方事件 6185 会写原文（不支持的类型、缺 Content-Type、JSON 正文标错类型）
-        { "success-text", 200, "text/plain", $"access_token={Sentinel}", OpenIddictConstants.Errors.ServerError },
-        { "success-without-content-type", 200, null, $"{{\"access_token\":\"{Sentinel}\"}}", OpenIddictConstants.Errors.ServerError },
-        { "success-json-labelled-html", 200, "text/html", $"{{\"access_token\":\"{Sentinel}\"}}", OpenIddictConstants.Errors.ServerError },
+        { "success-text", 200, "text/plain", $"access_token={Sentinel}" },
+        { "success-without-content-type", 200, null, $"{{\"access_token\":\"{Sentinel}\"}}" },
+        { "success-json-labelled-html", 200, "text/html", $"{{\"access_token\":\"{Sentinel}\"}}" },
         // 截断的 JSON：解析失败按官方语义拒绝为 server_error。
-        { "truncated-json", 200, "application/json", $"{{\"access_token\":\"{Sentinel}", OpenIddictConstants.Errors.ServerError },
+        { "truncated-json", 200, "application/json", $"{{\"access_token\":\"{Sentinel}" },
         // 非成功状态、合法 JSON 但没有 OAuth error：官方会重读原文记 6184。
-        { "error-status-json", 401, "application/json", $"{{\"access_token\":\"{Sentinel}\"}}", OpenIddictConstants.Errors.InvalidToken },
+        { "error-status-json", 401, "application/json", $"{{\"access_token\":\"{Sentinel}\"}}" },
         // 非 JSON 的错误页里夹带数据。
-        { "error-status-html", 503, "text/html", $"<html>{Sentinel}</html>", OpenIddictConstants.Errors.TemporarilyUnavailable }
+        { "error-status-html", 503, "text/html", $"<html>{Sentinel}</html>" }
     };
 
     [Theory]
     [MemberData(nameof(FailingResponses))]
     public async Task Failing_responses_are_rejected_with_the_official_error_but_never_logged_verbatim(
-        string scenario, int status, string? contentType, string body, string expectedError)
+        string scenario, int status, string? contentType, string body)
     {
         token = _ => new RawResult(status, contentType, body);
         var (provider, logs) = Caller();
         await using var _ = provider;
 
-        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ProtocolException>(() => RequestAsync(provider));
+        var exception = await Assert.ThrowsAnyAsync<ServiceClientException>(() => RequestAsync(provider));
 
-        Assert.True(expectedError == exception.Error, $"{scenario}: expected {expectedError}, got {exception.Error}");
+        Assert.True(exception.FailureKind == (status >= 400 ? ServiceClientFailureKind.RemoteFailure : ServiceClientFailureKind.InvalidResponse), scenario);
+        if (exception is RemoteServiceException remote) Assert.Equal(status, remote.RemoteStatusCode);
         AssertNoSentinel(logs, exception);
         Assert.Contains(logs.GetSnapshot(), record => record.Level == LogLevel.Error &&
             record.Message.Contains(status.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
@@ -225,9 +225,27 @@ public sealed class ResponsePayloadLoggingTests : IAsyncLifetime
         var (provider, logs) = Caller();
         await using var _ = provider;
 
-        var exception = await Assert.ThrowsAsync<OpenIddictExceptions.ProtocolException>(() => RequestAsync(provider));
+        var exception = await Assert.ThrowsAsync<RemoteServiceException>(() => RequestAsync(provider));
 
-        Assert.Equal(OpenIddictConstants.Errors.InvalidClient, exception.Error);
+        Assert.Equal(OpenIddictConstants.Errors.InvalidClient, exception.ErrorCode);
+        Assert.True(exception.IsOAuthError);
+        AssertNoSentinel(logs, exception);
+    }
+
+    [Theory]
+    [InlineData(400, "invalid_client", false)]
+    [InlineData(400, "temporarily_unavailable", true)]
+    [InlineData(429, null, true)]
+    [InlineData(404, null, false)]
+    public async Task Real_token_errors_preserve_status_and_dependency_classification(int status, string? error, bool unavailable)
+    {
+        token = _ => Results.Json(new { error }, statusCode: status);
+        var (provider, logs) = Caller();
+        await using var _ = provider;
+        var exception = await Assert.ThrowsAsync<RemoteServiceException>(() => RequestAsync(provider));
+        Assert.Equal(status, exception.RemoteStatusCode);
+        Assert.Equal(error, exception.ErrorCode);
+        Assert.Equal(unavailable, ServiceClientFailureClassifier.IsUnavailable(exception));
         AssertNoSentinel(logs, exception);
     }
 

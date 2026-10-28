@@ -18,6 +18,11 @@ public sealed class SessionCookieOptions
     /// <summary>会话时长（天）：会话 Cookie 的滑动过期与服务端会话的空闲时限取同一个值，至少 1 天（启动期校验）</summary>
     public int ExpireDays { get; set; } = 7;
 
+#if (RemoteTokenAuth)
+    /// <summary>访问令牌到期后，签发方不可达时允许沿用会话主体的时长，默认 1 小时。</summary>
+    public TimeSpan RefreshGracePeriod { get; set; } = TimeSpan.FromHours(1);
+#endif
+
     /// <summary>由 <see cref="ExpireDays"/> 派生的会话时长，Cookie 与服务端会话都从这里取值</summary>
     public TimeSpan Lifetime => TimeSpan.FromDays(ExpireDays);
 }

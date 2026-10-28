@@ -24,6 +24,7 @@ public sealed class DistributedTicketStore(
 {
     /// <summary>保存缓存引用键的票据属性；使用本元数据的宿主替换实现须同样提供它。</summary>
     public const string TicketKeyProperty = "ticket.key";
+    private const string ContentVersion = "ticket.content.version";
     internal const string ReferenceVersion = "ticket.reference.version";
     private readonly IDataProtector _protector = protection.CreateProtector("Leistd.Security.AspNetCore.Cookies.DistributedTicketStore.v1");
 
@@ -71,6 +72,7 @@ public sealed class DistributedTicketStore(
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!ticket.Properties.Items.ContainsKey(ReferenceVersion)) ticket.Properties.Items[ReferenceVersion] = NewVersion();
+        ticket.Properties.Items[ContentVersion] = NewVersion();
         var key = options.Value.KeyPrefix + NewVersion();
         if (context is not null) context.Items[ResponseVersionKey(ticket.AuthenticationScheme)] = ticket.Properties.Items[ReferenceVersion];
         await WriteAsync(key, ticket, cancellationToken);
@@ -100,8 +102,13 @@ public sealed class DistributedTicketStore(
         var current = await ReadAsync(key, operation.Token);
         var explicitSignIn = context?.Items.ContainsKey(ExplicitSignInKey(ticket.AuthenticationScheme)) == true;
         if (explicitSignIn || current is not null && SameVersion(current, ticket) &&
-            (context is null || MatchesReference(context, current)))
+            (context is null || MatchesReference(context, current)) &&
+            (context is null || current.Properties.GetString(ContentVersion) == ticket.Properties.GetString(ContentVersion)))
+        {
+            // 直接服务端写入替换内容；HTTP 被动续写只能延续它读取的那一版。
+            if (context is null || explicitSignIn) ticket.Properties.Items[ContentVersion] = NewVersion();
             await WriteAsync(key, ticket, operation.Token);
+        }
         // 滑动续期不能复活已删除或到期的票据。
         if (context is not null) context.Items[ResponseVersionKey(ticket.AuthenticationScheme)] = ticket.Properties.Items[ReferenceVersion];
     }

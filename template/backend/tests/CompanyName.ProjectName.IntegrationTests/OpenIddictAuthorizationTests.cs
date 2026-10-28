@@ -131,6 +131,8 @@ public sealed class OpenIddictAuthorizationTests(ProjectWebApplicationFactory fa
             }));
         using var granted = await RequestAsync("tenant-migration.read");
         Assert.True(granted.IsSuccessStatusCode, await granted.Content.ReadAsStringAsync());
+        var token = await granted.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.InRange(token.GetProperty("expires_in").GetInt32(), 7199, 7200);
         using var denied = await RequestAsync("tenant-routing.read");
         Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
         // ID2051：客户端无权使用该 scope（Resource 日志里看到的就是这条）

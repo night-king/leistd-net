@@ -13,6 +13,21 @@ namespace Leistd.ServiceClient.Exceptions;
 /// </remarks>
 public static class ServiceClientFailureClassifier
 {
+    /// <summary>依赖是否暂时不可达；不表示调用可无条件重试。</summary>
+    /// <remarks>真实 OAuth 错误优先于 HTTP 状态；业务错误码不按 OAuth 解释。调用方取消须原样传播。</remarks>
+    public static bool IsUnavailable(ServiceClientException exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return exception switch
+        {
+            { FailureKind: ServiceClientFailureKind.Unavailable or ServiceClientFailureKind.Timeout } => true,
+            RemoteServiceException { IsOAuthError: true, ErrorCode: { Length: > 0 } code } =>
+                code is "server_error" or "temporarily_unavailable",
+            RemoteServiceException { RemoteStatusCode: 408 or 429 or >= 500 and <= 599 } => true,
+            _ => false
+        };
+    }
+
     /// <summary>对调用方未主动取消的失败分类。</summary>
     /// <param name="exception">服务调用中捕获的异常。</param>
     /// <returns>失败来源；无法归类时为 <see cref="ServiceClientFailureKind.Unknown"/>。</returns>

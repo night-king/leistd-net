@@ -27,7 +27,7 @@ internal sealed class ClientCredentialsDelegatingHandler(string name, OpenIddict
             });
             return new(result.AccessToken, result.AccessTokenExpirationDate);
         }
-        var token = await cache.GetAsync(key, ExpirationBuffer, Fetch, cancellationToken);
+        var token = await cache.GetAsync(key, ExpirationBuffer, Fetch, cancellationToken, renewEarly: true);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
         var response = await base.SendAsync(request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.Unauthorized)

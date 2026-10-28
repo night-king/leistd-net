@@ -63,6 +63,23 @@ public sealed class RoutingSectionTests
         Assert.StartsWith($"{expectedSection}:CacheLifetime", Assert.Single(failure.Failures), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("00:00:00", true)]
+    [InlineData("01:00:00", true)]
+    [InlineData("-00:00:01", false)]
+    [InlineData("01:00:01", false)]
+    public void Staleness_accepts_zero_and_rejects_out_of_range_values(string value, bool valid)
+    {
+        using var provider = Build(new Dictionary<string, string?> { ["Routing:MaxStaleness"] = value }, "Routing");
+        if (valid)
+            Assert.Equal(TimeSpan.Parse(value), provider.GetRequiredService<IOptions<TenantRouteCacheOptions>>().Value.MaxStaleness);
+        else
+        {
+            var failure = Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<TenantRouteCacheOptions>>().Value);
+            Assert.StartsWith("Routing:MaxStaleness", Assert.Single(failure.Failures), StringComparison.Ordinal);
+        }
+    }
+
     // 路由缓存只有一份：第二次换路径若被接受，校验消息会报一个没人配置的键
     [Fact]
     public void Repeated_registration_with_another_section_is_rejected()

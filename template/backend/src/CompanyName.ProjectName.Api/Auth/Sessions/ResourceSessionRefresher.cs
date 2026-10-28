@@ -1,5 +1,8 @@
 #if (RemoteTokenAuth)
 using Leistd.Security.AspNetCore.Cookies;
+using Leistd.ServiceClient.Exceptions;
+using CompanyName.ProjectName.Api.Options;
+using Microsoft.Extensions.Caching.Distributed;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json;
@@ -22,7 +25,9 @@ internal sealed class ResourceSessionRefresher(
     ITicketStore store,
     IDistributedLock locks,
     IOptionsMonitor<OpenIdConnectOptions> oidcOptions,
-    TimeProvider clock)
+    TimeProvider clock,
+    IDistributedCache cache,
+    IOptions<SessionCookieOptions> sessionOptions)
 {
     internal static async Task<ClaimsPrincipal> ValidateAccessTokenAsync(HttpContext context, string token, CancellationToken cancellationToken)
     {
@@ -54,7 +59,6 @@ internal sealed class ResourceSessionRefresher(
             var ticket = await store.RetrieveAsync(key, context.HttpContext, operation.Token);
             if (ticket is null) { await RejectAsync(); return; }
             var properties = ticket.Properties;
-            var options = oidcOptions.Get(AuthenticationSchemeNames.OpenIdConnect);
             if (!DateTimeOffset.TryParse(properties.GetTokenValue("expires_at"), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out expiration))
             {
                 await RejectAsync();
@@ -62,32 +66,79 @@ internal sealed class ResourceSessionRefresher(
             }
             if (expiration <= clock.GetUtcNow() + AccessTokenRenewal.Lead)
             {
-                var refresh = properties.GetTokenValue("refresh_token");
-                if (string.IsNullOrEmpty(refresh)) { await RejectAsync(); return; }
-                var configuration = await options.ConfigurationManager!.GetConfigurationAsync(operation.Token);
-                using var response = await options.Backchannel.PostAsync(configuration.TokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+                var deadline = expiration + sessionOptions.Value.RefreshGracePeriod;
+                var retryKey = key + ":refresh:retry";
+                var retryText = await cache.GetStringAsync(retryKey, operation.Token);
+                if (DateTimeOffset.TryParse(retryText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var retryAt) && retryAt > clock.GetUtcNow())
                 {
-                    ["grant_type"] = "refresh_token", ["client_id"] = options.ClientId!,
-                    ["client_secret"] = options.ClientSecret!, ["refresh_token"] = refresh
-                }), operation.Token);
-                if (!response.IsSuccessStatusCode) { await RejectAsync(); return; }
-                using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(operation.Token));
-                var body = json.RootElement;
-                var access = body.GetProperty("access_token").GetString()!;
-                var principal = await ValidateAccessTokenAsync(context.HttpContext, access, operation.Token);
-                if (principal.FindFirst("sub")?.Value != ticket.Principal.FindFirst("sub")?.Value)
-                {
-                    await RejectAsync();
-                    return;
+                    if (clock.GetUtcNow() >= deadline) { await RejectAsync(); return; }
                 }
-                var tokens = properties.GetTokens().ToDictionary(token => token.Name, token => token.Value, StringComparer.Ordinal);
-                tokens["access_token"] = access;
-                tokens["expires_at"] = clock.GetUtcNow().AddSeconds(body.GetProperty("expires_in").GetInt32()).ToString("o", CultureInfo.InvariantCulture);
-                if (body.TryGetProperty("refresh_token", out var replacement)) tokens["refresh_token"] = replacement.GetString()!;
-                // 本会话的主体取已验证的访问令牌；登录时的 id_token 保留供服务端审计，不发送到浏览器。
-                properties.StoreTokens(tokens.Select(token => new AuthenticationToken { Name = token.Key, Value = token.Value }));
-                ticket = new AuthenticationTicket(principal, properties, AuthenticationSchemeNames.SessionCookie);
-                await store.RenewAsync(key, ticket);
+                else
+                {
+                    var refresh = properties.GetTokenValue("refresh_token");
+                    if (string.IsNullOrEmpty(refresh)) { await RejectAsync(); return; }
+                    var options = oidcOptions.Get(AuthenticationSchemeNames.OpenIdConnect);
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10), clock);
+                    using var request = CancellationTokenSource.CreateLinkedTokenSource(operation.Token, timeout.Token);
+                    var renewed = false;
+                    try
+                    {
+                        var configuration = await options.ConfigurationManager!.GetConfigurationAsync(request.Token);
+                        using var response = await options.Backchannel.PostAsync(configuration.TokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+                        {
+                            ["grant_type"] = "refresh_token", ["client_id"] = options.ClientId!,
+                            ["client_secret"] = options.ClientSecret!, ["refresh_token"] = refresh
+                        }), request.Token);
+                        var payload = await response.Content.ReadAsStringAsync(request.Token);
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            string? error = null;
+                            try
+                            {
+                                using var rejected = JsonDocument.Parse(payload);
+                                if (rejected.RootElement.ValueKind == JsonValueKind.Object &&
+                                    rejected.RootElement.TryGetProperty("error", out var value) && value.ValueKind == JsonValueKind.String)
+                                    error = value.GetString();
+                            }
+                            catch (JsonException) { /* 网关错误页不一定是 JSON，仍保留真实 HTTP 状态。 */ }
+                            throw new RemoteServiceException("The session token endpoint rejected renewal.",
+                                (int)response.StatusCode, error) { IsOAuthError = !string.IsNullOrEmpty(error) };
+                        }
+                        using var json = JsonDocument.Parse(payload);
+                        var body = json.RootElement;
+                        var access = body.GetProperty("access_token").GetString()!;
+                        var principal = await ValidateAccessTokenAsync(context.HttpContext, access, request.Token);
+                        if (principal.FindFirst("sub")?.Value != ticket.Principal.FindFirst("sub")?.Value)
+                        {
+                            await RejectAsync();
+                            return;
+                        }
+                        var tokens = properties.GetTokens().ToDictionary(token => token.Name, token => token.Value, StringComparer.Ordinal);
+                        tokens["access_token"] = access;
+                        tokens["expires_at"] = clock.GetUtcNow().AddSeconds(body.GetProperty("expires_in").GetInt32()).ToString("o", CultureInfo.InvariantCulture);
+                        if (body.TryGetProperty("refresh_token", out var replacement)) tokens["refresh_token"] = replacement.GetString()!;
+                        // 本会话的主体取已验证的访问令牌；登录时的 id_token 保留供服务端审计，不发送到浏览器。
+                        properties.StoreTokens(tokens.Select(token => new AuthenticationToken { Name = token.Key, Value = token.Value }));
+                        ticket = new AuthenticationTicket(principal, properties, AuthenticationSchemeNames.SessionCookie);
+                        renewed = true;
+                    }
+                    catch (Exception exception) when (!operation.IsCancellationRequested &&
+                        (exception is ServiceClientException failure && ServiceClientFailureClassifier.IsUnavailable(failure) ||
+                         exception is HttpRequestException && ServiceClientFailureClassifier.Classify(exception) is ServiceClientFailureKind.Unavailable or ServiceClientFailureKind.Timeout ||
+                         exception is OperationCanceledException && timeout.IsCancellationRequested))
+                    {
+                        if (clock.GetUtcNow() >= deadline) { await RejectAsync(); return; }
+                        await cache.SetStringAsync(retryKey, clock.GetUtcNow().AddSeconds(30).ToString("o", CultureInfo.InvariantCulture),
+                            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) }, operation.Token);
+                        context.HttpContext.RequestServices.GetRequiredService<ILogger<ResourceSessionRefresher>>()
+                            .LogWarning("Identity is unavailable; using the server-side session until {Deadline} (stale for {Staleness}).", deadline, clock.GetUtcNow() - expiration);
+                    }
+                    if (renewed)
+                    {
+                        await store.RenewAsync(key, ticket, operation.Token);
+                        await cache.RemoveAsync(retryKey, operation.Token);
+                    }
+                }
             }
             // 并发请求可能在等待锁时已经完成刷新；复制最新票据，不能再用旧 refresh_token。
             context.ShouldRenew = context.Properties.GetTokenValue("access_token") != ticket.Properties.GetTokenValue("access_token");
