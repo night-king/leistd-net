@@ -1,6 +1,50 @@
 # 配置参考
 
-配置键以 `appsettings*.json`、Options 类型与 `deploy/.env.example` 为准；本文写各环境的取值来源、部署环境的必填项和生产边界。
+## 配置键的查找与覆盖
+
+框架键与代码默认值看组件随包文档的 `## 配置项（<配置节路径>）`，定位方法见 [后端说明](../../backend/README.md#leistd-框架-api)。
+模板自身 Options 的可调键见本文按主题列出的用途与默认值，实际环境覆盖以 `appsettings*.json` 为准。
+部署变量与必填项看 `deploy/.env.example`，未列出的调优项沿用推荐默认值。
+
+Compose 清单外的键：非机密写 `backend/src/CompanyName.ProjectName.Api/appsettings.Production.json` 并重新构建镜像；机密或按环境变化的值在 `deploy/docker-compose.yml` 的目标服务 `environment` 加标准键（如 `Section__Key=${VARIABLE}`），使用新变量时同步 `.env.example`。清单内的键已由 Compose 覆盖，改用 Production 档前先删对应 environment 行。
+Kubernetes：非机密放 ConfigMap，机密放 Secret，以 `Section__Key` 环境变量注入；证书文件通过卷挂载。
+
+## 模板可调键
+
+默认值就是推荐值，需要调整时才覆盖；管理界面已有的设置优先在界面调整。
+
+| 配置节与键 | 用途与默认值 |
+| --- | --- |
+| `RequestLogging:Level` | 正常请求的日志级别，默认 `Information`；可在系统设置的「运维」面板覆盖 |
+<!--#if (SpaFrontend)-->
+| `SessionCookie:SameSite`、`ExpireDays` | 浏览器会话策略默认 `Lax`，滑动过期默认 7 天；安全边界见 [浏览器认证](../standards/auth.md#浏览器认证) |
+<!--#endif-->
+<!--#if (IncludeLocalization)-->
+| `DisplayDefaults:Language`、`TimeZone` | 界面语言与展示时区（IANA 名）的部署基线；默认空，浏览器跟随设备，服务端回落请求文化与 UTC；组织与个人可覆盖，非法值启动失败，修改基线需重启各实例 |
+<!--#else-->
+| `DisplayDefaults:TimeZone` | 展示时区（IANA 名）的部署基线；默认空，浏览器跟随设备，服务端回落 UTC；组织与个人可覆盖，非法值启动失败，修改基线需重启各实例 |
+<!--#endif-->
+<!--#if (LocalIdentity)-->
+| `UserRegistration:Enabled`、`CaptchaExpiryMinutes` | 自助注册默认开放，图形验证码默认有效 5 分钟；注册开关可在「注册设置」覆盖 |
+<!--#if (Email)-->
+| `UserRegistration:EnableEmailVerification`、`EmailCodeExpiryMinutes`、`EmailCodeSendIntervalSeconds`、`EmailCodeMaxAttempts` | 邮箱验证默认关闭；验证码有效期 5 分钟，发送间隔 60 秒，最多错误 5 次；验证开关在「注册设置」覆盖，开启前先提供摘要密钥（见下文） |
+<!--#endif-->
+| `Passkeys:RelyingPartyName` | 通行密钥显示的站点名称，默认 `MyProject`；域名与来源见下文 |
+<!--#endif-->
+<!--#if (RemoteTokenAuth)-->
+| `Leistd:ServiceClients:Identity:AccountPreferences:FreshFor`、`RetainFor` | 收件人偏好缓存默认新鲜 30 秒、保留 24 小时；保留期须长于新鲜期，当前用户 `/me` 每次条件重验证 |
+<!--#if (ResourceBrowserSession)-->
+| `Authentication:Scope` | 浏览器会话申请的 API scope，未配置时取 `Authentication:Audience` |
+| `SessionCookie:RefreshGracePeriod` | Identity 不可达时沿用本地会话主体的宽限期，默认 1 小时；行为见 [浏览器认证](../standards/auth.md#浏览器认证) |
+<!--#endif-->
+<!--#if (IncludeMultiTenancy)-->
+| `Leistd:MultiTenancy:Routing:MaxStaleness` | Identity 不可达时沿用路由与库清单的陈旧上限，默认 1 小时；行为见 [服务间调用](../standards/service-invocation.md#认证中心暂时不可用) |
+<!--#endif-->
+<!--#endif-->
+<!--#if (OpenIddictServer)-->
+| `OAuth:Issuer` | 对外签发方地址，默认从请求 host 取得；跨服务验证时显式配置 |
+| `OAuth:ClientCredentialsAccessTokenLifetime` | 机器客户端访问令牌寿命，默认 2 小时；用户访问令牌另由 `OAuth:AccessTokenLifetime` 控制 |
+<!--#endif-->
 
 ## 配置与机密的分层
 
@@ -42,11 +86,6 @@
 <!--#else-->
 - 未配置 `ConnectionStrings:Redis` 不阻止单实例启动，分布式锁回落到进程内并输出 Warning；纯 API 不注册浏览器会话、Data Protection 或其 `KeysPath` 配置。多副本必须配置 Redis。
 <!--#endif-->
-<!--#if (IncludeLocalization)-->
-- 界面语言与时区的全部署默认值在 `DisplayDefaults`（`Language`、`TimeZone`，后者为 IANA 名）：空为跟随用户设备，各组织可在系统设置里另设、个人可再覆盖。非空值不合法时启动失败并指出键名；它是启动期基线，修改后重启各实例并保持一致。
-<!--#else-->
-- 展示时区的全部署默认值在 `DisplayDefaults:TimeZone`（IANA 名）：空为跟随用户设备，各组织可在系统设置里另设、个人可再覆盖。非空值不合法时启动失败并指出键名；它是启动期基线，修改后重启各实例并保持一致。
-<!--#endif-->
 - TLS 在网关或 ingress 终结时，所有形态（含 Standalone）都须配置 `ForwardedHeaders:KnownProxies` / `KnownNetworks` 还原原始协议与主机。
 <!--#if (SpaFrontend)-->
   浏览器写请求的 Origin 校验同样依赖这些转发头；来源拒绝返回 Problem Details，Warning 日志给出收到的 Origin 与计算出的本源。
@@ -56,8 +95,8 @@
 - TLS 在网关或 ingress 终结时不要打开 `OAuth:DisableHttpsRequirement`：OpenIddict 要求生产环境即使在反向代理后也不关闭传输安全检查，按上一条配置转发头即可。
 <!--#endif-->
 <!--#if (Email)-->
-- 发信基线指向本机邮件捕获器（`localhost:1025`）。部署时覆盖 `Leistd:Email:Smtp` 的 `Host`、`Port`、`EnableSsl`、`DefaultFromAddress`，`Username` 与 `Password` 成对提供或都不提供；compose 以 `SMTP_HOST`、`SMTP_PORT`、`SMTP_FROM_ADDRESS` 为必填，账号口令只填一项时启动失败。
-- 开启注册邮箱验证（`UserRegistration:EnableEmailVerification`，compose 的 `ENABLE_EMAIL_VERIFICATION`）时必须提供 `Leistd:Security:VerificationCodes:Key`（compose 的 `VERIFICATION_CODES_KEY`）：Base64、至少 32 字节，所有实例相同且跨重启不变，可用 `openssl rand -base64 32` 生成。缺失或无效即启动失败并报出键名；关闭时可不提供；非空无效密钥始终在启动时失败，缺失时无法在系统设置里开启。
+- 发信基线指向本机邮件捕获器（`localhost:1025`）。部署时覆盖 `Leistd:Email:Smtp` 的 `Host`、`Port`、`DefaultFromAddress`；`EnableSsl` 默认 `true`，仅 Development 为本机 Mailpit 关闭；`Username` 与 `Password` 成对提供或都不提供；compose 以 `SMTP_HOST`、`SMTP_PORT`、`SMTP_FROM_ADDRESS` 为必填，账号口令只填一项时启动失败。
+- 在「系统设置 → 注册设置」开启邮箱验证前必须提供 `Leistd:Security:VerificationCodes:Key`（compose 的 `VERIFICATION_CODES_KEY`）：Base64、至少 32 字节，所有实例相同且跨重启不变，可用 `openssl rand -base64 32` 生成。缺失时界面开启被拒绝；非空无效密钥始终在启动时失败。若直接配置 `UserRegistration:EnableEmailVerification=true`，缺失密钥也会启动失败并报出键名。
 <!--#endif-->
 <!--#if (ExternalLogin)-->
 - 外部登录提供商（`ExternalAuth:Github`、`ExternalAuth:Google`）默认关闭，`Enabled`（compose 的 `GITHUB_LOGIN_ENABLED`、`GOOGLE_LOGIN_ENABLED`）打开且 `ClientId`、`ClientSecret` 都提供时才生效；缺一项不阻止启动，只是不提供该入口并记警告日志。宿主管理员也可在「系统设置 → 外部登录」运行期覆盖开关与凭据，清除覆盖值即回到这里的部署配置。从只填凭据的旧版本升级时，要显式打开开关才会继续提供入口。提供商后台登记的回调地址是 `https://<站点对外地址>/api/v1/external-auth/{github,google}/signin`，设置页的状态部件按当前请求地址显示。
@@ -73,7 +112,6 @@
 - 浏览器整页进入授权端点，发现文档、JWKS、令牌与 UserInfo 由 Resource 后端访问，不要求为这些服务端协议通信开放浏览器 CORS。本机 Angular 开发代理将 `/api/**` 转到 API。
   生产 API 的 `Cors:AllowedOrigins` 默认为空；仅供显式需要的其他 API 集成使用，不负责浏览器认证导航。
 - 下游资源服务与各类客户端的登记（含 `OAuth:ApiResources`）见 [服务间调用](../standards/service-invocation.md#identity-与资源服务对接)。
-- `OAuth:ClientCredentialsAccessTokenLifetime` 单独控制机器客户端访问令牌寿命，默认 2 小时。
 - 各类撤销在下游资源服务上生效的时间不同。资源服务只验签，不回本服务查状态；Access Token 有效期由 `OAuth:AccessTokenLifetime` 决定（默认 10 分钟）。
   调短它让下面的窗口收敛更快，代价是依赖方续期更频繁；它必须是整秒且长于 1 分钟——资源服务的浏览器会话在令牌剩余 1 分钟时续期，
   不长于这个窗口时每个请求都要续期，启动时拒绝并指出该键。测试与 CI 要观察真实到期时，用环境变量把它缩短（如 `OAuth__AccessTokenLifetime=00:01:30`），
@@ -85,11 +123,7 @@
   停用或删除账号、租户之后无法再刷新，所以这两类的窗口可以靠调短 Access Token 有效期来缩短。资源服务改用令牌内省（`UseIntrospection()`）能让**已撤销的令牌**即时失效，所以对停用或删除账号有效；租户停用还要先在停用时撤销该租户的令牌才行。
 <!--#endif-->
 <!--#if (RemoteTokenAuth)-->
-- Resource 的 `SessionCookie:RefreshGracePeriod` 控制签发方不可达时沿用本地会话主体的宽限期，默认 1 小时。
-<!--#if (IncludeMultiTenancy)-->
-- `Leistd:MultiTenancy:Routing:MaxStaleness` 控制路由与库清单新鲜期后的陈旧上限，默认 1 小时。
-<!--#endif-->
-- 跨服务客户端、Issuer、Audience 与机器身份配置见 [服务间调用](../standards/service-invocation.md#identity-与资源服务对接)。
+- Compose 只要求 `IDENTITY_ISSUER`；`IDENTITY_AUTHORITY`、`IDENTITY_BASE_ADDRESS` 留空时沿用它，仅内网地址不同时填写，API 与多租户 DbMigrator 一致。跨服务客户端、Audience 与机器身份配置见 [服务间调用](../standards/service-invocation.md#identity-与资源服务对接)。
 - readiness 是启动门禁：首次成功解析发现文档、精确比对 issuer 并取得非空 JWKS 后锁存成功。
   冷实例在 Identity 不可达时 `/api/health/ready` 返回 503，`/api/health/live` 仍为 200；
   日志指出发现文档或签名密钥依赖（探针请求时健康检查与请求日志各记一条），Identity 恢复后自动重试并进入就绪。

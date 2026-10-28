@@ -444,6 +444,12 @@ public sealed class EndpointOptions { public string? Path { get; init; } }
     compose = 'services:\n  api:\n    image: ${IMAGE:-api}\n    environment:\n      - A__B=${SMTP_HOST:?required}\n      # - C__D=${COMMENTED}\n'
     variable_cases = [
         ('variables match', check_compose_variables(compose, 'SMTP_HOST=\n# IMAGE=api\n'), []),
+        ('nested fallback variables match', check_compose_variables(
+            'services:\n  api:\n    environment:\n      - A__B=${ADDRESS:-${ISSUER:?required}}\n',
+            'ADDRESS=\nISSUER=\n'), []),
+        ('nested fallback missing variable', check_compose_variables(
+            'services:\n  api:\n    environment:\n      - A__B=${ADDRESS:-${ISSUER:?required}}\n',
+            'ADDRESS=\n'), ['compose variable missing from .env.example: ISSUER']),
         ('missing variable', check_compose_variables(compose, '# IMAGE=api\n'), ['compose variable missing from .env.example: SMTP_HOST']),
         ('extra variable', check_compose_variables(compose, 'SMTP_HOST=\n# IMAGE=api\nUNUSED=\n'), ['.env.example variable not used by compose: UNUSED']),
     ]

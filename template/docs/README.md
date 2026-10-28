@@ -1,10 +1,10 @@
 # MyProject 文档
 
-只记录长期复用且源码、配置、测试、Git 和 CI 无法表达的知识。
+仅记录源码、配置、测试、Git、CI 无法表达的知识。
 
 ## 按任务读取
 
-跨类任务取并集；`standards/` 全部规范均在表中，其他按主题选读。
+跨类任务取并集；`standards/` 均在表中，其余按主题读。
 
 | 任务 | 必读 | 按需 |
 | --- | --- | --- |
@@ -20,7 +20,7 @@
 <!--#endif-->
 <!--#endif-->
 | 只审查代码 | 改动所属任务行的必读文档（全栈改动按全栈功能行） | 改动触及的专题 |
-| 部署、迁移或回滚 | [部署](deploy/README.md) | [配置参考](deploy/configuration.md)、[配置差异](standards/settings.md#部署配置只写差异)、[技术栈](standards/tech-stack.md) |
+| 部署、迁移或回滚 | [部署](deploy/README.md) | [配置查找与覆盖](deploy/configuration.md#配置键的查找与覆盖)、[配置差异](standards/settings.md#部署配置只写差异)、[技术栈](standards/tech-stack.md) |
 | 证书轮换、数据库升级等运维操作 | [运维手册](operations/runbooks/)中对应的一份 | |
 | 线上查询、客户问题排查、数据修正、事件复盘 | 项目 Skill 的运维操作流程 | [部署](deploy/README.md) |
 
