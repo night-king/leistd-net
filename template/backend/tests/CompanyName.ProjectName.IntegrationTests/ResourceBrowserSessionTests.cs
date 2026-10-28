@@ -211,6 +211,111 @@ public sealed class ResourceBrowserSessionTests
     }
 
     [Fact]
+    public async Task A_late_cookie_response_preserves_rotated_tokens_and_the_next_refresh()
+    {
+        using var factory = new ProjectWebApplicationFactory { UseProductionAuthentication = true };
+        using var issuer = new Issuer();
+        using var host = Host(factory, issuer);
+        var cookie = await LoginAsync(host, issuer);
+        var options = host.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(AuthenticationSchemeNames.SessionCookie);
+        var key = options.TicketDataFormat.Unprotect(cookie.Split('=', 2)[1])!.Principal.Claims.Single().Value;
+        var ticket = (await options.SessionStore!.RetrieveAsync(key))!;
+        ticket.Properties.IssuedUtc = TimeProvider.System.GetUtcNow().AddDays(-4);
+        ticket.Properties.ExpiresUtc = TimeProvider.System.GetUtcNow().AddDays(3);
+        await options.SessionStore.RenewAsync(key, ticket);
+        using var browser = Client(host, cookie);
+        var probe = host.Services.GetRequiredService<AccessTokenProbe>();
+        var earlier = browser.GetAsync(AccessTokenProbe.Path + "?wait=true");
+        await probe.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            ticket = (await options.SessionStore.RetrieveAsync(key))!;
+            ticket.Properties.UpdateTokenValue("expires_at", TimeProvider.System.GetUtcNow().AddSeconds(-1).ToString("o"));
+            await options.SessionStore.RenewAsync(key, ticket);
+            Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/v1/auth/me")).StatusCode);
+            var rotated = (await options.SessionStore.RetrieveAsync(key))!.Properties.GetTokenValue("access_token");
+            probe.Continue.SetResult();
+            Assert.Equal(HttpStatusCode.OK, (await earlier).StatusCode);
+            var final = (await options.SessionStore.RetrieveAsync(key))!;
+            Assert.Equal(rotated, final.Properties.GetTokenValue("access_token"));
+            Assert.Equal("refresh-2", final.Properties.GetTokenValue("refresh_token"));
+            final.Properties.UpdateTokenValue("expires_at", TimeProvider.System.GetUtcNow().AddSeconds(-1).ToString("o"));
+            await options.SessionStore.RenewAsync(key, final);
+            Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/v1/auth/me")).StatusCode);
+            Assert.Equal("refresh-2", issuer.LastRefreshToken);
+        }
+        finally { probe.Continue.TrySetResult(); }
+    }
+
+    [Theory]
+    [InlineData(1, 503, "temporarily_unavailable", 200)]
+    [InlineData(71, 503, "temporarily_unavailable", 401)]
+    [InlineData(71, 200, null, 200)]
+    [InlineData(1, 400, "temporarily_unavailable", 200)]
+    [InlineData(1, 400, "server_error", 200)]
+    [InlineData(1, 503, "invalid_client", 401)]
+    [InlineData(1, 400, "invalid_grant", 401)]
+    [InlineData(1, 400, "unauthorized_client", 401)]
+    [InlineData(1, 429, null, 200)]
+    [InlineData(1, 408, null, 200)]
+    [InlineData(1, 502, null, 200)]
+    public async Task Refresh_grace_limits_only_unavailable_identity_and_retries_are_throttled(int minutesExpired, int issuerStatus, string? oauthError, int expected)
+    {
+        using var factory = new ProjectWebApplicationFactory { UseProductionAuthentication = true };
+        using var issuer = new Issuer();
+        using var host = Host(factory, issuer);
+        var cookie = await LoginAsync(host, issuer);
+        var options = host.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(AuthenticationSchemeNames.SessionCookie);
+        var key = options.TicketDataFormat.Unprotect(cookie.Split('=', 2)[1])!.Principal.Claims.Single().Value;
+        var ticket = (await options.SessionStore!.RetrieveAsync(key))!;
+        ticket.Properties.UpdateTokenValue("expires_at", TimeProvider.System.GetUtcNow().AddMinutes(-minutesExpired).ToString("o"));
+        await options.SessionStore.RenewAsync(key, ticket);
+        issuer.RefreshStatus = (HttpStatusCode)issuerStatus;
+        issuer.RefreshError = oauthError;
+        using var browser = Client(host, cookie);
+        Assert.Equal((HttpStatusCode)expected, (await browser.GetAsync("/api/v1/auth/me")).StatusCode);
+        if (expected == 200)
+        {
+            Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/v1/auth/me")).StatusCode);
+            Assert.Equal(1, issuer.RefreshCount);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Only_the_remote_timeout_uses_grace_while_request_cancellation_keeps_retry_state_clear(bool cancelRequest)
+    {
+        using var factory = new ProjectWebApplicationFactory { UseProductionAuthentication = true };
+        using var issuer = new Issuer();
+        using var host = Host(factory, issuer);
+        var cookie = await LoginAsync(host, issuer);
+        var options = host.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(AuthenticationSchemeNames.SessionCookie);
+        var key = options.TicketDataFormat.Unprotect(cookie.Split('=', 2)[1])!.Principal.Claims.Single().Value;
+        var ticket = (await options.SessionStore!.RetrieveAsync(key))!;
+        ticket.Properties.UpdateTokenValue("expires_at", TimeProvider.System.GetUtcNow().AddSeconds(-1).ToString("o"));
+        await options.SessionStore.RenewAsync(key, ticket);
+        issuer.RefreshStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        issuer.ContinueRefresh = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        using var browser = Client(host, cookie);
+        var response = browser.GetAsync("/api/v1/auth/me", cancellation.Token);
+        await issuer.RefreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        if (cancelRequest)
+        {
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => response);
+        }
+        else
+            Assert.Equal(HttpStatusCode.OK, (await response.WaitAsync(TimeSpan.FromSeconds(20))).StatusCode);
+        Assert.NotNull(await options.SessionStore.RetrieveAsync(key));
+        issuer.RefreshStarted = null;
+        issuer.ContinueRefresh.TrySetResult(true);
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/v1/auth/me")).StatusCode);
+        Assert.Equal(cancelRequest ? 2 : 1, issuer.RefreshCount);
+    }
+
+    [Fact]
     public async Task Missing_correlation_cannot_create_a_session_and_cross_origin_writes_are_rejected()
     {
         using var factory = new ProjectWebApplicationFactory { UseProductionAuthentication = true };
@@ -402,7 +507,8 @@ public sealed class ResourceBrowserSessionTests
     private static WebApplicationFactory<Program> Host(ProjectWebApplicationFactory factory, Issuer issuer) =>
         factory.WithWebHostBuilder(builder => builder.UseSetting("Authentication:Audience", "resource-api").ConfigureTestServices(services =>
         {
-            services.AddSingleton<IStartupFilter, AccessTokenProbe>();
+            services.AddSingleton<AccessTokenProbe>();
+            services.AddSingleton<IStartupFilter>(provider => provider.GetRequiredService<AccessTokenProbe>());
             services.AddSingleton<RefreshLockProbe>();
             services.AddSingleton<IDistributedLock>(provider => provider.GetRequiredService<RefreshLockProbe>());
             services.AddSingleton<TicketCacheProbe>();
@@ -438,6 +544,8 @@ public sealed class ResourceBrowserSessionTests
     private sealed class AccessTokenProbe : IStartupFilter
     {
         public const string Path = "/test/user-access-token";
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Continue { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
         {
@@ -446,6 +554,11 @@ public sealed class ResourceBrowserSessionTests
                 branch.UseAuthentication();
                 branch.Run(async context =>
                 {
+                    if (context.Request.Query.ContainsKey("wait"))
+                    {
+                        Entered.TrySetResult();
+                        await Continue.Task.WaitAsync(context.RequestAborted);
+                    }
                     var token = await context.RequestServices.GetRequiredService<IUserAccessTokenAccessor>().GetAccessTokenAsync();
                     if (token is null) context.Response.StatusCode = StatusCodes.Status204NoContent;
                     else await context.Response.WriteAsync(token);
@@ -531,6 +644,8 @@ public sealed class ResourceBrowserSessionTests
         public int RefreshCount { get; private set; }
         public string? LastRefreshToken { get; private set; }
         public bool RejectRefresh { get; set; }
+        public HttpStatusCode RefreshStatus { get; set; } = HttpStatusCode.OK;
+        public string? RefreshError { get; set; } = "temporarily_unavailable";
         public bool RejectCode { get; set; }
         public TaskCompletionSource<bool>? RefreshStarted { get; set; }
         public TaskCompletionSource<bool>? ContinueRefresh { get; set; }
@@ -547,6 +662,8 @@ public sealed class ResourceBrowserSessionTests
                     await ContinueRefresh!.Task.WaitAsync(cancellationToken);
                 }
                 LastRefreshToken = form["refresh_token"].ToString();
+                if (RefreshStatus != HttpStatusCode.OK) return new(RefreshStatus)
+                { Content = RefreshError is null ? new StringContent("[]") : JsonContent.Create(new { error = RefreshError }) };
                 if (RejectRefresh) return new(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { error = "invalid_grant" }) };
             }
             else

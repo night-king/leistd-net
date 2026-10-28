@@ -114,6 +114,7 @@ services:
 #endif
 #if (OpenIddictServer)
 
+      - OAuth__ClientCredentialsAccessTokenLifetime=${OAUTH_CLIENT_CREDENTIALS_ACCESS_TOKEN_LIFETIME:-02:00:00}
       # 令牌签名与加密证书（PKCS#12）。文件以 Docker secrets 挂载到 /run/secrets，口令由部署注入；
       # 开发证书只用于本机，这里没有、也不应打开 OAuth__UseDevelopmentCertificates
       - OAuth__SigningCertificates__0__Path=/run/secrets/oauth-signing-certificate

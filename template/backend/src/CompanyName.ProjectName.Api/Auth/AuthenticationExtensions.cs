@@ -41,6 +41,10 @@ public static class AuthenticationExtensions
             .BindConfiguration(SessionCookieOptions.SectionName)
             .Validate(options => options.ExpireDays is >= 1 and <= 365,
                 $"{SessionCookieOptions.SectionName}:ExpireDays must be between 1 and 365.")
+#if (RemoteTokenAuth)
+            .Validate(options => options.RefreshGracePeriod >= TimeSpan.Zero,
+                $"{SessionCookieOptions.SectionName}:RefreshGracePeriod must be non-negative.")
+#endif
             .ValidateOnStart();
         builder.Services.AddOptions<CookieAuthenticationOptions>(AuthenticationSchemeNames.SessionCookie)
             .Configure<IOptions<SessionCookieOptions>>((cookie, sessionCookie) =>

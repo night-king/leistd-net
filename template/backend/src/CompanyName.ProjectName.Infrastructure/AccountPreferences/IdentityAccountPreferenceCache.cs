@@ -171,7 +171,7 @@ internal sealed class IdentityAccountPreferenceCache(
             var api = scope.ServiceProvider.GetRequiredService<IIdentityAccountPreferencesReadApi>();
             response = await api.GetAsync(key.TenantSegment, key.UserId, previous?.ETag, cancellationToken);
         }
-        catch (ServiceClientException ex) when (ex.FailureKind is ServiceClientFailureKind.Unavailable or ServiceClientFailureKind.Timeout)
+        catch (ServiceClientException ex) when (ServiceClientFailureClassifier.IsUnavailable(ex))
         {
             return UseStale(entry, generation, previous, ex);
         }

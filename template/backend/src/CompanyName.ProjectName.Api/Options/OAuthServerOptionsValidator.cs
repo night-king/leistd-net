@@ -14,7 +14,8 @@ internal sealed class OAuthServerOptionsValidator : IValidateOptions<OAuthServer
     public ValidateOptionsResult Validate(string? name, OAuthServerOptions options)
     {
         var failures = new List<string>();
-        ValidateAccessTokenLifetime(options.AccessTokenLifetime, failures);
+        ValidateAccessTokenLifetime(options.AccessTokenLifetime, nameof(options.AccessTokenLifetime), failures);
+        ValidateAccessTokenLifetime(options.ClientCredentialsAccessTokenLifetime, nameof(options.ClientCredentialsAccessTokenLifetime), failures);
         if (!options.UseDevelopmentCertificates)
         {
             ValidateCertificates(options.SigningCertificates, $"{OAuthServerOptions.SectionName}:SigningCertificates", failures);
@@ -24,10 +25,10 @@ internal sealed class OAuthServerOptionsValidator : IValidateOptions<OAuthServer
     }
 
     // 令牌的 exp/iat 以秒计：带小数秒的寿命会被截掉，"长于提前刷新窗口"就可能名存实亡。
-    private static void ValidateAccessTokenLifetime(TimeSpan lifetime, List<string> failures)
+    private static void ValidateAccessTokenLifetime(TimeSpan lifetime, string name, List<string> failures)
     {
         if (lifetime.Ticks % TimeSpan.TicksPerSecond != 0 || lifetime <= AccessTokenRenewal.Lead)
-            failures.Add($"{OAuthServerOptions.SectionName}:AccessTokenLifetime must be whole seconds and longer than " +
+            failures.Add($"{OAuthServerOptions.SectionName}:{name} must be whole seconds and longer than " +
                 $"{AccessTokenRenewal.Lead.TotalSeconds:0} seconds (the browser session refresh lead); got {lifetime}.");
     }
 

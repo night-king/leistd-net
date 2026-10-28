@@ -7,6 +7,7 @@ using CompanyName.ProjectName.Application.Shared;
 using CompanyName.ProjectName.Application.Auth.AppServices;
 using CompanyName.ProjectName.Application.Auth.Sessions;
 using CompanyName.ProjectName.Api.Auth.OpenIddict;
+using CompanyName.ProjectName.Api.Options;
 using CompanyName.ProjectName.Application.Auth.OAuth;
 using CompanyName.ProjectName.Application.OpenApplications;
 using CompanyName.ProjectName.Application.Auth.Options;
@@ -40,6 +41,7 @@ public sealed class ConnectController(
     IUserSessionValidator sessionValidator,
     ICurrentSessionState sessionState,
     IOptions<OAuthResourceOptions> oauthOptions,
+    IOptions<OAuthServerOptions> serverOptions,
     IOptions<ClaimTypeOptions> claimTypes,
     IOpenIddictApplicationManager applications,
     ConnectInteractionProtector interactions,
@@ -264,6 +266,7 @@ public sealed class ConnectController(
             var principal = new ClaimsPrincipal(identity);
             principal.SetScopes(request.GetScopes());
             principal.SetResources(OAuthScopes.ResourcesOf(oauthOptions.Value, principal.GetScopes()));
+            principal.SetAccessTokenLifetime(serverOptions.Value.ClientCredentialsAccessTokenLifetime);
 
             return SignIn(principal, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }

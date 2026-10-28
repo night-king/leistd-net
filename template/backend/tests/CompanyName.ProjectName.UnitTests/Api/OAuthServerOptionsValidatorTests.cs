@@ -10,6 +10,17 @@ public sealed class OAuthServerOptionsValidatorTests
     private readonly OAuthServerOptionsValidator _validator = new();
 
     [Fact]
+    public void Machine_token_lifetime_is_independent_and_validated()
+    {
+        var options = new OAuthServerOptions { UseDevelopmentCertificates = true };
+        Assert.Equal(TimeSpan.FromHours(2), options.ClientCredentialsAccessTokenLifetime);
+        Assert.Equal(TimeSpan.FromMinutes(10), options.AccessTokenLifetime);
+        options.ClientCredentialsAccessTokenLifetime = TimeSpan.FromSeconds(30);
+        var result = _validator.Validate(null, options);
+        Assert.Contains(result.Failures!, failure => failure.StartsWith("OAuth:ClientCredentialsAccessTokenLifetime", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Development_certificates_need_no_certificate_files()
     {
         Assert.True(_validator.Validate(null, new OAuthServerOptions { UseDevelopmentCertificates = true }).Succeeded);

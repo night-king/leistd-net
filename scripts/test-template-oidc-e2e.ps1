@@ -19,7 +19,8 @@ param(
     [switch]$SkipPack,
     [string]$LocalFeedPath,
     [string]$DockerContext,
-    [switch]$IncludeExpiryWait
+    [switch]$IncludeExpiryWait,
+    [string]$CandidateSha
 )
 
 # 快速档：真实到期的场景把签发方的访问令牌寿命改为 90 秒，走生成项目的正式配置键。
@@ -224,12 +225,12 @@ function Read-ApiLog([string]$Name, [hashtable]$Offsets = @{ Stdout = 0; Stderr 
 # 签发方是 http 地址，只能以 Development 运行（不要求 HTTPS 元数据、会话 Cookie 不带 __Host- 前缀）。
 $serviceEnvironment = "Development"
 
-function New-HttpSession([switch]$Cookies) {
+function New-HttpSession([switch]$Cookies, [int]$TimeoutSeconds = 10) {
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
     $handler.UseCookies = $Cookies.IsPresent
     $client = [Net.Http.HttpClient]::new($handler)
-    $client.Timeout = [TimeSpan]::FromSeconds(10)
+    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
     $httpClients.Add($client)
     return $client
 }
@@ -442,7 +443,8 @@ function Add-FixtureRegistration([string]$Name, [string]$Role, [string]$ApiDirec
     if ($Name -eq "orders") {
         $extraUsings = "using Leistd.ServiceClient.Refit;`nusing Leistd.ServiceClient.OAuth;"
         $registration += "`n" + 'services.AddServiceAuthentication();
-services.AddRefitServiceClient<IBillingProbe, BillingOptions>("Billing").AddTokenExchange();'
+services.AddRefitServiceClient<IBillingProbe, BillingOptions>("Billing").AddTokenExchange();
+services.AddRefitServiceClient<IBillingMachineProbe, BillingMachineOptions>("BillingMachine").AddClientCredentials();'
         # 用 XML API 添加本轮探针的依赖，避免文本替换 csproj 结构。
         $projectPath = Join-Path $ApiDirectory "E2E.Orders.Api.csproj"
         $project = [xml][IO.File]::ReadAllText($projectPath)
@@ -469,7 +471,11 @@ internal static class E2EFixtureRegistration
 }
 "@
     [IO.File]::WriteAllText((Join-Path $ApiDirectory "E2EFixtureRegistration.cs"), $fixtureRegistration, $utf8)
-    [IO.File]::WriteAllText((Join-Path $ApiDirectory "E2EProbeController.cs"), $probeSource.Replace("__NAME__", $title), $utf8)
+    $sessionSettings = if ($Name -eq "orders") {
+        ", refreshGraceSeconds = HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<E2E.$title.Api.Options.SessionCookieOptions>>().Value.RefreshGracePeriod.TotalSeconds, routeCacheSeconds = HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<Leistd.MultiTenancy.ConnectionStrings.TenantRouteCacheOptions>>().Value.CacheLifetime.TotalSeconds"
+    } else { "" }
+    $probe = $probeSource.Replace("__NAME__", $title).Replace("__MACHINE_PROBE__", $(if ($Role -ne "Standalone") { $machineProbeSource } else { "" })).Replace("__SESSION_SETTINGS__", $sessionSettings)
+    [IO.File]::WriteAllText((Join-Path $ApiDirectory "E2EProbeController.cs"), $probe, $utf8)
     if ($Name -eq "idp") { [IO.File]::WriteAllText((Join-Path $ApiDirectory "FixtureTokenController.cs"), $signerSource, $utf8) }
     # 唯一模板文本锚点；重复或缺失都失败，不能静默漏装探针管道。
     $programPath = Join-Path $ApiDirectory "Program.cs"
@@ -482,6 +488,7 @@ internal static class E2EFixtureRegistration
 
 # 测试控制器仅写入 dotnet new 的生成目录，不进入模板或框架载荷。
 $probeSource = @'
+using Microsoft.AspNetCore.Authentication;
 using Leistd.Security.Users;
 using Leistd.Security.Clients;
 using Leistd.MultiTenancy.Context;
@@ -494,12 +501,27 @@ public sealed class E2EProbeController : ControllerBase
 {
     [Authorize]
     [HttpGet("natural")]
-    public object Natural([FromServices] ICurrentUser user, [FromServices] ICurrentTenant tenant,
-        [FromServices] ICurrentClient client) => new { userId = user.Id, tenantId = tenant.Id, clientId = client.ClientId };
+    public async Task<object> Natural([FromServices] ICurrentUser user, [FromServices] ICurrentTenant tenant,
+        [FromServices] ICurrentClient client)
+    {
+        var authentication = await HttpContext.AuthenticateAsync();
+        var expiresAt = DateTimeOffset.TryParse(authentication.Properties?.GetTokenValue("expires_at"), out var expires)
+            ? expires.ToUnixTimeSeconds() : (long?)null;
+        return new { userId = user.Id, tenantId = tenant.Id, clientId = client.ClientId, expiresAt __SESSION_SETTINGS__ };
+    }
+__MACHINE_PROBE__
+}
+'@
+
+$machineProbeSource = @'
     [Authorize(Policy = "E2E.Machine")]
     [HttpGet("machine")]
-    public object Machine([FromServices] ICurrentClient client) => new { clientId = client.ClientId };
-}
+    public object Machine([FromServices] ICurrentClient client) => new
+    {
+        clientId = client.ClientId,
+        issuedAt = OpenIddict.Abstractions.OpenIddictExtensions.GetCreationDate(User)!.Value.ToUnixTimeSeconds(),
+        expiresAt = OpenIddict.Abstractions.OpenIddictExtensions.GetExpirationDate(User)!.Value.ToUnixTimeSeconds()
+    };
 '@
 
 $callerSource = @'
@@ -509,12 +531,27 @@ using Leistd.ServiceClient.OAuth;
 using Refit;
 namespace E2E.Orders.Api;
 public sealed class BillingOptions : ServiceClientOptions;
+public sealed class BillingMachineOptions : ServiceClientOptions;
 public interface IBillingProbe
 {
     [Get("/api/e2e/natural")]
     Task<BillingIdentity> NaturalAsync();
 }
 public sealed record BillingIdentity(Guid? UserId, Guid? TenantId, string? ClientId);
+public interface IBillingMachineProbe
+{
+    [Get("/api/e2e/machine")]
+    Task<MachineIdentity> GetAsync();
+}
+public sealed record MachineIdentity(string ClientId, long IssuedAt, long ExpiresAt);
+[Microsoft.AspNetCore.Mvc.ApiController]
+[Microsoft.AspNetCore.Mvc.Route("api/e2e/billing-machine")]
+[Microsoft.AspNetCore.Authorization.Authorize]
+public sealed class BillingMachineProbeController(IBillingMachineProbe billing) : Microsoft.AspNetCore.Mvc.ControllerBase
+{
+    [Microsoft.AspNetCore.Mvc.HttpGet]
+    public Task<MachineIdentity> Get() => billing.GetAsync();
+}
 [Microsoft.AspNetCore.Mvc.ApiController]
 [Microsoft.AspNetCore.Mvc.Route("api/e2e/billing")]
 [Microsoft.AspNetCore.Authorization.Authorize]
@@ -638,7 +675,10 @@ function Initialize-Environment {
             DefaultAdmin__Username = "admin"; DefaultAdmin__Password = $adminPassword
             Leistd__Security__VerificationCodes__Key = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
         }
-        if ($name -eq "idp" -and $IncludeExpiryWait) { Use-QuickAccessTokens $environment }
+        if ($name -eq "idp" -and $IncludeExpiryWait) {
+            Use-QuickAccessTokens $environment
+            $environment.OAuth__ClientCredentialsAccessTokenLifetime = "00:06:00"
+        }
         if ($role -eq "Identity") {
             $environment.OAuth__Issuer = $issuer
             $environment.OAuth__DisableHttpsRequirement = "true"
@@ -658,6 +698,7 @@ function Initialize-Environment {
             $environment.Leistd__ServiceClients__Identity__TokenExchange__Scope = "e2e-idp-api"
             $environment.Leistd__ServiceAuth__Authority = $urls.idp
             $environment.Leistd__MultiTenancy__Routing__CacheLifetime = "00:00:01"
+            if ($IncludeExpiryWait) { $environment.SessionCookie__RefreshGracePeriod = "00:01:00" }
         }
         $services[$name] = @{
             Root = $generated; Environment = $environment
@@ -711,6 +752,8 @@ function Initialize-Environment {
         $environment.Leistd__ServiceAuth__ClientId = $exchangeClient.clientId
         $environment.Leistd__ServiceAuth__ClientSecret = $exchangeClient.clientSecret
         $environment.Leistd__ServiceClients__Billing__BaseAddress = $urls.billing
+        $environment.Leistd__ServiceClients__BillingMachine__BaseAddress = $urls.billing
+        $environment.Leistd__ServiceClients__BillingMachine__Scope = "billing-api"
         $environment.Leistd__ServiceClients__Billing__TokenExchange__Audience = "billing-api"
         $environment.Leistd__ServiceClients__Billing__TokenExchange__Scope = "billing-api"
         Start-Api $name
@@ -761,7 +804,7 @@ function Test-Exchange([string]$Subject, [hashtable]$SourceClaims) {
     $script:delegatedExpiryToken = $shortOutput
 }
 
-function Test-BrowserSession {
+function New-ResourceBrowserCookie {
     $challenge = Assert-Http "resource-browser-challenge" 200 ($urls.orders + "/api/v1/auth/login?returnUrl=/workspace")
     $parameters = Read-FormPost $challenge ($urls.idp + "/connect/authorize")
     Assert-Value "browser-code-flow" "code" $parameters.response_type
@@ -779,6 +822,11 @@ function Test-BrowserSession {
     Assert-Value "browser-return-url" "/workspace" $callback.Location
     $cookie = ($callback.Cookies | Where-Object { $_.StartsWith("E2E.Orders.Auth=") } | ForEach-Object { $_.Split(';')[0] }) -join "; "
     if (-not $cookie) { throw "OIDC callback created no reference cookie." }
+    return $cookie
+}
+
+function Test-BrowserSession {
+    $cookie = New-ResourceBrowserCookie
     $me = (Assert-Http "resource-browser-me" 200 ($urls.orders + "/api/v1/auth/me") -Headers @{ Cookie = $cookie }).Data
     $claims = Read-TokenClaims $sharedToken
     Assert-Value "browser-session-user" $claims.sub $me.id
@@ -1067,6 +1115,57 @@ function Test-S12 {
     Assert-Value "resource-topup-rerun-complete" $true $rerun.Output.Contains("already hold every available permission")
 }
 
+# 只在 full 的真实到期快速档中等待；故障矩阵、节流和边界仍由组件/模板集成测试承担。
+function Test-S13 {
+    $client = New-HttpSession -TimeoutSeconds 90
+    $script:sharedSession = Login -Tenant $sharedTenant.name -Password $tenantPassword
+    $cookie = New-ResourceBrowserCookie
+    $warm = (Assert-Http "outage-machine-warm" 200 ($urls.orders + "/api/e2e/billing-machine") -Headers @{ Cookie = $cookie } -Session $client).Data
+    Assert-Value "outage-machine-configured-lifetime" 360 ([long]$warm.expiresAt - [long]$warm.issuedAt)
+    $renewAt = [long]$warm.issuedAt + 180
+    while ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -lt $renewAt) { Start-Sleep -Milliseconds 500 }
+    # 新登录的访问令牌 90 秒，宽限 60 秒；机器令牌则刚进入提前续取窗口。
+    $cookie = New-ResourceBrowserCookie
+    $initial = (Assert-Http "outage-route-warm" 200 ($urls.orders + "/api/e2e/natural") -Headers @{ Cookie = $cookie }).Data
+    Assert-Value "outage-session-configured-grace" 60 $initial.refreshGraceSeconds
+    Assert-Value "outage-route-configured-lifetime" 1 $initial.routeCacheSeconds
+    $routeExpires = [DateTimeOffset]::UtcNow.AddSeconds(2)
+    $offsets = Get-LogOffsets "orders"
+    Stop-Api "idp"
+    try {
+        while ([DateTimeOffset]::UtcNow -lt $routeExpires) { Start-Sleep -Milliseconds 100 }
+        Assert-Http "outage-machine-fallback" 200 ($urls.orders + "/api/e2e/billing-machine") -Headers @{ Cookie = $cookie } -Session $client | Out-Null
+        $log = Read-ApiLog "orders" $offsets
+        Assert-Value "outage-route-fallback-observed" $true ($log -match "using state stale")
+        Assert-Value "outage-token-fallback-observed" $true ($log -match "using a token stale")
+        $delegated = Invoke-Http ($urls.orders + "/api/e2e/billing") -Headers @{ Cookie = $cookie } -Session $client
+        Assert-Value "outage-delegation-dependency-failure" $true ($delegated.Status -in @(502, 503, 504))
+        while ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() -lt ([long]$initial.expiresAt + 2)) { Start-Sleep -Milliseconds 500 }
+        Assert-Http "outage-delegation-keeps-session" 200 ($urls.orders + "/api/e2e/natural") -Headers @{ Cookie = $cookie } -Session $client | Out-Null
+    }
+    finally { Start-Api "idp"; Wait-Http "idp"; $script:admin = Login }
+    # 不重新登录 Resource：原 Cookie 必须在恢复后完成续期。
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds(120)
+    do {
+        $renewed = (Assert-Http "outage-recovery-session" 200 ($urls.orders + "/api/e2e/natural") -Headers @{ Cookie = $cookie } -Session $client).Data
+        if ([long]$renewed.expiresAt -gt [long]$initial.expiresAt) { break }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    Assert-Value "outage-recovery-actually-renewed" $true ([long]$renewed.expiresAt -gt [long]$initial.expiresAt)
+    Assert-Http "outage-recovery-delegation" 200 ($urls.orders + "/api/e2e/billing") -Headers @{ Cookie = $cookie } -Session $client | Out-Null
+    # 独立会话验证耗尽；测试 Identity 使用内存票据缓存，重启后先重建它的登录态。
+    $script:sharedSession = Login -Tenant $sharedTenant.name -Password $tenantPassword
+    $cookie = New-ResourceBrowserCookie
+    $last = (Assert-Http "outage-expiry-session-primed" 200 ($urls.orders + "/api/e2e/natural") -Headers @{ Cookie = $cookie }).Data
+    $expires = [DateTimeOffset]::FromUnixTimeSeconds([long]$last.expiresAt + 61)
+    Stop-Api "idp"
+    try {
+        while ([DateTimeOffset]::UtcNow -lt $expires) { Start-Sleep -Milliseconds 500 }
+        Assert-Http "outage-grace-exhausted" 401 ($urls.orders + "/api/e2e/natural") -Headers @{ Cookie = $cookie } -Session $client | Out-Null
+    }
+    finally { Start-Api "idp"; Wait-Http "idp"; $script:admin = Login }
+}
+
 function Invoke-Scenario([string]$Name, [scriptblock]$Action) {
     Write-Host "Running $Name"
     try {
@@ -1100,6 +1199,8 @@ try {
     Invoke-Scenario "S10" { Test-S10 }
     Invoke-Scenario "S11" { Test-S11 }
     Invoke-Scenario "S12" { Test-S12 }
+    if ($IncludeExpiryWait) { Invoke-Scenario "S13" { Test-S13 } }
+    else { Write-Skipped "S13" "故障恢复与截止的真实到期仅在 -IncludeExpiryWait 快速档验证。" }
     if ($IncludeExpiryWait) {
         Invoke-Scenario "exchange-expiry" {
             $expires = (Read-TokenClaims $delegatedExpiryToken).exp + 1
@@ -1110,7 +1211,7 @@ try {
     Invoke-Scenario "S7" { Test-S7 }
 }
 catch {
-    $results.Add(@{ scenario = "setup"; status = "fail"; error = $_.Exception.Message })
+    $results.Add(@{ scenario = "setup"; status = "fail"; error = $_.Exception.Message; stack = $_.ScriptStackTrace })
     Write-Host $_.Exception.Message -ForegroundColor Red
 }
 finally {
@@ -1120,7 +1221,7 @@ finally {
     }
     foreach ($client in $httpClients) { $client.Dispose() }
     if ($context) {
-        if ($createdContainer -and (Invoke-Docker @("rm", "-fv", $container) -AllowFailure).ExitCode -ne 0) { $cleanupErrors.Add("容器清理失败：$container") }
+        if ($createdContainer -and (Invoke-Docker @("rm", "-f", "-v", $container) -AllowFailure).ExitCode -ne 0) { $cleanupErrors.Add("容器清理失败：$container") }
         if ($createdVolume -and (Invoke-Docker @("volume", "rm", $volume) -AllowFailure).ExitCode -ne 0) { $cleanupErrors.Add("卷清理失败：$volume") }
         if ($context -eq "orbstack" -and -not $hadImage -and (Invoke-Docker @("image", "rm", $image) -AllowFailure).ExitCode -ne 0) { $cleanupErrors.Add("本轮新镜像清理失败：$image") }
     }
@@ -1137,5 +1238,5 @@ $passedAssertions = @(if (Test-Path -LiteralPath $assertionPath) {
         Where-Object { $_.PSObject.Properties['passed'] -and $_.passed -eq $true }
 }).Count
 Write-JsonFile (Join-Path $runRoot "e2e-proof.json") ([ordered]@{
-    Version = 1; CandidateSha = (git -C $repoRoot rev-parse HEAD); Result = "pass"; Assertions = $passedAssertions })
+    Version = 1; CandidateSha = $(if ($CandidateSha) { $CandidateSha } else { git -C $repoRoot rev-parse HEAD }); Result = "pass"; Assertions = $passedAssertions })
 Write-Host "OIDC E2E passed: $(@($results | ForEach-Object { $_.scenario }) -join ", ")." -ForegroundColor Green
