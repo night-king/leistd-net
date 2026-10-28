@@ -81,6 +81,8 @@ builder.Services.AddAuthentication("Session").AddCookie("Session");
 builder.Services.AddDistributedTicketStore("Session");
 ```
 
+票据的 Cookie 引用版本与内容版本各司其职：直接服务端 `RenewAsync` 替换内容时轮换内容版本，旧内容的 HTTP 被动续写不会覆盖较新票据；Cookie 引用保持有效。显式重新登录才轮换引用版本，旧引用不能修改、删除或恢复新会话。
+
 宿主先提供 `IDistributedCache`、`IDataProtectionProvider` 和 `IDistributedLock`，并配置共享密钥环、应用名与缓存/锁实现。`Leistd.Security.AspNetCore` 因票据能力传递引用 `Leistd.Lock.Core`，不会替宿主选择这些实现。
 
 入口登记单例 `ITicketStore`，保留宿主预先登记的实现；每个命名 Cookie 方案只挂载一次，配置委托按调用叠加。不同方案共用存储配置，Cookie 寿命、属性和原生事件由宿主决定。原生 callback、Events 子类与 EventsType 均保留，同请求同方案的事件共用实例。

@@ -60,11 +60,39 @@ public sealed class DistributedTicketStoreTests
     }
 
     [Fact]
-    public async Task Native_sliding_renewal_keeps_the_reference_and_extends_server_expiration()
+    public async Task A_passive_renewal_cannot_overwrite_an_owner_content_update()
     {
         using var host = new Harness("callback");
         var cookie = await host.LoginAsync("A");
         var key = Assert.Single(host.Reference(cookie, "A").Principal.Claims).Value;
+        var old = (await host.Store.RetrieveAsync(key))!;
+        var updated = (await host.Store.RetrieveAsync(key))!;
+        updated.Properties.UpdateTokenValue("access_token", "new-token");
+        await host.Store.RenewAsync(key, updated);
+        var context = new DefaultHttpContext { RequestServices = host.Server.Services };
+        context.Request.Headers.Cookie = cookie;
+        await host.Store.RenewAsync(key, old, context, CancellationToken.None);
+        Assert.Equal("new-token", (await host.Store.RetrieveAsync(key))!.Properties.GetTokenValue("access_token"));
+        Assert.Equal(HttpStatusCode.OK, await host.MeAsync(cookie, "A"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Native_sliding_renewal_keeps_the_reference_and_extends_server_expiration(bool withoutContentVersion)
+    {
+        using var host = new Harness("callback");
+        var cookie = await host.LoginAsync("A");
+        var key = Assert.Single(host.Reference(cookie, "A").Principal.Claims).Value;
+        if (withoutContentVersion)
+        {
+            var legacy = (await host.Store.RetrieveAsync(key))!;
+            legacy.Properties.Items.Remove("ticket.content.version");
+            var protector = host.Services.GetRequiredService<IDataProtectionProvider>()
+                .CreateProtector("Leistd.Security.AspNetCore.Cookies.DistributedTicketStore.v1");
+            await host.Cache.SetAsync(key, protector.Protect(TicketSerializer.Default.Serialize(legacy)),
+                new DistributedCacheEntryOptions { AbsoluteExpiration = legacy.Properties.ExpiresUtc });
+        }
         Assert.Equal(HttpStatusCode.Unauthorized, await host.MeAsync(cookie, "B"));
         host.Clock.Advance(TimeSpan.FromMinutes(11));
         Assert.Equal(HttpStatusCode.OK, await host.MeAsync(cookie, "A"));
