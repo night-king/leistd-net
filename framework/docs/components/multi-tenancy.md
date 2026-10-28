@@ -350,7 +350,7 @@ IHttpClientBuilder controlPlane = builder.Services.AddRemoteTenantConnectionStor
 - 需要硬保证时，在业务 `DbContext` 里加守卫。
 
 - **本地解析**：控制库连接名解析为 `ConnectionStrings:{名称}`，未配置时回落 `Default`；租户配置从"未删除租户"入口查询，已软删或无配置的租户抛 `TenantNotFoundException`。控制库上下文直接注入、不经 `IDbContextProvider`。
-- **远端解析**：结果按 `Leistd:MultiTenancy:Routing:CacheLifetime` 缓存；同租户并发请求合并为一次回源；响应的 `TenantId` 与请求不一致时抛 `InvalidOperationException`，校验在使用连接串和写缓存之前。
+- **远端解析**：结果按 `Leistd:MultiTenancy:Routing:CacheLifetime` 缓存；同租户并发请求合并为一次回源；连接失败、超时、408/429/5xx 时可在新鲜期后沿用最后确认的路由最多 `MaxStaleness`（默认 1 小时），每键 30 秒重试一次并记 Warning；明确拒绝立即丢弃旧值，取消照常传播；响应的 `TenantId` 与请求不一致时抛 `InvalidOperationException`，校验在使用连接串和写缓存之前。
 - **迁移目标**：两种注册都附带 `ITenantMigrationTargetProvider`，按连接名枚举独立物理库，同一连接串只出现一次（代表租户取标识最小者）；
   一条连接都没登记的租户不出现（随宿主库迁移）。结果带明文连接串，只给迁移作业（`MigrationReadPolicy`）。
   取不出连接的租户列进 `TenantMigrationTargetSet.FailedTenants`，不挡住其他库；迁移作业须迁完其余库后报出它们并以失败结束。
@@ -364,7 +364,7 @@ IHttpClientBuilder controlPlane = builder.Services.AddRemoteTenantConnectionStor
   `IgnoreQueryFilters()` 只放开同一个库里的租户，独立库要逐个进入：`ICurrentTenant.Change(database.TenantId)` → `Begin(requiresNew: true)` → 经 `IDbContextProvider` 取上下文
   （直接注入的 `DbContext` 不跟随租户路由）。`ITenantDatabaseRunner.ForEachDatabaseAsync` 封装了切租户与逐库失败隔离。
   与宿主连接配置相同的登记并入宿主库；指纹判的是连接配置而非物理库，逐库逻辑须能重复执行。
-  远端形态的库目录按连接名与 `activeOnly` 在进程内缓存 `DatabaseDirectoryCacheLifetime`（默认 30 秒），同键并发回源合并，回源失败不缓存，过期后重新回源。
+  远端形态的库目录按连接名与 `activeOnly` 在进程内缓存 `DatabaseDirectoryCacheLifetime`（默认 30 秒），同键并发回源合并；不可达时在新鲜期后最多 `MaxStaleness` 内沿用旧清单（含原 `FailedTenants`），每键 30 秒重试并记 Warning。无可用旧清单或超过上限则整轮失败，不仅处理宿主库。
   新增、停用或改路由的库最多晚一个周期出现在清单里，`activeOnly: true` 的作业可能晚一个周期才发现变化；`FailedTenants` 随清单一起缓存，同一周期内保持原样。
   进库用的连接仍走路由缓存（`Routing:CacheLifetime`），缩短本期限不会让路由变更更快生效。本地形态直接读控制库，不缓存。
 
@@ -378,7 +378,8 @@ IHttpClientBuilder controlPlane = builder.Services.AddRemoteTenantConnectionStor
 }
 ```
 
-`CacheLifetime` 默认 10 分钟，同时决定改租户路由前的排空等待：`max(Access Token 有效期, CacheLifetime)`。
+`CacheLifetime` 默认 10 分钟，`MaxStaleness` 默认 1 小时（0 表示不接受陈旧状态，大于等于 0、不超过 1 小时）。路由最长沿用 `CacheLifetime + MaxStaleness`，库清单最长沿用 `DatabaseDirectoryCacheLifetime + MaxStaleness`；连接串仅在进程内。
+改路由前仍等待 `max(Access Token 有效期, CacheLifetime)`，并确认承载该租户的各实例在变更开始后成功回源过；检索不到旧值 Warning 不足为据。依据租户不存在/退役删除业务数据时须权威结果；本地保留期清理可以用旧清单。
 
 固定在控制库的 DbContext 声明专属连接名，与 `ControlPlaneConnectionStringName` 一致：
 
@@ -417,7 +418,7 @@ public sealed class IdentityControlDbContext : DbContext;
 | `AddRemoteTenantConnectionResolution(configSectionPath?)` | Core 包：注册远端连接解析、`HybridCache`（只用进程内一级，并发回源合并为一次，连接串不进分布式缓存）与远端迁移目标，并调用 `AddMultiTenancyCore()`；绑定 `configSectionPath`（默认 `Leistd:MultiTenancy:Routing`），校验消息按实际路径报键，重复调用换用另一配置节时抛出 |
 | `ITenantConnectionConfigurationStore` | 按名字读连接：`FindAsync(tenantId, name, ct)` 返回 `TenantConnectionLookupResult`（租户不存在或已删除时为 `null`），“精确名 → 默认名”的回落由实现完成；`GetListAsync(name, ct)` 供迁移作业枚举，返回 `TenantMigrationConnectionListResult(Connections, FailedTenants)`。EF 包提供控制库实现，ServiceClient 包提供远端实现，一次只按名字返回一条 |
 | `TenantConnectionLookupResult` | `HasAnyConnection` 区分"不分库"与"缺这个名字"；`Connection` 是命中的那一条 |
-| `TenantRouteCacheOptions` | `CacheLifetime`（默认 10 分钟，不超过 `MaximumCacheLifetime` 1 小时） |
+| `TenantRouteCacheOptions` | `CacheLifetime`（默认 10 分钟，不超过 `MaximumCacheLifetime` 1 小时）；`MaxStaleness`（默认 1 小时，0–1 小时） |
 | `RemoteTenantConnectionClientOptions` | ServiceClient 包：`RoutePrefix`（默认 `/api/v1/tenant-connections`）；`DatabaseDirectoryCacheLifetime`（远端库目录缓存，默认 30 秒，大于 0、不超过 1 小时，越界启动失败并报键名） |
 | `ITenantMigrationTargetProvider` | `GetDedicatedTargetsAsync(name, ct)` 返回 `TenantMigrationTargetSet(Targets, FailedTenants)`：按连接名枚举的独立物理库 `TenantMigrationTarget(TenantId, ConnectionString)`，每个库一条，`Fingerprint` 为连接串的 SHA-256；取不出连接的租户为 `TenantDatabaseFailure(TenantId, Reason)`，`Reason` 不含连接串 |
 | `ITenantDatabaseDirectory` | 控制库侧的库目录：按连接名回 `TenantDatabaseListResult(Databases, FailedTenants)`，不含连接串。EF 实现随 `AddMultiTenancyEfCore` 注册（它读的就是控制库），ServiceClient 包以远端存储实现它并加短时缓存；自定义存储的宿主要自己注册，`AddTenantManagement` 少了它解析不出连接管理用例 |

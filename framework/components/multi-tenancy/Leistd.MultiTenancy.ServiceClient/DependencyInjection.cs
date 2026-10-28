@@ -18,7 +18,7 @@ public static class DependencyInjection
     /// 或 <paramref name="configSectionPath"/> 时抛出 <see cref="InvalidOperationException"/>。
     /// 解析、缓存与单飞另由 <c>AddRemoteTenantConnectionResolution()</c> 注册。</para>
     /// <para>同一客户端兼作 <see cref="ITenantDatabaseDirectory"/>：按连接名与 <c>activeOnly</c> 在进程内缓存
-    /// <c>DatabaseDirectoryCacheLifetime</c>（默认 30 秒，大于 0、不超过 1 小时，越界启动失败），同键并发回源合并，失败不缓存；
+    /// <c>DatabaseDirectoryCacheLifetime</c>（默认 30 秒，大于 0、不超过 1 小时，越界启动失败），同键并发回源合并；不可达时按 <c>TenantRouteCacheOptions.MaxStaleness</c> 回落最后确认值并以 30 秒节流，明确拒绝作废旧值；
     /// 为此注册 <c>HybridCache</c>（只用进程内一级）。</para>
     /// <para>先绑定 <paramref name="configSectionPath"/>（默认 <c>Leistd:ServiceClients:{serviceName}</c>），再应用
     /// <paramref name="configure"/>；<c>BaseAddress</c> 缺失或不是绝对地址时启动失败并报出实际键名。</para>

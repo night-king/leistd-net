@@ -1,4 +1,5 @@
 using System.Net;
+using Leistd.ServiceClient.Exceptions;
 using System.Text;
 using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.MultiTenancy.ServiceClient;
@@ -13,7 +14,7 @@ using Xunit;
 
 namespace Leistd.MultiTenancy.Tests.ServiceClient;
 
-/// <summary>远端库目录的短时缓存：常驻服务按秒轮询逐库作业，期内只回源一次；失败不缓存，过期不返回陈旧清单。</summary>
+/// <summary>远端库目录的短时缓存：常驻服务按秒轮询逐库作业，期内只回源一次；不可达时在硬截止前回落，明确拒绝作废旧清单。</summary>
 /// <remarks>经 <c>AddRemoteTenantConnectionStore</c> 的真实注册与 HTTP 管道断言，只把最底层的网络换成脚本。</remarks>
 public sealed class RemoteDatabaseDirectoryCachingTests : IDisposable
 {
@@ -55,6 +56,19 @@ public sealed class RemoteDatabaseDirectoryCachingTests : IDisposable
         _clock.Advance(TimeSpan.FromSeconds(1));
         await ListAsync(provider: provider);
         Assert.Equal(2, _controlPlane.Calls);
+    }
+
+    [Fact]
+    public async Task An_unavailable_directory_uses_the_last_listing_until_the_hard_deadline()
+    {
+        var initial = await ListAsync();
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        _controlPlane.Status = HttpStatusCode.ServiceUnavailable;
+        Assert.Same(initial, await ListAsync());
+        Assert.Same(initial, await ListAsync());
+        Assert.Equal(2, _controlPlane.Calls);
+        _clock.Advance(TimeSpan.FromHours(1));
+        await Assert.ThrowsAsync<RemoteServiceException>(() => ListAsync());
     }
 
     // 全集给清理与盘点用、活跃清单给发布用，互相顶掉会让一方拿到另一方的口径
@@ -205,6 +219,7 @@ public sealed class RemoteDatabaseDirectoryCachingTests : IDisposable
         }
 
         var services = new ServiceCollection()
+            .AddSingleton<TimeProvider>(_clock)
             .AddLogging()
             .AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
         services.AddRemoteTenantConnectionStore("Identity").ConfigurePrimaryHttpMessageHandler(() => _controlPlane);

@@ -1,4 +1,6 @@
 using System.Net;
+using Leistd.MultiTenancy.Exceptions;
+using Leistd.ServiceClient.Exceptions;
 using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.MultiTenancy.Errors;
 using Leistd.MultiTenancy.Dtos;
@@ -21,38 +23,45 @@ internal sealed class RemoteTenantConnectionStore(
         string name,
         CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.GetAsync(
-            $"{Prefix}/runtime/{tenantId}?name={Uri.EscapeDataString(name)}",
-            cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.NotFound)
+        try
         {
-            var error = await response.CreateRemoteErrorAsync(cancellationToken);
-            if (error.ErrorCode == MultiTenancyErrorCodes.NotFound)
+            using var response = await httpClient.GetAsync(
+                $"{Prefix}/runtime/{tenantId}?name={Uri.EscapeDataString(name)}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                return null;
+                var error = await response.CreateRemoteErrorAsync(cancellationToken);
+                if (error.ErrorCode == MultiTenancyErrorCodes.NotFound)
+                {
+                    return null;
+                }
+
+                throw error;
             }
 
-            throw error;
+            // 空响应体由 ReadContentAsync 抛无效响应（对外 502），不会落到这里
+            var remote = (await response.ReadContentAsync<TenantRuntimeConnectionOutputDto>(cancellationToken: cancellationToken))!;
+
+            return new TenantConnectionLookupResult
+            {
+                TenantId = remote.TenantId,
+                HasAnyConnection = remote.HasAnyConnection,
+                Connection = remote.Connection is { } connection
+                    ? new TenantConnectionConfiguration
+                    {
+                        TenantId = remote.TenantId,
+                        Name = connection.Name,
+                        ConnectionString = connection.ConnectionString,
+                        Version = connection.Version
+                    }
+                    : null
+            };
         }
-
-        // 空响应体由 ReadContentAsync 抛无效响应（对外 502），不会落到这里
-        var remote = (await response.ReadContentAsync<TenantRuntimeConnectionOutputDto>(cancellationToken: cancellationToken))!;
-
-        return new TenantConnectionLookupResult
+        catch (ServiceClientException exception) when (ServiceClientFailureClassifier.IsUnavailable(exception))
         {
-            TenantId = remote.TenantId,
-            HasAnyConnection = remote.HasAnyConnection,
-            Connection = remote.Connection is { } connection
-                ? new TenantConnectionConfiguration
-                {
-                    TenantId = remote.TenantId,
-                    Name = connection.Name,
-                    ConnectionString = connection.ConnectionString,
-                    Version = connection.Version
-                }
-                : null
-        };
+            throw new TenantConnectionUnavailableException(exception);
+        }
     }
 
     public async Task<TenantMigrationConnectionListResult> GetListAsync(

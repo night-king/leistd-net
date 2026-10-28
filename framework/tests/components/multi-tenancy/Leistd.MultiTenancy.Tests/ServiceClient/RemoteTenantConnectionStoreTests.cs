@@ -1,4 +1,5 @@
 using System.Net;
+using Leistd.MultiTenancy.Exceptions;
 using System.Text;
 using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.MultiTenancy.EntityFrameworkCore;
@@ -65,7 +66,8 @@ public sealed class RemoteTenantConnectionStoreTests
     {
         _handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
 
-        await Assert.ThrowsAsync<RemoteServiceException>(() => Store().FindAsync(TenantId, "crm"));
+        var exception = await Assert.ThrowsAsync<TenantConnectionUnavailableException>(() => Store().FindAsync(TenantId, "crm"));
+        Assert.Equal(503, Assert.IsType<RemoteServiceException>(exception.InnerException).RemoteStatusCode);
     }
 
     // 控制面答了 200 却没有内容是对端故障：归为无效响应，经全局异常处理成 502，不能当成本服务内部错误

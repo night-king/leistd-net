@@ -17,6 +17,9 @@ public sealed class TenantRouteCacheOptions
     /// <summary>TTL 上限：更长的 TTL 会把切换流程的排空等待拖到不可操作。</summary>
     public static readonly TimeSpan MaximumCacheLifetime = TimeSpan.FromHours(1);
 
+    /// <summary>新鲜期结束后允许沿用旧路由和旧库清单的时长，默认 1 小时；0 表示不接受陈旧状态。</summary>
+    public TimeSpan MaxStaleness { get; set; } = TimeSpan.FromHours(1);
+
     /// <summary>路由缓存生存期，须大于 0 且不超过 <see cref="MaximumCacheLifetime"/>。</summary>
     public TimeSpan CacheLifetime { get; set; } = DefaultCacheLifetime;
 }

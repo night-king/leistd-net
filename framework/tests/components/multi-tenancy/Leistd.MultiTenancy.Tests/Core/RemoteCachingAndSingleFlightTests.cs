@@ -1,4 +1,9 @@
 using Leistd.MultiTenancy.ConnectionStrings;
+using Leistd.MultiTenancy.Exceptions;
+using Leistd.ServiceClient.Exceptions;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Internal;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Leistd.MultiTenancy.Tests.TestDoubles;
@@ -166,6 +171,36 @@ public sealed class RemoteCachingAndSingleFlightTests : IDisposable
         public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
         public void Remove(string key) { }
         public Task RemoveAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Stale_routes_are_shared_throttled_and_discarded_after_a_rejection()
+    {
+        var clock = new FakeTimeProvider();
+        using var host = new RemoteHost(cacheLifetime: "00:00:30", configure: services =>
+        {
+            services.AddSingleton<TimeProvider>(clock);
+            services.Configure<MemoryCacheOptions>(options => options.Clock = new CacheClock(clock));
+        });
+        host.Tenant.Id = Guid.NewGuid();
+        Assert.Equal(RemoteHost.DefaultConnection, await host.ResolveAsync());
+        clock.Advance(TimeSpan.FromSeconds(30));
+        host.Source.Lookup = (_, _) => throw new TenantConnectionUnavailableException(
+            new ServiceClientException("Unavailable", failureKind: ServiceClientFailureKind.Unavailable));
+        Assert.Equal(RemoteHost.DefaultConnection, await host.ResolveAsync());
+        Assert.Equal(RemoteHost.DefaultConnection, await host.ResolveAsync());
+        Assert.Equal(2, host.Source.RuntimeCalls);
+        clock.Advance(TimeSpan.FromSeconds(30));
+        host.Source.Lookup = (_, _) => null;
+        await Assert.ThrowsAsync<TenantNotFoundException>(() => host.ResolveAsync());
+        host.Source.Lookup = (_, _) => throw new TenantConnectionUnavailableException(
+            new ServiceClientException("Unavailable", failureKind: ServiceClientFailureKind.Unavailable));
+        await Assert.ThrowsAsync<ServiceClientException>(() => host.ResolveAsync());
+    }
+
+    private sealed class CacheClock(TimeProvider clock) : ISystemClock
+    {
+        public DateTimeOffset UtcNow => clock.GetUtcNow();
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
