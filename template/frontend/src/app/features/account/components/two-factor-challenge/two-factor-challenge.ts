@@ -17,7 +17,6 @@ import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 //#endif
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import {
-  lucideArrowLeft,
   lucideFingerprint,
   lucideKeyRound,
   lucideMail,
@@ -137,7 +136,6 @@ const METHOD_ICONS: Record<TwoFactorMethod, string> = {
   ],
   providers: [
     provideIcons({
-      lucideArrowLeft,
       lucideFingerprint,
       lucideKeyRound,
       lucideMail,

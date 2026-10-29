@@ -153,7 +153,8 @@
                   (click)="sendEmailCode()"
                 >
                   @if (sendingEmail()) {
-                    <hlm-spinner class="text-base" data-icon="inline-start" />
+                    <!-- 不标 inline-start：链接按钮没有左内边距，标了会在发送期间右移。 -->
+                    <hlm-spinner class="text-base" />
                   }
                   {{
                     resend.remaining() > 0
@@ -228,7 +229,6 @@
         data-testid="two-factor-back"
         (click)="cancelled.emit()"
       >
-        <ng-icon name="lucideArrowLeft" />
         {{ t('account.twoFactorLogin.back') }}
       </button>
       @if (alternatives().length === 1) {
