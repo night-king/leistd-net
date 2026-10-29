@@ -66,14 +66,10 @@ public class DbContextProvider<TDbContext>(
         var activeTransaction = targetKey is null
             ? null
             : unitOfWork.FindTransactionApi($"EfCoreTransaction:{targetKey}") as EfCoreTransactionApi;
-        var dbContext = CreateDbContext(
-            uowServiceProvider,
-            resolvedConnectionString,
-            activeTransaction?.DbContextTransaction.GetDbTransaction().Connection);
+        var existingConnection = activeTransaction?.DbContextTransaction.GetDbTransaction().Connection;
+        var dbContext = CreateDbContext(uowServiceProvider, resolvedConnectionString, existingConnection);
 
-        var actualTargetKey = dbContext.Database.IsRelational()
-            ? CreateTargetKey(dbContext.Database.GetConnectionString())
-            : $"NonRelational:{typeof(TDbContext).FullName}:{dbContext.Database.ProviderName}";
+        var actualTargetKey = ActualTargetKey(dbContext, targetKey, existingConnection);
         binding.Bind(affinityKey, actualTargetKey);
         targetKey ??= actualTargetKey;
 
@@ -103,6 +99,32 @@ public class DbContextProvider<TDbContext>(
 
         unitOfWork.AddDatabaseApi(DatabaseApiKey, new EfCoreDatabaseApi<TDbContext>(dbContext));
         return dbContext;
+    }
+
+    // 复用活动事务的连接时，物理目标就是查到该事务时用的键：连接打开后上报的连接串可能已被提供程序改写
+    // （Npgsql 在 Persist Security Info=false 时去掉 Password），不能用它重算。只核对宿主回调确实采用了传入的连接——
+    // 另开的连接加入不了活动事务，提交会分裂成两个事务。
+    private static string ActualTargetKey(TDbContext dbContext, string? targetKey, DbConnection? existingConnection)
+    {
+        if (!dbContext.Database.IsRelational())
+        {
+            return $"NonRelational:{typeof(TDbContext).FullName}:{dbContext.Database.ProviderName}";
+        }
+
+        if (existingConnection is null)
+        {
+            return CreateTargetKey(dbContext.Database.GetConnectionString());
+        }
+
+        if (!ReferenceEquals(dbContext.Database.GetDbConnection(), existingConnection))
+        {
+            throw new InvalidOperationException(
+                $"The DbContext configuration for '{typeof(TDbContext).FullName}' did not use the connection of the " +
+                "active transaction on its database. The host's AddDbContext callback must use " +
+                "DbContextCreationContext.Current.ExistingConnection when it is set.");
+        }
+
+        return targetKey!;
     }
 
     private static async Task EnlistOrBeginTransactionAsync(
