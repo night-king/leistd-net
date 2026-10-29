@@ -169,7 +169,6 @@ public class ValidateOrderHandler(OrderValidator validator) : IEventHandler<Orde
 
 `IDbContextProvider<TDbContext>` 在工作单元内按 DbContext 类型复用实例。事务型工作单元中，同一物理关系数据库上的多个 DbContext 共用连接和事务：
 后取的 DbContext 经 `DbContextCreationContext.Current.ExistingConnection` 拿到活动事务的连接，`AddDbContext` 回调必须采用它，另开连接时取上下文即抛 `InvalidOperationException`。
-复用连接时物理目标沿用已绑定的值，不按连接打开后上报的连接串重算（Npgsql 默认会从中去掉密码）。
 
 宿主注册 `IConnectionStringResolver` 时，Provider 根据 `[ConnectionStringName]` 异步解析连接，并通过 `DbContextCreationContext.Current` 传入同步 `AddDbContext` 回调。该回调不得再执行远程调用或 sync-over-async。
 
