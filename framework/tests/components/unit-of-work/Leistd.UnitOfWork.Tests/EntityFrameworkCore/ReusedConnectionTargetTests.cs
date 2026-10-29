@@ -42,6 +42,8 @@ public class ReusedConnectionTargetTests
             second.SecondRows.Add(new SecondRow());
 
             Assert.Same(first.Database.GetDbConnection(), second.Database.GetDbConnection());
+            // 先写进当前事务，未完成时的 0 行才能证明回滚，而不是根本没写。
+            await unitOfWork.SaveChangesAsync();
             if (complete)
             {
                 await unitOfWork.CompleteAsync();
