@@ -379,6 +379,8 @@ IHttpClientBuilder controlPlane = builder.Services.AddRemoteTenantConnectionStor
 ```
 
 `CacheLifetime` 默认 10 分钟，`MaxStaleness` 默认 1 小时（0 表示不接受陈旧状态，大于等于 0、不超过 1 小时）。路由最长沿用 `CacheLifetime + MaxStaleness`，库清单最长沿用 `DatabaseDirectoryCacheLifetime + MaxStaleness`；连接串仅在进程内。
+路由与库清单有可用旧值时，单次回源最多等待 1 秒；超过预算先返回旧值并按键节流 30 秒，原回源继续更新缓存。收到明确拒绝即清旧值，之后不得回落；没有旧值或已超硬截止时仍等待正常回源结果。超时回落不主动取消回源，原参与者取消及既有管道时限仍生效。该预算不等于整条跨服务请求的耗时上限。
+
 改路由前仍等待 `max(Access Token 有效期, CacheLifetime)`，并确认承载该租户的各实例在变更开始后成功回源过；检索不到旧值 Warning 不足为据。依据租户不存在/退役删除业务数据时须权威结果；本地保留期清理可以用旧清单。
 
 固定在控制库的 DbContext 声明专属连接名，与 `ControlPlaneConnectionStringName` 一致：

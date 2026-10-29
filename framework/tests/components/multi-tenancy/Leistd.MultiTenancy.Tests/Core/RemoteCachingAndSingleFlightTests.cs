@@ -3,6 +3,9 @@ using Leistd.MultiTenancy.Exceptions;
 using Leistd.ServiceClient.Exceptions;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Internal;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Logging.Testing;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -196,6 +199,141 @@ public sealed class RemoteCachingAndSingleFlightTests : IDisposable
         host.Source.Lookup = (_, _) => throw new TenantConnectionUnavailableException(
             new ServiceClientException("Unavailable", failureKind: ServiceClientFailureKind.Unavailable));
         await Assert.ThrowsAsync<ServiceClientException>(() => host.ResolveAsync());
+    }
+
+    [Fact]
+    public async Task A_pending_route_returns_stale_within_one_second_and_throttles_all_waiters()
+    {
+        var clock = new BudgetClock();
+        var services = new ServiceCollection().AddLogging();
+        services.Configure<MemoryCacheOptions>(options => options.Clock = new CacheClock(clock));
+        services.AddHybridCache();
+        await using var provider = services.BuildServiceProvider();
+        var logger = new FakeLogger();
+        var cache = new TenantRouteCache(provider.GetRequiredService<HybridCache>(), clock, logger);
+        var calls = 0;
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ValueTask<string> Fetch(CancellationToken ct) => ++calls == 1
+            ? ValueTask.FromResult("old-route") : new(release.Task.WaitAsync(ct));
+        ValueTask<string> Read() => cache.GetAsync("route", TimeSpan.FromSeconds(30), TimeSpan.FromHours(1),
+            Fetch, static _ => true, default);
+        Assert.Equal("old-route", await Read());
+        clock.Advance(TimeSpan.FromSeconds(30));
+        var readers = Enumerable.Range(0, 3).Select(_ => Read().AsTask()).ToArray();
+        try
+        {
+            // 旧实现没有预算计时器，保护性超时使回归在修复前明确失败。
+            await clock.BudgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            clock.Advance(TimeSpan.FromMilliseconds(999));
+            Assert.All(readers, reader => Assert.False(reader.IsCompleted));
+            clock.Advance(TimeSpan.FromMilliseconds(1));
+            Assert.All(await Task.WhenAll(readers).WaitAsync(TimeSpan.FromSeconds(2)), value => Assert.Equal("old-route", value));
+            Assert.Equal("old-route", await Read());
+            Assert.Equal(2, calls);
+            Assert.Single(logger.Collector.GetSnapshot(), record => record.Level == LogLevel.Warning);
+            var completion = provider.GetRequiredService<HybridCache>().GetOrCreateAsync<string>("route:fetch",
+                static _ => throw new InvalidOperationException("The original fetch must still be running."),
+                new HybridCacheEntryOptions { Flags = HybridCacheEntryFlags.DisableDistributedCache | HybridCacheEntryFlags.DisableLocalCacheWrite }).AsTask();
+            clock.Advance(TimeSpan.FromSeconds(10));
+            release.SetException(new HttpRequestException("unavailable"));
+            Assert.Equal("old-route", await completion);
+            Assert.Single(logger.Collector.GetSnapshot(), record => record.Level == LogLevel.Warning);
+            Assert.Equal("old-route", await Read());
+        }
+        finally
+        {
+            release.TrySetResult("new-route");
+            await Task.WhenAll(readers).WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("rejection")]
+    [InlineData("deadline")]
+    [InlineData("cancellation")]
+    [InlineData("cold")]
+    public async Task Bounded_route_waiting_preserves_results_deadlines_and_cancellation(string scenario)
+    {
+        var clock = new BudgetClock();
+        var services = new ServiceCollection().AddLogging();
+        services.Configure<MemoryCacheOptions>(options => options.Clock = new CacheClock(clock));
+        services.AddHybridCache();
+        await using var provider = services.BuildServiceProvider();
+        var hybrid = provider.GetRequiredService<HybridCache>();
+        var cache = new TenantRouteCache(hybrid, clock, new FakeLogger());
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        async ValueTask<string> Fetch(CancellationToken ct)
+        {
+            if (++calls == 1 && scenario != "cold") return "old";
+            started.TrySetResult();
+            return await release.Task.WaitAsync(ct);
+        }
+        using var cancellation = new CancellationTokenSource();
+        Task<string> Read(CancellationToken ct = default) => cache.GetAsync("boundary", TimeSpan.FromSeconds(30),
+            TimeSpan.FromSeconds(1), Fetch, static ex => ex is HttpRequestException, ct).AsTask();
+        if (scenario != "cold")
+        {
+            await Read();
+            clock.Advance(TimeSpan.FromSeconds(30));
+        }
+        var reader = Read(cancellation.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        try
+        {
+            if (scenario == "cold")
+            {
+                clock.Advance(TimeSpan.FromSeconds(2));
+                Assert.False(reader.IsCompleted);
+                release.SetResult("new");
+                Assert.Equal("new", await reader);
+                return;
+            }
+            await clock.BudgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            if (scenario == "cancellation")
+            {
+                await cancellation.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reader);
+                return;
+            }
+            if (scenario == "rejection")
+            {
+                release.SetException(new InvalidOperationException("rejected"));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => reader);
+                await Assert.ThrowsAsync<InvalidOperationException>(() => Read());
+                return;
+            }
+            clock.Advance(TimeSpan.FromSeconds(1));
+            if (scenario == "deadline")
+            {
+                // 等待预算到达时旧值也刚好到达硬截止，必须继续等待权威结果。
+                release.SetException(new HttpRequestException("unavailable"));
+                await Assert.ThrowsAsync<HttpRequestException>(() => reader);
+                return;
+            }
+            // 成功在预算内返回，不能错误进入节流。
+            release.SetResult("new");
+            Assert.Equal("new", await reader);
+            Assert.Equal("new", await Read());
+            Assert.Equal(2, calls);
+        }
+        finally
+        {
+            release.TrySetResult("new");
+        }
+    }
+
+    private sealed class BudgetClock : FakeTimeProvider
+    {
+        public TaskCompletionSource BudgetStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            BudgetStarted.TrySetResult();
+            return timer;
+        }
     }
 
     private sealed class CacheClock(TimeProvider clock) : ISystemClock
