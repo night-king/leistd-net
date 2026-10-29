@@ -124,6 +124,8 @@ ASP.NET Core 宿主按上面的注册契约选择证明来源；仅有 Cookie �
 组件默认关闭官方客户端令牌存储。令牌按官方客户端返回的到期时间缓存在进程内（HybridCache，DisableDistributedCache）：机器令牌在过半寿命后的首次调用续取，不可达时回落至到期前 60 秒，按键每 30 秒重试、记 Warning；用户交换令牌提前 10 秒失效，不提前续取或回落；
 同一实例内同键的并发抓取合并为一次。缓存键含签发方、工作负载、命名客户端、目标范围及完整 subject 令牌的 SHA-256 摘要。
 
+机器令牌过半续取时，有未到可用截止的旧令牌则单次最多等待 1 秒；超时先返回旧令牌并设 30 秒节流，原回源继续。续取成功替换令牌，明确拒绝或 401 清除旧令牌；等待期间已清除或到达可用截止的令牌不能回填。超时回落不主动取消回源，原参与者取消及 OpenIddict 内部客户端时限仍生效。无旧令牌及 Token Exchange 沿用正常等待，该预算不是整条 HTTP 调用链的上限。
+
 401 清除对应缓存，下次调用重新获取；缓存后端删除故障记 Warning、不覆盖原响应；请求取消照常传播。组件不自动重放业务请求，调用方按幂等性决定重试。
 令牌端点的真实失败响应使用 `RemoteServiceException`（`RemoteFailure`，默认 502），保留真实状态、OAuth 错误码及 `IsOAuthError` 来源。传输失败归 `Unavailable` / `Timeout`（503 / 504），无效响应归 `InvalidResponse`（502）。
 `ServiceClientFailureClassifier.IsUnavailable` 统一判断依赖暂不可达：传输不可达或超时、HTTP 408/429/5xx；真实 OAuth 错误优先，只有 `server_error` / `temporarily_unavailable` 属暂时故障。业务接口错误码不按 OAuth 解释。明确拒绝立即丢弃旧令牌；主动取消照常传播。
