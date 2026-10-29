@@ -629,6 +629,8 @@ function Initialize-Environment {
     Set-CandidateVersionOverride (Join-Path $runRoot "generated") $candidateFeed.CandidateVersion
     $hive = Join-Path $runRoot "template-hive"
     $packages = Join-Path $runRoot "nuget-cache"
+    # 环境变量优先于 NuGet.Config：执行器的共享解包目录不能覆盖本轮候选包隔离。
+    $baseEnvironment.NUGET_PACKAGES = $packages
     $nugetConfig = Join-Path $runRoot "NuGet.Config"
     $escapedFeed = [Security.SecurityElement]::Escape($feed)
     $escapedPackages = [Security.SecurityElement]::Escape($packages)
@@ -1117,6 +1119,23 @@ function Test-S12 {
 
 # 只在 full 的真实到期快速档中等待；故障矩阵、节流和边界仍由组件/模板集成测试承担。
 function Test-S13 {
+    # 各请求在自己的异步操作里计时，不能用依次收集响应的时刻冒充独立耗时。
+    Add-Type -TypeDefinition @'
+using System.Diagnostics;
+using System.Net.Http;
+using System.Threading.Tasks;
+public static class E2EOutageTiming
+{
+    public static async Task<(int Status, long Milliseconds)> SendAsync(HttpClient client, string url, string cookie)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("Cookie", cookie);
+        var watch = Stopwatch.StartNew();
+        using var response = await client.SendAsync(request);
+        return ((int)response.StatusCode, watch.ElapsedMilliseconds);
+    }
+}
+'@
     $client = New-HttpSession -TimeoutSeconds 90
     $script:sharedSession = Login -Tenant $sharedTenant.name -Password $tenantPassword
     $cookie = New-ResourceBrowserCookie
@@ -1134,7 +1153,23 @@ function Test-S13 {
     Stop-Api "idp"
     try {
         while ([DateTimeOffset]::UtcNow -lt $routeExpires) { Start-Sleep -Milliseconds 100 }
+        foreach ($wave in @(@{ Name = "first"; Limit = 3000 }, @{ Name = "throttled"; Limit = 500 })) {
+            $pending = @(1..3 | ForEach-Object { [E2EOutageTiming]::SendAsync($client, $urls.orders + "/api/e2e/natural", $cookie) })
+            for ($i = 0; $i -lt $pending.Count; $i++) {
+                $timing = $pending[$i].GetAwaiter().GetResult()
+                Assert-Value "outage-route-$($wave.Name)-$i-status" 200 $timing.Item1
+                Assert-Value "outage-route-$($wave.Name)-$i-latency" $true ($timing.Item2 -le $wave.Limit) @{
+                    elapsedMs = $timing.Item2; limitMs = $wave.Limit
+                }
+            }
+        }
+        # Orders 路由已节流；Billing 接收宿主机器身份，不触发租户路由，剩一个令牌续取预算加调度余量。
+        $machineWatch = [Diagnostics.Stopwatch]::StartNew()
         Assert-Http "outage-machine-fallback" 200 ($urls.orders + "/api/e2e/billing-machine") -Headers @{ Cookie = $cookie } -Session $client | Out-Null
+        $machineWatch.Stop()
+        Assert-Value "outage-machine-latency" $true ($machineWatch.ElapsedMilliseconds -le 3000) @{
+            elapsedMs = $machineWatch.ElapsedMilliseconds; limitMs = 3000
+        }
         $log = Read-ApiLog "orders" $offsets
         Assert-Value "outage-route-fallback-observed" $true ($log -match "using state stale")
         Assert-Value "outage-token-fallback-observed" $true ($log -match "using a token stale")

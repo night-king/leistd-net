@@ -14,14 +14,15 @@ namespace CompanyName.ProjectName.Infrastructure.AccountPreferences;
 /// <remarks>
 /// <para>两类读取：</para>
 /// <list type="bullet">
-/// <item>前台（当前用户的 <c>/me</c>）：每次自己发一次条件请求，不受新鲜期限制，也不加入在途回源——
+/// <item>前台（当前用户的 <c>/me</c>）：故障节流期外每次自己发一次条件请求，不受新鲜期限制，也不加入在途回源——
 /// 本进程看不到其他实例或 Identity 上的写入，加入别人早先发出的回源可能拿到写入之前的值。</item>
 /// <item>服务端（收件人文本等）：新鲜期内直接用缓存；过期后同 key、同代次的并发读取合并为一次回源。</item>
 /// </list>
 /// <para>每个 key 有代次：本人经本实例写入成功（换成 Identity 返回的新表示），或机器身份被拒（清除旧表示），代次加一。
 /// 发起时代次已变的读取返回后，结果既不进缓存、也不交给调用方，而是按当前状态重新读取。
 /// 代次不变时按回源发出的先后：先发出、后返回的读取不覆盖后发出的读取已发布的值。</para>
-/// <para>上游连接失败、超时或 5xx 时用旧表示并记 Warning；没有旧表示时返回 <see langword="null"/>（暂时读不到），
+/// <para>有旧表示时回源最多等待一秒，超时先用旧表示、原回源继续；失败或超时按键节流三十秒，每周期记一次 Warning。
+/// 不推进旧表示的确认时刻；本人写入或回源成功后清节流。上游连接失败、超时或 5xx 时用旧表示；没有旧表示时返回 <see langword="null"/>（暂时读不到），
 /// 不拿本地默认值冒充。机器身份被拒（取令牌被拒、401、403）清除旧表示并抛出，按依赖故障处理，之后再遇 5xx 也不恢复旧值。</para>
 /// <para>只放进程内：值含个人偏好，失效又依赖本进程的写入代次。旧表示保留 <see cref="AccountPreferencesClientOptions.RetainFor"/>，
 /// 过期的表示在访问时丢弃；闲置超过同一时长、且没有在途读取的条目（连同代次与序号）由读写入口顺带清扫，
@@ -36,6 +37,8 @@ internal sealed class IdentityAccountPreferenceCache(
 {
     // 代次变化后重读的上限：每次重读都在一次写入或认证失效之后，正常不会连续发生
     private const int MaxAttempts = 3;
+    private static readonly TimeSpan WaitBudget = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<AccountPreferenceCacheKey, Entry> _entries = new();
 
@@ -45,13 +48,16 @@ internal sealed class IdentityAccountPreferenceCache(
     /// <summary>当前保留的条目数（测试用）。</summary>
     internal int Count => _entries.Count;
 
-    /// <summary>当前用户的读取：自己发条件请求，不加入在途回源。</summary>
+    /// <summary>当前用户的读取：故障节流期外独立发条件请求，不加入在途回源。</summary>
     public async Task<AccountPreferenceSnapshot?> ReadForegroundAsync(AccountPreferenceCacheKey key, CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < MaxAttempts; attempt++)
         {
-            var (entry, generation, sequence, previous) = Snapshot(key);
-            var outcome = await FetchAsync(key, entry, generation, sequence, previous, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var (entry, generation, sequence, previous, throttled) = Snapshot(key);
+            if (throttled) return previous!.Value;
+            var pending = FetchAsync(key, entry, generation, sequence, previous, cancellationToken);
+            var outcome = await AwaitReadAsync(pending, entry, generation, previous, cancellationToken);
             if (outcome.Current)
             {
                 return outcome.Value;
@@ -66,8 +72,11 @@ internal sealed class IdentityAccountPreferenceCache(
     {
         for (var attempt = 0; attempt < MaxAttempts; attempt++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var entry = Acquire(key);
             Task<Outcome> shared;
+            long readGeneration;
+            Representation? previous;
             lock (entry)
             {
                 if (entry.Retired)
@@ -77,7 +86,10 @@ internal sealed class IdentityAccountPreferenceCache(
                 }
 
                 var current = Live(entry);
-                if (current is not null && timeProvider.GetUtcNow() - current.FetchedAt < options.CurrentValue.FreshFor)
+                previous = current;
+                readGeneration = entry.Generation;
+                if (current is not null && (timeProvider.GetUtcNow() - current.FetchedAt < options.CurrentValue.FreshFor
+                    || timeProvider.GetUtcNow() < entry.RetryAt))
                 {
                     return current.Value;
                 }
@@ -103,7 +115,7 @@ internal sealed class IdentityAccountPreferenceCache(
                 }
             }
 
-            var outcome = await shared.WaitAsync(cancellationToken);
+            var outcome = await AwaitReadAsync(shared, entry, readGeneration, previous, cancellationToken);
             if (outcome.Current)
             {
                 return outcome.Value;
@@ -129,8 +141,38 @@ internal sealed class IdentityAccountPreferenceCache(
                 entry.Generation++;
                 entry.Published = ++entry.Started;
                 entry.Current = new Representation(value, etag, timeProvider.GetUtcNow());
+                entry.RetryAt = default;
                 return;
             }
+        }
+    }
+
+    // 只停止本次等待；在途任务及作用域一直保留到真正回源完成。
+    private async Task<Outcome> AwaitReadAsync(Task<Outcome> pending, Entry entry, long generation,
+        Representation? previous, CancellationToken cancellationToken)
+    {
+        if (previous is null) return await pending.WaitAsync(cancellationToken);
+        try
+        {
+            return await pending.WaitAsync(WaitBudget, timeProvider, cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            if (pending.IsCompleted) return await pending.WaitAsync(cancellationToken);
+            _ = pending.ContinueWith(static completed => { _ = completed.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (entry)
+            {
+                if (entry.Generation != generation) return Outcome.Stale;
+                if (Live(entry) is { } current)
+                {
+                    if (!ReferenceEquals(current, previous)) return new Outcome(true, current.Value);
+                    return UseStale(entry, generation, current, new TimeoutException("Identity account preferences exceeded the wait budget."), true);
+                }
+            }
+
+            return await pending.WaitAsync(cancellationToken);
         }
     }
 
@@ -232,6 +274,7 @@ internal sealed class IdentityAccountPreferenceCache(
 
             entry.Published = sequence;
             entry.Current = representation;
+            entry.RetryAt = default;
             return new Outcome(true, representation.Value);
         }
     }
@@ -248,11 +291,12 @@ internal sealed class IdentityAccountPreferenceCache(
 
             entry.Published = Math.Max(entry.Published, sequence);
             entry.Current = previous with { FetchedAt = timeProvider.GetUtcNow() };
+            entry.RetryAt = default;
             return new Outcome(true, previous.Value);
         }
     }
 
-    private Outcome UseStale(Entry entry, long generation, Representation? previous, Exception failure)
+    private Outcome UseStale(Entry entry, long generation, Representation? previous, Exception failure, bool timedOut = false)
     {
         lock (entry)
         {
@@ -269,7 +313,16 @@ internal sealed class IdentityAccountPreferenceCache(
             }
             else
             {
-                logger.LogWarning(failure, "Identity is unavailable; using the account preferences fetched earlier");
+                var now = timeProvider.GetUtcNow();
+                if (!timedOut || now >= entry.RetryAt)
+                {
+                    if (now >= entry.RetryAt)
+                        logger.LogWarning(failure, "Identity exceeded its wait budget or is unavailable; using account preferences stale for {Staleness} while validation may continue.",
+                            now - usable.FetchedAt);
+                    var retry = now + RetryDelay;
+                    var deadline = usable.FetchedAt + options.CurrentValue.RetainFor;
+                    entry.RetryAt = retry < deadline ? retry : deadline;
+                }
             }
 
             return new Outcome(true, usable?.Value);
@@ -286,6 +339,7 @@ internal sealed class IdentityAccountPreferenceCache(
             }
 
             entry.Current = null;
+            entry.RetryAt = default;
             return new Outcome(true, null);
         }
     }
@@ -297,6 +351,7 @@ internal sealed class IdentityAccountPreferenceCache(
         {
             entry.Generation++;
             entry.Current = null;
+            entry.RetryAt = default;
         }
 
         logger.LogError(failure, "Identity rejected this service's identity while reading account preferences (generation {Generation})", generation);
@@ -317,7 +372,7 @@ internal sealed class IdentityAccountPreferenceCache(
     }
 
     // 调用方随后必须调用 FetchAsync：在途计数在这里加一，由它减回
-    private (Entry Entry, long Generation, long Sequence, Representation? Previous) Snapshot(AccountPreferenceCacheKey key)
+    private (Entry Entry, long Generation, long Sequence, Representation? Previous, bool Throttled) Snapshot(AccountPreferenceCacheKey key)
     {
         while (true)
         {
@@ -329,8 +384,11 @@ internal sealed class IdentityAccountPreferenceCache(
                     continue;
                 }
 
+                var current = Live(entry);
+                if (current is not null && timeProvider.GetUtcNow() < entry.RetryAt)
+                    return (entry, entry.Generation, entry.Started, current, true);
                 entry.InFlight++;
-                return (entry, entry.Generation, ++entry.Started, Live(entry));
+                return (entry, entry.Generation, ++entry.Started, current, false);
             }
         }
     }
@@ -381,6 +439,7 @@ internal sealed class IdentityAccountPreferenceCache(
         if (entry.Current is { } current && timeProvider.GetUtcNow() - current.FetchedAt >= options.CurrentValue.RetainFor)
         {
             entry.Current = null;
+            entry.RetryAt = default;
         }
 
         return entry.Current;
@@ -404,6 +463,7 @@ internal sealed class IdentityAccountPreferenceCache(
         public long Started;
         public long Published;
         public Representation? Current;
+        public DateTimeOffset RetryAt;
         public Task<Outcome>? ServerRead;
         public long ServerReadGeneration;
         // 进行中的回源数、最近一次访问的时刻、是否已被清扫移出字典

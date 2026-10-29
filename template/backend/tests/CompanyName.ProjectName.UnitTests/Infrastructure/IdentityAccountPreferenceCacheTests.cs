@@ -17,7 +17,7 @@ public sealed class IdentityAccountPreferenceCacheTests
 {
     private static readonly AccountPreferenceCacheKey Key = new(null, Guid.CreateVersion7());
 
-    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 26, 0, 0, 0, TimeSpan.Zero));
+    private readonly BudgetClock _time = new(new DateTimeOffset(2026, 10, 26, 0, 0, 0, TimeSpan.Zero));
     private readonly ScriptedReadApi _api = new();
 
     [Fact]
@@ -271,6 +271,133 @@ public sealed class IdentityAccountPreferenceCacheTests
         var calls = _api.Calls;
         Assert.Equal("dark", Theme(await cache.ReadServerAsync(Key, default)));
         Assert.Equal(calls, _api.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pending_preferences_return_stale_within_one_second_and_throttle_both_readers(bool foreground)
+    {
+        var cache = CreateCache();
+        _api.Respond(_ => Ok("dark", "\"v1\""));
+        await cache.ReadServerAsync(Key, default);
+        _time.Advance(TimeSpan.FromSeconds(31));
+        var release = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _api.Respond(_ => release.Task);
+        var reader = foreground ? cache.ReadForegroundAsync(Key, default) : cache.ReadServerAsync(Key, default);
+        try
+        {
+            await _time.BudgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            _time.Advance(TimeSpan.FromMilliseconds(999));
+            Assert.False(reader.IsCompleted);
+            _time.Advance(TimeSpan.FromMilliseconds(1));
+            Assert.Equal("dark", Theme(await reader.WaitAsync(TimeSpan.FromSeconds(2))));
+            Assert.Equal("dark", Theme(await cache.ReadForegroundAsync(Key, default)));
+            Assert.Equal("dark", Theme(await cache.ReadServerAsync(Key, default)));
+            Assert.Equal(2, _api.Calls);
+        }
+        finally
+        {
+            release.TrySetResult(await Ok("light", "\"v2\""));
+            await reader.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.NotModified)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task A_background_preference_result_updates_or_invalidates_the_throttled_value(HttpStatusCode status)
+    {
+        var cache = CreateCache();
+        _api.Respond(_ => Ok("dark", "\"v1\""));
+        await cache.ReadServerAsync(Key, default);
+        _time.Advance(TimeSpan.FromSeconds(31));
+        var release = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _api.Respond(_ => release.Task);
+        var reader = cache.ReadServerAsync(Key, default);
+        await _time.BudgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        _time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal("dark", Theme(await reader));
+        var response = new ObservedResponse(status);
+        if (status == HttpStatusCode.OK)
+        {
+            response.Content = JsonContent.Create(new { preferences = new { theme = "light" }, preferenceOverrides = new { theme = "light" } });
+            response.Headers.ETag = System.Net.Http.Headers.EntityTagHeaderValue.Parse("\"v2\"");
+        }
+        release.SetResult(response);
+        await response.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        if (status == HttpStatusCode.Forbidden)
+        {
+            _api.Respond(_ => Status(HttpStatusCode.ServiceUnavailable));
+            Assert.Null(await cache.ReadForegroundAsync(Key, default));
+        }
+        else
+        {
+            Assert.Equal(status == HttpStatusCode.OK ? "light" : "dark", Theme(await cache.ReadServerAsync(Key, default)));
+            _api.Respond(_ => Status(HttpStatusCode.NotModified));
+            await cache.ReadForegroundAsync(Key, default);
+            Assert.Equal(3, _api.Calls);
+        }
+    }
+
+    [Fact]
+    public async Task A_write_clears_the_timeout_throttle_and_an_older_response_cannot_replace_it()
+    {
+        var cache = CreateCache();
+        _api.Respond(_ => Ok("dark", "\"v1\""));
+        await cache.ReadServerAsync(Key, default);
+        var release = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _api.Respond(_ => release.Task);
+        var reader = cache.ReadForegroundAsync(Key, default);
+        await _time.BudgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        _time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal("dark", Theme(await reader));
+        cache.StoreAfterWrite(Key, Representation("light"), "\"v2\"");
+        _api.Respond(_ => Status(HttpStatusCode.NotModified));
+        Assert.Equal("light", Theme(await cache.ReadForegroundAsync(Key, default)));
+        var response = new ObservedResponse(HttpStatusCode.NotModified);
+        release.SetResult(response);
+        await response.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("light", Theme(await cache.ReadServerAsync(Key, default)));
+        Assert.Equal(3, _api.Calls);
+    }
+
+    [Fact]
+    public async Task A_preference_expiring_during_the_budget_waits_for_the_original_result()
+    {
+        var cache = CreateCache();
+        _api.Respond(_ => Ok("dark", "\"v1\""));
+        await cache.ReadServerAsync(Key, default);
+        _time.Advance(TimeSpan.FromHours(24) - TimeSpan.FromMilliseconds(500));
+        var release = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _api.Respond(_ => release.Task);
+        var reader = cache.ReadForegroundAsync(Key, default);
+        await _time.BudgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        _time.Advance(TimeSpan.FromSeconds(1));
+        release.SetResult(await Status(HttpStatusCode.ServiceUnavailable));
+        Assert.Null(await reader);
+    }
+
+    private sealed class ObservedResponse(HttpStatusCode status) : HttpResponseMessage(status)
+    {
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            Disposed.TrySetResult();
+        }
+    }
+
+    private sealed class BudgetClock(DateTimeOffset start) : FakeTimeProvider(start)
+    {
+        public TaskCompletionSource BudgetStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            BudgetStarted.TrySetResult();
+            return timer;
+        }
     }
 
     private IdentityAccountPreferenceCache CreateCache()
