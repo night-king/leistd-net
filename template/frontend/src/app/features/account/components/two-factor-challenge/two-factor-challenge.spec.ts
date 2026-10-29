@@ -302,6 +302,22 @@ describe('TwoFactorChallenge', () => {
     expect(back.parentElement).toBe(toggle.parentElement);
     expect(back.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  // 返回的文字左缘与主按钮可见左缘对齐：前置图标自带留白会让整行看起来缩进。
+  it('aligns going back with the left edge of the submit button', () => {
+    const back = byTestId('two-factor-back')!;
+    const submit = byTestId('two-factor-submit')!;
+    const text = document.createRange();
+    text.selectNodeContents(back);
+    const submitBorder = parseFloat(getComputedStyle(submit).borderLeftWidth);
+
+    expect(back.querySelector('ng-icon, svg')).toBeNull();
+    expect(
+      Math.abs(
+        text.getBoundingClientRect().left - (submit.getBoundingClientRect().left + submitBorder),
+      ),
+    ).toBeLessThan(1);
+  });
   //#if (Email)
 
   describe('with email verification codes', () => {
@@ -389,6 +405,18 @@ describe('TwoFactorChallenge', () => {
         emailCode: '654321',
       });
       expect(completed).toBe(1);
+    });
+
+    // 发送中出现转圈时链接不左右移动：链接按钮没有左内边距，转圈不能再加一份。
+    it('keeps the resend link in place while the code is being sent', async () => {
+      account.sendTwoFactorEmailCode.mockReturnValue(new Subject());
+      render({ ...BOTH, defaultMethod: 'email' });
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const resend = byTestId('two-factor-email-resend')!;
+
+      expect(resend.querySelector('hlm-spinner')).not.toBeNull();
+      expect(getComputedStyle(resend).paddingLeft).toBe('0px');
     });
 
     // 发得太频繁或方式不能用：就地说明，不退回密码那一步
