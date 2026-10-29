@@ -10,6 +10,12 @@ namespace Leistd.ServiceClient.OAuth.Handlers;
 // 两种认证共用单飞与内存缓存。工厂内按真实到期时间 Set，外层禁止写入，避免固定 TTL 覆盖动态 TTL。
 internal sealed class TokenCache(HybridCache cache, ILogger<TokenCache> logger, TimeProvider? timeProvider = null)
 {
+    private static readonly TimeSpan WaitBudget = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(30);
+    private static readonly HybridCacheEntryOptions InFlightOptions = new()
+    {
+        Flags = HybridCacheEntryFlags.DisableDistributedCache | HybridCacheEntryFlags.DisableLocalCacheWrite
+    };
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     internal sealed record Token(string Value, DateTimeOffset? ExpiresAt)
     {
@@ -25,7 +31,7 @@ internal sealed class TokenCache(HybridCache cache, ILogger<TokenCache> logger, 
         var existing = await ReadAsync(key, cancellationToken);
         if (existing is not null && (!renewEarly || IsFresh(existing))) return existing;
 
-        return await cache.GetOrCreateAsync(key + ":fetch", async ct =>
+        var pending = cache.GetOrCreateAsync(key + ":fetch", async ct =>
         {
             // 迟到的 miss 在取得共享工厂后再次读当前状态。
             var current = await ReadAsync(key, ct);
@@ -46,16 +52,9 @@ internal sealed class TokenCache(HybridCache cache, ILogger<TokenCache> logger, 
                         ? ServiceClientFailureKind.InvalidResponse : ServiceClientFailureClassifier.Classify(exception));
                 if (renewEarly && ServiceClientFailureClassifier.IsUnavailable(error))
                 {
-                    // 401 会删除当前状态；不能用发起回源时捕获的旧令牌复活它。
-                    var previous = await ReadAsync(key, ct);
-                    if (previous?.ExpiresAt is { } expiry && clock.GetUtcNow() < expiry - buffer)
-                    {
-                        var retryAt = clock.GetUtcNow().AddSeconds(30);
-                        token = previous with { RetryAt = retryAt < expiry - buffer ? retryAt : expiry - buffer };
-                        logger.LogWarning("Token endpoint is unavailable; using a token stale for {Staleness}.",
-                            clock.GetUtcNow() - (previous.ObtainedAt + (expiry - previous.ObtainedAt) / 2));
-                    }
-                    else throw error;
+                    var previous = await UseStaleAsync(key, buffer, false, ct);
+                    if (previous is null) throw error;
+                    return previous;
                 }
                 else
                 {
@@ -71,11 +70,43 @@ internal sealed class TokenCache(HybridCache cache, ILogger<TokenCache> logger, 
                     Expiration = ttl, LocalCacheExpiration = ttl
                 }, cancellationToken: ct);
             return token;
-        }, new HybridCacheEntryOptions
+        }, InFlightOptions, cancellationToken: cancellationToken).AsTask();
+        if (!renewEarly || existing is null) return await pending;
+        try
         {
-            Flags = HybridCacheEntryFlags.DisableDistributedCache | HybridCacheEntryFlags.DisableLocalCacheWrite
-        }, cancellationToken: cancellationToken);
+            return await pending.WaitAsync(WaitBudget, clock, CancellationToken.None);
+        }
+        catch (TimeoutException)
+        {
+            if (pending.IsCompleted) return await pending;
+            _ = pending.ContinueWith(static completed => { _ = completed.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            cancellationToken.ThrowIfCancellationRequested();
+            var previous = await UseStaleAsync(key, buffer, true, cancellationToken);
+            return previous ?? await pending;
+        }
     }
+
+    // 401 删除之后，超时和后台失败都必须重读当前令牌；单飞只协调节流转换，不保留协调条目。
+    private ValueTask<Token?> UseStaleAsync(string key, TimeSpan buffer, bool timedOut, CancellationToken cancellationToken) =>
+        cache.GetOrCreateAsync<Token?>(key + ":stale", async ct =>
+        {
+            var previous = await ReadAsync(key, ct);
+            var now = clock.GetUtcNow();
+            if (previous?.ExpiresAt is not { } expiry || now >= expiry - buffer) return null;
+            if (timedOut && IsFresh(previous)) return previous;
+            var retry = now + RetryDelay;
+            var result = previous with { RetryAt = retry < expiry - buffer ? retry : expiry - buffer };
+            await cache.SetAsync(key, result, new HybridCacheEntryOptions
+            {
+                Flags = HybridCacheEntryFlags.DisableDistributedCache,
+                Expiration = expiry - buffer - now, LocalCacheExpiration = expiry - buffer - now
+            }, cancellationToken: ct);
+            if (previous.RetryAt is null || now >= previous.RetryAt)
+                logger.LogWarning("Token endpoint exceeded its wait budget or is unavailable; using a token stale for {Staleness} while validation may continue.",
+                    now - (previous.ObtainedAt + (expiry - previous.ObtainedAt) / 2));
+            return result;
+        }, InFlightOptions, cancellationToken: cancellationToken);
 
     private bool IsFresh(Token token) => token.RetryAt > clock.GetUtcNow() || token.ExpiresAt is { } expiry &&
         clock.GetUtcNow() < token.ObtainedAt + (expiry - token.ObtainedAt) / 2;

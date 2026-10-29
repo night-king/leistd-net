@@ -5,6 +5,8 @@ using Leistd.MultiTenancy.ConnectionStrings;
 using Leistd.MultiTenancy.ServiceClient;
 using Leistd.MultiTenancy.ServiceClient.Options;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Hybrid;
+using Leistd.MultiTenancy.ServiceClient.Stores;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Internal;
@@ -19,7 +21,7 @@ namespace Leistd.MultiTenancy.Tests.ServiceClient;
 public sealed class RemoteDatabaseDirectoryCachingTests : IDisposable
 {
     private static readonly Guid TenantId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    private readonly FakeTimeProvider _clock = new();
+    private readonly BudgetClock _clock = new();
     private readonly ScriptedControlPlane _controlPlane = new();
     private readonly ServiceProvider _provider;
 
@@ -245,6 +247,46 @@ public sealed class RemoteDatabaseDirectoryCachingTests : IDisposable
         while (!condition())
         {
             await Task.Delay(5, timeout.Token);
+        }
+    }
+
+    [Fact]
+    public async Task A_pending_directory_returns_the_cached_listing_after_one_second()
+    {
+        var initial = await ListAsync();
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _controlPlane.Gate = gate;
+        var reader = ListAsync();
+        try
+        {
+            await _clock.BudgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            Assert.Same(initial, await reader.WaitAsync(TimeSpan.FromSeconds(2)));
+            Assert.Same(initial, await ListAsync());
+            Assert.Equal(2, _controlPlane.Calls);
+            var completion = _provider.GetRequiredService<HybridCache>().GetOrCreateAsync<CachedTenantDatabaseDirectory.CachedListing>(
+                "leistd:tenant-databases:crm:active:fetch",
+                static _ => throw new InvalidOperationException("The original listing must still be running."),
+                new HybridCacheEntryOptions { Flags = HybridCacheEntryFlags.DisableDistributedCache | HybridCacheEntryFlags.DisableLocalCacheWrite }).AsTask();
+            gate.SetResult();
+            var refreshed = await completion;
+            Assert.Same(refreshed.Result, await ListAsync());
+        }
+        finally
+        {
+            gate.TrySetResult();
+        }
+    }
+
+    private sealed class BudgetClock : FakeTimeProvider
+    {
+        public TaskCompletionSource BudgetStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            BudgetStarted.TrySetResult();
+            return timer;
         }
     }
 
