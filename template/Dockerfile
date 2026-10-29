@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 #if (SpaFrontend)
 # -----------------------------------
 # Stage 1: Build Frontend (Angular)
@@ -8,7 +9,7 @@ WORKDIR /app
 
 # 锁定文件是前端构建的唯一依赖基线。
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --ignore-scripts --no-audit
+RUN --mount=type=cache,target=/root/.npm,sharing=shared npm ci --ignore-scripts --no-audit
 
 # 复制源代码并构建；前端以相对路径访问同源 API，不注入独立 API 地址
 COPY frontend/ ./
@@ -35,10 +36,16 @@ ARG APP_REVISION=
 
 # Build（还原会自动拉取 Leistd.* 框架包）
 WORKDIR "/src/backend/src/CompanyName.ProjectName.Api"
-RUN dotnet publish "CompanyName.ProjectName.Api.csproj" -c Release -o /app/api /p:UseAppHost=false /p:Version=$APP_VERSION
+RUN --mount=type=cache,target=/root/.nuget/packages,sharing=shared \
+    --mount=type=cache,target=/root/.local/share/NuGet/http-cache,sharing=shared \
+    --mount=type=cache,target=/tmp/NuGetScratchroot,sharing=shared \
+    NUGET_SCRATCH=/tmp/NuGetScratchroot dotnet publish "CompanyName.ProjectName.Api.csproj" -c Release -o /app/api /p:UseAppHost=false /p:Version=$APP_VERSION
 
 WORKDIR "/src/backend/src/CompanyName.ProjectName.DbMigrator"
-RUN dotnet publish "CompanyName.ProjectName.DbMigrator.csproj" -c Release -o /app/migrator /p:UseAppHost=false /p:Version=$APP_VERSION
+RUN --mount=type=cache,target=/root/.nuget/packages,sharing=shared \
+    --mount=type=cache,target=/root/.local/share/NuGet/http-cache,sharing=shared \
+    --mount=type=cache,target=/tmp/NuGetScratchroot,sharing=shared \
+    NUGET_SCRATCH=/tmp/NuGetScratchroot dotnet publish "CompanyName.ProjectName.DbMigrator.csproj" -c Release -o /app/migrator /p:UseAppHost=false /p:Version=$APP_VERSION
 
 # -----------------------------------
 # Migrator Runtime Image
